@@ -266,14 +266,18 @@ function outerSubstitutions(node: Node, out: Node[] = []): Node[] {
  * reads as arithmetic that runs no command (GH 2876). tree-sitter-bash parses
  * a body's `$((W=0))` as $( ) around the subshell `(W=0)`; bash reads it as
  * arithmetic when one paren group closes right before the final `)`, so
- * `$((a);(b))` and `$((a) )` stay command substitutions. One holding a $( )
- * or backtick keeps its code listed.
+ * `$((a);(b))` and `$((a) )` stay command substitutions. Only text made of
+ * arithmetic characters counts: zsh ignores quoted parens when matching
+ * `$(( ))`, so it runs `$((echo ")";cmd))` as a command (F823-1), and any
+ * quote, `;`, `&`, `|`, newline, `$` or backtick keeps the code listed.
  */
+const ARITHMETIC_ONLY = /^[A-Za-z0-9_ \t+\-*/%=<>!~^?:,()[\]]*$/;
+
 function commandFreeArithmetic(src: string, sub: Node): boolean {
   const [open, inner, close, ...more] = sub.children;
   if (!open || !inner || !close || more.length > 0) return false;
   if (inner.type !== 'subshell' || inner.startIndex !== open.endIndex || inner.endIndex !== close.startIndex) return false;
-  return !/\$\(|`/.test(src.slice(inner.startIndex, inner.endIndex));
+  return ARITHMETIC_ONLY.test(src.slice(inner.startIndex, inner.endIndex));
 }
 
 /**

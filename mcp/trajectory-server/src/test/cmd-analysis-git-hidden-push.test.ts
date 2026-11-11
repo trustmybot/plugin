@@ -241,4 +241,16 @@ describe('cmdStatements marks code it cannot read (GH 2635)', () => {
       ['cat <<EOF\n$((W=0))\nEOF', ''],
     ]);
   });
+
+  it('keeps a heredoc body $(( )) holding a quote, ; or other non-arithmetic char as code, since zsh runs it as a command (F823-1)', async () => {
+    await expect([
+      ['cat <<EOF\n$((echo ")";git push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((echo "(" ;git push origin dev))\nEOF', WORKTREE],
+      ["cat <<EOF\n$((echo ')';git push origin dev))\nEOF", WORKTREE],
+      ['cat <<EOF\n$((a|git push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((a&git push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((a\ngit push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((x[1]=a?b:c, ~d^e<<2))\nEOF', ''],
+    ]);
+  });
 });
