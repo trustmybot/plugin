@@ -18,7 +18,7 @@ import { WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 
-const parse = (r: unknown): Record<string, unknown> => JSON.parse((r as Raw).content[0]!.text) as Record<string, unknown>;
+const parse = (r: unknown): Record<string, unknown> => JSON.parse((r as Raw).content[0].text) as Record<string, unknown>;
 
 const GIT_ENV: NodeJS.ProcessEnv = {
   ...process.env,
@@ -90,7 +90,7 @@ async function fixture(opts: { setup?: string[]; graph?: boolean } = {}): Promis
   const dbPath = join(dbDir, 'trajectory.db');
   const db = tempDB({ path: dbPath });
   const holder = GraphHolder.fixed(new WorldModelGraph(db));
-  const scan = (await (scanTools(db, holder, dbPath).handlers as Handlers)['scan_run']!({
+  const scan = (await (scanTools(db, holder, dbPath).handlers as Handlers)['scan_run']({
     agent: 'bro',
     session_dir: ws,
     source: 'user_manual',
@@ -136,7 +136,7 @@ async function fixture(opts: { setup?: string[]; graph?: boolean } = {}): Promis
 const SPEC = ['## Description', 'Change `greet` in `pyapp/main.py`.', '', '## Success Criteria', '- SC1: works'].join('\n');
 
 const provision = (fx: Fx, branchId: string): Promise<unknown> =>
-  fx.tools['task_provision']!({
+  fx.tools['task_provision']({
     agent: 'bro',
     issue_id: 1,
     branch_id: branchId,
@@ -191,7 +191,7 @@ describe('environment gate (GH 2866)', () => {
       const out = assertRefused(fx, await provision(fx, 'feat/no-origin'), 'fetch', 'feat/no-origin');
       assert.match(String(out['error']), /stage 'fetch'.*git fetch origin main failed/);
 
-      const retry = await fx.tools['task_retry']!({
+      const retry = await fx.tools['task_retry']({
         agent: 'bro',
         failed_task_id: String(taskId),
         new_branch_id: 'feat/no-origin-retry',
@@ -268,7 +268,7 @@ describe('environment gate (GH 2866)', () => {
       fx.pushFromElsewhere(setupFile(['exit 3']));
 
       const before = fx.counts();
-      const r = await fx.tools['task_reopen']!({ agent: 'bro', task_id: taskId, reason: 'rework after review' });
+      const r = await fx.tools['task_reopen']({ agent: 'bro', task_id: taskId, reason: 'rework after review' });
       const refused = assertRefused(fx, r, 'setup', 'feat/reopen-me');
       assert.match(String(refused['error']), /Task \d+ is unchanged \('failed'\)/);
       assert.equal(fx.db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [taskId])!.status, 'failed');

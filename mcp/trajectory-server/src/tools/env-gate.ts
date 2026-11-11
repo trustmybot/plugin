@@ -1,3 +1,6 @@
+// The environment gate task_provision, task_reopen and task_retry run before
+// their DB transaction (GH 2866): it admits only an environment whose every
+// stage proved ready, and on a refusal removes what this call created.
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
 import type { TrajectoryDB } from '../db.js';
@@ -10,9 +13,6 @@ import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
 import { ensureFresh } from '../world-model/freshness.js';
 
-// The environment gate task_provision, task_reopen and task_retry run before
-// their DB transaction (GH 2866): it admits only an environment whose every
-// stage proved ready, and on a refusal removes what this call created.
 export type EnvStage = 'fetch' | 'branch' | 'worktree' | 'setup' | 'reindex';
 
 export interface EnvStageReport {
