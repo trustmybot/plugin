@@ -33,9 +33,7 @@ This loads when the push guard blocks unsigned commits, or when the Human asks t
 
 ### Spawn code-reviewer per unsigned task (parallel)
 
-Use `subagent_type='code-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
-
-Each Agent call carries `effort` equal to the configured `reviewer_effort` (default `medium`); the spawn gate denies a mismatch.
+Spawn each task's reviewer with the `reviewer_spawn` its `bro_atomic_close` returned: `prompt`, `effort` and `subagent_type` exactly as returned. Tasks are independent; spawn in parallel where possible. When that `reviewer_spawn` is not in hand, use `tmb:code-reviewer` and the effort assigned to that task (the `require-spawn-effort` deny names it).
 
 Read the verdict and `mcp_available` from each task's validation row via `validation_history`, the typed source of truth, not from the reviewer's reply text:
 - `mcp_available = 1` — the reviewer wrote `validation_record` itself.
