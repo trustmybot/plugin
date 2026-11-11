@@ -40,7 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { corpusFiles, noCmdPath } from './hooks-swe-run-parity.suite.js';
-import { goldenBash, goldenRoots, sandboxSha, settledTree } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -445,7 +445,7 @@ export function taskCloseParityShard(k: number, n: number): void {
             const env = caseEnv(s, locale, c.env, c.cwd);
             restore();
             const setup = snapshot(s);
-            const r = name === 'bash' ? run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env) : run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
+            const r = name === 'bash' ? run(...liveHookCommand(gate), c, env) : run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
             const tree = settledTree(setup, snapshot(s));
             return { name, r, tree };
           };

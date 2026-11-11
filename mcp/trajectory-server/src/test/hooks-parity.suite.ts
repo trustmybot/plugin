@@ -29,7 +29,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { gateNames } from '../hooks/registry.js';
 import { TRANSFORMERS_VERSION } from '../runtime-deps.js';
 import { LINT_GATES, lintSandbox } from './lint-hooks-sandbox.js';
-import { GENERIC_CASE_PREFIX, goldenBash, goldenRoots, hasGolden, isRecording } from './golden.js';
+import { GENERIC_CASE_PREFIX, goldenBash, goldenRoots, hasGolden, isRecording, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -360,8 +360,7 @@ export function hooksParityShard(k: number, n: number): void {
         const db = setup?.auditDb;
         const { audit: bashAudit, ...bash } = goldenBash(gate, `${GENERIC_CASE_PREFIX}${basename(file)}`, locale, goldenRoots({ '@PROJECT@': project, '@SCRATCH@': scratch, '@PROJECT_SLUG@': (setup?.cwd ?? project).replace(/[^A-Za-z0-9]/g, '-') }), () => {
           const start = db ? auditMark(db) : 0;
-          const bashTwin = join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`);
-          const live = existsSync(bashTwin) ? run('bash', [bashTwin], input, env, setup?.cwd) : run(process.execPath, [HOOKS_BUNDLE, gate], input, env, setup?.cwd);
+          const live = run(...liveHookCommand(gate), input, env, setup?.cwd);
           return { ...live, audit: db ? auditRowsAfter(db, start) : [] };
         });
         const middle = db ? auditMark(db) : 0;

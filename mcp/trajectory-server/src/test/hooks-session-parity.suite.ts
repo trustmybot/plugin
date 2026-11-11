@@ -44,7 +44,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -342,7 +342,7 @@ export function sessionHooksParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, c.env, c.cwd);
           const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildSandbox(s);
-            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(gate), c, env), tree: snapshot(s) };
           });
           buildSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);

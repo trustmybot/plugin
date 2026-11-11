@@ -1,0 +1,2 @@
+### Fixed
+- **Every per-gate hook parity suite records new cases from the TypeScript gate** (GH 3017): with the bash hook scripts deleted, `TMB_HOOK_GOLDEN=record` in the per-gate parity suites still tried to run the missing `.sh` for a new corpus case, so it could not be recorded. Each suite now runs the bash script while it exists and the TypeScript gate once it is gone, as the generic hooks parity suite already did; stored recordings stay unchanged.
