@@ -1,16 +1,18 @@
 // A world_model_* read fetches origin/<target branch> at most once per 10
 // minutes per repo before it brings the index forward (GH 2584), never for
 // swe or code-reviewer; a fetch that moved the ref reindexes with trigger
-// 'fetch'.
+// 'fetch'. task_provision fetches whatever the window and records a failed
+// fetch with the task (GH 2958).
 import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
+import { compositeTools } from '../tools/composites.js';
 import { scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
 import {
@@ -18,6 +20,7 @@ import {
   fetchTargetIfDue,
   reindexIdle,
   reindexOnRefMove,
+  stampTargetFetched,
   TARGET_FETCH_TTL_MS,
   type TargetFetchRunner,
 } from '../world-model/freshness.js';
@@ -307,6 +310,85 @@ describe('world_model_* reads fetch origin/<target> (GH 2584)', () => {
       assert.ok(fx.fetchedAt());
       assert.equal(fx.originRef(), pushed);
     } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe('task_provision forces the target fetch (GH 2958)', () => {
+  const SPEC = ['## Description', 'Change `alpha` in `a.ts`.', '', '## Success Criteria', '- SC1: works'].join('\n');
+
+  async function provision(fx: Fx, branchId: string): Promise<Record<string, unknown>> {
+    fx.db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    const composites = compositeTools(fx.db, fx.dbPath, GraphHolder.fixed(fx.graph), { host: 'claude', projectRoot: dirname(fx.root) }).handlers as Handlers;
+    const r = (await composites['task_provision']!({
+      agent: 'bro',
+      issue_id: 1,
+      branch_id: branchId,
+      decision_body: 'Chosen approach: provision against a fresh world model.',
+      task: { description: 'd', spec_body: SPEC, files: ['a.ts'], verification: ['true'], repo: 'app' },
+    })) as Raw;
+    assert.ok(!r.isError, JSON.stringify(r));
+    return parse(r);
+  }
+
+  const failedRows = (db: TrajectoryDB): Array<{ issue_id: number; branch_id: string; content_json: string }> =>
+    db.all(`SELECT issue_id, branch_id, content_json FROM audit WHERE event_type = 'wm_provision_fetch_failed' ORDER BY id`);
+
+  it('SC3: fetches inside the read window and leaves repos.indexed_commit at origin/<target>', async () => {
+    const fx = await fixture();
+    try {
+      stampTargetFetched(fx.db, 'app', Date.now());
+      assert.equal(await fetchTargetIfDue(fx.db, 'app', { agent: 'bro' }), 'skipped', 'the read window is open');
+      const pushed = fx.push('b.ts', BETA);
+      const c = counting();
+      __setTargetFetchForTests({ runner: c.runner });
+      await provision(fx, 'feat/forced-fetch');
+      assert.equal(c.calls.length, 1, 'one forced fetch despite the open window');
+      assert.deepEqual(c.calls[0]!.slice(-4), ['fetch', '-q', 'origin', 'main']);
+      assert.equal(fx.originRef(), pushed);
+      const indexed = fx.db.get<{ c: string | null }>(`SELECT indexed_commit AS c FROM repos WHERE name = 'app'`)?.c;
+      assert.equal(indexed, pushed);
+      const audit = newestReindex(fx.db)!;
+      assert.equal(audit['trigger'], 'fetch');
+      assert.equal(audit['to_commit'], pushed);
+      assert.equal(failedRows(fx.db).length, 0);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('SC4: a failing fetch still provisions on the current index and writes one wm_provision_fetch_failed row', async () => {
+    const fx = await fixture();
+    try {
+      __setTargetFetchForTests({ runner: () => Promise.reject(new Error('remote hung up')) });
+      const out = await provision(fx, 'feat/fetch-failed');
+      assert.equal(typeof out['task_id'], 'number');
+      const rows = failedRows(fx.db);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]!.issue_id, 1);
+      assert.equal(rows[0]!.branch_id, 'feat/fetch-failed');
+      assert.deepEqual(JSON.parse(rows[0]!.content_json), { repo: 'app', branch: 'main', error: 'remote hung up' });
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('SC4: a fetch past the cap still provisions and writes one wm_provision_fetch_failed row', async () => {
+    const fx = await fixture();
+    let release: () => void = () => undefined;
+    const hung = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      __setTargetFetchForTests({ runner: () => hung, timeoutMs: 50 });
+      const out = await provision(fx, 'feat/fetch-capped');
+      assert.equal(typeof out['task_id'], 'number');
+      const rows = failedRows(fx.db);
+      assert.equal(rows.length, 1);
+      assert.match((JSON.parse(rows[0]!.content_json) as { error: string }).error, /ran past 50 ms/);
+    } finally {
+      release();
       fx.cleanup();
     }
   });

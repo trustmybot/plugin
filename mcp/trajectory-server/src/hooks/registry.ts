@@ -280,7 +280,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_provision'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_reopen'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_retry'),
-      routerGate(WM_READ_GATE, 'advisory', 'task_provision'),
+      routerGate(WM_READ_GATE, 'enforcement', 'task_provision'),
     ],
     { stopAtFirstDeny: true },
   ),
