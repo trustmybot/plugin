@@ -64,15 +64,15 @@ export async function startClient({ env, extraEnv, dbPath: requestedDbPath = ':m
   };
 }
 
+// A well-formed probes[] for a validation_record pass, which the server
+// refuses without one (GH 2866).
+export const REVIEW_PROBES = [{ target: 'the changed behavior', probe_cmd: 'npm test', observed: 'exit 0: all passing' }];
+
 // seedReviewerObservation writes the reviewer_identity_observed row the
 // reviewer-identity-observe hook writes when a code-reviewer subagent calls
 // validation_record (the server refuses a verdict without one). Needs a
 // startClient({ fileDb: true }) dbPath; uses the sqlite3 CLI so it runs under
 // node and bun alike.
-// A well-formed probes[] for a validation_record pass, which the server
-// refuses without one (GH 2866).
-export const REVIEW_PROBES = [{ target: 'the changed behavior', probe_cmd: 'npm test', observed: 'exit 0: all passing' }];
-
 export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l3-reviewer-agent', sessionId = 'l3-main-session', toolUseId = 'toolu_l3_fixture', observedAt = new Date().toISOString() } = {}) {
   const content = JSON.stringify({ task_id: Number(taskId), attempt_n: attemptN, session_id: sessionId, agent_id: agentId, tool_use_id: toolUseId, observed_at: observedAt, consumed: 0 }).replace(/'/g, "''");
   const id = Number(taskId);

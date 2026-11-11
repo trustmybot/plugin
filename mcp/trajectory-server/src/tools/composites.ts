@@ -439,7 +439,7 @@ const BRIEF_RESPONSE_FORMAT_HINT =
 /** How much of each stored verification_run_commands.output_tail a concise brief carries. */
 const BRIEF_OUTPUT_TAIL_CHARS = 1000;
 const BRIEF_SECTION_HINTS = {
-  core:'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
+  core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
   verification: 'verification[] the close gate runs and verification_run, its latest recorded run with each command\'s output_tail: load before closing or after a gate failure',
   scope: "scope {files, extras, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
