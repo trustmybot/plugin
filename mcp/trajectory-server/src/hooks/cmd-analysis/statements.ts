@@ -35,7 +35,18 @@ const VSEP = '\x1c';
 const VEQ = '\x1d';
 const BAD = '\x01';
 const EMPTY_WORD = "''";
-const GIT_VALUE_OPTION = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
+/** git's global options that take the next word as their value (`git --help`). */
+export const GIT_VALUE_OPTION = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--attr-source', '--super-prefix', '--config-env', '--list-cmds']);
+/** A git global option and its value in one word, which cannot take the next word. */
+export const GIT_VALUE_JOINED = /^--[a-z][a-z0-9-]*=/;
+const WORD_BREAKER = /[$`*?[\]{}'"\\]/;
+
+/** Whether bash's word splitting and pathname expansion leave <value> as the one word it is: not empty, no IFS blank or other control byte, no expansion left, no glob, brace, quote or backslash character. */
+function isOneWord(value: string): boolean {
+  if (value === '' || WORD_BREAKER.test(value)) return false;
+  for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) <= 0x20) return false;
+  return true;
+}
 
 const VPLAIN = /^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$/;
 const VBAD = '*?[](){<>`';
@@ -91,6 +102,8 @@ export interface Record {
   tail?: boolean;
   /** Without `assign`, a git, shell, eval or code-string builtin statement (or a PS4 record) cut where an unquoted $( ) or backtick starts: `word` when a blank comes before it, `glued` when it joins the last word (GH 2634, GH 2635). */
   cut?: 'word' | 'glued';
+  /** Without `assign`, a git statement's values of git's value-taking global options, as written, whose expansions the scan resolved to one literal word (GH 2643). */
+  literals?: readonly string[];
   /** Without `assign`, the wrapper words (and their options) skipped before a git statement's command word, which gitSubcommandOf reads by its own table (GH 2797). */
   wrappers?: string;
 }
@@ -288,9 +301,16 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
   const sstack: boolean[] = [];
   const q: Array<{ stmt: string; tail: boolean; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
-  const emit = (dir: string, text: string, args = false, cut?: Record['cut'], wrappers = '') => {
+  const emit = (dir: string, text: string, args = false, cut?: Record['cut'], wrappers = '', literals: readonly string[] = []) => {
     charge(dir.length);
-    records.push({ dir, stmt: text, ...(args ? { tail: true } : {}), ...(cut ? { cut } : {}), ...(wrappers !== '' ? { wrappers } : {}) });
+    records.push({
+      dir,
+      stmt: text,
+      ...(args ? { tail: true } : {}),
+      ...(cut ? { cut } : {}),
+      ...(wrappers !== '' ? { wrappers } : {}),
+      ...(literals.length > 0 ? { literals } : {}),
+    });
   };
   const loops: Array<'f' | 'w' | 'o' | 'b' | 'g' | 'u'> = [];
   const fids: number[] = [];
@@ -730,6 +750,11 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     return out + p;
   }
 
+  /** Whether <word> holds a `$NAME` or `${NAME}` and every expansion in it resolves to a value that leaves <word> one literal word, unquoted (GH 2643). */
+  function literalword(word: string): boolean {
+    return word.includes('$') && isOneWord(subst(word));
+  }
+
   function assignword(a: string, uncertain: boolean): boolean {
     const j = a.indexOf('=');
     const nm = a.slice(0, j);
@@ -937,6 +962,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     if (!assign) for (let k = first + 1; k < gi; k++) if (w[k] === '' && wq[k]) kept.add(k);
     const cutAt: Record['cut'] = sub && (gi >= 0 || CUT_KEPT.test(a0)) ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;
     const wrappers = !assign && gi >= 0 && wrapAt >= 0 ? Array.from({ length: first - wrapAt }, (_, j) => shown(wrapAt + j)).filter((word) => word !== '').join(' ') : '';
+    const literals: string[] = [];
     let out = a0;
     for (let k = first + 1; k < n; k++) {
       if (w[k] !== '') out += ' ' + w[k];
@@ -1003,6 +1029,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
       if (waspiped && pipesrc !== '') out += ' ' + pipesrc;
     }
     if (gi >= 0 && (cdw === '' || !assign)) {
+      const literal = (value: string): void => {
+        if (!assign && literalword(value)) literals.push(value);
+      };
       for (let k = gi + 1; k < n; k++) {
         if (w[k] === '') continue;
         if (w[k] === '-C') {
@@ -1010,6 +1039,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
             k++;
             continue;
           }
+          literal(w[k + 1] ?? '');
           const t = resolve(d, w[k + 1] ?? '');
           dw = t === '-' ? whyof(d, dw, w[k + 1] ?? '') : '';
           d = t;
@@ -1017,17 +1047,19 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
           k++;
           continue;
         }
-        if (w[k] === '-c') {
+        if (GIT_VALUE_OPTION.has(w[k])) {
+          literal(w[k + 1] ?? '');
           k++;
           continue;
         }
+        if (GIT_VALUE_JOINED.test(w[k])) literal(w[k].replace(GIT_VALUE_JOINED, ''));
         if (w[k].startsWith('-')) continue;
         break;
       }
     }
     if (calls && !args) fnword(w, first);
     if (cur !== at.cur || alts !== at.alts) for (const fo of fnstack) if (defs[fo].sp === sp && defs[fo].qsp === qsp) defs[fo].moved = true;
-    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args, cutAt, wrappers);
+    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args, cutAt, wrappers, literals);
     if (!chained && !args) {
       old = '-';
       owhy = '';

@@ -6,14 +6,17 @@
  * whose delimiter is quoted mid-word (`<<E"M"`) or whose body holds a lone `$`
  * line to the end of the command, hiding the push after it inside the body.
  * The rebased-commit deny names cli.js integrate where the .sh named its
- * shell script (decision 703, GH 1692). A push split by a backslash-newline
- * (GH 2646) or spelled with `$'…'` escapes (GH 2640) is read as bash joins and
- * decodes it; an escape whose result is unknown denies.
+ * shell script (decision 703, GH 1692). git is git by its basename, read past
+ * its known global options (GH 2647), and an unquoted expansion in `-C`'s
+ * value leaves the subcommand unknown (GH 2643) unless it resolves to a
+ * literal assignment bash cannot split or glob. A push split by a
+ * backslash-newline (GH 2646) or spelled with `$'…'` escapes (GH 2640) is read
+ * as bash joins and decodes it; an escape whose result is unknown denies.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,7 +91,7 @@ describe('git-push-guard: GH 1927 misparsed heredocs fail closed', () => {
   });
 
   it('a well-terminated heredoc before a worktree push gets the worktree deny, not the parse deny', async () => {
-    const r = await gitPushGuard(payload(`W=${dir}/.claude/worktrees/t; cat <<EOF\nx\nEOF\ngit -C $W push origin HEAD`, dir), env);
+    const r = await gitPushGuard(payload(`W=${dir}/.claude/worktrees/t; cat <<EOF\nx\nEOF\ngit -C "$W" push origin HEAD`, dir), env);
     const why = reason(r.stdout);
     assert.notEqual(why, PARSE_REASON);
     assert.match(why, /push from \.claude\/worktrees\/ is forbidden/);
@@ -165,6 +168,100 @@ describe("git-push-guard: GH 2549 an empty quoted git -C '' value still names th
     const why = reason((await gitPushGuard(payload("git -C '' push origin dev", repo), env)).stdout);
     assert.match(why, /^BLOCKED: ambiguous_git_target: /);
     assert.ok(why.endsWith(' Allowed form: git -C <path> push origin dev'), why);
+  });
+});
+
+describe('git-push-guard: GH 2647 git by basename and past its known global options', () => {
+  let root: string;
+  let repo: string;
+  let wt: string;
+  let env: NodeJS.ProcessEnv;
+  const WORKTREE = /^BLOCKED: push from \.claude\/worktrees\/ is forbidden/;
+  const git = (cwd: string, ...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  const run = async (command: string, cwd: string, agent?: string) =>
+    reason((await gitPushGuard(JSON.stringify({ tool_name: 'Bash', cwd, ...(agent ? { agent_type: agent } : {}), tool_input: { command } }), env)).stdout);
+  before(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gpg-2647-')));
+    repo = join(root, 'repo');
+    wt = join(repo, '.claude/worktrees/t');
+    env = { ...process.env, ...GIT_ENV, CLAUDE_PROJECT_DIR: repo, TRAJECTORY_DB_PATH: join(root, 'none.db') };
+    git(root, 'init', '-q', '-b', 'dev', repo);
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(repo, 'worktree', 'add', '-q', '-b', 'fix/x', wt);
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  for (const command of ['/usr/bin/git push origin dev', './git push origin dev', 'bin/git push origin dev', 'git --attr-source HEAD push origin dev', '/usr/bin/git --no-pager push'])
+    it(`${command}: from a .claude/worktrees/ cwd gets the worktree deny`, async () => {
+      assert.match(await run(command, wt), WORKTREE);
+    });
+
+  it('/usr/bin/git -C <main checkout> push: runs in the main checkout, and swe gets the SWE push deny from a worktree cwd', async () => {
+    const listed = await cmdStatements(`/usr/bin/git -C ${repo} push origin dev`, wt, env);
+    assert.ok(listed.ok);
+    assert.deepEqual(
+      listed.statements.map((s) => s.dir),
+      [repo],
+    );
+    assert.equal(await run(`/usr/bin/git -C ${repo} push origin dev`, wt, 'tmb:swe'), fixedReason(SWE_PUSH_REASON, SWE_PUSH_FIX));
+  });
+
+  it('/usr/bin/git -C <worktree> push and git --attr-source HEAD -C <worktree> push from the main checkout get the worktree deny', async () => {
+    assert.match(await run(`/usr/bin/git -C ${wt} push origin dev`, repo), WORKTREE);
+    assert.match(await run(`git --attr-source HEAD -C ${wt} push origin dev`, repo), WORKTREE);
+    assert.match(await run(`git --git-dir ${repo}/.git -C ${wt} push origin dev`, repo), WORKTREE);
+  });
+
+  for (const command of ['/usr/bin/git status', 'git --attr-source HEAD status', '/usr/bin/git --attr-source HEAD log -1 --format=push'])
+    it(`${command}: is allowed`, async () => {
+      assert.equal(await run(command, wt), '');
+    });
+});
+
+describe('git-push-guard: GH 2643 an unquoted expansion in git -C may split into the subcommand', () => {
+  let dir: string;
+  let wt: string;
+  let env: NodeJS.ProcessEnv;
+  before(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gpg-2643-')));
+    wt = join(dir, '.claude/worktrees/t');
+    mkdirSync(wt, { recursive: true });
+    env = { ...process.env, CLAUDE_PROJECT_DIR: dir, TRAJECTORY_DB_PATH: join(dir, 'none.db') };
+  });
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  for (const command of [
+    "W='/x push'; git -C $W status",
+    'git -C $(echo /x push) status',
+    'git -C $W status',
+    'W=; git -C $W status',
+    'W=/x*; git -C $W status',
+    'W=/x{a,b}; git -C $W status',
+    'W=$(echo /x); git -C $W status',
+  ])
+    it(`${command}: from a worktree cwd gets the ambiguous-subcommand deny`, async () => {
+      assert.match(reason((await gitPushGuard(payload(command, wt), env)).stdout), /^BLOCKED: ambiguous_git_subcommand: /);
+    });
+
+  it('the ambiguous-subcommand deny names the double-quoted option value form as allowed', async () => {
+    const text = reason((await gitPushGuard(payload("W='/x push'; git -C $W status", wt), env)).stdout);
+    assert.ok(text.includes(' An option value in double quotes, such as `git -C "$W" status`, is allowed.'), text);
+  });
+
+  it('W=/x; git -C "$W" status: from a worktree cwd is allowed', async () => {
+    assert.equal(reason((await gitPushGuard(payload('W=/x; git -C "$W" status', wt), env)).stdout), '');
+  });
+
+  for (const command of ['W=/x; git -C $W status', 'W=/x; git -C ${W} status', 'W=/x; git --git-dir=$W/.git status'])
+    it(`${command}: a literal one-word assignment bash cannot split is allowed from a worktree cwd`, async () => {
+      assert.equal(reason((await gitPushGuard(payload(command, wt), env)).stdout), '');
+    });
+
+  it('W=<worktree>; git -C $W push: a literal one-word assignment is judged as the push it is', async () => {
+    assert.match(reason((await gitPushGuard(payload(`W=${wt}; git -C $W push origin dev`, wt), env)).stdout), /push from \.claude\/worktrees\/ is forbidden/);
   });
 });
 

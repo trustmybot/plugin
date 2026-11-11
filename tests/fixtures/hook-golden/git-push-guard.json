@@ -170,7 +170,7 @@
   "deny-unresolved-variable-dir.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git -C $NOPE push` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_subcommand: `git -C $NOPE push` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally. An option value in double quotes, such as `git -C \\\"$W\\\" status`, is allowed. Allowed form: git -C <path> push …, or the literal subcommand it runs\"}}\n"
     }
   },
   "deny-unsigned-bash-c.json": {
@@ -421,7 +421,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git -C $NOPE push` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_subcommand: `git -C $NOPE push` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally. An option value in double quotes, such as `git -C \\\"$W\\\" status`, is allowed. Allowed form: git -C <path> push …, or the literal subcommand it runs\"}}\n"
     }
   },
   "generic/deny-unsigned-bash-c.json": {
