@@ -62,7 +62,7 @@ Scope is judged at close: bro's close compares the task's own commits with its d
 Source: `agents/code-reviewer.md`.
 
 - **Spawn contract.** bro spawns one reviewer per closed task, after the close, with the task's anchors only; a preflight hook checks the anchors and the branch before the reviewer runs.
-- **Reviews from the records.** It reads the task brief, the recorded verification run and the scope record, re-runs only what looks suspicious, and spends the rest on independent probes of the diff.
+- **Reviews from the records.** It reads the task brief, the recorded verification run (each check's exit code, time and output tail) and the scope record, runs none of swe's checks again, and spends the review on its own probes of what the diff's dependents rely on.
 - **Signs off.** It records a typed verdict with findings. The server derives the reviewer's identity itself and refuses a verdict that is not independent of the swe that wrote the commit. The push gate admits a push only when each pushed task commit has a passing verdict.
 - **Never edits files** and never changes task status.
 
