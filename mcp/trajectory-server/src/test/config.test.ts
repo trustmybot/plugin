@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
-import { configTools, parseBroCompactNudgeTokens } from '../tools/config.js';
+import { BRO_COMPACT_NUDGE_TOKENS_KEY, configTools, parseBroCompactNudgeTokens } from '../tools/config.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -334,17 +334,18 @@ describe('config_set — config_changed audit rows (SC2)', () => {
   it('GH 3029: bro_compact_nudge_tokens takes a non-negative integer and refuses any other shape', async () => {
     const db = tempDB();
     const tools = configTools(db);
+    const set = (value: unknown) => call(tools.handlers, 'config_set', { agent: 'bro', key: BRO_COMPACT_NUDGE_TOKENS_KEY, value });
+    const stored = async (): Promise<unknown> => parseResult(await call(tools.handlers, 'config_get', { key: BRO_COMPACT_NUDGE_TOKENS_KEY }));
     for (const value of [0, 80000, 250000]) {
-      const r = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'bro_compact_nudge_tokens', value });
-      assert.ok(!r.isError, `accepts ${value}`);
-      assert.equal(parseResult(await call(tools.handlers, 'config_get', { key: 'bro_compact_nudge_tokens' })), value);
+      assert.ok(!(await set(value)).isError, `accepts ${value}`);
+      assert.equal(await stored(), value);
     }
     for (const value of [-1, 1.5, '80000', true, [80000], { tokens: 80000 }]) {
-      const r = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'bro_compact_nudge_tokens', value });
+      const r = await set(value);
       assert.ok(r.isError, `refuses ${JSON.stringify(value)}`);
       assert.match(r.content[0].text, /typed_field_violation/);
     }
-    assert.equal(parseResult(await call(tools.handlers, 'config_get', { key: 'bro_compact_nudge_tokens' })), 250000);
+    assert.equal(await stored(), 250000);
     db.close();
   });
 

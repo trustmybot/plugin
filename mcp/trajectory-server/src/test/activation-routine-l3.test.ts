@@ -10,6 +10,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
+import { BRO_COMPACT_NUDGE_TOKENS_KEY } from '../tools/config.js';
 import { contextOf, makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
 import { gateEnv, has, hasNot, sql } from './git-push-guard-l3.js';
 
@@ -229,9 +230,13 @@ grep -nE -- "$2" "${procs}" | cut -d: -f1 | grep . || exit 1
     };
     const nudges = (session: string) => String(nudgeRows(session).length);
     const prompt = (session: string, transcript: string) => runHook({ prompt: 'carry on', session_id: session, transcript_path: transcript });
+    const setThreshold = (valueJson: string | null) => {
+      sql(db, 'DELETE FROM plugin_config WHERE key = ?', BRO_COMPACT_NUDGE_TOKENS_KEY);
+      if (valueJson !== null) sql(db, 'INSERT INTO plugin_config (key, value_json) VALUES (?, ?)', BRO_COMPACT_NUDGE_TOKENS_KEY, valueJson);
+    };
 
     it('a context above the default threshold nudges once, with one audit row; the next prompt does not', () => {
-      sql(db, "DELETE FROM plugin_config WHERE key='bro_compact_nudge_tokens'");
+      setThreshold(null);
       const session = 'nudge-session-0001';
       const first = contextOf(prompt(session, usageTranscript('over', 90_000)));
       has(first, `${NUDGE} 90000 tokens, past bro_compact_nudge_tokens (80000)`, 'nudge names the last call context and the default threshold');
@@ -243,7 +248,7 @@ grep -nE -- "$2" "${procs}" | cut -d: -f1 | grep . || exit 1
     });
 
     it('a context at or under the threshold does not nudge', () => {
-      sql(db, "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('bro_compact_nudge_tokens', '90000')");
+      setThreshold('90000');
       const session = 'nudge-session-0002';
       hasNot(contextOf(prompt(session, usageTranscript('at', 90_000))), NUDGE, 'context equal to the threshold');
       hasNot(contextOf(prompt(session, usageTranscript('under', 50_000))), NUDGE, 'context under the threshold');
@@ -251,11 +256,11 @@ grep -nE -- "$2" "${procs}" | cut -d: -f1 | grep . || exit 1
     });
 
     it('threshold 0 turns the nudge off', () => {
-      sql(db, "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('bro_compact_nudge_tokens', '0')");
+      setThreshold('0');
       const session = 'nudge-session-0003';
       hasNot(contextOf(prompt(session, usageTranscript('off', 500_000))), NUDGE, 'no nudge when off');
       assert.equal(nudges(session), '0', 'no audit row');
-      sql(db, "DELETE FROM plugin_config WHERE key='bro_compact_nudge_tokens'");
+      setThreshold(null);
     });
 
     it('no usage in the transcript or no session id: no nudge', () => {
