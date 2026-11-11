@@ -284,7 +284,8 @@ const VALID_STATUSES = new Set([
 //     into 'closed' is bro_atomic_close, so task_update_status must not offer
 //     those edges (else bro could close a task without the atomic close's
 //     side effects).
-//   - 'closed'→'escalated' hands a closed task back to the Human.
+//   - 'closed'→'escalated' lets bro reopen a closed task's case for rework or
+//     redesign; bro owns the next step (task_retry admits an escalated task).
 //   - code-reviewer runs before the close, so a failed review leaves the task
 //     completed; its rework is completed → running (task_reopen).
 const BRO_TRANSITIONS: Record<string, Set<string>> = {
