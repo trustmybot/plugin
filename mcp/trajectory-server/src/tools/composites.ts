@@ -6,7 +6,14 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
-import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
+import {
+  BRANCH_ID_RE,
+  SPEC_BODY_MAX_BYTES,
+  insertSpecShapeWaiver,
+  promptBearingDerivedField,
+  resolvePromptBearing,
+  type PromptBearingResolution,
+} from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
 import {
@@ -1677,7 +1684,7 @@ export function compositeTools(
               },
               prompt_bearing: {
                 type: 'number',
-                description: 'Set to 1 when this task intentionally edits prompt-surface files. Default 0.',
+                description: 'Set to 1 when this task intentionally edits prompt-surface files. Default: 1 when files[] holds a prompt-surface path, else 0.',
               },
               effort: {
                 type: 'string',
@@ -1896,8 +1903,8 @@ export function compositeTools(
           repoValue = resolveSoleRepo(db)?.name ?? null;
         }
 
-        const promptBearing =
-          typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
+        const promptBearingResolution = resolvePromptBearing(task.prompt_bearing, files);
+        const promptBearing = promptBearingResolution.prompt_bearing;
 
         if (task.effort !== undefined && task.effort !== null && !isEffort(task.effort)) {
           return err(
@@ -2199,6 +2206,7 @@ export function compositeTools(
           effort: result.effort,
           effort_reason: result.effort_reason,
           effort_inputs: result.effort_inputs,
+          ...promptBearingDerivedField(promptBearingResolution),
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: gate?.worktreeReused ?? false,
@@ -2255,11 +2263,12 @@ export function compositeTools(
           verification: string | null;
           repo: string | null;
           effort: Effort;
+          prompt_bearing: number;
           worktree_path: string | null;
           issue_status: string;
         }>(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  t.worktree_path, i.status AS issue_status
+                  t.prompt_bearing, t.worktree_path, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId],
         );
@@ -2321,9 +2330,10 @@ export function compositeTools(
           files,
         });
         if (pathRefusal) return verificationPathResult('task_reopen', pathRefusal);
+        const promptBearingResolution = resolvePromptBearing(task.prompt_bearing, files);
         const { effort } = computeEffort(db, {
           effort: effortArg,
-          prompt_bearing: 0,
+          prompt_bearing: promptBearingResolution.prompt_bearing,
           files,
           rework: true,
           current: task.effort,
@@ -2367,6 +2377,9 @@ export function compositeTools(
             ].filter((l): l is string => l !== null),
             auditContent: { files_add: filesAdd, verification_add: verificationAdd },
           });
+          if (promptBearingResolution.derived) {
+            db.run(`UPDATE tasks SET prompt_bearing = 1 WHERE id = ?`, [taskId]);
+          }
           for (const w of wontfix) {
             db.run(
               `UPDATE review_findings SET status = 'wontfix', resolved_at = ? WHERE id = ? AND task_id = ? AND status = 'open'`,
@@ -2428,6 +2441,7 @@ export function compositeTools(
           files,
           verification,
           effort,
+          ...promptBearingDerivedField(promptBearingResolution),
           wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
@@ -2488,8 +2502,9 @@ export function compositeTools(
           spec_body: string | null;
           repo: string | null;
           parent_branch_id: string | null;
+          prompt_bearing: number;
         }>(
-          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id FROM tasks WHERE id = ?`,
+          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id, prompt_bearing FROM tasks WHERE id = ?`,
           [taskId],
         );
         if (!task) return err(`task_update_spec: task ${taskId} not found`);
@@ -2507,6 +2522,10 @@ export function compositeTools(
         const oldFiles = parseTaskFiles(task.files);
         const oldVerification = parseTaskFiles(task.verification);
         const files = newFiles ?? oldFiles;
+        const promptBearingResolution: PromptBearingResolution =
+          newFiles !== undefined
+            ? resolvePromptBearing(task.prompt_bearing, newFiles)
+            : { prompt_bearing: task.prompt_bearing === 1 ? 1 : 0, derived: false };
         const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
           newVerification ?? oldVerification,
           defaults.commands,
@@ -2545,6 +2564,9 @@ export function compositeTools(
             `UPDATE tasks SET files = ?, verification = ?, spec_body = ?, updated_at = ? WHERE id = ?`,
             [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now, taskId],
           );
+          if (promptBearingResolution.derived) {
+            db.run(`UPDATE tasks SET prompt_bearing = 1 WHERE id = ?`, [taskId]);
+          }
           insertDiscussion(db, {
             issue_id: task.issue_id,
             author: agent,
@@ -2569,6 +2591,7 @@ export function compositeTools(
           changed,
           files,
           verification,
+          ...promptBearingDerivedField(promptBearingResolution),
           verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
         });
@@ -2951,9 +2974,10 @@ export function compositeTools(
         const usedOnIssue = branchIdUsedOnIssueResult(db, 'task_retry', failed.issue_id, newBranchId);
         if (usedOnIssue) return usedOnIssue;
 
+        const promptBearingResolution = resolvePromptBearing(failed.prompt_bearing, parseTaskFiles(failed.files));
         const { effort } = computeEffort(db, {
           effort: effortArg,
-          prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
+          prompt_bearing: promptBearingResolution.prompt_bearing,
           files: parseTaskFiles(failed.files),
           rework: true,
           current: failed.effort,
@@ -3059,7 +3083,7 @@ export function compositeTools(
               description,
               spec,
               repoOverride ?? failed.repo,
-              failed.prompt_bearing,
+              promptBearingResolution.prompt_bearing,
               failed.files,
               storedVerification,
               effort,
@@ -3129,6 +3153,7 @@ export function compositeTools(
             task_id: result.id,
             branch_id: result.branch_id,
             effort,
+            ...promptBearingDerivedField(promptBearingResolution),
             carried_findings: result.carried,
             worktree_path: null,
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ''}'; no branch or worktree was created`,
@@ -3145,6 +3170,7 @@ export function compositeTools(
           task_id: result.id,
           branch_id: result.branch_id,
           effort,
+          ...promptBearingDerivedField(promptBearingResolution),
           carried_findings: result.carried,
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
