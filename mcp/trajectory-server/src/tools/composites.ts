@@ -37,7 +37,7 @@ import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
 import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
-import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
+import { readRepoTargetBranch, repoRowPath, repoTargetBase, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
 import { parseBudget } from '../hooks/swe-verification-gate.js';
@@ -60,7 +60,12 @@ import {
   passingRunForCommit,
   verificationWaivedForCommit,
 } from './verification-runs.js';
-import { appendVerificationDefaults, readVerificationDefaults, verificationDefaultsResult } from './verification-defaults.js';
+import {
+  appendVerificationDefaults,
+  readVerificationDefaults,
+  verificationDefaultsMissingField,
+  verificationDefaultsResult,
+} from './verification-defaults.js';
 import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
@@ -326,20 +331,6 @@ export function resolveRepoPath(db: TrajectoryDB, repoValue: string | null): str
   const reposRow = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = ?`, [name]);
   if (!reposRow) return name;
   return repoRowPath(db, reposRow.path);
-}
-
-// Read a repo's target_branch (pr_target) from the repos table — the sole
-// source of truth (#980). Falls back to the sole registered repo when repoValue
-// is empty. Returns null when no row or a NULL/empty column.
-function readRepoTargetBranch(db: TrajectoryDB, repoValue: string | null): string | null {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
-  if (!name) return null;
-  const row = db.get<{ target_branch: string | null }>(
-    `SELECT target_branch FROM repos WHERE name = ?`,
-    [name],
-  );
-  const v = row?.target_branch;
-  return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
 function ok(data: unknown): CallToolResult {
@@ -1885,10 +1876,7 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
 
-        const base = normalizeBase(
-          repoPath,
-          (args['base'] as string | undefined) ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath),
-        );
+        const base = repoTargetBase(db, repoPath, repoValue, args['base'] as string | undefined);
         if (baseIsBranch(base, branchId)) {
           return err(
             `task_provision: base '${base}' is the task's own branch_id '${branchId}', so the base-branch guard ` +
@@ -2088,6 +2076,7 @@ export function compositeTools(
             : {}),
           ...(diagnostic ? { diagnostic } : {}),
           verification_defaults_added: verificationDefaultsAdded,
+          ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
           ...suggestVerification(db, repoValue, repoPath, files, verification),
         });
       }),
@@ -2901,6 +2890,7 @@ export function compositeTools(
         }
         const suggested = () => ({
           verification_defaults_added: verificationDefaultsAdded,
+          ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
           ...suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification),
         });
         let gate: EnvGatePass | null = null;

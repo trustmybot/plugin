@@ -168,6 +168,7 @@ Knowing how to install, test and lint a repo is bro's job, and **no toolset is h
 - **Detect.** `env_detect` reads the repo's evidence (CI steps, task-runner targets, manifests, config files, lockfiles) and runs nothing. It reports a recorded profile as drifted when the evidence changed since it was recorded.
 - **Record.** bro resolves the commands per category and records them with `env_record`; bro's own overrides, waivers and declines survive a re-record.
 - **Read.** `env_get` returns a repo's effective commands for planning and verification.
+- **Propose verification defaults.** When a repo's PR target has no verification-defaults file, `/onboard` offers the root profile's lint, typecheck and test commands as its defaults and writes the chosen ones to the working tree for the Human to commit; until then task provision, task retry and scan return a non-blocking hint.
 
 **Where the ENV lives.** The repo is the source of truth: tool choices live in the repo's own standard files, so teammates, CI and editors enforce the same rules without TMB. The recorded profile is a derived per-machine cache of the resolved commands, their sources and a hash of the evidence.
 

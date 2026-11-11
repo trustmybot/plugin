@@ -12,6 +12,8 @@ Use `/scan` for a manual refresh of the world model.
 scan_run(agent='bro', source='user_manual')
 ```
 
+When the result carries `verification_defaults_hint`, a listed repo has no `.config/tmb/verification-defaults.json` on its PR target while its env profile names lint, typecheck or test commands: show the repo and those commands, and offer `/onboard` to set them.
+
 ## Idempotency
 
 Re-running `/scan` is summary-preserving: a directory with a README-derived summary refreshes from the (possibly-edited) README; a directory without a README is left alone (structural fields like `file_count` update; `summary` is not cleared).
