@@ -3,7 +3,8 @@
  * Agent call's `effort` must be the effort the trajectory DB holds for the
  * spawn. A swe spawn naming task_id=<N> needs tasks.effort of task N; a
  * code-reviewer spawn needs the effort review_handoff assigned task N's
- * review (GH 1955), else plugin_config.reviewer_effort (medium when unset);
+ * review (GH 1955), else plugin_config.reviewer_effort (medium when unset),
+ * and the model it assigned, or no model when it assigned none (GH 2932);
  * any other agent is allowed. A missing effort is a mismatch. No resolvable
  * DB allows; a DB read failure denies, and a DB without tasks.effort gets the
  * restart-to-migrate remedy. Unlike the .sh, it needs no jq, so it decides
@@ -11,7 +12,7 @@
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, stripTrailingNewlines } from './lib/db.js';
-import { reviewerEffortFor } from './lib/effort.js';
+import { reviewerEffortFor, type ReviewerEffort } from './lib/effort.js';
 import { jqCompact, jqIndex, jqLiteralNumbers, jqMap, jqOr } from './lib/jq.js';
 import { jqRawText } from './lib/project-env.js';
 import { CODE_REVIEWER_ROLE, normalizeRole } from './lib/role.js';
@@ -72,25 +73,44 @@ function sweVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): Gat
   );
 }
 
+/**
+ * The deny for a code-reviewer spawn whose effort or model is not the
+ * expected pair. While no model is expected and none was passed it is the
+ * effort-only deny; otherwise it names the expected and passed model too.
+ */
+function denyReviewerMismatch(who: string, expected: ReviewerEffort, given: string, givenModel: string, change: string): GateResult {
+  if (expected.model === null && givenModel === '') return denyMismatch(who, expected.effort, given, change);
+  const expectedModel = expected.model !== null ? `model="${expected.model}"` : 'no model';
+  const passedEffort = given !== '' ? `effort="${given}"` : 'no effort';
+  const passedModel = givenModel !== '' ? `model="${givenModel}"` : 'no model';
+  return denyPreToolUse(
+    `BLOCKED: ${who} runs at effort "${expected.effort}" with ${expectedModel}, but the Agent call passed ${passedEffort} and ${passedModel}. ${change}`,
+    { allowed: `the same Agent call with effort="${expected.effort}" and ${expectedModel}` },
+  );
+}
+
 function reviewerVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): GateResult {
   const db = dbPath(env);
   if (db === null || !haveSqlite(env)) return ALLOW;
   const taskId = sqlInt(promptTaskId(toolInputRaw(payload, 'prompt')));
   const expected = reviewerEffortFor(db, taskId, env);
   if (expected === null) return denyUnreadable(GATE_NAME, env);
-  if (given === expected.effort) return ALLOW;
+  const givenModel = toolInputRaw(payload, 'model');
+  if (given === expected.effort && givenModel === (expected.model ?? '')) return ALLOW;
   if (expected.source === 'assigned') {
-    return denyMismatch(
+    return denyReviewerMismatch(
       `code-reviewer for task_id=${taskId} (the task's assigned reviewer effort, returned by review_handoff as reviewer_effort)`,
-      expected.effort,
+      expected,
       given,
+      givenModel,
       "The assignment is the task's newest reviewer_effort_assigned audit row; the next review_handoff of the task assigns it again.",
     );
   }
-  return denyMismatch(
+  return denyReviewerMismatch(
     'code-reviewer (plugin_config.reviewer_effort, medium when unset)',
-    expected.effort,
+    expected,
     given,
+    givenModel,
     'To change it for every review, config_set(key="reviewer_effort", value=...).',
   );
 }

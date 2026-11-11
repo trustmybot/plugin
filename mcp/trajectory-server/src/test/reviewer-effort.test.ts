@@ -1,6 +1,7 @@
 // Reviewer effort by risk tier (GH 1955): reviewerEffortTier's rule, and the
 // reviewer_effort_assigned row review_handoff writes on every handoff under
-// the reviewer_effort_tiers / reviewer_effort_ab config keys.
+// the reviewer_effort_tiers / reviewer_effort_ab config keys, and the model
+// and effort reviewer_tier_settings gives each tier (GH 2932).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -111,7 +112,8 @@ describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)'
     const r = await call(config.handlers, 'config_set', { agent: 'bro', key, value });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
   };
-  const clearConfig = () => db.run(`DELETE FROM plugin_config WHERE key IN ('reviewer_effort', 'reviewer_effort_tiers', 'reviewer_effort_ab', 'high_effort_paths')`);
+  const clearConfig = () =>
+    db.run(`DELETE FROM plugin_config WHERE key IN ('reviewer_effort', 'reviewer_effort_tiers', 'reviewer_effort_ab', 'high_effort_paths', 'reviewer_tier_settings')`);
 
   const handOff = async (id: number, paths: string[], opts: { prompt_bearing?: 0 | 1 } = {}) => {
     const branch = `feat/t${id}-${db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit`)!.n}`;
@@ -219,6 +221,54 @@ describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)'
     assert.equal(enrolled, 2, 'enrollment stopped at target');
   });
 
+  it('SC1: reviewer_tier_settings gives the tier its model and effort; a reason with no entry keeps the plain tier', async () => {
+    clearConfig();
+    await setConfig('reviewer_effort_tiers', true);
+    await setConfig('reviewer_tier_settings', { docs_tests: { model: 'sonnet', effort: 'high' }, default: { effort: 'low' } });
+
+    const docs = await handOff(41, ['README.md', 'src/test/a.test.ts']);
+    assert.equal(docs.payload.reviewer_effort, 'high', 'docs_tests effort from the setting');
+    assert.deepEqual(rowsOf(41), [{ task_id: 41, commit_sha: docs.sha, effort: 'high', model: 'sonnet', reason: 'docs_tests' }]);
+    const summary = db.get<{ summary: string }>(
+      `SELECT summary FROM audit WHERE event_type = 'reviewer_effort_assigned' AND json_extract(content_json, '$.task_id') = 41`,
+    )!.summary;
+    assert.match(summary, /effort high, model sonnet \(docs_tests\)/);
+
+    const prompt = await handOff(43, ['src/a.ts'], { prompt_bearing: 1 });
+    assert.equal(prompt.payload.reviewer_effort, 'high');
+    assert.deepEqual(rowsOf(43), [{ task_id: 43, commit_sha: prompt.sha, effort: 'high', reason: 'prompt_bearing' }], 'no entry: no model');
+
+    const code = await handOff(45, ['src/a.ts']);
+    assert.equal(code.payload.reviewer_effort, 'low', 'an effort-only entry overrides the effort');
+    assert.deepEqual(rowsOf(45), [{ task_id: 45, commit_sha: code.sha, effort: 'low', reason: 'default' }], 'an effort-only entry adds no model');
+  });
+
+  it('SC1: the fixed/config path never carries a model', async () => {
+    clearConfig();
+    await setConfig('reviewer_tier_settings', { docs_tests: { model: 'sonnet', effort: 'high' } });
+    const off = await handOff(51, ['docs/a.md']);
+    assert.equal(off.payload.reviewer_effort, 'medium', 'tiers off: config effort');
+    assert.deepEqual(rowsOf(51), [{ task_id: 51, commit_sha: off.sha, effort: 'medium', reason: 'config' }]);
+
+    await setConfig('reviewer_effort_ab', { label: 'gh-2932', target: 2 });
+    const fixedArm = await handOff(53, ['docs/a.md']);
+    assert.deepEqual(rowsOf(53).map((r) => [r['effort'], r['model'], r['reason'], r['arm']]), [['medium', undefined, 'config', 'fixed']]);
+    const tieredArm = await handOff(54, ['docs/a.md']);
+    assert.deepEqual(rowsOf(54).map((r) => [r['effort'], r['model'], r['reason'], r['arm']]), [['high', 'sonnet', 'docs_tests', 'tiered']]);
+  });
+
+  it('SC3: an unset or malformed reviewer_tier_settings leaves every tier assignment as it was', async () => {
+    for (const [i, raw] of [null, 'not json', '[1]', '{"docs_tests":{"model":"gpt-x"}}', '{"docs":{"model":"sonnet"}}', '{"docs_tests":{"effort":"max"}}'].entries()) {
+      clearConfig();
+      await setConfig('reviewer_effort_tiers', true);
+      if (raw !== null) db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_tier_settings', ?)`, [raw]);
+      const id = 61 + 2 * i;
+      const { payload, sha } = await handOff(id, ['docs/a.md']);
+      assert.equal(payload.reviewer_effort, 'low', `${raw}: plain docs tier`);
+      assert.deepEqual(rowsOf(id), [{ task_id: id, commit_sha: sha, effort: 'low', reason: 'docs_tests' }], `${raw}: row as before`);
+    }
+  });
+
   it('an unchecked scope (no git checkout) is the config effort even with tiers on', async () => {
     clearConfig();
     await setConfig('reviewer_effort_tiers', true);
@@ -232,6 +282,96 @@ describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)'
     assert.ok(!r.isError, JSON.stringify(parse(r)));
     assert.equal(parse(r).reviewer_effort, 'medium');
     assert.deepEqual(rowsOf(31).map((row) => [row['effort'], row['reason']]), [['medium', 'config']]);
+  });
+
+  it('SC1: an unchecked scope gets no model from reviewer_tier_settings', async () => {
+    clearConfig();
+    await setConfig('reviewer_effort_tiers', true);
+    await setConfig('reviewer_tier_settings', { docs_tests: { model: 'sonnet', effort: 'high' }, default: { model: 'haiku' } });
+    db.run(
+      `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, commit_sha, created_at, updated_at)
+       VALUES (33, 1, 'feat/t33', 'dev', 'd', 'completed', 's', 'nowhere', '["docs/a.md"]', 'abcdef2', ?, ?)`,
+      [NOW, NOW],
+    );
+    const r = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: '33' });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.deepEqual(rowsOf(33), [{ task_id: 33, commit_sha: 'abcdef2', effort: 'medium', reason: 'config' }]);
+  });
+});
+
+describe('SC4: reviewer_tier_settings on a project that is not the plugin repo', () => {
+  let ws: string;
+  let repoRoot: string;
+  let db: TrajectoryDB;
+  let composites: ReturnType<typeof compositeTools>;
+  let baseSha: string;
+  const NOW = '2026-11-11T12:00:00.000Z';
+  const git = (...a: string[]) => execFileSync('git', ['-C', repoRoot, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  const write = (rel: string, text: string) => {
+    mkdirSync(join(repoRoot, rel, '..'), { recursive: true });
+    writeFileSync(join(repoRoot, rel), text);
+  };
+
+  before(() => {
+    ws = mkdtempSync(join(tmpdir(), 'tmb-reviewer-tier-fixture-'));
+    repoRoot = join(ws, 'parser');
+    mkdirSync(repoRoot, { recursive: true });
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t.t');
+    git('config', 'user.name', 't');
+    write('guide/intro.md', '# Parser\n');
+    write('lib/parse.spec.ts', 'export {};\n');
+    write('src/app.ts', 'export const app = 1;\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    baseSha = git('rev-parse', 'HEAD');
+    git('update-ref', 'refs/remotes/origin/main', baseSha);
+    db = tempDB();
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('parser', ?, 'main')`, [repoRoot]);
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', ?, ?)`, [NOW, NOW]);
+    db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort_tiers', 'true')`);
+    db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_tier_settings', '{"docs_tests":{"model":"sonnet","effort":"high"}}')`);
+    composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  const handOff = async (id: number, files: Record<string, string>) => {
+    const branch = `feat/p${id}`;
+    git('checkout', '-q', '-b', branch, baseSha);
+    for (const [rel, text] of Object.entries(files)) write(rel, text);
+    git('add', '.');
+    git('commit', '-q', '-m', branch);
+    const sha = git('rev-parse', 'HEAD');
+    db.run(
+      `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, commit_sha, worktree_path, created_at, updated_at)
+       VALUES (?, 1, ?, 'main', 'd', 'completed', 's', 'parser', ?, ?, ?, ?, ?)`,
+      [id, branch, JSON.stringify(Object.keys(files)), sha, repoRoot, NOW, NOW],
+    );
+    const r = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: String(id), session_id: 'sess-2932' });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    const row = db.get<{ content_json: string }>(
+      `SELECT content_json FROM audit WHERE event_type = 'reviewer_effort_assigned' AND json_extract(content_json, '$.task_id') = ?`,
+      [id],
+    )!;
+    return { payload: parse(r) as { reviewer_effort: string; reviewer_spawn: Record<string, unknown> }, row: JSON.parse(row.content_json) as Record<string, unknown> };
+  };
+
+  it('a guide/ doc plus a lib/*.spec.ts change is docs_tests, reviewed by sonnet at high', async () => {
+    const { payload, row } = await handOff(2, { 'guide/intro.md': '# Parser v2\n', 'lib/parse.spec.ts': 'export const t = 1;\n' });
+    assert.deepEqual([row['effort'], row['model'], row['reason']], ['high', 'sonnet', 'docs_tests']);
+    assert.equal(payload.reviewer_effort, 'high');
+    assert.equal(payload.reviewer_spawn['model'], 'sonnet');
+    assert.equal(payload.reviewer_spawn['effort'], 'high');
+  });
+
+  it('a src/ change is the default tier with no model', async () => {
+    const { payload, row } = await handOff(4, { 'src/app.ts': 'export const app = 2;\n' });
+    assert.deepEqual([row['effort'], row['model'], row['reason']], ['medium', undefined, 'default']);
+    assert.ok(!('model' in payload.reviewer_spawn), JSON.stringify(payload.reviewer_spawn));
   });
 });
 
@@ -250,6 +390,39 @@ describe('config_set: reviewer_effort_tiers and reviewer_effort_ab shapes', () =
       for (const value of [{ label: '', target: 1 }, { label: 'x', target: 0 }, { label: 'x', target: 1.5 }, { label: 'x' }, 'x', [1]]) {
         const r = await set('reviewer_effort_ab', value);
         assert.ok(r.isError && parse(r).error.includes('typed_field_violation'), `A/B refuses ${JSON.stringify(value)}`);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('reviewer_tier_settings takes known reasons with a known model and effort only', async () => {
+    const db = tempDB();
+    try {
+      const config = configTools(db);
+      const set = async (value: unknown) => call(config.handlers, 'config_set', { agent: 'bro', key: 'reviewer_tier_settings', value });
+      const valid = [
+        {},
+        { docs_tests: { model: 'sonnet', effort: 'high' } },
+        { prompt_bearing: { model: 'opus' }, high_effort_paths: { effort: 'high' }, default: {}, docs_tests: { model: 'fable', effort: 'low' } },
+        { default: { model: 'haiku', effort: 'medium' } },
+      ];
+      for (const value of valid) assert.ok(!(await set(value)).isError, `accepts ${JSON.stringify(value)}`);
+      const invalid = [
+        { docs: { model: 'sonnet' } },
+        { config: { effort: 'high' } },
+        { docs_tests: { model: 'gpt-5' } },
+        { docs_tests: { effort: 'max' } },
+        { docs_tests: { model: 'sonnet', temperature: 1 } },
+        { docs_tests: 'sonnet' },
+        { docs_tests: null },
+        ['docs_tests'],
+        'sonnet',
+        true,
+      ];
+      for (const value of invalid) {
+        const r = await set(value);
+        assert.ok(r.isError && parse(r).error.includes('typed_field_violation'), `refuses ${JSON.stringify(value)}`);
       }
     } finally {
       db.close();
