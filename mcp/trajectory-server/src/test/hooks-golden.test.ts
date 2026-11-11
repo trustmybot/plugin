@@ -261,18 +261,20 @@ describe('hook golden recordings', () => {
 
   describe('liveHookCommand', () => {
     let root: string;
+    let script: string;
     before(() => {
       root = mkdtempSync(join(tmpdir(), 'tmb-live-hook-'));
       mkdirSync(join(root, 'scripts/hooks'), { recursive: true });
-      writeFileSync(join(root, 'scripts/hooks/with-script.sh'), '#!/bin/bash\n');
+      script = join(root, 'scripts/hooks', 'with-script.sh');
+      writeFileSync(script, '#!/bin/bash\n');
     });
     after(() => {
       rmSync(root, { recursive: true, force: true });
     });
 
     it('spawns the gate .sh with the given bash while it exists', () => {
-      assert.deepEqual(liveHookCommand('with-script', '/opt/bash', root), ['/opt/bash', [join(root, 'scripts/hooks/with-script.sh')]]);
-      assert.deepEqual(liveHookCommand('with-script', undefined, root), ['bash', [join(root, 'scripts/hooks/with-script.sh')]]);
+      assert.deepEqual(liveHookCommand('with-script', '/opt/bash', root), ['/opt/bash', [script]]);
+      assert.deepEqual(liveHookCommand('with-script', undefined, root), ['bash', [script]]);
     });
 
     it('spawns node dist/hooks.js <gate> once the .sh is gone', () => {
