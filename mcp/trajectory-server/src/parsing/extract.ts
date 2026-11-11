@@ -968,7 +968,8 @@ function extractPython(root: Node, src: string, out: Collector, moduleSymbol: nu
       else if (n && place === 'class' && cls) inner = definition(node, 'method', `${cls}.${n}`, 0);
     } else if (t === 'expression_statement' && node.parent?.type === 'module') {
       const assignment = node.namedChildren[0];
-      const left = assignment?.type === 'assignment' ? assignment.childForFieldName('left') : null;
+      const hasValue = assignment?.type === 'assignment' && assignment.childForFieldName('right') !== null;
+      const left = hasValue ? assignment.childForFieldName('left') : null;
       if (left?.type === 'identifier') {
         inner = out.symbol({
           kind: 'const',
@@ -991,7 +992,7 @@ function extractPython(root: Node, src: string, out: Collector, moduleSymbol: nu
         const object = fn.childForFieldName('object');
         if (callee && object) {
           const ofClass = object.type === 'identifier' && PY_RECEIVERS_OF_CLASS.has(object.text) && cls;
-          out.edge(scope, 'calls', callee, line, ofClass ? cls : memberHint(object.text));
+          out.edge(scope, 'calls', callee, line, ofClass ? cls : memberHint(target(object.text)));
         }
       }
     }

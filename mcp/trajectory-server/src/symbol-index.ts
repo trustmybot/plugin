@@ -251,22 +251,19 @@ export function resolveImport(fromFile: string, spec: string | null, fileSet: Se
 
 // Resolve a Python dotted module ('.a', '..', 'pkg.mod') to `mod.py` or
 // `mod/__init__.py`. Leading dots climb from the importing file's package; an
-// absolute module is tried from the repo root, then from each ancestor
-// directory of the importing file, shallowest first, for `src/` layouts.
+// absolute module is tried from the repo root, then from a top-level `src/`.
+// Ancestors of the importing file are never roots: Python 3 has no implicit
+// relative imports, so `import http` in pkg/sub/x.py is the stdlib module.
 export function resolvePythonImport(fromFile: string, spec: string | null, fileSet: Set<string>): string | null {
   if (!spec) return null;
   const module = spec.replace(/^\.+/, '');
   const dots = spec.length - module.length;
   const parts = module.split('.').filter(Boolean);
-  const fromDir = posix.dirname(fromFile);
-  let roots: string[];
+  let roots = ['.', 'src'];
   if (dots > 0) {
-    const pkg = posix.normalize(posix.join(fromDir, ...Array<string>(dots - 1).fill('..')));
+    const pkg = posix.normalize(posix.join(posix.dirname(fromFile), ...Array<string>(dots - 1).fill('..')));
     if (pkg.startsWith('..')) return null;
     roots = [pkg];
-  } else {
-    roots = ['.'];
-    for (let dir = fromDir; dir !== '.'; dir = posix.dirname(dir)) roots.splice(1, 0, dir);
   }
   for (const root of roots) {
     const base = posix.join(root, ...parts);

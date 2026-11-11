@@ -24,6 +24,7 @@ const FILES: Record<string, string> = {
     '"""Module a."""',
     'LIMIT = 3',
     '_PRIVATE: int = 4',
+    'T: int',
     '',
     '',
     '# A foo.',
@@ -48,10 +49,12 @@ const FILES: Record<string, string> = {
     'from .a import Foo, helper',
     'import pkg.a',
     'from . import c as sub',
+    'import pkg.c as pc',
     '',
     '',
     'def run():',
     '    helper()',
+    '    pc.cee()',
     '    return Foo()',
     '',
   ].join('\n'),
@@ -140,10 +143,30 @@ describe('Python symbol extraction (GH 3032)', () => {
     assert.equal(edge('pkg/b.py', 'pkg/b.py', 'imports', 'pkg.a')?.dst_path, 'pkg/a.py');
     assert.equal(edge('pkg/b.py', 'pkg/b.py', 'imports', 'c')?.dst_path, 'pkg/c.py');
   });
+
+  it('stores no const for a bare annotation', () => {
+    assert.equal(symbol('pkg/a.py', 'const', 'T'), undefined);
+  });
+
+  it('hints a member call with the module an alias names', () => {
+    const hint = db.get<{ hint: string | null }>(
+      `SELECT e.hint FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+        WHERE s.path = 'pkg/b.py' AND s.qualified_name = 'run' AND e.kind = 'calls' AND e.dst_name = 'cee'`,
+    );
+    assert.equal(hint?.hint, 'pkg.c');
+  });
 });
 
 describe('resolvePythonImport', () => {
-  const files = new Set(['pkg/__init__.py', 'pkg/a.py', 'pkg/sub/__init__.py', 'pkg/sub/d.py', 'src/lib/m.py', 'top.py']);
+  const files = new Set([
+    'pkg/__init__.py',
+    'pkg/a.py',
+    'pkg/sub/__init__.py',
+    'pkg/sub/d.py',
+    'pkg/sub/http.py',
+    'src/lib/m.py',
+    'top.py',
+  ]);
 
   it('climbs one package per extra leading dot', () => {
     assert.equal(resolvePythonImport('pkg/sub/d.py', '.', files), 'pkg/sub/__init__.py');
@@ -152,10 +175,15 @@ describe('resolvePythonImport', () => {
     assert.equal(resolvePythonImport('top.py', '..x', files), null);
   });
 
-  it('resolves absolute modules from the root, then from ancestor directories', () => {
+  it('resolves absolute modules from the root, then from a top-level src/', () => {
     assert.equal(resolvePythonImport('pkg/a.py', 'pkg.sub', files), 'pkg/sub/__init__.py');
     assert.equal(resolvePythonImport('pkg/a.py', 'top', files), 'top.py');
     assert.equal(resolvePythonImport('src/lib/x.py', 'lib.m', files), 'src/lib/m.py');
     assert.equal(resolvePythonImport('pkg/a.py', 'os.path', files), null);
+  });
+
+  it('never resolves an absolute module against ancestors of the importing file', () => {
+    assert.equal(resolvePythonImport('pkg/sub/x.py', 'http', files), null);
+    assert.equal(resolvePythonImport('pkg/sub/x.py', 'd', files), null);
   });
 });
