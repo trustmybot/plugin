@@ -224,7 +224,7 @@ export function validationRecordFallback(argv: readonly string[], env: NodeJS.Pr
       return 1;
     }
   }
-  const r =dbWrite(db, writeSql(taskId, attemptN, verdict, feedback, session, findings, probes, nowIso()), {
+  const r = dbWrite(db, writeSql(taskId, attemptN, verdict, feedback, session, findings, probes, nowIso()), {
     caller: 'validation-record-fallback',
     env,
   });

@@ -359,7 +359,7 @@ export function validationTools(db: TrajectoryDB): {
           verdict: {
             type: 'string',
             enum: ['pass', 'fail', 'escalate'],
-            description: "pass needs the task's newest verification run at tasks.commit_sha to have exited 0 without timing out (the code-reviewer preflight's check, so a merge-only re-review of a later sha passes on the task commit's run); else verification_run_required names what was found: no commit, no run, only a run at another commit, a timed-out run or a failed one. fail and escalate need no run.",
+            description: "pass needs the task's newest verification run at tasks.commit_sha to have exited 0 without timing out (prefix match on the sha, so a merge-only re-review of a later sha passes on the task commit's run); else verification_run_required names what was found: no commit, no run, only a run at another commit, a timed-out run or a failed one. fail and escalate need no run.",
           },
           feedback: { type: 'string' },
           mcp_available: { type: 'boolean', description: 'Required when agent="code-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
