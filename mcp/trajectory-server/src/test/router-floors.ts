@@ -69,7 +69,6 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'substrate-preflight': 6,
   'orphan-scan': 7,
   'user-prompt-persona': 6,
-  'rework-waiver-capture': 6,
   'activation-routine': 6,
   'session-log-capture': 4,
   'prompt-intent-hints': 6,

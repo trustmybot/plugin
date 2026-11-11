@@ -341,7 +341,7 @@ function oneOf<T extends string>(value: unknown, name: string, allowed: readonly
 // One task_rework_analysis audit row (GH 2830): bro's typed analysis of a
 // task's review FAILs since its latest pass, which with its proven change
 // admits the next swe run past the rework-limit gate, or with design_drift
-// blocks the task until the Human waives it.
+// ends the task's swe runs, its work redesigned as a new task.
 export function recordReworkAnalysis(db: TrajectoryDB, args: Record<string, unknown>): { audit_id: number; task_id: number } {
   const taskId = Number(args['task_id']);
   if (!Number.isInteger(taskId)) throw reworkAnalysisInvalid('task_id must be an integer');
@@ -704,7 +704,7 @@ export function taskTools(db: TrajectoryDB): {
     {
       name: 'task_rework_analysis',
       description:
-        "Bro's typed analysis of a task's FAILs since its last pass; a newer proven change clears the two-FAIL rework limit; design_drift blocks the task until the Human waives it. Returns {audit_id, task_id}.",
+        "Bro's analysis of a task's FAILs since its last pass; a newer proven change clears the two-FAIL rework limit; design_drift ends its swe runs: task_retry or split. Returns {audit_id, task_id}.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -716,11 +716,11 @@ export function taskTools(db: TrajectoryDB): {
             description: "validation_attempts ids of the task's FAILs after its latest pass, the latest FAIL included.",
           },
           finding_ids: { type: 'array', items: { type: 'string' }, description: 'Findings analyzed, each F<task_id>-<n>.' },
-          root_cause: { type: 'string', enum: [...REWORK_ROOT_CAUSES], description: 'world_model takes only world_model_fix; design_drift only ask_human.' },
+          root_cause: { type: 'string', enum: [...REWORK_ROOT_CAUSES], description: 'world_model takes only world_model_fix; design_drift only split or retry.' },
           change: {
             type: 'string',
             enum: [...REWORK_CHANGES],
-            description: 'spec_update, effort_raise and world_model_fix admit the next swe run once proven; ask_human answers only design_drift.',
+            description: 'spec_update, effort_raise and world_model_fix admit the next swe run once proven; split and retry start a new task; re_review and ask_human admit no swe run.',
           },
           approach_shared_cause: { type: 'boolean', description: 'Do the findings share one cause in the approach itself? true takes only split or retry.' },
           rationale: { type: 'string', description: `At least ${REWORK_RATIONALE_MIN_CHARS} characters.` },

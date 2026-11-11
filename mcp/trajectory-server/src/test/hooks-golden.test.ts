@@ -42,7 +42,6 @@ const TS_BORN_GATES: ReadonlySet<string> = new Set([
   'ref-move-reindex',
   'reviewer-downstream-context',
   'rework-limit',
-  'rework-waiver-capture',
   'session-handoff',
   'swe-downstream-context',
   'swe-resume-gate',

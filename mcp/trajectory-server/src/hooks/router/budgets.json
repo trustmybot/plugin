@@ -90,7 +90,7 @@
     },
     "UserPromptSubmit:": {
       "max_budget_ms": 6000,
-      "p99_sum_ms": 2210.3,
+      "p99_sum_ms": 2205.6,
       "group_budget_ms": 6000
     },
     "UserPromptSubmit::persona": {
@@ -963,22 +963,6 @@
       "bench_load_avg": 11.25,
       "transcript_p99": null,
       "reason": "no user-prompt-persona UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
-      "transcript_samples": 0,
-      "transcript_timed_out": 0,
-      "window_days": 14,
-      "floor_ms": 6000,
-      "budget_ms": 6000,
-      "date": "2026-11-01"
-    },
-    "rework-waiver-capture": {
-      "kind": "advisory",
-      "bench_p50": 1.5,
-      "bench_p95": 2.8,
-      "bench_p99": 4.7,
-      "bench_runs": 320,
-      "bench_load_avg": 11.25,
-      "transcript_p99": null,
-      "reason": "no rework-waiver-capture UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
       "transcript_samples": 0,
       "transcript_timed_out": 0,
       "window_days": 14,

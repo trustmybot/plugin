@@ -87,7 +87,7 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 | Decision-audit row required on every `task_create_batch` | 1 |
 | MCP calls include `agent: 'bro'` | 1 |
 | `validation_record` requires `subagent_session_id` | 1 |
-| `discussion_append(author='human')` is refused; only the Human's `waive task <N>` prompt writes Human rows | 1 + 2 |
+| `discussion_append(author='human')` is refused; an agent quotes the Human under its own name | 1 |
 | AUQ shape during roundtable `awaiting_human` | 2 |
 | Roundtable state machine | 1 |
 | Issue-sync default-off + env-var kill-switch | 1 |
