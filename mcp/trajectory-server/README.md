@@ -40,6 +40,22 @@ A repo opts in to a build step for every worktree TMB makes with `.config/tmb/wo
 
 This repo's own file runs `bun run build:payload`.
 
+## Doc checks
+
+Before swe's close runs `verification[]`, `swe-verification-gate` checks the commit for a changelog entry and for docs that still cite a path or tool name the branch removed (GH 2866). A repo tells it where to look with `.config/tmb/doc-checks.json`, read as committed at the worktree HEAD:
+
+```json
+{
+  "version": 1,
+  "changelog_dir": "notes/changes",
+  "doc_paths": ["documentation/**/*.md", "README.md"],
+  "tool_sources": ["tools/*.py"],
+  "tool_name_pattern": "^def cmd_([a-z_]+)\\("
+}
+```
+
+Every key but `version` is optional. `changelog_dir` turns on the changelog check, `doc_paths` the stale-reference check, and `tool_sources` with `tool_name_pattern` (one capture group: the tool name) its removed-tool half. A missing file or key skips that check, and the close says which key to add. An invalid file blocks the close and shows the expected shape. This repo's own file holds the plugin's layout.
+
 ## Test
 
 ```sh

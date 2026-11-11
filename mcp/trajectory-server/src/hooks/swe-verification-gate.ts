@@ -10,7 +10,10 @@
  * stale-doc checks (lib/doc-checks.ts, GH 2866) judge the worktree HEAD against
  * its merge base with the task's PR target and deny with the JSON reason
  * {check, expected, actual}; an unprovable state (a git failure, no PR target
- * ref, no merge base) denies too. A doc-check deny records no verification
+ * ref, no merge base, an invalid .config/tmb/doc-checks.json at HEAD) denies
+ * too. That project file names the changelog directory and doc and tool
+ * globs; with no file or no key a check is skipped, and the allow's
+ * additionalContext names the file and key to add. A doc-check deny records no verification
  * run, so a passing verification_runs row for HEAD means both passed, which
  * swe-atomic-close and code-reviewer-preflight rely on. No waiver or bypass
  * skips them. Then a waive_verification_gate_reason of at least 10 characters
@@ -645,10 +648,32 @@ function waive(db: string, taskId: string, reason: string, field: (key: string) 
 }
 
 /**
- * The changelog and stale-doc checks of the worktree HEAD against its merge base with the task's
- * PR target: the deny when one fails or cannot be proven, else null.
+ * <result> with the doc checks' skip <notes> added to an allow's additionalContext; a deny,
+ * or stdout that is not one hook JSON object, stays as is.
  */
-async function docGate(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
+function withDocNotes(result: GateResult, notes: readonly string[]): GateResult {
+  if (notes.length === 0) return result;
+  const note = `TMB: ${notes.join(' ')}`;
+  const out = result.stdout.trim();
+  if (out === '') return { ...result, stdout: context(note) };
+  let parsed: { hookSpecificOutput?: { permissionDecision?: unknown; additionalContext?: unknown } };
+  try {
+    parsed = JSON.parse(out) as typeof parsed;
+  } catch {
+    return result;
+  }
+  const output = parsed.hookSpecificOutput;
+  if (output === undefined || output.permissionDecision !== undefined) return result;
+  const prior = typeof output.additionalContext === 'string' && output.additionalContext !== '' ? `${output.additionalContext}\n\n` : '';
+  return { ...result, stdout: context(`${prior}${note}`) };
+}
+
+/**
+ * The changelog and stale-doc checks of the worktree HEAD against its merge base with the task's
+ * PR target: the deny when one fails or cannot be proven, else null with each skipped check's
+ * note pushed onto <notes>.
+ */
+async function docGate(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv, notes: string[]): Promise<GateResult | null> {
   const row = gateRead(
     db,
     `SELECT 'row|' || COALESCE(t.parent_branch_id, '') || '|' || COALESCE((SELECT r.target_branch FROM repos r
@@ -671,11 +696,18 @@ async function docGate(db: string, taskId: string, worktree: string, env: NodeJS
   const mergeBase = (await gitText(worktree, ['merge-base', targetTip, head], env)).stdout.trim();
   if (mergeBase === '') return unproven(`${head} shares history with ${targetRef} (${targetTip})`, 'no merge-base');
 
-  const failure = await docChecks(worktree, mergeBase, head, env);
-  return failure === null ? null : structuredDenyResult(failure, RETRY_FIXED);
+  const result = await docChecks(worktree, mergeBase, head, env);
+  if (result.failure !== null) return structuredDenyResult(result.failure, RETRY_FIXED);
+  notes.push(...result.notes);
+  return null;
 }
 
 export const sweVerificationGate: Gate = async (payload, env): Promise<GateResult> => {
+  const docNotes: string[] = [];
+  return withDocNotes(await verifyCompletion(payload, env, docNotes), docNotes);
+};
+
+async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNotes: string[]): Promise<GateResult> {
   const input = `${commandSubstitution(payload)}\n`;
   const field = (key: string): string => commandSubstitution(rawOrEmpty(input, ['tool_input', key]));
   if (normalizeRole(field('agent')) !== 'swe') return ALLOW;
@@ -714,7 +746,7 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
     return { stdout: deny(reason, 'policy'), code: 0 };
   }
 
-  const docDeny = await docGate(db, taskId, worktree, genv);
+  const docDeny = await docGate(db, taskId, worktree, genv, docNotes);
   if (docDeny !== null) return docDeny;
 
   if (waived) return waive(db, taskId, waiver, field, genv);
@@ -831,4 +863,4 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
     if (lock !== '') removeQuietly(lock);
     removeQuietly(scratch);
   }
-};
+}

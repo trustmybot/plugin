@@ -10,6 +10,9 @@
  * Last the changelog and stale-doc checks (GH 2866) on a linked worktree: one
  * deny and one allow per check, each deny recording no run, and neither the
  * reuse of a passing run, the waiver nor the preflight bypass skipping them.
+ * Their paths come from the project's .config/tmb/doc-checks.json at HEAD: an
+ * invalid file denies, an absent file or key skips with a note, and a temp
+ * project with another layout (decision 3334) gets both checks from its own file.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,6 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { BYPASS_ENV as PREFLIGHT_BYPASS_ENV } from '../hooks/code-reviewer-preflight.js';
+import { DOC_CHECKS_FILE, DOC_CHECKS_SHAPE } from '../hooks/lib/doc-checks.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
 import {
@@ -155,8 +159,12 @@ describe('swe-verification-gate without jq or the sqlite3 CLI (decision 703)', (
     assert.equal(out.permissionDecision, 'deny');
     assert.match(out.permissionDecisionReason ?? '', /^BLOCKED: verification failed\.\nFailing command \(2\/2\): /);
   });
-  it('allows a passing run and records it', async () => {
-    assert.deepEqual(await sweVerificationGate(completion(30), env()), ALLOWED);
+  it('allows a passing run and records it, noting the doc checks a project without doc-checks.json skips', async () => {
+    const r = await sweVerificationGate(completion(30), env());
+    assert.equal(r.code, 0);
+    const out = decision(r.stdout);
+    assert.equal(out.permissionDecision, undefined);
+    assert.match(out.additionalContext ?? '', /^TMB: missing_changelog and stale_doc_ref skipped: no \.config\/tmb\/doc-checks\.json at /);
     const db = new DatabaseSync(join(s, 'project/.claude/tmb/trajectory.db'), { readOnly: true });
     try {
       const run = db.prepare("SELECT exit_code, timed_out FROM verification_runs WHERE task_id = 30 AND source = 'gate'").get() as { exit_code: number; timed_out: number };
@@ -227,6 +235,8 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
       mkdirSync(join(wt, 'tests'), { recursive: true });
       writeFileSync(join(wt, 'tests/run-all.sh'), RUN_ALL);
       writeFileSync(join(wt, 'probe.test.js'), "import test from 'node:test';\ntest('probe', () => {});\n");
+      mkdirSync(dirname(join(wt, DOC_CHECKS_FILE)), { recursive: true });
+      writeFileSync(join(wt, DOC_CHECKS_FILE), readFileSync(join(PLUGIN_ROOT, DOC_CHECKS_FILE)));
       git(wt, ['init', '-q']);
       git(wt, ['add', '.']);
       git(wt, ['commit', '-q', '-m', t.slug]);
@@ -390,6 +400,7 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
     'mcp/srv/src/tools/t.ts': "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n  {\n    name: 'old_tool',\n  },\n];\n",
     'changelog.d/README.md': 'One file per change.\n',
     'src/a.txt': 'one\ntwo\nthree\n',
+    [DOC_CHECKS_FILE]: readFileSync(join(PLUGIN_ROOT, DOC_CHECKS_FILE), 'utf8'),
   };
 
   interface Fixture {
@@ -551,7 +562,7 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
       f.commit('drop old_tool');
       const d = await denial(f);
       assert.equal(d.check, 'stale_doc_ref');
-      assert.match(d.actual ?? '', /skills\/s\/SKILL\.md mentions removed MCP tool 'old_tool'/);
+      assert.match(d.actual ?? '', /skills\/s\/SKILL\.md mentions removed tool 'old_tool'/);
     });
 
     it('allows a deletion and a tool removal once the docs drop them', async () => {
@@ -705,6 +716,168 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
       assert.equal(d.check, 'stale_doc_ref');
       assert.equal(d.actual, 'no merge-base');
       assert.equal(runCount(f), 0);
+    });
+  });
+
+  /** The additionalContext of an allow, after checking it is no deny. */
+  async function allowNote(f: Fixture): Promise<string> {
+    const r = await close(f);
+    assert.equal(r.code, 0);
+    const out = decision(r.stdout);
+    assert.equal(out.permissionDecision, undefined, out.permissionDecisionReason);
+    return out.additionalContext ?? '';
+  }
+
+  describe(`the project's ${DOC_CHECKS_FILE}`, () => {
+    const withConfig = (config: string): Record<string, string> => ({ ...BASE_FILES, [DOC_CHECKS_FILE]: config });
+
+    for (const [name, config, actual] of [
+      ['not JSON', '{"version":1,', /not valid JSON/],
+      ['an unknown key', '{"version":1,"doc_path":["docs/**/*.md"]}', /unknown key\(s\) doc_path/],
+      ['another version', '{"version":2}', /version must be 1, got 2/],
+      ['a changelog_dir outside the repo', '{"version":1,"changelog_dir":"../notes"}', /changelog_dir must be a repo-relative directory/],
+      ['an empty doc_paths', '{"version":1,"doc_paths":[]}', /doc_paths must be a non-empty array/],
+      ['a tool_name_pattern with no capture group', '{"version":1,"tool_name_pattern":"name: \\\\w+"}', /exactly one capture group, has 0/],
+      ['a tool_name_pattern that does not compile', '{"version":1,"tool_name_pattern":"(a"}', /not a valid regex/],
+    ] as const) {
+      it(`denies ${name}, naming the file and its shape, and records no run`, async () => {
+        const f = fixture(withConfig(config));
+        featureCommit(f);
+        const d = await denial(f);
+        assert.equal(d.check, 'doc_checks_config');
+        assert.ok(d.expected?.includes(DOC_CHECKS_FILE), d.expected ?? '');
+        assert.ok(d.expected?.includes(DOC_CHECKS_SHAPE), d.expected ?? '');
+        assert.match(d.actual ?? '', actual);
+        assert.equal(runCount(f), 0);
+      });
+    }
+
+    it('skips both checks with a note for each key a version-only file leaves out', async () => {
+      const f = fixture(withConfig('{"version":1}'));
+      f.git('rm', '-q', 'scripts/old.sh');
+      f.commit('drop old.sh with no fragment');
+      const note = await allowNote(f);
+      assert.match(note, /missing_changelog skipped: \.config\/tmb\/doc-checks\.json sets no "changelog_dir"\./);
+      assert.match(note, /stale_doc_ref skipped: \.config\/tmb\/doc-checks\.json sets no "doc_paths"\./);
+      assert.equal(runCount(f), 1);
+    });
+
+    it('skips only the tool-name half when the tool keys are absent', async () => {
+      const files = withConfig('{"version":1,"changelog_dir":"changelog.d","doc_paths":["skills/**/*.md"]}');
+      files['skills/s/SKILL.md'] = 'Call `old_tool`.\n';
+      const f = fixture(files);
+      featureCommit(f);
+      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
+      f.commit('drop old_tool');
+      const note = await allowNote(f);
+      assert.match(note, /stale_doc_ref's removed-tool-name half skipped: \.config\/tmb\/doc-checks\.json sets no "tool_sources" or "tool_name_pattern"\./);
+      assert.doesNotMatch(note, /missing_changelog/);
+    });
+
+    it('adds the note to the allow that already carries context', async () => {
+      const files = { ...BASE_FILES };
+      delete files[DOC_CHECKS_FILE];
+      const f = fixture(files);
+      featureCommit(f);
+      const d = new DatabaseSync(f.db);
+      d.prepare("UPDATE tasks SET verification = '[]' WHERE id = ?").run(TASK_ID);
+      d.close();
+      const note = await allowNote(f);
+      assert.match(note, /task has no typed verification\[\]/);
+      assert.match(note, /missing_changelog and stale_doc_ref skipped: no \.config\/tmb\/doc-checks\.json at [0-9a-f]{40}/);
+    });
+
+    it('reads the file at HEAD, never from the working tree', async () => {
+      const f = fixture();
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature without fragment');
+      f.write(DOC_CHECKS_FILE, '{"version":1}');
+      assert.equal((await denial(f)).check, 'missing_changelog');
+    });
+  });
+
+  describe('a project that is not the plugin repo (decision 3334)', () => {
+    const CONFIG = JSON.stringify({
+      version: 1,
+      changelog_dir: 'notes/changes/',
+      doc_paths: ['documentation/**/*.md'],
+      tool_sources: ['tools/*.py'],
+      tool_name_pattern: '^def cmd_([a-z_]+)\\(',
+    });
+    const PROJECT_FILES: Record<string, string> = {
+      'README.md': 'Start with documentation/setup.md, which runs scripts/legacy.sh.\n',
+      'documentation/setup.md': 'Run `scripts/legacy.sh` once.\n',
+      'documentation/commands/list.md': 'Commands: `keep_it`, `old_one`.\n',
+      'scripts/legacy.sh': 'echo legacy\n',
+      'tools/commands.py': 'def cmd_keep_it(args):\n    pass\n\ndef cmd_old_one(args):\n    pass\n',
+      'notes/changes/README.md': 'One note per change.\n',
+      'src/a.txt': 'one\ntwo\nthree\n',
+      [DOC_CHECKS_FILE]: CONFIG,
+    };
+
+    function change(f: Fixture, withNote = true): void {
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      if (withNote) f.write('notes/changes/3-x.md', '- x\n');
+    }
+
+    it('has no changelog.d/ and no docs/', () => {
+      const f = fixture(PROJECT_FILES);
+      assert.equal(f.git('ls-tree', '-d', '--name-only', 'HEAD', '--', 'changelog.d', 'docs'), '');
+    });
+
+    it('allows a change with its note under notes/changes/', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f);
+      f.commit('feature');
+      await assertAllowed(f);
+      assert.equal(runCount(f), 1);
+    });
+
+    it('denies a change with no file under notes/changes/', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f, false);
+      f.commit('feature without a note');
+      const d = await denial(f);
+      assert.equal(d.check, 'missing_changelog');
+      assert.equal(d.actual, 'no file added under notes/changes/');
+      assert.equal(runCount(f), 0);
+    });
+
+    it('denies a deleted path documentation/ still names, counting no README.md outside doc_paths', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f);
+      f.git('rm', '-q', 'scripts/legacy.sh');
+      f.commit('drop legacy.sh');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.equal(d.actual, "documentation/setup.md mentions removed path 'scripts/legacy.sh'");
+
+      f.write('documentation/setup.md', 'Nothing to run once.\n');
+      f.commit('drop the setup step');
+      await assertAllowed(f);
+    });
+
+    it('denies a command its tool_name_pattern no longer finds that documentation/ still names', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f);
+      f.write('tools/commands.py', 'def cmd_keep_it(args):\n    pass\n');
+      f.commit('drop old_one');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.equal(d.actual, "documentation/commands/list.md mentions removed tool 'old_one'");
+    });
+
+    it('with no config file skips both checks with the note, and the close passes', async () => {
+      const files = { ...PROJECT_FILES };
+      delete files[DOC_CHECKS_FILE];
+      const f = fixture(files);
+      change(f, false);
+      f.git('rm', '-q', 'scripts/legacy.sh');
+      f.commit('drop legacy.sh with no note');
+      const note = await allowNote(f);
+      assert.ok(note.includes(`missing_changelog and stale_doc_ref skipped: no ${DOC_CHECKS_FILE} at `), note);
+      assert.ok(note.includes(DOC_CHECKS_SHAPE), note);
+      assert.equal(runCount(f), 1);
     });
   });
 });

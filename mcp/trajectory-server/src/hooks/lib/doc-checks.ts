@@ -1,22 +1,26 @@
 /**
  * The changelog and stale-doc checks of a commit against its merge base with the
- * PR target (GH 2866), which swe-verification-gate runs before a swe completion:
+ * PR target (GH 2866), which swe-verification-gate runs before a swe completion.
+ * Where they look is the project's own: DOC_CHECKS_FILE as committed at the
+ * checked commit (the working tree never counts) names it.
  *
- *   stale_doc_ref      no path the diff (merge-base..commit) deletes or renames, and no MCP
- *                      tool name it drops from mcp/<server>/src/tools/, appears in the
- *                      agents/, skills/, docs/ *.md, CLAUDE.md or README.md at the commit;
+ *   stale_doc_ref      no path the diff (merge-base..commit) deletes or renames, and no tool
+ *                      name it drops from a tool_sources file (group 1 of each
+ *                      tool_name_pattern match), appears in a doc_paths file at the commit;
  *                      a removed path the commit's own .gitignore files ignore is untracked
  *                      build output, not removed (GH 2054)
- *   missing_changelog  with a changelog.d/, the diff adds a file under it
+ *   missing_changelog  with a changelog_dir at the base or the commit, the diff adds a file under it
  *
- * A git failure fails the check it was proving.
+ * No file skips both checks, and an absent key skips its check (the tool-name half
+ * needs both tool keys); each skip comes back as a note for the allow. An invalid
+ * file fails as doc_checks_config, and a git failure fails the check it was proving.
  */
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, matchesGlob } from 'node:path';
 import { gitSpawn } from './git.js';
 
-export type DocCheck = 'stale_doc_ref' | 'missing_changelog';
+export type DocCheck = 'stale_doc_ref' | 'missing_changelog' | 'doc_checks_config';
 
 export interface DocCheckFailure {
   check: DocCheck;
@@ -24,12 +28,30 @@ export interface DocCheckFailure {
   actual: string | null;
 }
 
+export const DOC_CHECKS_FILE = '.config/tmb/doc-checks.json';
+export const DOC_CHECKS_SHAPE =
+  '{"version":1,"changelog_dir":"<dir>","doc_paths":["<glob>",...],"tool_sources":["<glob>",...],"tool_name_pattern":"<regex with one capture group>"}';
+const CONFIG_KEYS = new Set(['version', 'changelog_dir', 'doc_paths', 'tool_sources', 'tool_name_pattern']);
+
+export interface DocChecksConfig {
+  changelogDir: string | null;
+  docPaths: string[] | null;
+  tools: ToolRule | null;
+  skipped: string[];
+}
+
+interface ToolRule {
+  sources: string[];
+  name: RegExp;
+}
+
+export interface DocChecksResult {
+  failure: DocCheckFailure | null;
+  notes: string[];
+}
+
 const GIT_TIMEOUT_MS = 10_000;
 const MAX_LISTED = 10;
-const DOC_PATH = /^(?:(?:agents|skills|docs)\/.*\.md|CLAUDE\.md|README\.md)$/;
-const TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
-const TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
-const CHANGELOG_DIR = 'changelog.d';
 const GITIGNORE = /(?:^|\/)\.gitignore$/;
 const REPO_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_NAMESPACE'];
 
@@ -101,11 +123,107 @@ async function readBlobs(repo: string, oids: readonly string[], env: NodeJS.Proc
   return contents;
 }
 
-function toolNames(blobs: Map<string, string>, contents: Map<string, string>): Set<string> {
+function matchesAny(path: string, globs: readonly string[]): boolean {
+  return globs.some((glob) => matchesGlob(path, glob));
+}
+
+function isGlobList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every((g) => typeof g === 'string' && g.trim() !== '');
+}
+
+/** A repo-relative directory without trailing slashes, or null when <value> is none. */
+function repoDir(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const dir = value.replace(/\/+$/, '');
+  if (dir === '' || dir.startsWith('/') || dir.split('/').some((s) => s === '' || s === '.' || s === '..')) return null;
+  return dir;
+}
+
+function captureGroups(pattern: string): number {
+  return (new RegExp(`${pattern}|`).exec('') ?? []).length - 1;
+}
+
+function skipNote(check: string, keys: string): string {
+  return `${check} skipped: ${DOC_CHECKS_FILE} sets no ${keys}.`;
+}
+
+/** The checks <text> configures, or why it is invalid. */
+export function parseDocChecksConfig(text: string): DocChecksConfig | { error: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    return { error: `not valid JSON: ${(e as Error).message}` };
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'not a JSON object' };
+  const raw = parsed as Record<string, unknown>;
+  const unknownKeys = Object.keys(raw).filter((k) => !CONFIG_KEYS.has(k));
+  if (unknownKeys.length > 0) return { error: `unknown key(s) ${unknownKeys.join(', ')}` };
+  if (raw.version !== 1) return { error: `version must be 1, got ${JSON.stringify(raw.version) ?? 'none'}` };
+
+  const changelogDir = raw.changelog_dir === undefined ? null : repoDir(raw.changelog_dir);
+  if (raw.changelog_dir !== undefined && changelogDir === null) {
+    return { error: 'changelog_dir must be a repo-relative directory, without . or .. segments' };
+  }
+  for (const key of ['doc_paths', 'tool_sources'] as const) {
+    if (raw[key] !== undefined && !isGlobList(raw[key])) return { error: `${key} must be a non-empty array of non-empty glob strings` };
+  }
+  let name: RegExp | null = null;
+  const pattern = raw.tool_name_pattern;
+  if (pattern !== undefined) {
+    if (typeof pattern !== 'string' || pattern === '') return { error: 'tool_name_pattern must be a non-empty regex string' };
+    try {
+      name = new RegExp(pattern, 'gm');
+    } catch (e) {
+      return { error: `tool_name_pattern is not a valid regex: ${(e as Error).message}` };
+    }
+    const groups = captureGroups(pattern);
+    if (groups !== 1) return { error: `tool_name_pattern must have exactly one capture group, has ${groups}` };
+  }
+
+  const docPaths = (raw.doc_paths as string[] | undefined) ?? null;
+  const sources = (raw.tool_sources as string[] | undefined) ?? null;
+  const skipped: string[] = [];
+  if (changelogDir === null) skipped.push(skipNote('missing_changelog', '"changelog_dir"'));
+  if (docPaths === null) {
+    skipped.push(skipNote('stale_doc_ref', '"doc_paths"'));
+  } else if (sources === null || name === null) {
+    const missing = [sources === null ? '"tool_sources"' : '', name === null ? '"tool_name_pattern"' : ''].filter(Boolean).join(' or ');
+    skipped.push(skipNote("stale_doc_ref's removed-tool-name half", missing));
+  }
+  const tools = sources !== null && name !== null ? { sources, name } : null;
+  return { changelogDir, docPaths, tools, skipped };
+}
+
+/** DOC_CHECKS_FILE at <commit>: its config, null when the commit has none, or the failure that denies. */
+async function readDocChecksConfig(
+  repo: string,
+  commit: string,
+  env: NodeJS.ProcessEnv,
+): Promise<{ config: DocChecksConfig | null } | { failure: DocCheckFailure }> {
+  const invalid = (actual: string) => ({
+    failure: { check: 'doc_checks_config' as const, expected: `${DOC_CHECKS_FILE} at ${commit} is absent or matches ${DOC_CHECKS_SHAPE}`, actual },
+  });
+  const entry = await gitText(repo, ['ls-tree', '-z', commit, '--', DOC_CHECKS_FILE], env);
+  if (entry.code !== 0) return invalid(`git ls-tree failed: ${entry.stderr.trim()}`);
+  const fields = nulFields(entry.stdout);
+  if (fields.length === 0) return { config: null };
+  const [, type, oid] = fields[0].slice(0, fields[0].indexOf('\t')).split(' ');
+  if (type !== 'blob') return invalid(`${DOC_CHECKS_FILE} is a ${type}, not a file`);
+  const contents = await readBlobs(repo, [oid], env);
+  const text = contents?.get(oid);
+  if (text === undefined) return invalid(`git cat-file of ${DOC_CHECKS_FILE} failed`);
+  const parsed = parseDocChecksConfig(text);
+  return 'error' in parsed ? invalid(parsed.error) : { config: parsed };
+}
+
+function toolNames(blobs: Map<string, string>, contents: Map<string, string>, tools: ToolRule): Set<string> {
   const names = new Set<string>();
   for (const [path, oid] of blobs) {
-    if (!TOOL_SOURCE.test(path) || path.includes('/test/')) continue;
-    for (const m of (contents.get(oid) ?? '').matchAll(TOOL_NAME)) names.add(m[1]);
+    if (!matchesAny(path, tools.sources)) continue;
+    for (const m of (contents.get(oid) ?? '').matchAll(tools.name)) {
+      if (m[1] !== undefined && m[1] !== '') names.add(m[1]);
+    }
   }
   return names;
 }
@@ -134,7 +252,13 @@ interface Removed {
   tools: string[];
 }
 
-async function removedInDiff(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Promise<Removed | string> {
+async function removedInDiff(
+  repo: string,
+  base: string,
+  commit: string,
+  tools: ToolRule | null,
+  env: NodeJS.ProcessEnv,
+): Promise<Removed | string> {
   const diff = await gitText(repo, ['diff', '--no-ext-diff', '--name-status', '-z', '-M', base, commit], env);
   if (diff.code !== 0) return `git diff ${base}..${commit} failed: ${diff.stderr.trim()}`;
   const fields = nulFields(diff.stdout);
@@ -146,19 +270,18 @@ async function removedInDiff(repo: string, base: string, commit: string, env: No
     const from = fields[i + 1];
     const to = renamed ? fields[i + 2] : from;
     i += renamed ? 3 : 2;
-    if (TOOL_SOURCE.test(from) || TOOL_SOURCE.test(to)) touchesTools = true;
+    if (tools !== null && (matchesAny(from, tools.sources) || matchesAny(to, tools.sources))) touchesTools = true;
     if (status === 'D' || status.startsWith('R')) paths.push(from);
   }
-  if (!touchesTools) return { paths, tools: [] };
+  if (tools === null || !touchesTools) return { paths, tools: [] };
   const before = await treeBlobs(repo, base, env);
   const after = await treeBlobs(repo, commit, env);
   if (!before || !after) return `git ls-tree of ${base} or ${commit} failed`;
-  const sources = (blobs: Map<string, string>) =>
-    [...blobs].filter(([p]) => TOOL_SOURCE.test(p) && !p.includes('/test/')).map(([, oid]) => oid);
+  const sources = (blobs: Map<string, string>) => [...blobs].filter(([p]) => matchesAny(p, tools.sources)).map(([, oid]) => oid);
   const contents = await readBlobs(repo, [...new Set([...sources(before), ...sources(after)])], env);
   if (!contents) return 'git cat-file of the tool sources failed';
-  const kept = toolNames(after, contents);
-  return { paths, tools: [...toolNames(before, contents)].filter((t) => !kept.has(t)).sort() };
+  const kept = toolNames(after, contents, tools);
+  return { paths, tools: [...toolNames(before, contents, tools)].filter((t) => !kept.has(t)).sort() };
 }
 
 /**
@@ -200,8 +323,15 @@ async function ignoredByTree(
   }
 }
 
-async function staleDocRefs(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Promise<string[] | string> {
-  const removed = await removedInDiff(repo, base, commit, env);
+async function staleDocRefs(
+  repo: string,
+  base: string,
+  commit: string,
+  docPaths: readonly string[],
+  tools: ToolRule | null,
+  env: NodeJS.ProcessEnv,
+): Promise<string[] | string> {
+  const removed = await removedInDiff(repo, base, commit, tools, env);
   if (typeof removed === 'string') return removed;
   if (removed.paths.length === 0 && removed.tools.length === 0) return [];
   const blobs = await treeBlobs(repo, commit, env);
@@ -209,10 +339,10 @@ async function staleDocRefs(repo: string, base: string, commit: string, env: Nod
   const ignored = await ignoredByTree(repo, blobs, removed.paths, env);
   if (ignored) removed.paths = removed.paths.filter((p) => !ignored.has(p));
   if (removed.paths.length === 0 && removed.tools.length === 0) return [];
-  const docs = [...blobs].filter(([p]) => DOC_PATH.test(p)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const docs = [...blobs].filter(([p]) => matchesAny(p, docPaths)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const contents = await readBlobs(repo, docs.map(([, oid]) => oid), env);
   if (!contents) return 'git cat-file of the docs failed';
-  const tools = removed.tools.map((t) => ({ t, re: toolPattern(t) }));
+  const toolNamePatterns = removed.tools.map((t) => ({ t, re: toolPattern(t) }));
   const paths = removed.paths.map((p) => ({ p, re: pathPattern(p) }));
   const hits: string[] = [];
   for (const [doc, oid] of docs) {
@@ -222,48 +352,76 @@ async function staleDocRefs(repo: string, base: string, commit: string, env: Nod
       const local = dir !== '' && p.startsWith(`${dir}/`) ? pathPattern(p.slice(dir.length + 1)) : null;
       if (re.test(text) || local?.test(text)) hits.push(`${doc} mentions removed path '${p}'`);
     }
-    for (const { t, re } of tools) {
-      if (re.test(text)) hits.push(`${doc} mentions removed MCP tool '${t}'`);
+    for (const { t, re } of toolNamePatterns) {
+      if (re.test(text)) hits.push(`${doc} mentions removed tool '${t}'`);
     }
   }
   return hits;
 }
 
-/** Whether <rev> has a changelog.d/; null when git cannot tell. */
-async function hasChangelogDir(repo: string, rev: string, env: NodeJS.ProcessEnv): Promise<boolean | null> {
-  const r = await gitText(repo, ['ls-tree', '-d', '--name-only', rev, '--', CHANGELOG_DIR], env);
+/** Whether <rev> has the directory <dir>; null when git cannot tell. */
+async function hasDir(repo: string, rev: string, dir: string, env: NodeJS.ProcessEnv): Promise<boolean | null> {
+  const r = await gitText(repo, ['ls-tree', '-d', '--name-only', rev, '--', dir], env);
   if (r.code !== 0) return null;
   return r.stdout.trim() !== '';
 }
 
-/** The first doc check <base>..<commit> fails in <repo>, or null when both pass. */
-export async function docChecks(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Promise<DocCheckFailure | null> {
-  const stale = await staleDocRefs(repo, base, commit, env);
-  if (typeof stale === 'string' || stale.length > 0) {
-    return {
-      check: 'stale_doc_ref',
-      expected: `no agents/, skills/, docs/ *.md, CLAUDE.md or README.md at ${commit} mentions a path or MCP tool that ${base}..${commit} removes`,
-      actual: typeof stale === 'string' ? stale : listed(stale),
-    };
-  }
-
-  const atCommit = await hasChangelogDir(repo, commit, env);
-  const atBase = await hasChangelogDir(repo, base, env);
+async function missingChangelog(repo: string, base: string, commit: string, dir: string, env: NodeJS.ProcessEnv): Promise<DocCheckFailure | null> {
+  const expected = `${base}..${commit} adds a file under ${dir}/`;
+  const atCommit = await hasDir(repo, commit, dir, env);
+  const atBase = await hasDir(repo, base, dir, env);
   if (atCommit === null || atBase === null) {
-    return {
-      check: 'missing_changelog',
-      expected: `${base}..${commit} adds a file under ${CHANGELOG_DIR}/`,
-      actual: `git ls-tree of ${base} or ${commit} failed`,
-    };
+    return { check: 'missing_changelog', expected, actual: `git ls-tree of ${base} or ${commit} failed` };
   }
   if (!atCommit && !atBase) return null;
-  const added = await gitText(repo, ['diff', '--no-ext-diff', '--name-only', '--no-renames', '--diff-filter=A', base, commit, '--', `${CHANGELOG_DIR}/`], env);
+  const added = await gitText(
+    repo,
+    ['diff', '--no-ext-diff', '--name-only', '--no-renames', '--diff-filter=A', base, commit, '--', `:(literal)${dir}/`],
+    env,
+  );
   if (added.code !== 0 || added.stdout.trim() === '') {
     return {
       check: 'missing_changelog',
-      expected: `${base}..${commit} adds a file under ${CHANGELOG_DIR}/`,
-      actual: added.code !== 0 ? `git diff failed: ${added.stderr.trim()}` : `no file added under ${CHANGELOG_DIR}/`,
+      expected,
+      actual: added.code !== 0 ? `git diff failed: ${added.stderr.trim()}` : `no file added under ${dir}/`,
     };
   }
   return null;
+}
+
+/**
+ * The first doc check <base>..<commit> fails in <repo> under DOC_CHECKS_FILE at <commit>,
+ * else no failure and a note per check the file leaves unconfigured.
+ */
+export async function docChecks(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Promise<DocChecksResult> {
+  const read = await readDocChecksConfig(repo, commit, env);
+  if ('failure' in read) return { failure: read.failure, notes: [] };
+  const { config } = read;
+  if (config === null) {
+    return {
+      failure: null,
+      notes: [`missing_changelog and stale_doc_ref skipped: no ${DOC_CHECKS_FILE} at ${commit}; commit one shaped ${DOC_CHECKS_SHAPE} to run them.`],
+    };
+  }
+
+  if (config.docPaths !== null) {
+    const stale = await staleDocRefs(repo, base, commit, config.docPaths, config.tools, env);
+    if (typeof stale === 'string' || stale.length > 0) {
+      const what = config.tools === null ? 'a path' : 'a path or tool name';
+      return {
+        failure: {
+          check: 'stale_doc_ref',
+          expected: `no file matching ${config.docPaths.join(', ')} at ${commit} mentions ${what} that ${base}..${commit} removes`,
+          actual: typeof stale === 'string' ? stale : listed(stale),
+        },
+        notes: [],
+      };
+    }
+  }
+
+  if (config.changelogDir !== null) {
+    const failure = await missingChangelog(repo, base, commit, config.changelogDir, env);
+    if (failure !== null) return { failure, notes: [] };
+  }
+  return { failure: null, notes: config.skipped };
 }
