@@ -726,6 +726,20 @@
       "stdout": ""
     }
   },
+  "generic/allow-i-stash-list.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-i-stash-show.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
   "generic/allow-no-db-edit-outside.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
@@ -962,6 +976,48 @@
       "audit": [],
       "code": 0,
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: write target \\\"$OUT\\\" cannot be judged: depends on a variable the guard cannot resolve in this command. Allowed form: the same command with the path inlined, or with the variable set in the same command\"}}\n"
+    }
+  },
+  "generic/deny-i-stash-apply-after-cd.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session's work. Read-only `git stash list` and `git stash show` are allowed. Allowed form: a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside\"}}\n"
+    }
+  },
+  "generic/deny-i-stash-bare.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session's work. Read-only `git stash list` and `git stash show` are allowed. Allowed form: a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside\"}}\n"
+    }
+  },
+  "generic/deny-i-stash-code-reviewer-dash-c-save.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session's work. Read-only `git stash list` and `git stash show` are allowed. Allowed form: a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside\"}}\n"
+    }
+  },
+  "generic/deny-i-stash-code-reviewer-pop.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session's work. Read-only `git stash list` and `git stash show` are allowed. Allowed form: a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside\"}}\n"
+    }
+  },
+  "generic/deny-i-stash-pop.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session's work. Read-only `git stash list` and `git stash show` are allowed. Allowed form: a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside\"}}\n"
+    }
+  },
+  "generic/deny-i-stash-variable-verb.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session's work. Read-only `git stash list` and `git stash show` are allowed. Allowed form: a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside\"}}\n"
     }
   },
   "generic/deny-loop-back-edge-for.json": {
