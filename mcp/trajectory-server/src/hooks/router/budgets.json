@@ -523,7 +523,7 @@
       "date": "2026-11-02"
     },
     "wm-read-before-provision": {
-      "kind": "advisory",
+      "kind": "enforcement",
       "bench_p50": 2.6,
       "bench_p95": 10.1,
       "bench_p99": 12.5,
