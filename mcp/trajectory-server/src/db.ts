@@ -15,7 +15,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 68;
+export const TARGET_SCHEMA_VERSION = 69;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -840,6 +840,8 @@ function runMigrations(
   if (fromVersion < 67 && toVersion >= 67) migrateV66toV67(db);
   // v67→v68: validation_attempts.probes_json, the checks a reviewer ran (GH 2866)
   if (fromVersion < 68 && toVersion >= 68) migrateV67toV68(db);
+  // v68→v69: lint_runs and lint_run_results, the close-lint record (GH 2570)
+  if (fromVersion < 69 && toVersion >= 69) migrateV68toV69(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3520,6 +3522,52 @@ function migrateV67toV68(db: DatabaseSync): void {
     if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'probes_json')) {
       db.exec('ALTER TABLE validation_attempts ADD COLUMN probes_json TEXT');
     }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v68→v69: the close-lint record (GH 2570). Adds lint_runs(task → tasks ON
+// DELETE CASCADE, commit_sha, base_sha, fingerprint, source gate|integrate,
+// started_at, finished_at, exit_code, created_at) with an index on (task_id,
+// commit_sha, finished_at), and lint_run_results(run → lint_runs ON DELETE
+// CASCADE, ordinal, name, exit_code, elapsed_s, output_tail, PK(run_id,
+// ordinal)). New tables only; no backfill. A re-run is a no-op.
+function migrateV68toV69(db: DatabaseSync): void {
+  if (!tableExists(db, 'tasks')) return;
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS lint_runs (
+        id           INTEGER PRIMARY KEY,
+        task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        commit_sha   TEXT    NOT NULL,
+        base_sha     TEXT    NOT NULL,
+        fingerprint  TEXT    NOT NULL,
+        source       TEXT    NOT NULL CHECK (source IN ('gate','integrate')),
+        started_at   TEXT    NOT NULL,
+        finished_at  TEXT,
+        exit_code    INTEGER,
+        created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+      );
+      CREATE INDEX IF NOT EXISTS idx_lint_runs_task_commit
+        ON lint_runs(task_id, commit_sha, finished_at);
+      CREATE TABLE IF NOT EXISTS lint_run_results (
+        run_id       INTEGER NOT NULL REFERENCES lint_runs(id) ON DELETE CASCADE,
+        ordinal      INTEGER NOT NULL,
+        name         TEXT    NOT NULL,
+        exit_code    INTEGER,
+        elapsed_s    REAL,
+        output_tail  TEXT,
+        PRIMARY KEY (run_id, ordinal)
+      );
+    `);
     commitTransaction(db);
   } catch (err) {
     try {

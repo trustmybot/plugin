@@ -667,6 +667,46 @@ describe('cli.js integrate', () => {
     });
   });
 
+  // Close lints (GH 2570): main commits .config/tmb/close-lints.json, so the
+  // rebased commit runs its lints after verification[].
+  describe('close lints', () => {
+    function setupWithCloseLints(command: string): void {
+      setup('clean');
+      mkdirSync(join(repo, '.config/tmb'), { recursive: true });
+      writeFileSync(join(repo, '.config/tmb/close-lints.json'), JSON.stringify({ version: 1, lints: [{ name: 'probe', command }], fingerprint_inputs: ['*.txt'] }));
+      git('add', '.config/tmb/close-lints.json');
+      git('commit', '-qm', 'chore: close lints');
+    }
+    const lintRuns = (): string =>
+      q(
+        "SELECT r.task_id, r.commit_sha, r.base_sha, r.source, r.exit_code, (SELECT group_concat(name || '=' || exit_code, ',') FROM (SELECT name, exit_code FROM lint_run_results WHERE run_id = r.id ORDER BY ordinal)) FROM lint_runs r ORDER BY r.id",
+      );
+
+    it('records an integrate lint run on the rebased SHA and moves the branch when the lints pass', () => {
+      setupWithCloseLints('test -f a.txt && test -f m.txt');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      const next = r.out;
+      assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
+      assert.equal(lintRuns(), `1|${next}|${rev('main')}|integrate|0|probe=0`);
+      assertNoTempWorktree();
+    });
+
+    it('a failing close lint exits 1, names the lint, records the failing run and leaves the branch unmoved', () => {
+      setupWithCloseLints('echo integrate-lint-broke; exit 6');
+      const r = integrate('main');
+      assert.equal(r.code, 1, r.err);
+      assert.equal(r.out, '', 'nothing on stdout');
+      assert.match(r.err, /Lint probe exited 6\.\nOutput \(last 15 lines\):\nintegrate-lint-broke/);
+      assert.match(r.err, /close lints failed on [0-9a-f]{40} \(lint run #1\); feat\/x-1 unmoved/);
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assert.match(lintRuns(), /^1\|[0-9a-f]{40}\|[0-9a-f]{40}\|integrate\|6\|probe=6$/);
+      assert.notEqual(lintRuns().split('|')[1], commit, 'the run is on the rebased SHA');
+      assertNotIntegrated();
+      assertNoTempWorktree();
+    });
+  });
+
   // Patch-ids over every path (GH 2054). src/s.txt and gen/out.txt each hold
   // l1..l7; the task changes l4 of both, then main moves:
   //   drift     — l2 of src/s.txt (merges cleanly, but the task's patch context changes)

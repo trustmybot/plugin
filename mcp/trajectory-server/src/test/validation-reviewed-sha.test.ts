@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { TrajectoryDB } from '../db.js';
 import { agentSpawnDispatch } from '../hooks/agent-spawn-dispatch.js';
+import { closeLintsPlan } from '../hooks/lib/close-lints.js';
 import { ALLOW, type Gate } from '../hooks/gate.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { FROM_NODE, recordReviewerSpawn, reviewerSpawnAnchors } from '../hooks/record-reviewer-spawn.js';
@@ -167,7 +168,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
       tip: string;
     }
 
-    function fixture(recordedSha: 'tip' | 'other'): Fixture {
+    async function fixture(recordedSha: 'tip' | 'other'): Promise<Fixture> {
       const root = caseDir();
       const repo = join(root, 'repo');
       const db = join(root, '.claude/tmb/trajectory.db');
@@ -198,6 +199,18 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
       w.prepare(
         "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (?, ?, 'gate', ?, ?, 0, 600, 0)",
       ).run(TASK_ID, recorded, NOW, NOW);
+      if (recordedSha === 'tip') {
+        const plan = await closeLintsPlan(repo, tip, env);
+        if (typeof plan === 'string') assert.fail(plan);
+        w.prepare("INSERT INTO lint_runs (task_id, commit_sha, base_sha, fingerprint, source, started_at, finished_at, exit_code) VALUES (?, ?, ?, ?, 'gate', ?, ?, 0)").run(
+          TASK_ID,
+          tip,
+          git('merge-base', 'dev', tip),
+          plan.fingerprint,
+          NOW,
+          NOW,
+        );
+      }
       w.close();
       return { db, env, tip };
     }
@@ -211,7 +224,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
     });
 
     it('an allowed code-reviewer spawn writes exactly one row with {task_id, attempt_n, commit_sha}', async () => {
-      const f = fixture('tip');
+      const f = await fixture('tip');
       const result = await agentSpawnDispatch(spawnPayload(reviewerPrompt(2, f.tip)), f.env, find);
       assert.deepEqual(result, ALLOW);
       const rows = spawnRows(f.db);
@@ -222,7 +235,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
     });
 
     it('a spawn the preflight denies (sha_mismatch) writes none', async () => {
-      const f = fixture('other');
+      const f = await fixture('other');
       const result = await agentSpawnDispatch(spawnPayload(reviewerPrompt(2, f.tip)), f.env, find);
       const out = JSON.parse(result.stdout);
       assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
@@ -231,13 +244,13 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
     });
 
     it('a non-reviewer spawn writes none', async () => {
-      const f = fixture('tip');
+      const f = await fixture('tip');
       assert.deepEqual(await agentSpawnDispatch(spawnPayload(reviewerPrompt(2, f.tip), 'swe'), f.env, find), ALLOW);
       assert.equal(spawnRows(f.db).length, 0);
     });
 
     it('a reviewer spawn missing an anchor or carrying a malformed one writes none', async () => {
-      const f = fixture('tip');
+      const f = await fixture('tip');
       for (const prompt of [
         `task_id=${TASK_ID} commit_sha=${f.tip}`,
         `task_id=${TASK_ID} attempt_n=two commit_sha=${f.tip}`,
@@ -249,8 +262,8 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
       assert.equal(spawnRows(f.db).length, 0);
     });
 
-    it('a spawn for an unknown task or with no DB writes none and allows', () => {
-      const f = fixture('tip');
+    it('a spawn for an unknown task or with no DB writes none and allows', async () => {
+      const f = await fixture('tip');
       assert.deepEqual(recordReviewerSpawn(spawnPayload(`task_id=999 attempt_n=1 commit_sha=${f.tip}`), f.env), ALLOW);
       assert.equal(spawnRows(f.db).length, 0);
       const missing = { ...f.env, TRAJECTORY_DB_PATH: join(sandbox, 'missing', 'trajectory.db') };
@@ -287,7 +300,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
 
       const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
       try {
-        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 68);
+        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 69);
         const after = migrated.all<Record<string, unknown>>('SELECT * FROM validation_attempts ORDER BY id').map((r) => ({ ...r }));
         assert.deepEqual(after, before.map((r) => ({ ...r, reviewed_sha: null })));
         assert.deepEqual(

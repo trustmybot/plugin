@@ -63,6 +63,7 @@ import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } f
 import { GATE_NAME as NO_REMOTE_AUTH_GATE, noRemoteAuthGuard } from './no-remote-auth-guard.js';
 import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as SWE_EDIT_LINT_GATE, sweEditLint } from './swe-edit-lint.js';
 import { GATE_NAME as ORPHAN_SCAN_GATE, orphanScan } from './orphan-scan.js';
 import { GATE_NAME as SESSION_START_PRESCAN_GATE, sessionStartPrescan } from './session-start-prescan.js';
 import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
@@ -143,6 +144,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [NO_REMOTE_AUTH_GATE, noRemoteAuthGuard],
   [PROMPT_INTENT_GATE, promptIntentHints],
   [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+  [SWE_EDIT_LINT_GATE, sweEditLint],
   [ORPHAN_SCAN_GATE, orphanScan],
   [SESSION_START_PRESCAN_GATE, sessionStartPrescan],
   [CLEAN_MERGED_GATE, cleanMergedBranch],
@@ -299,6 +301,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
   ]),
   eventGroup('PostToolUse', 'Bash', [routerGate(BASH_OUTPUT_TRIM_GATE, 'advisory'), routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory'), routerGate(REF_MOVE_REINDEX_GATE, 'advisory')]),
   eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
+  eventGroup('PostToolUse', 'Write|Edit|MultiEdit', [routerGate(SWE_EDIT_LINT_GATE, 'advisory')]),
   eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
   eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),
   eventGroup('PreCompact', '', [routerGate(SESSION_HANDOFF_GATE, 'advisory')]),

@@ -24,6 +24,13 @@ export function shellTail(s: string, n: number, env: NodeJS.ProcessEnv): string 
   return bytes.subarray(Math.max(0, bytes.length - n)).toString('utf8');
 }
 
+/** <output> cut to its last TMB_VERIFICATION_TAIL_CHARS characters (DEFAULT_TAIL_CHARS when unset or not a number; 0 keeps it whole). */
+export function capTail(output: string, env: NodeJS.ProcessEnv): string {
+  const rawCap = env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
+  const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
+  return cap > 0 && shellLength(output, env) > cap ? shellTail(output, cap, env) : output;
+}
+
 function invalid(caller: string, message: string): SqlResult {
   return { code: 2, sql: '', error: `tmb_verification_run: ${caller}: ${message}` };
 }
@@ -52,9 +59,7 @@ export function runCommandSql(
   env: NodeJS.ProcessEnv,
 ): SqlResult {
   if (!/^[0-9]+$/.test(runId)) return invalid(caller, `invalid run_id '${runId}'`);
-  const rawCap = env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
-  const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
-  const tail = cap > 0 && shellLength(output, env) > cap ? shellTail(output, cap, env) : output;
+  const tail = capTail(output, env);
   return {
     code: 0,
     sql: `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`,

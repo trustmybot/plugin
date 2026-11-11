@@ -76,6 +76,27 @@ CREATE TABLE verification_run_commands (
   output_tail TEXT,
   PRIMARY KEY (run_id, ordinal)
 );
+CREATE TABLE lint_runs (
+  id INTEGER PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  commit_sha TEXT NOT NULL,
+  base_sha TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('gate','integrate')),
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  exit_code INTEGER,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE lint_run_results (
+  run_id INTEGER NOT NULL REFERENCES lint_runs(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  exit_code INTEGER,
+  elapsed_s REAL,
+  output_tail TEXT,
+  PRIMARY KEY (run_id, ordinal)
+);
 INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'), NULL);
 `;
 

@@ -43,6 +43,9 @@ describe('schema — current table set, default values, constraints', () => {
       // GH 1294 — recorded verification runs
       'verification_runs',
       'verification_run_commands',
+      // GH 2570 — recorded close-lint runs
+      'lint_runs',
+      'lint_run_results',
       // GH 1737 — review findings ledger
       'review_findings',
       // #155 repos-centric schema — milestones FK hub
@@ -297,14 +300,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 68 in plugin_meta', () => {
+  it('fresh DB has schema_version = 69 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 68);
+    assert.equal(meta.schema_version, 69);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

@@ -1,54 +1,15 @@
 // L1 lint: no parenthetical issue/MR/PR citation — (#NNNN), (GL #NNNN), (MR !NNNN), (PR !NNNN) — in a prompt file, since prompts load every turn and the citation is noise. Scans the *.md files directly in agents/, commands/ and templates/agents/, every skills/**/SKILL.md, and the top-level CLAUDE.md. Every run also checks that fixtures/citations-in-prompts/has-citations.md is caught.
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { citationLines, citationProblems } from './lib/no-citations-in-prompts.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIXTURE = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'citations-in-prompts', 'has-citations.md');
-const CITATION = /\((#|GL #|MR !|PR !)[0-9]+\)/;
-const TOP_LEVEL = ['CLAUDE.md'];
-
-const isFile = (abs) => existsSync(abs) && statSync(abs).isFile();
-
-export function citationLines(text) {
-  const lines = text.split('\n');
-  if (lines.at(-1) === '') lines.pop();
-  return lines.flatMap((line, i) => (CITATION.test(line) ? [i + 1] : []));
-}
-
-function mdInDir(root, rel) {
-  const abs = join(root, rel);
-  if (!existsSync(abs)) return [];
-  return readdirSync(abs)
-    .filter((name) => name.endsWith('.md') && isFile(join(abs, name)))
-    .sort()
-    .map((name) => `${rel}/${name}`);
-}
-
-function skillFiles(root, rel, out) {
-  const abs = join(root, rel);
-  if (!existsSync(abs)) return out;
-  for (const entry of readdirSync(abs, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    const child = `${rel}/${entry.name}`;
-    if (entry.isDirectory()) skillFiles(root, child, out);
-    else if (entry.name === 'SKILL.md' && isFile(join(root, child))) out.push(child);
-  }
-  return out;
-}
-
-export function citationProblems(root) {
-  const files = [
-    ...mdInDir(root, 'agents'),
-    ...mdInDir(root, 'commands'),
-    ...mdInDir(root, 'templates/agents'),
-    ...skillFiles(root, 'skills', []),
-    ...TOP_LEVEL.filter((name) => isFile(join(root, name))),
-  ];
-  return files.flatMap((rel) => citationLines(readFileSync(join(root, rel), 'utf8')).map((n) => `${rel}:${n}: citation in prompt`));
-}
 
 test('the has-citations fixture is caught', () => {
   assert.ok(existsSync(FIXTURE), `no-citations-in-prompts self-test: fixture missing: ${FIXTURE}`);
