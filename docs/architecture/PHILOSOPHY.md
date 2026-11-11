@@ -1,6 +1,6 @@
 # Design philosophy
 
-The principles behind how the TMB plugin is shaped — how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, why a replaced design is removed cleanly, and why memory is split into hot and cold.
+The principles behind how the TMB plugin is shaped — how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, why a replaced design is removed cleanly, why memory is split into hot and cold, and why every fact about the codebase lives in exactly one of three layers: docs, world model or code.
 
 ## 1. Two review perspectives
 
