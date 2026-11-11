@@ -458,5 +458,5 @@ Off by default; the Human opts in at `/onboard` Round 5.
 
 1. bro hits a real TMB bug; the `tmb_recovery` skill says when to offer a report.
 2. `bug_report_draft` builds a redacted draft with a signature, and says when an earlier report already carries that signature. It is refused without the Human's consent or explicit ask, and it never files anything.
-3. bro shows the Human the full draft; the Human's read is the final redaction check. Redaction is a denylist: it removes the patterns and names it knows, so a secret in a shape it does not know reaches the draft.
+3. bro shows the Human the full draft; the Human's read is the final redaction check.
 4. Only on the Human's yes, bro files it to `trustmybot/plugin` and audits the filing.
