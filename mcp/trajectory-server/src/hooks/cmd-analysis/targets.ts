@@ -7,6 +7,89 @@ import { splitWords, under, unwrap } from './unwrap.js';
 
 const basename = (w: string): string => w.replace(/.*\//, '');
 
+const TAR = /^(tar|gtar|bsdtar)$/;
+
+/** Whether <word> is GNU long option --<long>, spelled out or cut to a prefix of at least <min> chars. */
+function longOption(word: string, long: string, min: number): boolean {
+  const name = word.startsWith('--') ? word.slice(2) : '';
+  return name.length >= min && long.startsWith(name);
+}
+
+/** Whether tar's argument words extract: a bundled first word holding `x` (`tar xf a.tar`), or a `-x` cluster, `--extract` or `--get` before any `--`. */
+function tarExtracts(args: readonly string[]): boolean {
+  if (/^[A-Za-z]*x[A-Za-z]*$/.test(args[0] ?? '')) return true;
+  for (const a of args) {
+    if (a === '--') return false;
+    if (/^-[A-Za-z]*x/.test(a) || longOption(a, 'extract', 3) || a === '--get') return true;
+  }
+  return false;
+}
+
+/** Whether cp's argument words copy recursively: an `-r` / `-R` / `-a` cluster, `--recursive` or `--archive` before any `--`. */
+function cpRecursive(args: readonly string[]): boolean {
+  for (const a of args) {
+    if (a === '--') return false;
+    if (/^-[A-Za-z]*[rRa]/.test(a) || longOption(a, 'recursive', 3) || longOption(a, 'archive', 2)) return true;
+  }
+  return false;
+}
+
+/** The dirs a cp / mv / rsync copies into: each `-t` / `--target-directory` value, else its last operand unless that is a remote `host:path`. */
+function copyDestinations(args: readonly string[]): string[] {
+  const dirs: string[] = [];
+  const operands: string[] = [];
+  let ended = false;
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    if (!ended && a === '--') ended = true;
+    else if (!ended && (a === '-t' || a === '--target-directory')) {
+      if (k + 1 < args.length) dirs.push(args[k + 1]);
+      k++;
+    } else if (!ended && a.startsWith('--target-directory=')) dirs.push(a.slice('--target-directory='.length));
+    else if (ended || !a.startsWith('-')) operands.push(a);
+  }
+  if (dirs.length > 0) return dirs;
+  const last = operands[operands.length - 1];
+  return operands.length >= 2 && !/^[^/]*:/.test(last) ? [last] : [];
+}
+
+/**
+ * Tree-writes mode: the dirs one command fills with a whole tree it copies,
+ * moves or extracts, as written: a recursive cp's, a mv's and an rsync's
+ * destination and a tar extract's `-C` dirs, else its own dir.
+ */
+function treeTargetWords(w: string[], out: string[]): void {
+  let pre = '';
+  const u = unwrap(w, 0);
+  for (const dir of u.dirs) pre = under(pre, dir);
+  if (u.k >= w.length) return;
+  const put = (p: string) => out.push(under(pre, p));
+  const cmd = basename(w[u.k]);
+  const args = w.slice(u.k + 1);
+  if (cmd === 'mv' || cmd === 'rsync' || (cmd === 'cp' && cpRecursive(args))) for (const d of copyDestinations(args)) put(d);
+  else if (TAR.test(cmd) && tarExtracts(args)) for (const d of tarDirs(args, '.')) put(d);
+}
+
+/** Each dir tar's `-C` / `--directory` options move it to, composed in order, or [<none>] when there is none and <none> is given. */
+function tarDirs(args: readonly string[], none?: string): string[] {
+  const dirs: string[] = [];
+  let cur = '';
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    let d = '';
+    if (a === '--') break;
+    if (a === '-C' || a === '--directory') {
+      if (k < args.length - 1) d = args[k + 1];
+      k++;
+    } else if (a.startsWith('--directory=')) d = a.slice('--directory='.length);
+    else if (a.startsWith('-C') && a.length > 2) d = a.slice(2);
+    if (d === '') continue;
+    cur = under(cur, d);
+    dirs.push(cur);
+  }
+  return dirs.length === 0 && none !== undefined ? [none] : dirs;
+}
+
 interface LnArgs {
   sym: boolean;
   tdirs: string[];
@@ -96,7 +179,9 @@ function writeTargetWords(w: string[], out: string[], final = false): void {
   };
   if (/^(tee|mkdir|rm|touch|rmdir)$/.test(cmd)) {
     for (let k = first + 1; k < nw; k++) if (!w[k].startsWith('-')) put(w[k]);
-  } else if (/^(tar|gtar|bsdtar|make|gmake)$/.test(cmd)) {
+  } else if (TAR.test(cmd)) {
+    for (const d of tarDirs(w.slice(first + 1), tarExtracts(w.slice(first + 1)) ? '.' : undefined)) put(d);
+  } else if (/^(make|gmake)$/.test(cmd)) {
     diropts('-C', '--directory', true);
   } else if (cmd === 'npm') {
     diropts('-C', '--prefix', false);
@@ -221,13 +306,14 @@ function writeTargetWords(w: string[], out: string[], final = false): void {
   }
 }
 
-/** tmb_cmd_write_targets of one encoded statement line; `final` holds for its last command only. */
-export function writeTargets(line: string, final = false): string[] {
+/** tmb_cmd_write_targets of one encoded statement line; `final` holds for its last command only; with `tree`, only treeTargetWords' dirs. */
+export function writeTargets(line: string, final = false, tree = false): string[] {
   const out: string[] = [];
   let w: string[] = [];
   let want = 0;
   const flush = (last = false) => {
-    writeTargetWords(w, out, last && final);
+    if (tree) treeTargetWords(w, out);
+    else writeTargetWords(w, out, last && final);
     w = [];
   };
   const n = line.length;
@@ -286,7 +372,7 @@ export function writeTargets(line: string, final = false): string[] {
     }
     if (word === '') continue;
     if (want === 1) {
-      out.push(word);
+      if (!tree) out.push(word);
       want = 0;
       continue;
     }
@@ -441,8 +527,58 @@ export interface ExtraWrites {
 
 export type Interp = (words: readonly string[]) => string[];
 
-/** _tmb_cmd_stmt_extra_writes, the interpreter one-liners judged by `interp`. */
-function extraWrites(chain: boolean, words: string[], interp: Interp): string[] {
+/** The dir a pathspec can write under: a glob cut to its leading literal dir, a magic pathspec (`:/`, `:(top)…`) read as the statement's whole dir. */
+function pathspecDir(spec: string): string {
+  if (spec.startsWith(':')) return '.';
+  const glob = spec.search(/[*?[]/);
+  if (glob < 0) return spec;
+  const slash = spec.lastIndexOf('/', glob);
+  return slash <= 0 ? (slash === 0 ? '/' : '.') : spec.slice(0, slash);
+}
+
+/**
+ * Tree-writes mode: the paths a `git checkout` / `git restore` writes back
+ * into its work tree, each operand read as a pathspec (a tree-ish or branch
+ * read so names no dir it writes), `--pathspec-from-file` as its whole dir;
+ * a `restore --staged` without `--worktree` writes only the index.
+ */
+function gitRestoredPaths(chain: boolean, words: string[]): string[] {
+  const n = words.length;
+  let cdir = '';
+  let k = 1;
+  const at = (j: number) => words[j] ?? '';
+  while (k < n) {
+    const w = words[k];
+    if (w === '-C') {
+      cdir = under(cdir, at(k + 1));
+      k += 2;
+    } else if (/^(-c|--git-dir|--work-tree|--namespace|--config-env)$/.test(w)) k += 2;
+    else if (w.startsWith('-')) k++;
+    else break;
+  }
+  const sub = at(k);
+  if (sub !== 'checkout' && sub !== 'restore') return [];
+  const args = words.slice(k + 1);
+  if (sub === 'restore' && args.includes('--staged') && !args.includes('--worktree') && !args.includes('-W')) return [];
+  const valued = sub === 'checkout' ? /^(-b|-B|--orphan|--pathspec-from-file)$/ : /^(-s|--source|--pathspec-from-file)$/;
+  const specs: string[] = [];
+  let ended = false;
+  for (let j = 0; j < args.length; j++) {
+    const a = args[j];
+    if (ended) specs.push(a);
+    else if (a === '--') ended = true;
+    else if (a === '--pathspec-from-file' || a.startsWith('--pathspec-from-file=')) {
+      specs.push('.');
+      if (a === '--pathspec-from-file') j++;
+    } else if (valued.test(a)) j++;
+    else if (!a.startsWith('-')) specs.push(a);
+  }
+  return specs.map(pathspecDir).filter((p) => p !== '').map((p) => (chain ? under(cdir, p) : p));
+}
+
+/** _tmb_cmd_stmt_extra_writes, the interpreter one-liners judged by `interp`; with `tree`, a git restore's pathspecs and the interpreters' targets only. */
+function extraWrites(chain: boolean, words: string[], interp: Interp, tree = false): string[] {
+  if (tree) return [...(basename(words[0]) === 'git' ? gitRestoredPaths(chain, words) : []), ...interp(words)];
   const out: string[] = [];
   let ops: string[] = [];
   const tool = basename(words[0]);
@@ -464,12 +600,12 @@ function extraWrites(chain: boolean, words: string[], interp: Interp): string[] 
   return out;
 }
 
-/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on; `final` as in writeTargets. */
-export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp, final = false): ExtraWrites {
-  const paths = writeTargets(stmt, final);
+/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on; `final` and `tree` as in writeTargets. */
+export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp, final = false, tree = false): ExtraWrites {
+  const paths = writeTargets(stmt, final, tree);
   const { pre, words } = unwrapStatement(stmt);
   if (words.length <= 1) return { paths, words };
-  if (pre === '') paths.push(...extraWrites(chain, words, interp));
-  else for (const p of extraWrites(true, words, interp)) if (p !== '') paths.push(under(pre, p));
+  if (pre === '') paths.push(...extraWrites(chain, words, interp, tree));
+  else for (const p of extraWrites(true, words, interp, tree)) if (p !== '') paths.push(under(pre, p));
   return { paths, words };
 }

@@ -262,6 +262,58 @@ describe('prompt-write-approval (GH 2927)', () => {
       assert.match(denied(await bash('echo x > .claude/skills/x/SKILL.md', {}, noDb())), /trajectory DB is unavailable/);
     });
 
+    describe('a write naming only an ancestor of the prompt dirs (GH 2981)', () => {
+      const ANCESTOR_WRITES: [string, () => string][] = [
+        ['cp -r x/skills .claude/', () => join(project, '.claude')],
+        ['rsync -a src/ .claude/', () => join(project, '.claude')],
+        ['git checkout HEAD~1 -- .claude/skills', () => join(project, '.claude/skills')],
+        ['tar -x -f a.tar -C .claude', () => join(project, '.claude')],
+        ['cp -r foo/.claude .', () => project],
+        ['tar -xf a.tar', () => project],
+      ];
+      const UNGATED = ['git commit -m x', 'mkdir build', 'cp a.txt .', 'cp -r src/ lib/', 'tar -x -f a.tar -C build', 'rsync -a src/ dist/', 'git checkout HEAD -- src/a.ts', 'git checkout main', 'make -C .', 'npm --prefix . install'];
+
+      it('SC1: denies each with no approval, naming the canonical ancestor target', async () => {
+        for (const [command, target] of ANCESTOR_WRITES) {
+          const reason = denied(await bash(command));
+          assert.ok(reason.includes(`for the project skill/agent write to ${target()}.`), `${command}: ${reason}`);
+          assert.ok(reason.includes(JSON.stringify({ path: target(), scope: 'full' })), `the fix names the path to approve: ${reason}`);
+        }
+      });
+
+      it('SC2: allows each with a fresh full approval of its target; a skills-array approval gets the shell-scope reason', async () => {
+        for (const [command, target] of ANCESTOR_WRITES) {
+          approve(target(), 'skills-array');
+          assert.match(denied(await bash(command)), /scoped "skills-array", not "full"/, command);
+          approve(target(), 'full');
+          assert.equal(await bash(command), null, command);
+        }
+      });
+
+      it('SC3: a write elsewhere, or one naming the root that lands no tree there, reads no DB', async () => {
+        for (const command of UNGATED) assert.equal(await bash(command, {}, noDb()), null, command);
+      });
+
+      it('gates every write naming a .claude dir, a tree landing above the project, a tree mv, a git restore of the whole tree or into a prompt dir, and an interpreter copy', async () => {
+        for (const command of ['mkdir .claude', 'cp a.txt .claude/agents', 'cp -r x/.Claude/Skills .CLAUDE/', 'mv foo/.claude .', `cp -r foo ${dirname(project)}`, 'git checkout HEAD -- .', 'git restore --source HEAD~1 .claude', "git checkout HEAD -- '*.md'", 'git checkout HEAD -- .claude/skills/x/SKILL.md', 'cat a.tar | tar -x', 'D=.; cp -r foo/.claude $D', 'python3 -c "import shutil; shutil.copytree(\'x\', \'.\')"']) {
+          denied(await bash(command));
+        }
+        assert.equal(await bash('git restore --staged .claude', {}, noDb()), null);
+      });
+
+      it('gates a tree landing in a dir a symlinked skill entry resolves into', async () => {
+        mkdirSync(join(project, 'vendor/x'), { recursive: true });
+        mkdirSync(join(project, '.claude/skills'), { recursive: true });
+        symlinkSync(join(project, 'vendor/x'), join(project, '.claude/skills/x'));
+        assert.ok(denied(await bash('cp -r y/x vendor/')).includes(join(project, 'vendor')));
+        assert.equal(await bash('cp -r y/x other/', {}, noDb()), null);
+      });
+
+      it('SC4: a swe stays exempt', async () => {
+        for (const [command] of ANCESTOR_WRITES) assert.equal(await bash(command, { agent_type: 'tmb:swe', agent_id: 'a1' }, noDb()), null, command);
+      });
+    });
+
     it('SC4: leaves a never-judged target to containment-guard and denies the analyzer cap line', async () => {
       assert.equal(await bash('python3 -c "import os; open(os.environ[\'P\'], \'w\')"'), null);
       const padded = Array.from({ length: 20000 }, (_, i) => `cd d${i} && echo > f${i};`).join(' ');

@@ -88,6 +88,8 @@ export interface Options {
   raw: boolean;
   root: string;
   env: Host;
+  /** Only the dirs a statement fills with a whole tree (targets.ts treeTargetWords, gitRestoredPaths) and its interpreters' targets. */
+  treeWrites?: boolean;
 }
 
 interface Level {
@@ -598,7 +600,7 @@ class WritePaths {
           for (const ph of ['{//}', '{.}', '{}']) cmd = cmd.split(ph).join(rv);
           for (const ph of ['{/.}', '{/}']) cmd = cmd.split(ph).join('*');
         }
-        for (const p of stmtWritePaths(cmd, true, this.interp).paths) if (p !== '') this.emit(level, dir, decPath(p));
+        for (const p of stmtWritePaths(cmd, true, this.interp, false, this.opts.treeWrites).paths) if (p !== '') this.emit(level, dir, decPath(p));
         this.execShell(level, cmd, tok, depth);
       }
     }
@@ -649,7 +651,7 @@ class WritePaths {
       }
       if (!cmd.includes('<<') && stdinInterp(words) !== '') out.push('$(proc)');
     }
-    const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env }, this.charge);
+    const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env, treeWrites: this.opts.treeWrites }, this.charge);
     nested.run(cmd, '@', 0, '');
     const lines = nested.out.split('\n');
     lines.pop();
@@ -1000,7 +1002,7 @@ class WritePaths {
       const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
       if (ownWords) {
         each((d, chain) => {
-          for (const p of stmtWritePaths(record.stmt, chain, this.interp, final).paths) if (p !== '') this.emit(level, d, decPath(p));
+          for (const p of stmtWritePaths(record.stmt, chain, this.interp, final, this.opts.treeWrites).paths) if (p !== '') this.emit(level, d, decPath(p));
         });
       }
       if (body !== '' && !evaluated && heldProgram(body)) {
@@ -1022,7 +1024,7 @@ class WritePaths {
       }
       if (!ownWords) {
         each((d, chain) => {
-          for (const p of stmtWritePaths(stmt, chain, this.interp, final).paths) if (p !== '') this.emit(level, d, decPath(p));
+          for (const p of stmtWritePaths(stmt, chain, this.interp, final, this.opts.treeWrites).paths) if (p !== '') this.emit(level, d, decPath(p));
         });
       }
       if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) each((d, _, t) => this.execWrites(level, d, mark, words, t, depth));

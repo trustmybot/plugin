@@ -37,6 +37,7 @@ export interface WritePathsOptions {
   raw?: boolean;
   root?: string;
   env?: NodeJS.ProcessEnv;
+  treeWrites?: boolean;
 }
 
 /** The lines `tmb_cmd_write_paths "$command" "$cwd" [raw] "$root"` prints. */
@@ -48,6 +49,7 @@ export async function writePaths(command: string, options: WritePathsOptions = {
     raw: options.raw ?? false,
     root: options.root ?? '',
     env: options.env ?? process.env,
+    treeWrites: options.treeWrites ?? false,
   };
   let lines = writePathsWith(parser, command, opts);
   while (await loadWanted()) lines = writePathsWith(parser, command, opts);

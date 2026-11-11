@@ -15,11 +15,18 @@
  * a shell write cannot be held to the skills: list. The analyzer's cap line
  * denies; its never-judged targets are containment-guard's. A command with no
  * gated target reads no DB.
+ *
+ * A write naming only a dir above the prompt dirs (GH 2981) is gated too: a
+ * `.claude`, `.claude/skills` or `.claude/agents` dir for any write, and the
+ * root, any ancestor of it or of where the prompt dirs resolve when a whole
+ * tree lands there (the analyzer's treeWrites mode: a recursive cp, mv, rsync,
+ * tar extract, git checkout / restore pathspec or interpreter copy), since the
+ * tree may carry a `.claude/skills` of its own.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths } from './cmd-analysis/index.js';
+import { CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
 import { judgedPath } from './no-source-edit-from-main.js';
 import { pathCanonical } from './lib/agent-context.js';
 import { DB_RETRY_FIX, dbPath, haveSqlite, projectRoot, sqlQuote, sqliteRo } from './lib/db.js';
@@ -37,6 +44,7 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 // Case-insensitive: on macOS's default APFS a .Claude/Skills spelling writes into .claude/skills.
 const PROMPT_DIR = /(^|\/)\.claude\/(skills|agents)\//i;
 const AGENT_DIR = /(^|\/)\.claude\/agents\//i;
+const PROMPT_PARENT = /(^|\/)\.claude(\/(skills|agents))?$/i;
 
 export const UNVERIFIABLE_REASON =
   'BLOCKED: a project skill or agent write needs a Human approval record, and the trajectory DB is unavailable to verify it — failing closed.';
@@ -120,6 +128,12 @@ function realPromptDirs(root: string, kind: PromptKind): string[] {
   return dirs;
 }
 
+/** The paths of a spelled and a canonical target under the root, spelled and canonical. */
+function rootRels(spelled: string, target: string, root: string): string[] {
+  const canonicalRoot = pathCanonical(root);
+  return [underRoot(spelled, root), underRoot(spelled, canonicalRoot), underRoot(target, canonicalRoot)].filter((rel): rel is string => rel !== null);
+}
+
 /**
  * The project prompt dir a write lands in, agents winning over skills, or null. Judged on the
  * spelled path (vs the root as given and canonical), on the canonical one, and on where the root's
@@ -127,8 +141,7 @@ function realPromptDirs(root: string, kind: PromptKind): string[] {
  * a dir Claude Code loads slips past.
  */
 function promptKind(spelled: string, target: string, root: string): PromptKind | null {
-  const canonicalRoot = pathCanonical(root);
-  const rels = [underRoot(spelled, root), underRoot(spelled, canonicalRoot), underRoot(target, canonicalRoot)].filter((rel): rel is string => rel !== null);
+  const rels = rootRels(spelled, target, root);
   const inRealDir = (kind: PromptKind): boolean => isAbsolute(root) && realPromptDirs(root, kind).some((dir) => within(target, dir));
   if (rels.some((rel) => AGENT_DIR.test(rel)) || inRealDir('agents')) return 'agents';
   if (rels.some((rel) => PROMPT_DIR.test(rel)) || inRealDir('skills')) return 'skills';
@@ -201,22 +214,57 @@ function baseDir(cwd: unknown, root: string): string {
   return typeof cwd === 'string' && isAbsolute(cwd) ? cwd : root;
 }
 
-async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
-  if (agentRole(raw) === 'swe') return ALLOW;
-  const root = projectRoot(env);
-  const cwd = payloadCwd(raw, env);
-  const lines = (await writePaths(command, { cwd, root, env })).join('\n').split('\n');
-  if (lines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
+/** Whether a write target is a `.claude`, `.claude/skills` or `.claude/agents` dir under the root, any letter case, spelled or resolved. */
+function isPromptParent(spelled: string, target: string, root: string): boolean {
+  return rootRels(spelled, target, root).some((rel) => PROMPT_PARENT.test(rel));
+}
 
-  const base = baseDir(cwd, root);
-  const gated = new Set<string>();
+function ancestorOrSelf(path: string, of: string): boolean {
+  return path === '/' || within(of, path);
+}
+
+/**
+ * Whether a tree written whole into <spelled> can reach a prompt dir: it is the root's `.claude`
+ * dir (spelled or canonical) or an ancestor of it, or an ancestor of where the root's skill or
+ * agent dirs or their symlinked entries resolve.
+ */
+function holdsPromptDirs(spelled: string, target: string, root: string): boolean {
+  if (!isAbsolute(root) || root === '/') return false;
+  const claudeDirs = [join(root, '.claude'), join(pathCanonical(root), '.claude')];
+  if (claudeDirs.some((dir) => ancestorOrSelf(spelled, dir) || ancestorOrSelf(target, dir))) return true;
+  return [...realPromptDirs(root, 'skills'), ...realPromptDirs(root, 'agents')].some((dir) => ancestorOrSelf(target, dir));
+}
+
+/** The canonical targets of <lines> that <isGated> holds for. */
+function gatedTargets(lines: readonly string[], base: string, isGated: (spelled: string, target: string) => boolean): string[] {
+  const out: string[] = [];
   for (const line of lines) {
     const path = judgedPath(line);
     if (path === null || path === '') continue;
     const spelled = resolve(base, path);
     const target = pathCanonical(spelled);
-    if (promptKind(spelled, target, root) !== null) gated.add(target);
+    if (isGated(spelled, target)) out.push(target);
   }
+  return out;
+}
+
+const analyzed = async (command: string, options: WritePathsOptions): Promise<string[]> => (await writePaths(command, options)).join('\n').split('\n');
+
+async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
+  if (agentRole(raw) === 'swe') return ALLOW;
+  const root = projectRoot(env);
+  const cwd = payloadCwd(raw, env);
+  const lines = await analyzed(command, { cwd, root, env });
+  if (lines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
+  const treeLines = await analyzed(command, { cwd, root, env, treeWrites: true });
+  if (treeLines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
+
+  const base = baseDir(cwd, root);
+  const promptWrite = (spelled: string, target: string): boolean => promptKind(spelled, target, root) !== null || isPromptParent(spelled, target, root);
+  const gated = new Set([
+    ...gatedTargets(lines, base, promptWrite),
+    ...gatedTargets(treeLines, base, (spelled, target) => promptWrite(spelled, target) || holdsPromptDirs(spelled, target, root)),
+  ]);
   if (gated.size === 0) return ALLOW;
 
   const db = approvalDb(env);
