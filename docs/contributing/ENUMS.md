@@ -43,7 +43,7 @@ Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`fail
 |---|---|---|
 | `pass` | TMB | Commits OK to push |
 | `fail` | TMB | Issues found; SWE re-spawn or Human override needed |
-| `escalate` | TMB | Outside code-reviewer's authority; Human decides |
+| `escalate` | TMB | Cannot be judged against its spec; bro, the owner of the spec and the design, decides |
 
 We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))`.
 
