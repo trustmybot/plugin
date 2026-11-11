@@ -33,13 +33,21 @@ describe('GH 1990: the world-model tools on the agents', () => {
     }
   });
 
-  it('GH 2417: swe.md and tmb_review search the world model before Grep and report wm_feedback', () => {
-    for (const file of ['agents/swe.md', 'skills/tmb_review/SKILL.md']) {
-      const text = readFileSync(join(PLUGIN_ROOT, file), 'utf8');
-      assert.match(text, /`world_model_search` before Grep/, file);
-      assert.match(text, /wm_feedback/, file);
+  it('GH 2417: swe.md and tmb_review search the world model with a Grep fallback and report wm_feedback', () => {
+    const swe = readFileSync(join(PLUGIN_ROOT, 'agents/swe.md'), 'utf8');
+    assert.match(swe, /`world_model_search` before Grep/);
+    assert.match(swe, /wm_feedback/);
+    assert.match(swe, /After `task_brief`, run `world_model_symbol\(agent='swe'/);
+
+    const review = readFileSync(join(PLUGIN_ROOT, 'skills/tmb_review/SKILL.md'), 'utf8');
+    assert.match(review, /`world_model_search`, and fall back to Grep when the world model misses/);
+    assert.match(review, /wm_feedback/);
+  });
+
+  it('GH 2896: code-reviewer.md and tmb_review claim no edge for the world model over Grep or git', () => {
+    for (const file of ['agents/code-reviewer.md', 'skills/tmb_review/SKILL.md']) {
+      assert.doesNotMatch(readFileSync(join(PLUGIN_ROOT, file), 'utf8'), /\b(faster|better|cheaper) than\b/i, file);
     }
-    assert.match(readFileSync(join(PLUGIN_ROOT, 'agents/swe.md'), 'utf8'), /After `task_brief`, run `world_model_symbol\(agent='swe'/);
   });
 
   it("GH 2417: tmb_review's allowed-tools admits the three world-model tools", () => {
