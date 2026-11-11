@@ -640,6 +640,23 @@ describe('cli.js integrate', () => {
       assertNoTempWorktree();
     });
 
+    it('a failing frozen install of a task that changes the lockfile exits 1 with the command and its output, branch unmoved (GH 3003)', () => {
+      setup('clean');
+      git('checkout', '-q', 'feat/x-1');
+      commitFile('package-lock.json', 'not json', 'feat: lockfile');
+      commit = rev('HEAD');
+      git('checkout', '-q', 'main');
+      pointTaskAt(commit);
+      const r = integrate('main');
+      assert.equal(r.code, 1, r.err);
+      assert.equal(r.out, '', 'nothing on stdout');
+      assert.match(r.err, /frozen install failed: npm ci: exited 1\nOutput \(last 20 lines\):\n/);
+      assert.match(r.err, /worktree setup failed on [0-9a-f]{40}; no verification run recorded, feat\/x-1 unmoved/);
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
+      assertNoTempWorktree();
+    });
+
     it('a passing setup runs before verification[] and is not recorded as a command', () => {
       setupWithSetupFile(['touch setup-ran']);
       const r = integrate('main');

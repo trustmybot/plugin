@@ -1,4 +1,4 @@
-// linkWorktreeNodeModules and its use by task_provision (GH 1853): a task
+// linkWorktreeNodeModules, prepareWorktreeDeps (GH 3003) and their use by task_provision (GH 1853): a task
 // worktree gets the main checkout's node_modules linked entry by entry beside
 // each tracked package.json (GH 2872), existing destinations are left alone, and
 // a reused worktree is repaired on the next provision.
@@ -24,7 +24,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pinScanEnv, tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
-import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
+import { type InstallRunner, linkWorktreeNodeModules, prepareWorktreeDeps } from '../utils/worktree-deps.js';
 
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
@@ -342,5 +342,132 @@ describe('linkWorktreeNodeModules', () => {
       child.kill();
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+});
+
+describe('prepareWorktreeDeps (GH 3003)', () => {
+  type Call = { argv: readonly string[]; cwd: string };
+  function recorder(fail?: string): { calls: Call[]; runInstall: InstallRunner } {
+    const calls: Call[] = [];
+    return {
+      calls,
+      runInstall: (argv, cwd) => {
+        calls.push({ argv, cwd });
+        return fail === undefined ? Promise.resolve() : Promise.reject(new Error(fail));
+      },
+    };
+  }
+
+  async function withLockedWorktree(
+    lockfile: string | null,
+    fn: (repoRoot: string, wt: string) => Promise<void>,
+  ): Promise<void> {
+    const { ws, repoRoot, git } = makeRepo();
+    try {
+      if (lockfile !== null) {
+        writeFileSync(join(repoRoot, lockfile), 'lock-v1\n');
+        git(repoRoot, 'add', lockfile);
+        git(repoRoot, 'commit', '-q', '-m', 'lock');
+      }
+      const wt = join(ws, 'wt');
+      git(repoRoot, 'worktree', 'add', '-q', '--detach', wt, 'main');
+      await fn(repoRoot, wt);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  }
+
+  function assertNoNodeModules(wt: string): void {
+    for (const dir of ['.', 'pkg', 'other']) assert.equal(existsSync(join(wt, dir, 'node_modules')), false, `${dir}/node_modules`);
+  }
+
+  for (const lockfile of [null, 'package-lock.json']) {
+    it(`with matching manifests (${lockfile ?? 'no lockfile'}) it links as linkWorktreeNodeModules does and never installs`, async () => {
+      await withLockedWorktree(lockfile, async (repoRoot, wt) => {
+        const { calls, runInstall } = recorder();
+        const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+        assert.deepEqual(calls, []);
+        assert.deepEqual(r.linked.sort(), ['.', 'pkg']);
+        assert.deepEqual(r.skipped.map((s) => s.dir), ['other']);
+        assert.equal(r.installed, undefined);
+        assert.equal(r.install_error, undefined);
+        assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+        assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+      });
+    });
+  }
+
+  it('a changed package.json with no lockfile falls back to linking', async () => {
+    await withLockedWorktree(null, async (repoRoot, wt) => {
+      writeFileSync(join(wt, 'pkg', 'package.json'), '{"dependencies":{"x":"1"}}\n');
+      const { calls, runInstall } = recorder();
+      const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+      assert.deepEqual(calls, []);
+      assert.deepEqual(r.linked.sort(), ['.', 'pkg']);
+    });
+  });
+
+  const KINDS: [string, string][] = [
+    ['bun.lock', 'bun install --frozen-lockfile'],
+    ['bun.lockb', 'bun install --frozen-lockfile'],
+    ['package-lock.json', 'npm ci'],
+    ['npm-shrinkwrap.json', 'npm ci'],
+    ['pnpm-lock.yaml', 'pnpm install --frozen-lockfile'],
+    ['yarn.lock', 'yarn install --frozen-lockfile'],
+  ];
+  for (const [lockfile, command] of KINDS) {
+    it(`a nested package.json that differs from main runs ${command} for ${lockfile} and links nothing`, async () => {
+      await withLockedWorktree(lockfile, async (repoRoot, wt) => {
+        writeFileSync(join(wt, 'pkg', 'package.json'), '{"dependencies":{"x":"1"}}\n');
+        const { calls, runInstall } = recorder();
+        const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+        assert.deepEqual(calls, [{ argv: command.split(' '), cwd: wt }]);
+        assert.deepEqual(r, { linked: [], skipped: [], installed: { command } });
+        assertNoNodeModules(wt);
+      });
+    });
+  }
+
+  it('a lockfile that differs from main installs even when every package.json matches', async () => {
+    await withLockedWorktree('bun.lock', async (repoRoot, wt) => {
+      writeFileSync(join(wt, 'bun.lock'), 'lock-v2\n');
+      const { calls, runInstall } = recorder();
+      const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+      assert.equal(calls.length, 1);
+      assert.deepEqual(r.installed, { command: 'bun install --frozen-lockfile' });
+      assertNoNodeModules(wt);
+    });
+  });
+
+  it('a lockfile the main checkout lacks counts as a difference', async () => {
+    await withLockedWorktree(null, async (repoRoot, wt) => {
+      writeFileSync(join(wt, 'yarn.lock'), 'lock\n');
+      const { calls, runInstall } = recorder();
+      const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+      assert.deepEqual(calls.map((c) => c.argv.join(' ')), ['yarn install --frozen-lockfile']);
+      assert.deepEqual(r.linked, []);
+    });
+  });
+
+  it('a rejecting install yields install_error naming the command and links nothing', async () => {
+    await withLockedWorktree('package-lock.json', async (repoRoot, wt) => {
+      writeFileSync(join(wt, 'package.json'), '{"dependencies":{"x":"1"}}\n');
+      const { calls, runInstall } = recorder('exited 1\nOutput (last 20 lines):\nboom');
+      const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+      assert.equal(calls.length, 1);
+      assert.equal(r.installed, undefined);
+      assert.equal(r.install_error, 'frozen install failed: npm ci: exited 1\nOutput (last 20 lines):\nboom');
+      assert.deepEqual(r.linked, []);
+      assertNoNodeModules(wt);
+    });
+  });
+
+  it('the default runner runs the install in the worktree and reports its exit and output tail', async () => {
+    await withLockedWorktree('package-lock.json', async (repoRoot, wt) => {
+      writeFileSync(join(wt, 'package-lock.json'), 'not json\n');
+      const r = await prepareWorktreeDeps(repoRoot, wt);
+      assert.match(r.install_error ?? '', /^frozen install failed: npm ci: exited 1\nOutput \(last 20 lines\):\n/);
+      assertNoNodeModules(wt);
+    });
   });
 });

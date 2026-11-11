@@ -45,7 +45,7 @@ import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
 import { ensureFresh, fetchTargetNow, freshnessBlock, type TargetFetchAttempt } from '../world-model/freshness.js';
 import { readRepoTargetBranch, repoRowPath, repoTargetBase, resolveSoleRepo } from '../utils/repo-paths.js';
-import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
+import { prepareWorktreeDeps } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
 import { parseBudget } from '../hooks/swe-verification-gate.js';
 import {
@@ -1479,7 +1479,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha>-<suffix> (node_modules linked) after .config/tmb/worktree-setup.json (failed step: named error, no command) under budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
+        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha>-<suffix> (node_modules linked; frozen install if manifests differ from main) after .config/tmb/worktree-setup.json (failed step: named error, no command) under budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -3387,12 +3387,12 @@ export function compositeTools(
 
         let setupFailure: WorktreeSetupResult | null = null;
         try {
-          try {
-            linkWorktreeNodeModules(repoPath, wtPath);
-          } catch {
-            // Best-effort, as in the environment gate's worktree stage.
-          }
-          const setup = await runWorktreeSetup(wtPath, { env: setupEnv(wtPath) });
+          const env = setupEnv(wtPath);
+          const deps = await prepareWorktreeDeps(repoPath, wtPath, { env });
+          const setup: WorktreeSetupResult =
+            deps.install_error !== undefined
+              ? { ran: false, commands: [], error: deps.install_error }
+              : await runWorktreeSetup(wtPath, { env });
           if (setup.error !== undefined) {
             setupFailure = setup;
           } else {
@@ -3413,7 +3413,8 @@ export function compositeTools(
         }
 
         if (setupFailure !== null) {
-          return err(`worktree setup failed, command not run: ${describeSetupFailure(setupFailure)}`);
+          const error = `worktree setup failed, command not run: ${describeSetupFailure(setupFailure)}`;
+          return { content: [{ type: 'text', text: JSON.stringify({ error, passed: false }) }], isError: true };
         }
         const passed = exitCode === 0;
         return {

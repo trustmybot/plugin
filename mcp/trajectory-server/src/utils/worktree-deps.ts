@@ -1,18 +1,43 @@
 // Untracked node_modules installs never reach a fresh git worktree (GH 1541,
 // GH 1853): link the main checkout's install, entry by entry, beside each
-// tracked package.json.
-// Shared by the environment gate (tools/env-gate.ts) and cli.js integrate; standalone it runs as
-// `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
-import { execFileSync } from 'node:child_process';
-import { lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
+// tracked package.json. A worktree whose manifests differ from main's would
+// build against an install that lacks its new deps (GH 3003), so it gets a
+// frozen install of its own instead.
+// Shared by the environment gate (tools/env-gate.ts), pr_monitor_worktree and cli.js integrate;
+// standalone it runs as `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
+import { execFileSync, spawn } from 'node:child_process';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SUBPROCESS_TIMEOUT_MS } from './timeouts.js';
+import { SUBPROCESS_TIMEOUT_MS, WORKTREE_DEPS_INSTALL_TIMEOUT_MS } from './timeouts.js';
 
 export interface WorktreeDepsResult {
   linked: string[];
   skipped: { dir: string; reason: string }[];
+  installed?: { command: string };
+  install_error?: string;
 }
+
+/** Runs argv in cwd; rejects with a message carrying the failure and its output tail. */
+export type InstallRunner = (argv: readonly string[], cwd: string, env: NodeJS.ProcessEnv) => Promise<void>;
+
+export interface PrepareWorktreeDepsOptions {
+  env?: NodeJS.ProcessEnv;
+  runInstall?: InstallRunner;
+}
+
+// Checked in this order; the first lockfile present in the worktree root picks the command.
+const LOCKFILE_INSTALLS: readonly (readonly [string, readonly string[]])[] = [
+  ['bun.lock', ['bun', 'install', '--frozen-lockfile']],
+  ['bun.lockb', ['bun', 'install', '--frozen-lockfile']],
+  ['package-lock.json', ['npm', 'ci']],
+  ['npm-shrinkwrap.json', ['npm', 'ci']],
+  ['pnpm-lock.yaml', ['pnpm', 'install', '--frozen-lockfile']],
+  ['yarn.lock', ['yarn', 'install', '--frozen-lockfile']],
+];
+
+const INSTALL_TAIL_LINES = 20;
+const INSTALL_OUTPUT_CAP = 64 * 1024;
 
 function isDirectory(path: string): boolean {
   try {
@@ -40,14 +65,113 @@ function trackedPackageDirs(worktreePath: string): string[] {
 }
 
 export function linkWorktreeNodeModules(repoRoot: string, worktreePath: string): WorktreeDepsResult {
-  const result: WorktreeDepsResult = { linked: [], skipped: [] };
   let dirs: string[];
   try {
     dirs = trackedPackageDirs(worktreePath);
   } catch (error) {
-    result.skipped.push({ dir: '.', reason: `git ls-files failed: ${(error as Error).message}` });
-    return result;
+    return gitListingFailed(error);
   }
+  return linkPackageDirs(repoRoot, worktreePath, dirs);
+}
+
+/** Links main's install when the worktree's manifests match main's, else runs a frozen install; never throws. */
+export async function prepareWorktreeDeps(
+  repoRoot: string,
+  worktreePath: string,
+  opts: PrepareWorktreeDepsOptions = {},
+): Promise<WorktreeDepsResult> {
+  let dirs: string[];
+  try {
+    dirs = trackedPackageDirs(worktreePath);
+  } catch (error) {
+    return gitListingFailed(error);
+  }
+  const argv = lockfileInstall(worktreePath);
+  if (argv === null || manifestsMatch(repoRoot, worktreePath, dirs)) return linkPackageDirs(repoRoot, worktreePath, dirs);
+  const command = argv.join(' ');
+  try {
+    await (opts.runInstall ?? spawnInstall)(argv, worktreePath, opts.env ?? process.env);
+    return { linked: [], skipped: [], installed: { command } };
+  } catch (error) {
+    return { linked: [], skipped: [], install_error: `frozen install failed: ${command}: ${(error as Error).message}` };
+  }
+}
+
+function gitListingFailed(error: unknown): WorktreeDepsResult {
+  return { linked: [], skipped: [{ dir: '.', reason: `git ls-files failed: ${(error as Error).message}` }] };
+}
+
+function lockfileInstall(worktreePath: string): readonly string[] | null {
+  for (const [lockfile, argv] of LOCKFILE_INSTALLS) {
+    if (pathPresent(join(worktreePath, lockfile))) return argv;
+  }
+  return null;
+}
+
+function readOrNull(path: string): Buffer | null {
+  try {
+    return readFileSync(path);
+  } catch {
+    return null;
+  }
+}
+
+function sameBytes(a: string, b: string): boolean {
+  const left = readOrNull(a);
+  const right = readOrNull(b);
+  if (left === null || right === null) return left === right;
+  return left.equals(right);
+}
+
+function manifestsMatch(repoRoot: string, worktreePath: string, dirs: readonly string[]): boolean {
+  const manifests = [...LOCKFILE_INSTALLS.map(([lockfile]) => lockfile), ...dirs.map((dir) => join(dir, 'package.json'))];
+  return manifests.every((rel) => sameBytes(join(repoRoot, rel), join(worktreePath, rel)));
+}
+
+function outputTail(text: string): string {
+  return text.replace(/\n+$/, '').split('\n').slice(-INSTALL_TAIL_LINES).join('\n');
+}
+
+function spawnInstall(argv: readonly string[], cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let output = '';
+    let timedOut = false;
+    let settled = false;
+    const settle = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const child = spawn(argv[0], argv.slice(1), { cwd, env: { ...env, PWD: cwd }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const collect = (chunk: Buffer): void => {
+      output = (output + chunk.toString()).slice(-INSTALL_OUTPUT_CAP);
+    };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }, WORKTREE_DEPS_INSTALL_TIMEOUT_MS);
+    child.on('error', (error) => settle(new Error(`could not start: ${error.message}`)));
+    child.on('close', (code, signal) => {
+      if (!timedOut && code === 0) return settle();
+      const reason = timedOut
+        ? `timed out after ${WORKTREE_DEPS_INSTALL_TIMEOUT_MS / 1000}s`
+        : `exited ${code ?? `on ${signal}`}`;
+      const tail = outputTail(output);
+      settle(new Error(tail ? `${reason}\nOutput (last ${INSTALL_TAIL_LINES} lines):\n${tail}` : reason));
+    });
+  });
+}
+
+function linkPackageDirs(repoRoot: string, worktreePath: string, dirs: readonly string[]): WorktreeDepsResult {
+  const result: WorktreeDepsResult = { linked: [], skipped: [] };
   for (const dir of dirs) {
     const src = join(repoRoot, dir, 'node_modules');
     const dest = join(worktreePath, dir, 'node_modules');

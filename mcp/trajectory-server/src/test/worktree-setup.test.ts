@@ -242,8 +242,8 @@ describe('task_provision runs worktree setup as an environment gate stage', () =
 });
 
 describe('pr_monitor_worktree runs worktree setup before its command', () => {
-  const monitor = async (repoRoot: string, command: string): Promise<{ r: RawResult; sha: string }> => {
-    const sha = git(repoRoot, 'rev-parse', 'HEAD');
+  const monitor = async (repoRoot: string, command: string, ref = 'HEAD'): Promise<{ r: RawResult; sha: string }> => {
+    const sha = git(repoRoot, 'rev-parse', ref);
     const db = tempDB();
     try {
       const composites = compositeTools(db, join(repoRoot, '.claude', 'tmb', 'trajectory.db'));
@@ -266,6 +266,26 @@ describe('pr_monitor_worktree runs worktree setup before its command', () => {
       assert.deepEqual(reviewDirs(repoRoot, sha), [], 'worktree removed');
       assert.equal(existsSync(join(repoRoot, '.claude/command-ran')), false, 'command not run');
       assert.ok(!git(repoRoot, 'worktree', 'list', '--porcelain').includes('pr-review-'), 'worktree unregistered');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a failing frozen install of a commit whose lockfile differs from main returns passed:false naming it, command not run (GH 3003)', async () => {
+    const { ws, repoRoot } = makeRepo(undefined);
+    try {
+      git(repoRoot, 'checkout', '-q', '-b', 'feat/lock');
+      writeFileSync(join(repoRoot, 'package-lock.json'), 'not json\n');
+      git(repoRoot, 'add', 'package-lock.json');
+      git(repoRoot, 'commit', '-q', '-m', 'lockfile');
+      git(repoRoot, 'checkout', '-q', 'main');
+      const { r, sha } = await monitor(repoRoot, 'touch ../../command-ran', 'feat/lock');
+      assert.equal(r.isError, true);
+      assert.equal(parse(r)['passed'], false);
+      const error = parse(r)['error'] as string;
+      assert.match(error, /worktree setup failed, command not run: frozen install failed: npm ci: exited 1/);
+      assert.deepEqual(reviewDirs(repoRoot, sha), [], 'worktree removed');
+      assert.equal(existsSync(join(repoRoot, '.claude/command-ran')), false, 'command not run');
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

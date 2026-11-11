@@ -27,15 +27,19 @@
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
  *      detached at commit_sha, runs `git -c merge.renames=false rebase <base>`
  *      (no rename detection, GH 2356). A conflict is aborted
- *      → exit 2, branch and DB unchanged. Each untracked node_modules of the
- *      main checkout beside a tracked package.json is symlinked into the
- *      worktree (GH 1541).
+ *      → exit 2, branch and DB unchanged.
  *   4. The `git patch-id --stable` lists of the commits a rebase picks from
  *      commit_sha and from <rebased> (`rev-list --cherry-pick --right-only
  *      <base>...<sha>`: a commit whose patch is already in <base>, such as a
  *      squash-merged parent branch's, is skipped), both over every path, must
  *      match, else exit 2. No rebased commit left means the task's patch is
  *      already in <base> → exit 2.
+ *      When the worktree's root lockfile and every tracked package.json match
+ *      the main checkout's byte for byte, each untracked node_modules of the
+ *      main checkout beside a tracked package.json is linked into the worktree
+ *      entry by entry (GH 1541); when one differs, the lockfile's frozen
+ *      install runs in the worktree instead (GH 3003), and its failure → exit 1
+ *      with the command and its output tail on stderr, branch unmoved.
  *      When the worktree holds .config/tmb/worktree-setup.json (GH 2054), its
  *      commands run first; a failure → exit 1 with the failing command and its
  *      output tail on stderr, nothing recorded, branch unmoved.
@@ -83,7 +87,7 @@ import { repoGitRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.j
 import { runCommandSql, runFinishSql, runStartSql } from '../hooks/lib/verification-runs.js';
 import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { HAS_PASS_SQL, REVIEW_ANCHOR_AT_SQL } from '../review-sql.js';
-import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
+import { prepareWorktreeDeps } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.js';
 import type { CliIo } from './fallback-db.js';
 
@@ -505,17 +509,11 @@ SELECT changes();`,
     const newSha = this.revParse(this.wt, 'HEAD');
     if (newSha === '') this.die(4, 'cannot read the rebased HEAD');
 
-    try {
-      for (const s of linkWorktreeNodeModules(this.repoRoot, this.wt).skipped) this.io.err(`worktree-deps: ${s.dir}: ${s.reason}\n`);
-    } catch {
-      this.say('node_modules linking failed');
-    }
-
+    const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? '');
     const budgetRaw =
       this.env.TMB_VERIFICATION_TIMEOUT_S ||
       sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", this.env);
     const timeoutS = parseBudget(budgetRaw).timeoutS;
-    const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? '');
 
     if (this.rebasePicks(newSha) === '') {
       this.die(2, `task ${this.taskId}'s patch is already in ${this.baseLabel}; nothing to integrate, ${branch} and the DB are unchanged`);
@@ -525,6 +523,13 @@ SELECT changes();`,
         2,
         `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.baseLabel}..reviewed differs from ${this.baseLabel}..rebased); ${branch} and the DB are unchanged`,
       );
+    }
+
+    const deps = await prepareWorktreeDeps(this.repoRoot, this.wt, { env: { ...this.env, PATH: toolchainPath } });
+    for (const s of deps.skipped) this.io.err(`worktree-deps: ${s.dir}: ${s.reason}\n`);
+    if (deps.install_error !== undefined) {
+      this.io.err(`${deps.install_error}\n`);
+      this.die(1, `worktree setup failed on ${newSha}; no verification run recorded, ${branch} unmoved`);
     }
 
     const setup = await runWorktreeSetup(this.wt, { env: { ...this.env, PATH: toolchainPath } });
