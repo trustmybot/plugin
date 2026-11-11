@@ -1,0 +1,2 @@
+### Fixed
+- **Bash writes to project skill and agent files need the Human's approval too** (GH 2942): a shell write (redirect, `tee`, `cp`, `mv`, `sed -i` and the like) to a file under your project's `.claude/skills/` or `.claude/agents/`, in any letter case and in a worktree copy, is now blocked unless bro recorded the Human's Yes for that exact path in the last 30 minutes with scope `full`, as Edit and Write already were. A `skills-array` approval does not cover a shell write. swe is not affected, and a command that writes no such file needs no trajectory DB.

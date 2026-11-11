@@ -44,6 +44,7 @@ describe('prompt-write-approval (GH 2927)', () => {
   };
   const run = (tool: string, toolInput: object, extra: object = {}, runEnv: NodeJS.ProcessEnv = env()): Output | null => {
     const r = promptWriteApproval(JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: tool, tool_input: toolInput, ...extra }), runEnv);
+    assert.ok(!(r instanceof Promise), 'an edit tool is answered at once');
     assert.equal(r.code, 0);
     return r.stdout.trim() === '' ? null : (JSON.parse(r.stdout) as Output);
   };
@@ -198,6 +199,74 @@ describe('prompt-write-approval (GH 2927)', () => {
     const reason = denied(write(skill('x'), {}, env({ TRAJECTORY_DB_PATH: join(base, 'nowhere/trajectory.db') })));
     assert.match(reason, /trajectory DB is unavailable/);
     denied(write(skill('x'), {}, env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })));
+  });
+
+  describe('Bash (GH 2942)', () => {
+    const bash = async (command: string, extra: object = {}, runEnv: NodeJS.ProcessEnv = env()): Promise<Output | null> => {
+      const r = await promptWriteApproval(JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: 'Bash', tool_input: { command }, ...extra }), runEnv);
+      assert.equal(r.code, 0);
+      return r.stdout.trim() === '' ? null : (JSON.parse(r.stdout) as Output);
+    };
+    const noDb = (): NodeJS.ProcessEnv => env({ TRAJECTORY_DB_PATH: join(base, 'nowhere/trajectory.db') });
+    const WRITES = [
+      'echo x > .claude/skills/x/SKILL.md',
+      'cp /etc/hosts .claude/skills/x/SKILL.md',
+      'echo x | tee .claude/skills/x/SKILL.md',
+      "sed -i '' s/a/b/ .claude/skills/x/SKILL.md",
+    ];
+
+    it('runs in the PreToolUse Bash router group', () => {
+      assert.ok(routerGates('PreToolUse', 'Bash').some((g) => g.name === GATE_NAME && g.kind === 'enforcement'));
+    });
+
+    it('SC1: denies a redirect, cp, tee and sed -i into a project skill with no approval, naming the canonical path', async () => {
+      for (const command of WRITES) {
+        const reason = denied(await bash(command));
+        assert.ok(reason.includes(skill('x')), `${command}: ${reason}`);
+        assert.match(reason, /prompt_write_approved/);
+      }
+    });
+
+    it('SC2: allows each with a fresh full approval, and a skills-array approval alone does not', async () => {
+      approve(skill('x'), 'full');
+      for (const command of WRITES) assert.equal(await bash(command), null, command);
+      approve(agentPath('a'), 'skills-array');
+      assert.match(denied(await bash(`echo '  - two' >> ${agentPath('a')}`)), /skills-array/);
+    });
+
+    it('SC1: a case-variant spelling, a non-.md file and a worktree copy are gated', async () => {
+      mkdirSync(join(project, '.claude/skills'), { recursive: true });
+      denied(await bash('echo x > .Claude/Skills/foo/SKILL.md'));
+      denied(await bash('echo x > .claude/skills/foo/scripts/run.py'));
+      const copy = join(project, 'plugin/.claude/worktrees/w/.claude/skills/foo/SKILL.md');
+      assert.ok(denied(await bash(`echo x > ${copy}`)).includes(copy));
+    });
+
+    it('two gated targets need both approved', async () => {
+      approve(skill('x'), 'full');
+      const reason = denied(await bash('echo x | tee .claude/skills/x/SKILL.md .claude/skills/y/SKILL.md'));
+      assert.ok(reason.includes(skill('y')), reason);
+      approve(skill('y'), 'full');
+      assert.equal(await bash('echo x | tee .claude/skills/x/SKILL.md .claude/skills/y/SKILL.md'), null);
+    });
+
+    it('SC3: a write elsewhere and a read need no DB; a swe is exempt', async () => {
+      assert.equal(await bash('echo x > docs/x.md', {}, noDb()), null);
+      assert.equal(await bash(`cat ${skill('x')}`, {}, noDb()), null);
+      assert.equal(await bash('echo x > docs/x.md', {}, env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })), null);
+      assert.equal(await bash('echo x > .claude/skills/x/SKILL.md', { agent_type: 'tmb:swe', agent_id: 'a1' }), null);
+    });
+
+    it('fails closed on a gated target with no DB', async () => {
+      approve(skill('x'), 'full');
+      assert.match(denied(await bash('echo x > .claude/skills/x/SKILL.md', {}, noDb())), /trajectory DB is unavailable/);
+    });
+
+    it('SC4: leaves a never-judged target to containment-guard and denies the analyzer cap line', async () => {
+      assert.equal(await bash('python3 -c "import os; open(os.environ[\'P\'], \'w\')"'), null);
+      const padded = Array.from({ length: 20000 }, (_, i) => `cd d${i} && echo > f${i};`).join(' ');
+      assert.match(denied(await bash(padded)), /analyzer stopped/);
+    });
   });
 
   it('a relative file_path resolves against the payload cwd, else the project root', () => {
