@@ -89,7 +89,7 @@ const SCAN_FLOW = (repo: string) => ({
   steps: [
     { path: 'mcp/trajectory-server/src/tools/scan.ts', kind: 'function', qualified_name: 'persistScan', description: 'Writes the walked tree to the DB.', handoff: 'calls' },
     { path: 'mcp/trajectory-server/src/tools/scan.ts', kind: 'function', qualified_name: 'planRepoIndex', description: 'Plans the reparse of stale files at the indexed commit, a lighthouse for drift.', handoff: 'calls' },
-    { path: 'mcp/trajectory-server/src/parsing/extract.ts', kind: 'function', qualified_name: 'isTestPath', description: 'Keeps tests out of the lane.', handoff: 'calls' },
+    { path: 'mcp/trajectory-server/src/utils/test-paths.ts', kind: 'function', qualified_name: 'isTestPath', description: 'Keeps tests out of the lane.', handoff: 'calls' },
   ],
   claims: [
     {
@@ -277,7 +277,7 @@ SUITES.push(() => describe('L2 concept drift and re-resolution on a temp copy of
   const db = tempDB();
   const holder = GraphHolder.fixed(new WorldModelGraph(db));
   const wm = () => worldModelTools(db, holder).handlers;
-  const EXTRACT = join(root, 'mcp/trajectory-server/src/parsing/extract.ts');
+  const TEST_PATHS_SRC = join(root, 'mcp/trajectory-server/src/utils/test-paths.ts');
   const IS_TEST_PATH = /export function isTestPath\(path: string\): boolean \{\n[^}]*\}\n/;
   let repo = '';
   let original = '';
@@ -297,7 +297,7 @@ SUITES.push(() => describe('L2 concept drift and re-resolution on a temp copy of
     execFileSync('git', ['clone', '-q', WORKTREE, root]);
     execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
     execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
-    original = readFileSync(EXTRACT, 'utf8');
+    original = readFileSync(TEST_PATHS_SRC, 'utf8');
     assert.match(original, IS_TEST_PATH);
     repo = (await scan(db, holder, ws)).repos[0]!.name;
   });
@@ -311,7 +311,7 @@ SUITES.push(() => describe('L2 concept drift and re-resolution on a temp copy of
 
   it('editing an anchored body makes the step and concept suspect, naming the step', async () => {
     id = parse<{ id: number }>((await wm()['world_model_concept_upsert']!(SCAN_FLOW(repo))) as CallToolResult).id;
-    writeFileSync(EXTRACT, original.replace(IS_TEST_PATH, 'export function isTestPath(path: string): boolean {\n  return path.includes("/test/");\n}\n'));
+    writeFileSync(TEST_PATHS_SRC, original.replace(IS_TEST_PATH, 'export function isTestPath(path: string): boolean {\n  return path.includes("/test/");\n}\n'));
     commit();
     const out = await scan(db, holder, ws);
     assert.equal(out.symbols.files_parsed, 1);
@@ -323,7 +323,7 @@ SUITES.push(() => describe('L2 concept drift and re-resolution on a temp copy of
   });
 
   it('deleting the anchored function breaks the step and concept, and concept_get gives symbol null', async () => {
-    writeFileSync(EXTRACT, original.replace(IS_TEST_PATH, ''));
+    writeFileSync(TEST_PATHS_SRC, original.replace(IS_TEST_PATH, ''));
     commit();
     await scan(db, holder, ws);
     const got = await getConcept(id);
@@ -335,7 +335,7 @@ SUITES.push(() => describe('L2 concept drift and re-resolution on a temp copy of
   });
 
   it('re-upserting over the restored function restores verified and keeps the id', async () => {
-    writeFileSync(EXTRACT, original);
+    writeFileSync(TEST_PATHS_SRC, original);
     commit();
     await scan(db, holder, ws);
     const again = parse<{ id: number; status: string }>((await wm()['world_model_concept_upsert']!(SCAN_FLOW(repo))) as CallToolResult);

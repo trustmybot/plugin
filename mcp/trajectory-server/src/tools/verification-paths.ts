@@ -4,11 +4,11 @@ import { accessSync, constants, readdirSync } from 'node:fs';
 import { delimiter, join, posix } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { gitUnanswered, runGit } from '../utils/git-run.js';
+import { isTestBasename } from '../utils/test-paths.js';
 
 // GH 2581: the test files a verification[] command names must exist at the
 // task's ref, or be listed verbatim in files[] because the task creates them.
 
-const TEST_BASENAMES = [/\.test\.(?:ts|mts|js|mjs|cjs)$/, /\.spec\.[^/]+$/, /\.suite\.ts$/, /^test_.*\.py$/];
 const GLOB_CHARS = /[*?[{]/;
 const SUGGESTION_LIMIT = 20;
 const LS_TREE_MAX_BUFFER = 64 * 1024 * 1024;
@@ -41,11 +41,6 @@ export interface VerificationSuggestion {
 export interface SuggestedVerification {
   suggested_verification: VerificationSuggestion[];
   suggested_verification_note?: string;
-}
-
-export function isTestPath(word: string): boolean {
-  const base = posix.basename(word);
-  return TEST_BASENAMES.some((re) => re.test(base));
 }
 
 type HeredocBody = { text: string };
@@ -374,7 +369,7 @@ function collectTokens(command: string, script: string, startDir: string, out: T
       const inner = shellScript(argv);
       if (inner !== null) collectTokens(command, inner, dir, out);
       if (shellReadsStdin(argv)) for (const body of bodies) collectTokens(command, body.text, dir, out);
-      for (const w of runnerTestFiles(argv)) if (isTestPath(w)) out.push({ command, token: w, dir });
+      for (const w of runnerTestFiles(argv)) if (isTestBasename(w)) out.push({ command, token: w, dir });
     }
   };
   for (const t of shellTokens(script)) {
@@ -723,7 +718,7 @@ export function suggestVerification(
   const named = namedMatchers(repoPath, verification);
   const byTest = new Map<string, string[]>();
   for (const r of rows) {
-    if (!isTestPath(r.test_path) || named.some((m) => m(r.test_path))) continue;
+    if (!isTestBasename(r.test_path) || named.some((m) => m(r.test_path))) continue;
     const list = byTest.get(r.test_path) ?? [];
     list.push(r.imports);
     byTest.set(r.test_path, list);

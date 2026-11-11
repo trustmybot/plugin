@@ -1,0 +1,2 @@
+### Fixed
+- **The world model now recognizes Go, Python, Ruby and spec test files as tests** (GH 2886): it used to treat only `test`/`tests`/`__tests__` folders and `.test.`/`.spec.` names as tests, so files like `foo_test.go`, `test_foo.py` or anything under `e2e/` counted as product code in briefs, concept checks and downstream hints. One shared rule set now covers the common per-language conventions, each scan stores every file's test or product lane, and a project can add or remove paths with the `world_model_test_lane` setting (`{"extend": [...], "exclude": [...]}`).

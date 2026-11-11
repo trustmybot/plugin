@@ -27,7 +27,6 @@ import {
   extractFile,
   inSymbolScope,
   isGeneratedPath,
-  isTestPath,
   languageOf,
   needsParser,
   splitWords,
@@ -45,6 +44,7 @@ import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from
 import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js';
 import { envReaderFor } from './env/collect.js';
 import type { KeywordMatch } from './graph.js';
+import { isTestPath } from './utils/test-paths.js';
 
 export const EXTRACTOR_VERSION = 15;
 const MAX_PARSE_BYTES = 1_000_000;
@@ -168,12 +168,11 @@ const CALL_EDGES: EdgeKind[] = ['calls', 'instantiates', 'runs', 'sources'];
 const NAME_ONLY_EDGES = new Set<EdgeKind>(['reads_config', 'covers']);
 const NAME_ONLY_JSON = JSON.stringify([...NAME_ONLY_EDGES]);
 
-export { isTestPath };
-
 // The concept lane (GH 1680): test and fixture paths never anchor a concept
-// step or join a derived chain.
+// step or join a derived chain. A plain fixtures/ segment is in the test
+// lane; its __fixtures__ variants are added here.
 export function outsideConceptLane(path: string): boolean {
-  return isTestPath(path) || /(^|\/)(__)?fixtures(__)?\//.test(path);
+  return isTestPath(path) || /(^|\/)(__fixtures(__)?|fixtures__)\//.test(path);
 }
 
 function shortName(kind: SymbolKind, qualifiedName: string): string {

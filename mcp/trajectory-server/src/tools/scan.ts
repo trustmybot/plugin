@@ -47,6 +47,8 @@ import { projectRootFromDbPath } from './containment.js';
 import { closeContents, walkProject, type ScanFile, type ScanOutput, type ScanRepo } from './scan-walk.js';
 import type { CommitContent } from '../utils/git-objects.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
+import { configureTestLane } from '../utils/test-paths.js';
+import { readTestLaneConfig } from './config.js';
 import { verificationDefaultsHint, type VerificationDefaultsHint } from './verification-defaults.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -493,6 +495,7 @@ function persistFilesGraph(
     }
     const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
     files_retired += graph.pruneFiles(r.name, keep);
+    graph.syncFileLanes(r.name);
   }
   return { files_upserted: plan.writes.length, files_retired };
 }
@@ -693,6 +696,7 @@ async function persistScan(
   indexed_by_repo: Map<string, RepoIndexed>;
 }> {
   const now = nowISO();
+  configureTestLane(readTestLaneConfig(db));
   const normSession = sessionDir.replace(/\/+$/, '');
 
   const existing = db.all<{ name: string; path: string }>(`SELECT name, path FROM repos`);
@@ -1052,6 +1056,7 @@ export async function persistRepoReindex(
   opts: { reparse?: boolean } = {},
 ): Promise<RepoReindexStats> {
   const now = nowISO();
+  configureTestLane(readTestLaneConfig(db));
   const persisted: ScanOutput = { ...out, files: persistedFiles(out.files, new Set()) };
   const repoFiles = (r: ScanRepo) => out.files.filter((f) => f.repo === r.name);
   const stampCounts = () => {
