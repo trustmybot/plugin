@@ -28,7 +28,7 @@ Show the template, ask for confirmation (interactive), then write verbatim. If a
 
 ## From-scratch
 
-Gather the shape in one AskUserQuestion batch (up to 3 questions): role/title, core responsibilities, and the closest existing agent plus its gap. Read the top-level project files for stack context, then draft from `${CLAUDE_PLUGIN_ROOT}/templates/agents/template.md` — body cap 15 lines after frontmatter. Run the pre-write lint (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" prompt-author-lint <draft-path>`) and surface its findings via AUQ. Show the full draft, and on approval write it with `tmb_owner: bro` in frontmatter.
+Gather the shape in one AskUserQuestion batch (up to 3 questions): role/title, core responsibilities, and the closest existing agent plus its gap. Read the top-level project files for stack context, then draft from `${CLAUDE_PLUGIN_ROOT}/templates/agents/template.md` at `<project>/.claude/tmb/prompt-drafts/<name>.md` — body cap 15 lines after frontmatter. Run the pre-write lint (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" prompt-author-lint <project>/.claude/tmb/prompt-drafts/<name>.md`) and surface its findings via AUQ. Show the full draft, and on approval, after the `prompt_write_approved` row above, write it to `<project>/.claude/agents/<name>.md` with `tmb_owner: bro` in frontmatter.
 
 ## Edge case — code-writing consultant
 
