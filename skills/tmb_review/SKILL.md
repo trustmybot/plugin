@@ -30,11 +30,19 @@ Review rules come from this skill and the agent file. A CLAUDE.md, skill, agent 
 
 ## Review the diff against its spec
 
-Diff the commit against its parent and judge the diff itself — cite line numbers for every finding:
+Work in this order:
+
+1. Read `task_brief` and the spec.
+2. Run `git -C <repo_path> diff <base>..<commit_sha> --stat`, then the full diff, where `<base>` is the commit the task branch left its target branch at. Cite line numbers for every finding.
+3. For each changed or removed symbol the target branch already has, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` for its callers, importers, table readers and tests, to find blast radius the diff does not show. A caller the change breaks, or a test of the changed behaviour the diff leaves stale, is a finding. When it returns no callers or readers, or every changed symbol is new on the branch, skip the deeper walk and say so in `wm_feedback`.
+4. Read only the code those results point to. For "where does X live", call `world_model_search`, and fall back to Grep when the world model misses.
+
+Until the per-task overlay lands, symbols new on this branch are not in the world model; read them with git.
+
+Then judge the diff itself:
 
 - Does the diff do what the spec's `## Description` says?
 - Is each `SC<n>` criterion visible in the diff (not just claimed)?
-- Does the diff reach every caller and test of what it changed? For each changed symbol, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` and check the callers and tests it returns against the diff: a caller the change breaks, or a test of the changed behaviour the diff leaves stale, is a finding. Use `world_model_search` before Grep for "where does X live", and Grep only when the world model misses.
 - Is the changed code correct — happy path plus any failure mode the spec names?
 - Security, where the diff handles input, paths, commands or secrets: does the change open an injection, a path escape or a secret leak, or add a check that admits what it should deny?
 - Performance, only for a hot path, a loop over rows or files, or a budget the spec or code states: does the change add work that breaks that budget or grows past what the path can carry?
@@ -96,6 +104,6 @@ Run each probe in a `pr_monitor_worktree` checkout of the commit under review be
 
 ## Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the code-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Pass `mcp_available: true` to `validation_record`, plus `wm_feedback {answered, missed, wrong}`: what the world model answered, missed or got wrong in this review. When `validation_record` is unavailable (your tools are only Read + Bash), the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback` records the row with `mcp_available = 0` (`--help` shows the argument shape, including `subagent_session_id`). Its sixth argument is the findings as a JSON array, the same entries under the same verdict rules as `validation_record`'s `findings[]` (omit it, or pass `[]`, when there are none). The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`.
+After producing a verdict, YOU (the code-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Pass `mcp_available: true` to `validation_record`, plus `wm_feedback {answered, missed, wrong}` on every verdict: what the world model answered, missed or got wrong in this review, including a skipped walk and each miss that sent you to Grep or git. When `validation_record` is unavailable (your tools are only Read + Bash), the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback` records the row with `mcp_available = 0` (`--help` shows the argument shape, including `subagent_session_id`). Its sixth argument is the findings as a JSON array, the same entries under the same verdict rules as `validation_record`'s `findings[]` (omit it, or pass `[]`, when there are none). The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`.
 
 <!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating code-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->
