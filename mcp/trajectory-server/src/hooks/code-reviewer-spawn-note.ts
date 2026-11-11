@@ -5,7 +5,7 @@
  * attempt_n, subagent_session_id) and at most SPAWN_NOTE_MAX_CHARS of other
  * prose. The reviewer reads the spec, discussions and swe's completion report
  * from task_brief; anything else bro wants it to know goes into spawn_note via
- * bro_atomic_close, which task_brief returns. Other agent types are allowed
+ * review_handoff, which task_brief returns. Other agent types are allowed
  * untouched. Bypass: TMB_SKIP_CODE_REVIEWER_SPAWN_NOTE=1.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
@@ -30,12 +30,12 @@ export function denyReason(proseChars: number): string {
   return (
     `BLOCKED: the code-reviewer spawn prompt carries ${proseChars} characters of prose beyond its anchors ` +
     `(${ANCHORS.map((a) => `${a}=`).join(', ')}); the cap is ${SPAWN_NOTE_MAX_CHARS}. The reviewer reads the spec, ` +
-    "discussions and swe's completion report from task_brief, and bro_atomic_close's spawn_note carries the rest."
+    "discussions and swe's completion report from task_brief, and review_handoff's spawn_note carries the rest."
   );
 }
 
 const SPAWN_NOTE_FIX: DenyFix = {
-  allowed: 'the same spawn with reviewer_spawn.prompt exactly as bro_atomic_close returned it (anchors only); to add a note after close, task_reopen(spawn_note=...)',
+  allowed: 'the same spawn with reviewer_spawn.prompt exactly as review_handoff returned it (anchors only); to add a note, review_handoff(spawn_note=...) again',
 };
 
 function deny(reason: string): GateResult {

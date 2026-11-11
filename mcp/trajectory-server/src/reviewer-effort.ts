@@ -1,11 +1,11 @@
 /**
- * Reviewer effort by risk tier (GH 1955). bro_atomic_close assigns the effort
+ * Reviewer effort by risk tier (GH 1955). review_handoff assigns the effort
  * the task's code-reviewer spawn runs at and records it in one
  * reviewer_effort_assigned audit row; require-spawn-effort and swe-atomic-close
  * read that row back through reviewerEffortFor in src/hooks/lib/effort.ts.
  * With reviewer_effort_tiers and reviewer_effort_ab unset every assignment is
  * plugin_config.reviewer_effort (reason `config`). reviewerSpawn builds the
- * code-reviewer Agent call bro_atomic_close returns as reviewer_spawn (GH 2582).
+ * code-reviewer Agent call review_handoff returns as reviewer_spawn (GH 2582).
  */
 import type { TrajectoryDB } from './db.js';
 import { ANCHORS } from './hooks/code-reviewer-spawn-note.js';
@@ -88,9 +88,9 @@ export interface ReviewerEffortAssignment {
 }
 
 /**
- * Assigns the reviewer effort for one close and writes its
- * reviewer_effort_assigned row. Call inside the close transaction, after
- * bro_verification_pass. An unchecked scope (no changed list) is the config
+ * Assigns the reviewer effort for one review handoff and writes its
+ * reviewer_effort_assigned row. Call inside the handoff transaction, after
+ * its review_handoff row. An unchecked scope (no changed list) is the config
  * effort. A task enrolled under the current A/B label keeps its arm; a new
  * one enrolls while fewer than `target` tasks carry the label, at its id's
  * parity arm (even tiered, odd fixed). Any other task follows
@@ -147,7 +147,7 @@ function anchorValue(value: string): string {
 }
 
 /**
- * The code-reviewer Agent call for a closed task: every ANCHORS entry of
+ * The code-reviewer Agent call for a handed-off task: every ANCHORS entry of
  * code-reviewer-spawn-note as name=value, one short line, and the assigned
  * effort. repo_path is the task's worktree, else its repo's path; attempt_n is
  * the task's code-reviewer validation rows + 1. A missing input names itself

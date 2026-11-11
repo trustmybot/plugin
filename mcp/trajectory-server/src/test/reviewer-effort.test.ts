@@ -1,5 +1,5 @@
 // Reviewer effort by risk tier (GH 1955): reviewerEffortTier's rule, and the
-// reviewer_effort_assigned row bro_atomic_close writes on every close under
+// reviewer_effort_assigned row review_handoff writes on every handoff under
 // the reviewer_effort_tiers / reviewer_effort_ab config keys.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -62,7 +62,7 @@ describe('reviewerEffortTier', () => {
   });
 });
 
-describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned)', () => {
+describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)', () => {
   let ws: string;
   let repoRoot: string;
   let db: TrajectoryDB;
@@ -113,7 +113,7 @@ describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned
   };
   const clearConfig = () => db.run(`DELETE FROM plugin_config WHERE key IN ('reviewer_effort', 'reviewer_effort_tiers', 'reviewer_effort_ab', 'high_effort_paths')`);
 
-  const closeTask = async (id: number, paths: string[], opts: { prompt_bearing?: 0 | 1 } = {}) => {
+  const handOff = async (id: number, paths: string[], opts: { prompt_bearing?: 0 | 1 } = {}) => {
     const branch = `feat/t${id}-${db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit`)!.n}`;
     const sha = commitOn(branch, paths);
     const exists = db.get<{ id: number }>('SELECT id FROM tasks WHERE id = ?', [id]);
@@ -126,7 +126,7 @@ describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned
         [id, `feat/t${id}`, JSON.stringify(paths), opts.prompt_bearing ?? 0, sha, NOW, NOW],
       );
     }
-    const r = await call(composites.handlers, 'bro_atomic_close', { agent: 'bro', task_id: String(id), commit_sha: sha, verification_summary: 'ok' });
+    const r = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: String(id) });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
     return { payload: parse(r) as { reviewer_effort: string }, sha };
   };
@@ -140,23 +140,23 @@ describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned
       )
       .map((r) => JSON.parse(r.content_json) as Record<string, unknown>);
 
-  it('with both keys unset the effort is the config value, reason config, written right after bro_verification_pass', async () => {
+  it('with both keys unset the effort is the config value, reason config, written right after review_handoff', async () => {
     clearConfig();
-    const { payload, sha } = await closeTask(1, ['src/a.ts'], { prompt_bearing: 1 });
+    const { payload, sha } = await handOff(1, ['src/a.ts'], { prompt_bearing: 1 });
     assert.equal(payload.reviewer_effort, 'medium', 'payload carries the config default');
     assert.deepEqual(rowsOf(1), [{ task_id: 1, commit_sha: sha, effort: 'medium', reason: 'config' }]);
     const order = db.all<{ event_type: string }>(
-      `SELECT event_type FROM audit WHERE event_type IN ('bro_verification_pass', 'reviewer_effort_assigned') ORDER BY id DESC LIMIT 2`,
+      `SELECT event_type FROM audit WHERE event_type IN ('review_handoff', 'reviewer_effort_assigned') ORDER BY id DESC LIMIT 2`,
     );
-    assert.deepEqual(order.map((r) => r.event_type), ['reviewer_effort_assigned', 'bro_verification_pass']);
+    assert.deepEqual(order.map((r) => r.event_type), ['reviewer_effort_assigned', 'review_handoff']);
     const between = db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM audit WHERE id > (SELECT MAX(id) FROM audit WHERE event_type = 'bro_verification_pass')
+      `SELECT COUNT(*) AS n FROM audit WHERE id > (SELECT MAX(id) FROM audit WHERE event_type = 'review_handoff')
           AND id < (SELECT MAX(id) FROM audit WHERE event_type = 'reviewer_effort_assigned')`,
     )!.n;
-    assert.equal(between, 0, 'no row between bro_verification_pass and reviewer_effort_assigned');
+    assert.equal(between, 0, 'no row between review_handoff and reviewer_effort_assigned');
 
     await setConfig('reviewer_effort', 'high');
-    const second = await closeTask(3, ['docs/a.md']);
+    const second = await handOff(3, ['docs/a.md']);
     assert.equal(second.payload.reviewer_effort, 'high', 'a configured reviewer_effort, tiers off');
     assert.deepEqual(rowsOf(3).map((r) => [r['effort'], r['reason']]), [['high', 'config']]);
   });
@@ -172,7 +172,7 @@ describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned
       [11, ['src/a.ts', 'README.md'], 0, 'medium', 'default'],
     ];
     for (const [id, paths, pb, effort, reason] of cases) {
-      const { payload } = await closeTask(id, paths, { prompt_bearing: pb });
+      const { payload } = await handOff(id, paths, { prompt_bearing: pb });
       assert.equal(payload.reviewer_effort, effort, `task ${id} payload`);
       const rows = rowsOf(id);
       assert.equal(rows.length, 1, `task ${id}: one row`);
@@ -180,37 +180,37 @@ describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned
     }
   });
 
-  it('with reviewer_effort_ab set: even ids tiered, odd ids fixed, enrollment stops at target, a re-close keeps the arm', async () => {
+  it('with reviewer_effort_ab set: even ids tiered, odd ids fixed, enrollment stops at target, a re-handoff keeps the arm', async () => {
     clearConfig();
     await setConfig('reviewer_effort_ab', { label: 'gh-1955', target: 2 });
     assert.equal(reviewerEffortAbArm(20), 'tiered');
     assert.equal(reviewerEffortAbArm(21), 'fixed');
 
-    const even = await closeTask(20, ['docs/guide.md']);
+    const even = await handOff(20, ['docs/guide.md']);
     assert.equal(even.payload.reviewer_effort, 'low', 'tiered arm: the docs tier');
     assert.deepEqual(rowsOf(20), [{ task_id: 20, commit_sha: even.sha, effort: 'low', reason: 'docs_tests', label: 'gh-1955', arm: 'tiered' }]);
 
-    const odd = await closeTask(21, ['docs/guide.md']);
+    const odd = await handOff(21, ['docs/guide.md']);
     assert.equal(odd.payload.reviewer_effort, 'medium', 'fixed arm: the config effort');
     assert.deepEqual(rowsOf(21), [{ task_id: 21, commit_sha: odd.sha, effort: 'medium', reason: 'config', label: 'gh-1955', arm: 'fixed' }]);
 
-    const late = await closeTask(22, ['docs/guide.md']);
+    const late = await handOff(22, ['docs/guide.md']);
     assert.equal(late.payload.reviewer_effort, 'medium', 'target reached: not enrolled, tiers off -> config');
     assert.deepEqual(rowsOf(22).map((r) => [r['effort'], r['reason'], r['label'], r['arm']]), [['medium', 'config', undefined, undefined]]);
 
     await setConfig('reviewer_effort_tiers', true);
-    const lateTiered = await closeTask(24, ['docs/guide.md']);
+    const lateTiered = await handOff(24, ['docs/guide.md']);
     assert.equal(lateTiered.payload.reviewer_effort, 'low', 'not enrolled follows reviewer_effort_tiers');
     assert.equal(rowsOf(24)[0]!['arm'], undefined);
 
-    const rework = await closeTask(21, ['docs/guide.md', 'src/test/b.test.ts']);
-    assert.equal(rework.payload.reviewer_effort, 'medium', 're-close keeps the fixed arm though tiers is on');
+    const rework = await handOff(21, ['docs/guide.md', 'src/test/b.test.ts']);
+    assert.equal(rework.payload.reviewer_effort, 'medium', 're-handoff keeps the fixed arm though tiers is on');
     const rows = rowsOf(21);
-    assert.equal(rows.length, 2, 'one row per close');
+    assert.equal(rows.length, 2, 'one row per handoff');
     assert.deepEqual([rows[1]!['commit_sha'], rows[1]!['arm'], rows[1]!['label'], rows[1]!['reason']], [rework.sha, 'fixed', 'gh-1955', 'config']);
 
-    const reworkEven = await closeTask(20, ['src/a.ts']);
-    assert.equal(reworkEven.payload.reviewer_effort, 'medium', 're-close keeps the tiered arm with the new tier');
+    const reworkEven = await handOff(20, ['src/a.ts']);
+    assert.equal(reworkEven.payload.reviewer_effort, 'medium', 're-handoff keeps the tiered arm with the new tier');
     assert.deepEqual(rowsOf(20).map((r) => r['arm']), ['tiered', 'tiered']);
     const enrolled = db.get<{ n: number }>(
       `SELECT COUNT(DISTINCT json_extract(content_json, '$.task_id')) AS n FROM audit
@@ -219,7 +219,7 @@ describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned
     assert.equal(enrolled, 2, 'enrollment stopped at target');
   });
 
-  it('an unchecked scope (waived, no git) is the config effort even with tiers on', async () => {
+  it('an unchecked scope (no git checkout) is the config effort even with tiers on', async () => {
     clearConfig();
     await setConfig('reviewer_effort_tiers', true);
     db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('nowhere', ?, 'dev')`, [join(ws, 'missing')]);
@@ -228,10 +228,7 @@ describe('bro_atomic_close assigns the reviewer effort (reviewer_effort_assigned
        VALUES (31, 1, 'feat/t31', 'dev', 'd', 'completed', 's', 'nowhere', '["docs/a.md"]', 'abcdef1', ?, ?)`,
       [NOW, NOW],
     );
-    const r = await call(composites.handlers, 'bro_atomic_close', {
-      agent: 'bro', task_id: '31', commit_sha: 'abcdef1', verification_summary: 'ok',
-      waive_scope_gate: true, scope_waiver_reason: 'synthetic close outside a git checkout',
-    });
+    const r = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: '31' });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
     assert.equal(parse(r).reviewer_effort, 'medium');
     assert.deepEqual(rowsOf(31).map((row) => [row['effort'], row['reason']]), [['medium', 'config']]);

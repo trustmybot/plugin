@@ -5,8 +5,9 @@
  */
 
 // The review anchor of a task's current commit: the earliest of the
-// bro_verification_pass and task_integrated audit rows naming this task and
-// this commit_sha (bro's first verification of that exact commit, or cli.js
+// review_handoff, bro_verification_pass and task_integrated audit rows naming
+// this task and this commit_sha (bro handing that exact commit to
+// code-reviewer, a close under the old close-then-review order, or cli.js
 // integrate moving the task onto it). Each row's time is its created_at,
 // except that a task_integrated row from hook:integrate carries the anchor of
 // the commit it rebased in $.review_anchor_at (GH 2082, Gerrit's
@@ -61,7 +62,7 @@ export const REVIEW_ANCHOR_AT_SQL = `(SELECT MIN(CASE
       WHEN ${legacyIntegrateSql('a')}
       THEN COALESCE(${LEGACY_CHAIN_ANCHOR_SQL}, a.created_at)
       ELSE a.created_at END) FROM audit a
-    WHERE a.event_type IN ('bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
+    WHERE a.event_type IN ('review_handoff', 'bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
       AND json_extract(a.content_json, '$.task_id') = t.id
       AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha)`;
 

@@ -47,6 +47,17 @@ test('CONFIG_KEYS.md matches the plugin_config keys the code uses', () => {
   );
 });
 
+test('F831-1: reviewer-effort key docs name review_handoff, not bro_atomic_close, as the assigner', () => {
+  const oldOrder = /(what|every|its first) .bro_atomic_close. /;
+  for (const rel of [DOC, join('scripts', 'maintenance', 'gen-config-keys-doc.mjs')]) {
+    const stale = readFileSync(join(ROOT, rel), 'utf8')
+      .split('\n')
+      .map((line, i) => ({ line, n: i + 1 }))
+      .filter(({ line }) => oldOrder.test(line));
+    assert.deepEqual(stale, [], `${rel} still says bro_atomic_close assigns the review`);
+  }
+});
+
 test('GH 2533: run through a symlinked directory, gen-config-keys-doc.mjs still runs main()', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tmb-config-keys-doc-link-'));
   try {

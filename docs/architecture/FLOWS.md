@@ -2,7 +2,7 @@
 
 The decision chain is **Human → bro → SWE** with two distinct gates:
 - **bro is the task gate** — closes after SWE returns + verifies.
-- **code-reviewer is the push gate** — reviews each task after `bro_atomic_close`; `git-push-guard` blocks a push whose task commits lack a passing review.
+- **code-reviewer is the push gate** — reviews each completed task after bro's `review_handoff`, and bro's `bro_atomic_close` follows its pass; `git-push-guard` blocks a push whose task commits lack a passing review.
 
 All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. Roles live in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
 
@@ -45,9 +45,9 @@ Every flow is built on two axes. The first is a responsibility boundary: each la
 | 7 | Scan + world-model refresh | An empty world model, `/scan`, or the trajectory server connecting | bro (or the server's startup catch-up in background) | the world model and the discovered-capability registry | none (the startup catch-up is server code, not a hook) |
 | **E** | Environment profile (ENV) | bro needs a repo's install, test and lint commands | bro | a per-machine cache of resolved commands | — |
 | | **Agent task handling** | | | | |
-| 2 | **Code-touching task** (canonical) | Code change ask | bro → swe (`task_provision` cuts branch + worktree); code-reviewer per task after `bro_atomic_close`; the integrate command when the base moved | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR | `agent-spawn-dispatch`, `containment-guard`, `swe-verification-gate`, `swe-atomic-close`, `code-reviewer-preflight`, `git-push-guard`, `close-issue-on-merge` |
+| 2 | **Code-touching task** (canonical) | Code change ask | bro → swe (`task_provision` cuts branch + worktree); code-reviewer per task after `review_handoff`, then `bro_atomic_close` after its pass; the integrate command when the base moved | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR | `agent-spawn-dispatch`, `containment-guard`, `swe-verification-gate`, `swe-atomic-close`, `code-reviewer-preflight`, `git-push-guard`, `close-issue-on-merge` |
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a decision + blast-radius, then standard SWE flow | + a decision record | `task_provision`'s decision body (the universal decision gate) |
-| 6 | Push gate / PR review | Each task after `bro_atomic_close`; `git push` of a commit with no passing review | bro → code-reviewer (one per closed task, parallel) | a verdict per reviewed commit, with its findings | `code-reviewer-after-atomic-close`, `code-reviewer-spawn-note`, `code-reviewer-preflight`, `git-push-guard` |
+| 6 | Push gate / PR review | Each completed task after `review_handoff`; `git push` of a commit with no passing review | bro → code-reviewer (one per handed-off task, parallel), then `bro_atomic_close` on each pass | a verdict per reviewed commit, with its findings | `code-reviewer-after-atomic-close`, `code-reviewer-spawn-note`, `code-reviewer-preflight`, `git-push-guard` |
 | 8 | SWE retry / escalation | A failed check of bro's four, a code-reviewer fail verdict, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task | `task_reopen` / `task_retry` composites, `rework-limit`, `swe-resume-gate` |
 | **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → code-reviewer per actionable comment batch | stored comments, new issues and tasks, the run's resume point | — |
 | 33 | Multi-repo path discipline | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo | — |
@@ -180,7 +180,7 @@ Knowing how to install, test and lint a repo is bro's job, and **no toolset is h
 
 This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`), loop ids (`L1`..`L8`) and guard ids (`G1`..`G16`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first. Ids are never renumbered: a new step takes a primed id (`S4′`) and a new loop or guard the next number.
 
-Bro is both planner AND task gate: a task closes as soon as SWE returns and bro verifies it. code-reviewer then reviews each closed task, and `git-push-guard` holds any push whose task commits lack a passing review.
+Bro is both planner AND task gate, and the handoff order is swe → code-reviewer → bro: when SWE returns and bro verifies the task, bro hands its commit to code-reviewer (S13) while the task stays completed, and closes the task only after code-reviewer's pass (S14). `git-push-guard` holds any push whose task commits lack a passing review.
 
 #### Steps
 
@@ -199,9 +199,9 @@ Bro is both planner AND task gate: a task closes as soon as SWE returns and bro 
 | S10 | <a id="S10"></a>swe | `task_update_status(completed, commit_sha, report)`; the typed report gives every success criterion a status with evidence and lists the edits outside the file list, the findings fixed and the bug classes swept. `swe-verification-gate` first checks the worktree HEAD against its merge base with the PR target for a changelog fragment and for deleted paths or dropped tool names still cited in docs, where the changelog directory, the doc files and the tool sources come from the project's own config and a check the project leaves unconfigured is skipped with a note (no waiver skips these), then runs the verification commands and every blocking finding's probe in the worktree (L2) | a recorded verification run, the closing commit and the report on the task |
 | S11 | <a id="S11"></a>hook | `swe-atomic-close` at SubagentStop: auto-completes a still-running task whose commits carry a passing verification run for HEAD (unless the run wrote a checkpoint, L6); with no such run the task stays open and bro is told to resume the swe so it closes through the gate. It also meters the run and its tool-output sizes, and records why the run stopped (a checkpoint handback or a hook block), telling bro to resume or to name the block in the rework note | the run is closed with its tokens, duration and stop cause |
 | S12 | <a id="S12"></a>bro | Verify: `task_brief` + `git diff` of the commit, judged on the four checks: scope vs the file list, a passing verification run, the report covers every success criterion, `world_model_get` on the changed directory | nothing on a pass; a failed check is recorded (`bro_verification_fail_record`) |
-| S13 | <a id="S13"></a>bro | `bro_atomic_close` refuses a close the report does not cover, or with no passing run for the closing commit. Its short spawn note is the only prose the reviewer gets beyond its anchors, and the result can carry the ready-made S15 spawn call | the task is closed and the pass audited |
-| S14 | <a id="S14"></a>hook | `post-atomic-close-readme` after `bro_atomic_close` | README drift in the closed task's directories is surfaced to bro |
-| S15 | <a id="S15"></a>bro → code-reviewer | `Agent(subagent_type=code-reviewer)`, the prompt carrying `name=value` anchors and the spawn note only; the code-reviewer spawn gates require a closed task, cap the prose and run the machine preflight (L8) | a reviewer starts only on a commit a machine can already vouch for |
+| S13 | <a id="S13"></a>bro | `review_handoff` refuses a handoff the report does not cover, or with no passing run for the task's commit; it records the review anchor with the swe's extras and their reasons, assigns the reviewer effort and leaves the task completed. Its short spawn note is the only prose the reviewer gets beyond its anchors, and the result can carry the ready-made S15 spawn call | the commit is handed to review and the handoff audited |
+| S14 | <a id="S14"></a>bro + hooks | After S17 reads a pass: `bro_atomic_close` refuses without a passing verdict after the handoff of the task's current commit, keeps the scope gate on the extras, then closes the task; `post-atomic-close-readme` and `cleanup-worktree-on-task-close` fire after it | the task is closed and the pass audited; README drift is surfaced and the worktree removed |
+| S15 | <a id="S15"></a>bro → code-reviewer | `Agent(subagent_type=code-reviewer)`, the prompt carrying `name=value` anchors and the spawn note only; the code-reviewer spawn gates require a completed task handed off at its commit (or a closed one), cap the prose and run the machine preflight (L8) | a reviewer starts only on a commit a machine can already vouch for |
 | S16 | <a id="S16"></a>code-reviewer | Reads the brief and the commit, probes in a review worktree, then records a verdict with `validation_record`: a fail needs a blocking finding, and a pass may carry nits and pre-existing ones. A hook stamps the reviewer's identity on the record | a verdict for the commit, with its findings |
 | S17 | <a id="S17"></a>bro | `validation_history`: the verdict comes from the record, never from the reply text | — |
 | S18 | <a id="S18"></a>bro | Base moved → the integrate command rebases the reviewed commit in a temporary worktree and reruns the verification commands; a clean rebase carries the reviewed commit's pass to the new SHA, which bro pushes, and a conflict is L4. An unmoved base skips this step | a verification run on the rebased SHA and the task branch moved to it |
@@ -216,7 +216,7 @@ Bro is both planner AND task gate: a task closes as soon as SWE returns and bro 
 |---|---|---|---|
 | L1 | <a id="L1"></a>Hook block → rerun | A gate denies a swe call, e.g. `containment-guard` on a write outside the worktree | swe reruns in the form the deny names and carries on. When the deny names none or says it is policy, swe closes failed with no report and quotes the hook. A run that stops on the deny without reporting is recorded as stopped on a hook block (S11), and bro names the block in the rework spawn note. Returns to S9. |
 | L2 | <a id="L2"></a>Gate deny → fix | swe reports completed but the changelog fragment is missing, a doc still cites a removed path or tool, or a verification command or an open finding's probe fails | `swe-verification-gate` denies the call, naming the failing check's expected and actual value, or the command and its timing; swe fixes it and calls again. Returns to S9. |
-| L3 | <a id="L3"></a>Review FAIL → rework → re-review | code-reviewer records a fail with numbered findings | bro surfaces the FAIL and holds the push, then `task_reopen` at high effort with a spawn note naming the finding ids; swe fixes each, commits its probe as a test, the gate re-runs every probe, and code-reviewer reviews the next attempt. Returns to S7 (or L7 when bro resumes the same swe). |
+| L3 | <a id="L3"></a>Review FAIL → rework → re-review | code-reviewer records a fail with numbered findings | bro surfaces the FAIL and holds the push (the task is still completed, so it never closed), then `task_reopen` moves it back to running at high effort with a spawn note naming the finding ids; swe fixes each, commits its probe as a test, the gate re-runs every probe, and code-reviewer reviews the next attempt. Returns to S7 (or L7 when bro resumes the same swe). |
 | L4 | <a id="L4"></a>Integrate conflict → retry | The base moved and the integrate command reports a conflict or patch drift | bro records the failure (`bro_verification_fail_record`), then `task_retry` cuts a fresh task, branch and worktree from the current base with a spec that points at the reviewed commit; it goes through verify and review again. A verification failure on the rebased commit reworks as L3. Returns to S7. |
 | L5 | <a id="L5"></a>Rework limit | Two review FAILs on the task since its last passing review, or a design-drift analysis of the task | The `rework-limit` spawn gate (and `swe-resume-gate` for a resume) denies a further swe run on the task. bro debugs the root cause, the inputs first (spec, world model, reviewer, environment), then swe's execution, records it with `task_rework_analysis` and makes the change it names; an analysis newer than the latest FAIL whose change a later row proves (a spec amendment, an effort raise or a world-model fix) admits the next run, while a split or `task_retry` starts a new task. No swe-run, issue-wide FAIL or retry count denies. A design-drift analysis, whose change is a split or `task_retry`, ends the task's swe runs at any FAIL count: bro redesigns the work as a new task with its own spec, and no row lifts the deny. Nothing waits on the Human. Returns to S5. |
 | L6 | <a id="L6"></a>Checkpoint → resume | The work left won't fit in the swe run's turns | Before its turn budget ends the run, swe commits the work in progress and hands back a checkpoint (what is done, what is left, the files in play, the commit) with no report. S11 keeps the task running and records a budget stop; bro spawns swe again, and the brief's checkpoint tells it to start from what is left and not redo what is done. A move to completed clears the checkpoint. Returns to S7. |
@@ -234,7 +234,7 @@ Gates that fire across many steps rather than at one.
 | G3 | <a id="G3"></a>`swe-scope-fence` | Before a write | Never denies: tells swe once per path that it edited outside the file list and must list it in the report's extras |
 | G4 | <a id="G4"></a>`naming-lint`, `code-quality-lint` | Before a write | Lint the written content |
 | G5 | <a id="G5"></a>Bash git guards | Before a Bash call | `git-guards`, `no-worktree-branch-create`, `stay-on-base-guard`, `branch-up-to-date-with-remote`, `commit-msg-lint`, `no-remote-auth-guard`, `remote-id-guard` |
-| G6 | <a id="G6"></a>`cleanup-worktree-on-task-close` | After a task status move or a verdict | Removes a closed task's worktree when nothing else needs it |
+| G6 | <a id="G6"></a>`cleanup-worktree-on-task-close` | After a task status move, `bro_atomic_close` or a verdict | Removes a closed task's worktree when nothing else needs it |
 | G7 | <a id="G7"></a>`bro-turn-usage` | When bro's turn stops | Meters bro's own turn into its session run and records bro's tool-output sizes. Runs async and does not block the turn; a lost run is recovered by the next, whose total always covers the whole transcript. Each run reads only what the transcript gained since the last, from a per-session cursor beside the DB; a missing, corrupt or mismatched cursor falls back to a full read. |
 | G8 | <a id="G8"></a>`task-overrun-alert` | On each prompt and after each trajectory tool call | Tells bro once per task when a running task passes its overrun threshold (an hour by default), with its attempts and current blocker |
 | G8b | <a id="G8b"></a>`session-handoff` | Before compaction, and at the SessionStart that follows | Before each compaction of a bro session, records a handoff for the session, re-arming one an earlier compaction consumed. The same session's post-compaction start takes it and appends the issue, its live tasks and the issue's newest decision, read from the DB then. Startup, clear and resume take nothing. Never blocks and never prints |
@@ -259,10 +259,9 @@ flowchart TD
     S3 -.->|GitHub issue| S4p["S4′ issue_create adopts it"] --> S5
     S5 --> S6["S6 task_provision"] --> S7["S7 spawn swe"] --> S8["S8 task_brief"]
     S8 --> S9["S9 edit + test in worktree"] --> S10["S10 task_update_status + swe-verification-gate"]
-    S10 --> S11["S11 SubagentStop swe-atomic-close + stop cause"] --> S12["S12 bro: the four checks"] --> S13["S13 bro_atomic_close"]
-    S13 --> S14["S14 rescan + README check"]
+    S10 --> S11["S11 SubagentStop swe-atomic-close + stop cause"] --> S12["S12 bro: the four checks"] --> S13["S13 review_handoff"]
     S13 --> S15["S15 spawn code-reviewer + preflight"] --> S16["S16 validation_record"] --> S17["S17 validation_history"]
-    S17 -->|pass| S18["S18 integrate if the base moved"] --> S19["S19 git push"] --> S20["S20 gh pr create"]
+    S17 -->|pass| S14["S14 bro_atomic_close + README check + worktree cleanup"] --> S18["S18 integrate if the base moved"] --> S19["S19 git push"] --> S20["S20 gh pr create"]
     S20 --> S21["S21 Human merges"] --> S22["S22 close-issue-on-merge"]
     S9 -.->|L1 hook block| S9
     S10 -.->|L2 gate deny| S9
@@ -278,7 +277,7 @@ flowchart TD
 - A swe spawn needs a task with a spec; a spec that adds a column, field, tool, table or migration also names who writes it and when it is populated, unless bro waives the check.
 - Only `task_provision` creates task branches and worktrees; a manual branch create in a worktree is denied.
 - The verification gate runs the task's verification commands in its worktree and records the run; a recent passing run for the same commit is reused, and a rework carries forward the commands whose inputs it did not touch. It never fails open: an unresolved worktree denies. A task with no verification commands skips it with a warning, and a stated reason waives it with an audit record.
-- `bro_atomic_close` refuses a close with no passing run (or recorded waiver) for the closing commit. This covers closes the gate never saw, such as a spec change after the run.
+- `review_handoff` refuses a handoff with no passing run (or recorded waiver) for the task's commit. This covers closes the gate never saw, such as a spec change after the run.
 
 ---
 
@@ -301,8 +300,8 @@ sequenceDiagram
     participant P as code-reviewer (subagents — parallel)
     participant DB as SQLite
 
-    Note over B,DB: flow 2 S13: bro_atomic_close closes the task (short spawn note)
-    par one code-reviewer per closed task (S15)
+    Note over B,DB: flow 2 S13: review_handoff hands the completed task's commit to review (short spawn note)
+    par one code-reviewer per handed-off task (S15)
         B->>P: Agent(code-reviewer, anchors only: task_id= commit_sha= …)
         Note over B,P: agent-spawn-dispatch: spawn-note cap, then preflight (L8 on deny)
         P->>DB: task_brief(task_id=N) — spec, completion report, spawn note, open findings
@@ -312,6 +311,7 @@ sequenceDiagram
     B->>DB: validation_history — read each verdict off its record (S17)
 
     alt all pass
+        B->>DB: bro_atomic_close — close each passed task (S14)
         B->>B: integrate <task_id> <base> when the base moved (S18)
         B->>B: git push (git-push-guard allows the reviewed SHAs, S19)
         B-->>H: gh pr create → PR URL (S20)
