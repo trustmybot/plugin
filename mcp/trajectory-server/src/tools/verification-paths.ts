@@ -48,7 +48,8 @@ export function isTestPath(word: string): boolean {
   return TEST_BASENAMES.some((re) => re.test(base));
 }
 
-type ShellToken = { op: string } | { word: string };
+type HeredocBody = { text: string };
+type ShellToken = { op: string } | { word: string } | { heredoc: HeredocBody };
 
 const OPERATORS = ['&&', '||', '|&', ';;', '\n', ';', '|', '&', '(', ')'];
 
@@ -67,19 +68,25 @@ function closingParen(command: string, open: number): number {
 // Splits a shell command into words and control operators. Quotes are removed,
 // `$(…)` and backquotes stay inside their word, and redirections (`2>&1`,
 // `> out`, `&>file`) are dropped together with their target word. A heredoc
-// body is data, so the lines after its newline up to the delimiter are skipped.
+// body is data: its lines are not split into words. Each `<<` emits one heredoc
+// token where its delimiter is read, inside the statement it feeds; the body
+// text is filled in once the lines after the newline are read.
 function shellTokens(command: string): ShellToken[] {
   const out: ShellToken[] = [];
   let word = '';
   let inWord = false;
   let dropNext = false;
   let heredocNext: { stripTabs: boolean } | null = null;
-  const heredocs: { delimiter: string; stripTabs: boolean }[] = [];
+  const heredocs: { delimiter: string; stripTabs: boolean; body: HeredocBody }[] = [];
   const endWord = () => {
     if (inWord) {
       if (dropNext) {
         dropNext = false;
-        if (heredocNext) heredocs.push({ delimiter: word, ...heredocNext });
+        if (heredocNext) {
+          const body = { text: '' };
+          heredocs.push({ delimiter: word, ...heredocNext, body });
+          out.push({ heredoc: body });
+        }
         heredocNext = null;
       } else {
         out.push({ word });
@@ -90,13 +97,17 @@ function shellTokens(command: string): ShellToken[] {
   };
   const skipHeredocBodies = (from: number): number => {
     let pos = from;
-    for (const { delimiter, stripTabs } of heredocs.splice(0)) {
+    for (const { delimiter, stripTabs, body } of heredocs.splice(0)) {
+      const lines: string[] = [];
       while (pos < command.length) {
         const nl = command.indexOf('\n', pos);
-        const line = command.slice(pos, nl < 0 ? command.length : nl);
+        const raw = command.slice(pos, nl < 0 ? command.length : nl);
         pos = nl < 0 ? command.length : nl + 1;
-        if ((stripTabs ? line.replace(/^\t+/, '') : line) === delimiter) break;
+        const line = stripTabs ? raw.replace(/^\t+/, '') : raw;
+        if (line === delimiter) break;
+        lines.push(line);
       }
+      body.text = lines.join('\n');
     }
     return pos;
   };
@@ -293,6 +304,29 @@ function shellScript(argv: readonly string[]): string | null {
   return null;
 }
 
+const SHELL_VALUE_LONG_FLAGS = new Set(['--rcfile', '--init-file']);
+
+// True when a bare shell statement reads its script from stdin: no `-c` and no
+// script-file operand, or `-s`, which turns every operand into a positional
+// parameter.
+function shellReadsStdin(argv: readonly string[]): boolean {
+  if (argv.length === 0 || !SHELLS.has(posix.basename(argv[0]))) return false;
+  let readsStdinFlag = false;
+  for (let i = 1; i < argv.length; i++) {
+    const w = argv[i];
+    if (w === '--' || w === '-') return readsStdinFlag || i + 1 === argv.length;
+    if (w.startsWith('--')) {
+      if (SHELL_VALUE_LONG_FLAGS.has(w)) i++;
+      continue;
+    }
+    if (!/^[-+][a-zA-Z]+$/.test(w)) return readsStdinFlag;
+    if (w.startsWith('-') && w.includes('c')) return false;
+    if (w.startsWith('-') && w.includes('s')) readsStdinFlag = true;
+    if (/[oO]$/.test(w)) i++;
+  }
+  return true;
+}
+
 function stripPrefix(words: readonly string[]): string[] {
   let i = 0;
   while (i < words.length) {
@@ -319,10 +353,13 @@ function collectTokens(command: string, script: string, startDir: string, out: T
   const subshells: string[] = [];
   const pushed: string[] = [];
   let words: string[] = [];
+  let heredocs: HeredocBody[] = [];
   let prevOp = '';
   const finish = (op: string) => {
     const argv = stripPrefix(words);
+    const bodies = heredocs;
     words = [];
+    heredocs = [];
     const inPipe = prevOp === '|' || prevOp === '|&' || op === '|' || op === '|&' || op === '&';
     prevOp = op;
     if (argv.length === 0) return;
@@ -336,12 +373,15 @@ function collectTokens(command: string, script: string, startDir: string, out: T
     } else {
       const inner = shellScript(argv);
       if (inner !== null) collectTokens(command, inner, dir, out);
+      if (shellReadsStdin(argv)) for (const body of bodies) collectTokens(command, body.text, dir, out);
       for (const w of runnerTestFiles(argv)) if (isTestPath(w)) out.push({ command, token: w, dir });
     }
   };
   for (const t of shellTokens(script)) {
     if ('word' in t) {
       words.push(t.word);
+    } else if ('heredoc' in t) {
+      heredocs.push(t.heredoc);
     } else if (t.op === '(') {
       finish(';');
       subshells.push(dir);
@@ -358,7 +398,8 @@ function collectTokens(command: string, script: string, startDir: string, out: T
 // The test files one verification command hands a test runner (node, bun
 // test, vitest/jest/mocha, pytest), each with the directory it resolves under:
 // a `cd` at any step sets it for the steps after, a `( … )` subshell restores
-// it at its close, and `bash -c '<cmd>'` is read as its own command.
+// it at its close, and `bash -c '<cmd>'` or a heredoc fed to a bare shell is
+// read as its own command.
 export function testPathTokens(command: string): TestPathToken[] {
   const out: TestPathToken[] = [];
   collectTokens(command, command, '', out);
@@ -387,7 +428,7 @@ function firstCommandWords(script: string): string[] {
   };
   for (const t of shellTokens(script)) {
     if ('word' in t) words.push(t.word);
-    else finish();
+    else if ('op' in t) finish();
   }
   finish();
   return out;
