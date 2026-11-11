@@ -704,7 +704,7 @@ export function taskTools(db: TrajectoryDB): {
     {
       name: 'task_rework_analysis',
       description:
-        "Bro's typed analysis of a task's FAILs since its last pass; a newer proven change clears the two-FAIL rework limit; design_drift ends the task's swe runs, its work retried or split into a new task. Returns {audit_id, task_id}.",
+        "Bro's analysis of a task's FAILs since its last pass; a newer proven change clears the two-FAIL rework limit; design_drift ends its swe runs: task_retry or split. Returns {audit_id, task_id}.",
       inputSchema: {
         type: 'object',
         properties: {
