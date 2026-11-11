@@ -15,6 +15,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 import { compositeTools } from '../tools/composites.js';
 import { sweVerificationGate } from '../hooks/swe-verification-gate.js';
+import { DOC_CHECKS_FILE } from '../hooks/lib/doc-checks.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
@@ -419,6 +420,7 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
       mkdirSync(wt, { recursive: true });
       writeSetup(wt, { version: 1, commands: t.setup });
       writeFileSync(join(wt, '.gitignore'), 'setup-ran\n');
+      writeFileSync(join(wt, DOC_CHECKS_FILE), readFileSync(join(PLUGIN_ROOT, DOC_CHECKS_FILE)));
       git(wt, 'init', '-q');
       git(wt, 'add', '.');
       git(wt, 'commit', '-q', '-m', t.slug);

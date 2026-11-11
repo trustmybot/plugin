@@ -4,7 +4,9 @@
  * `node dist/hooks.js swe-atomic-close` from the repo, CLAUDE_PROJECT_DIR
  * pinned to the sandbox and PWD set. It binds the task named by task_id=<N> in
  * the spawn transcript (any status), auto-completes a pending task whose
- * worktree has commits, warns bro when it has none, and records metrics only
+ * worktree has commits and a passing verification run at HEAD, otherwise
+ * leaves it pending with a gate_pending audit row (GH 2866), warns bro when
+ * the worktree has no commits, and records metrics only
  * for any other status; a spawn with no resolvable task id writes an
  * agent_runs_capture_skipped audit row and touches no task.
  */
@@ -14,7 +16,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { makeSandbox, type Sandbox } from './hook-sandbox.js';
 import { git, has, hasNot } from './git-push-guard-l3.js';
-import { commitIn, execDb, hook, newMinDb, NO_COMMITS, q, skippedCount, spawnInput, spawnTranscript, writeTranscript } from './swe-atomic-close-l3.js';
+import { commitIn, execDb, gatePendingCount, hook, newMinDb, NO_COMMITS, q, recordRun, skippedCount, spawnInput, spawnTranscript, writeTranscript } from './swe-atomic-close-l3.js';
 
 describe('swe-atomic-close l3: one repo', () => {
   let sb: Sandbox;
@@ -80,9 +82,56 @@ describe('swe-atomic-close l3: one repo', () => {
     assert.equal(runs(42), arBefore + 1, 'agent_runs row written even on warn-no-commits');
   });
 
-  it('swe + pending task + worktree commits (detached HEAD) → auto-completed', () => {
-    const head = commitIn(sb.env, wt, 'work.txt', 'feat: work');
+  describe('swe + pending task + worktree commits, no passing verification run at HEAD (GH 2866)', () => {
+    let head = '';
+    let out = '';
+    before(() => {
+      head = commitIn(sb.env, wt, 'work.txt', 'feat: work');
+      out = run(sweInput());
+    });
+
+    it('task stays pending with no commit_sha', () => {
+      assert.equal(status(42), 'pending', 'no auto-complete without a gate run');
+      assert.equal(q(db, 'SELECT commit_sha FROM tasks WHERE id=42'), '', 'commit_sha untouched');
+      assert.equal(Number(q(db, "SELECT COUNT(*) FROM audit WHERE event_type='swe_atomic_close_auto_completed'")), 0, 'no auto_completed row');
+    });
+
+    it('exactly one swe_atomic_close_gate_pending audit row naming task and HEAD', () => {
+      assert.equal(gatePendingCount(db, 42), 1, 'one gate_pending row');
+      const content = JSON.parse(q(db, "SELECT content_json FROM audit WHERE event_type='swe_atomic_close_gate_pending'")) as object;
+      assert.deepEqual(content, { task_id: 42, commit_sha: head });
+    });
+
+    it('additionalContext tells bro to resume the swe through the gate', () => {
+      has(out, 'additionalContext', 'context for bro');
+      has(out, head, 'context names the HEAD');
+      has(out, 'Resume the swe', 'context says resume swe');
+      has(out, 'task_update_status', 'context names the close path');
+    });
+
+    it('a failing or timed-out run at HEAD does not count as passing', () => {
+      recordRun(db, 42, head, 1, 0);
+      recordRun(db, 42, head, 0, 1);
+      execDb(db, "UPDATE tasks SET updated_at=datetime('now', '+15 seconds') WHERE id=42;");
+      has(run(sweInput()), 'Resume the swe', 'still gate-pending');
+      assert.equal(status(42), 'pending', 'still pending');
+      assert.equal(gatePendingCount(db, 42), 2, 'one more gate_pending row');
+    });
+
+    it('a passing run at an older commit does not count for HEAD', () => {
+      const old = git(sb.env, repo, 'rev-parse', 'dev');
+      recordRun(db, 42, old);
+      run(sweInput());
+      assert.equal(status(42), 'pending', 'still pending');
+    });
+  });
+
+  it('swe + pending task + worktree commits + passing run at HEAD (detached HEAD) → auto-completed', () => {
+    const head = git(sb.env, wt, 'rev-parse', 'HEAD');
+    recordRun(db, 42, head);
+    const pendingBefore = gatePendingCount(db, 42);
     assert.equal(run(sweInput()), '', 'no additionalContext on auto-close');
+    assert.equal(gatePendingCount(db, 42), pendingBefore, 'no gate_pending row on auto-close');
     assert.equal(status(42), 'completed', 'task auto-closed to completed');
     assert.equal(q(db, 'SELECT commit_sha FROM tasks WHERE id=42'), head, 'commit_sha written from worktree HEAD');
   });
@@ -150,7 +199,7 @@ describe('swe-atomic-close l3: one repo', () => {
 
   it('hook recognizes the real CC payload (.agent_type=tmb:swe) (#103)', () => {
     resetPending();
-    commitIn(sb.env, wt, 'work-103.txt', 'feat: 103 work');
+    recordRun(db, 42, commitIn(sb.env, wt, 'work-103.txt', 'feat: 103 work'));
     run({
       agent_id: 'test-id-real-cc',
       agent_transcript_path: spawnTranscript(sb.dir, 42),
@@ -167,7 +216,7 @@ describe('swe-atomic-close l3: one repo', () => {
 
   it("hook also accepts the bare 'swe' agent_type value", () => {
     resetPending();
-    commitIn(sb.env, wt, 'work-bare.txt', 'feat: bare swe work');
+    recordRun(db, 42, commitIn(sb.env, wt, 'work-bare.txt', 'feat: bare swe work'));
     run(spawnInput(sb.dir, 42, 'swe'));
     assert.equal(status(42), 'completed', "hook should also accept bare 'swe' agent_type value");
   });
@@ -299,6 +348,7 @@ describe('swe-atomic-close l3: one repo', () => {
 
     it('every background id ended: auto-completes', () => {
       const head = git(sb.env, wt, 'rev-parse', 'HEAD');
+      recordRun(db, 42, head);
       const closeBefore = closeRows();
       assert.equal(run(bgInput(true)), '', 'no additionalContext on auto-close');
       assert.equal(status(42), 'completed', 'task auto-completed');
