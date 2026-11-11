@@ -5,5 +5,9 @@
     "task_id": 35,
     "status": "completed"
   },
-  "corpus_expect": "\"id\":\"F35-1\",\"task_id\":35,\"status\":\"fixed\""
+  "corpus_divergent": "decision 703: GH 2866 added the doc-checks note; the worktree HEAD has no .config/tmb/doc-checks.json, so the port adds a note that missing_changelog and stale_doc_ref were skipped, which the .sh predates",
+  "corpus_expect": {
+    "bash": "\"id\":\"F35-1\",\"task_id\":35,\"status\":\"fixed\"",
+    "ts": "missing_changelog and stale_doc_ref skipped: no .config/tmb/doc-checks.json at"
+  }
 }
