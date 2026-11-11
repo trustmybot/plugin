@@ -14,7 +14,7 @@ The verdict row is always authored by code-reviewer itself — via `validation_r
 
 The spawn prompt carries the anchors only; the reviewer reads the spec, the task's decision and intent rows, the issue's newest decision and intent, the completion report and open findings from `task_brief`, and asks for the other discussion bodies with `response_format: 'detailed'` when it needs them. Context it cannot read there goes in `review_handoff`'s `spawn_note` (300 characters max), which `task_brief` returns; a spawn gate denies a prompt carrying more than 300 characters of prose beyond the anchors.
 
-Code-reviewer reviews the completed task before bro closes it. Pass your `session_id` to `review_handoff`, then spawn code-reviewer with `reviewer_spawn.prompt`, `.effort` and `.subagent_type` exactly as returned; when it returns `reviewer_spawn_unavailable` instead, build the anchors by hand as in the example below. Close with `bro_atomic_close` once the verdict is a pass.
+Code-reviewer reviews the completed task before bro closes it. Pass your `session_id` to `review_handoff`, then spawn code-reviewer with `reviewer_spawn.prompt`, `.effort` and `.subagent_type` exactly as returned, plus its `model` when present (omit it when absent); when it returns `reviewer_spawn_unavailable` instead, build the anchors by hand as in the example below. Close with `bro_atomic_close` once the verdict is a pass.
 
 **Clean spawn prompt example:**
 ```
@@ -33,7 +33,7 @@ This loads when the push guard blocks unsigned commits, or when the Human asks t
 
 ### Spawn code-reviewer per unsigned task (parallel)
 
-Spawn each task's reviewer with the `reviewer_spawn` its `review_handoff` returned: `prompt`, `effort` and `subagent_type` exactly as returned. Tasks are independent; spawn in parallel where possible. When that `reviewer_spawn` is not in hand, use `tmb:code-reviewer` and the effort assigned to that task (the `require-spawn-effort` deny names it).
+Spawn each task's reviewer with the `reviewer_spawn` its `review_handoff` returned: `prompt`, `effort` and `subagent_type` exactly as returned, plus `model` when present (omit it when absent). Tasks are independent; spawn in parallel where possible. When that `reviewer_spawn` is not in hand, use `tmb:code-reviewer` and the model and effort assigned to that task (the `require-spawn-effort` deny names them).
 
 Read the verdict and `mcp_available` from each task's validation row via `validation_history`, the typed source of truth, not from the reviewer's reply text:
 - `mcp_available = 1` — the reviewer wrote `validation_record` itself.
