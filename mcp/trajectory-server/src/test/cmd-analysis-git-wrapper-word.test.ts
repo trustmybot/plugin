@@ -16,13 +16,14 @@ import { gitPushGuard } from '../hooks/git-push-guard.js';
 const UNKNOWN = /ambiguous_git_subcommand/;
 const WORKTREE = /push from \.claude\/worktrees\/ is forbidden/;
 
-async function withGuard(body: (run: (command: string) => Promise<string>) => Promise<void>): Promise<void> {
+async function withGuard(body: (run: (command: string) => Promise<string>) => Promise<void>, { fromMain = false } = {}): Promise<void> {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gh2797-')));
   try {
     const env = { ...process.env, CLAUDE_PROJECT_DIR: dir, TRAJECTORY_DB_PATH: join(dir, 'none.db') };
     const wt = `${dir}/.claude/worktrees/t`;
     mkdirSync(wt, { recursive: true });
-    const run = async (command: string) => (await gitPushGuard(JSON.stringify({ tool_name: 'Bash', cwd: wt, tool_input: { command } }), env)).stdout;
+    const cwd = fromMain ? dir : wt;
+    const run = async (command: string) => (await gitPushGuard(JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command } }), env)).stdout;
     await body(run);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -64,6 +65,20 @@ const STRIPPED_NOT_LITERAL = [
   'gtimeout 5 $X git push origin dev',
   'stdbuf -o L $X git push origin dev',
   'nice $X git push origin dev',
+];
+
+const CHDIR_NOT_STRIPPED = [
+  '/usr/bin/env -C .claude/worktrees/t git push origin dev',
+  '/usr/bin/env -C.claude/worktrees/t git push origin dev',
+  '/usr/bin/env --chdir=.claude/worktrees/t git push origin dev',
+  'setsid env -C .claude/worktrees/t git push origin dev',
+  'doas env -C .claude/worktrees/t git push origin dev',
+  'xargs env -C .claude/worktrees/t git push origin dev',
+  'ionice env --chdir=.claude/worktrees/t git push origin dev',
+  'taskset 1 env --chdir .claude/worktrees/t git push origin dev',
+  'chrt 1 env -C.claude/worktrees/t git push origin dev',
+  'sudo setsid env -C .claude/worktrees/t git push origin dev',
+  'env -C /x setsid env -C .claude/worktrees/t git push origin dev',
 ];
 
 describe('git behind a wrapper or by path (GH 2797)', () => {
@@ -143,6 +158,18 @@ describe('git behind a wrapper or by path (GH 2797)', () => {
     assert.equal((await listed('A=1 git push'))[0].wrappers, undefined);
   });
 
+  it('env -C / --chdir is a dir option only where the listing strips env and moves the statement (F783-2)', async () => {
+    for (const cmd of ['env -C /x git push', 'env -C/x git push', 'env -iC /x git push', 'env --chdir /x git push', 'env --chdir=/x git push', 'sudo env -C /x git push', 'time -p A=1 env -C /x git push']) {
+      const [stmt] = await listed(cmd);
+      assert.equal(stmt.dir, '/x', cmd);
+      assert.equal(gitSubcommandOf(stmt), 'push', cmd);
+    }
+    for (const cmd of CHDIR_NOT_STRIPPED) {
+      assert.equal(gitSubcommandOf(cmd), undefined, cmd);
+      assert.deepEqual(await subsOf(cmd), [undefined], cmd);
+    }
+  });
+
   it('a non-literal word after a wrapper the listing strips leaves a later git unknown', async () => {
     for (const cmd of STRIPPED_NOT_LITERAL) {
       const [stmt] = await listed(cmd);
@@ -191,6 +218,18 @@ describe('git-push-guard gates git behind a wrapper or by path (GH 2797)', () =>
         assert.match(await run(command), UNKNOWN, command);
       }
     });
+  });
+
+  it('denies from the main checkout an env -C worktree push the listing does not move as unknown, and the one it moves as a worktree push (F783-2)', async () => {
+    await withGuard(
+      async (run) => {
+        assert.match(await run('env -C .claude/worktrees/t git push origin dev'), WORKTREE);
+        for (const command of CHDIR_NOT_STRIPPED) {
+          assert.match(await run(command), UNKNOWN, command);
+        }
+      },
+      { fromMain: true },
+    );
   });
 
   it('allows a wrapped non-push git and a wrapper that runs no git', async () => {

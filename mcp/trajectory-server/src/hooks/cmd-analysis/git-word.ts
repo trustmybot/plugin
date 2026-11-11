@@ -6,10 +6,12 @@
  * know, a `--chdir=` word the listing left for a dir it moved, or a word the
  * table must skip that is not literal makes the place unsure: git is then
  * the first later word whose basename is git, if any. `env -C` / `--chdir`
- * take a dir value, since the listing moves the statement into that dir;
+ * take a dir value only within the words `unwrap` strips, where the listing
+ * moves the statement into that dir; elsewhere (`/usr/bin/env`, env behind
+ * `setsid` or another wrapper `unwrap` does not strip) they are unknown.
  * `sudo -D` / `-R` stay out of the table.
  */
-import { ASSIGNMENT } from './unwrap.js';
+import { ASSIGNMENT, unwrap } from './unwrap.js';
 
 export interface GitWord {
   /** The index of git's word. */
@@ -33,6 +35,10 @@ interface Wrapper {
   long?: readonly string[];
   /** Long options that take a value, after `=` or as the next word. */
   longValues?: readonly string[];
+  /** Short options that take a dir value, known only where `unwrap` strips the wrapper and the listing moves the statement into that dir. */
+  dirValues?: string;
+  /** Long options that take a dir value, known as dirValues are. */
+  dirLongValues?: readonly string[];
   /** The one operand before the command. */
   operand?: RegExp;
   /** NAME=value words before the command. */
@@ -48,9 +54,11 @@ const DURATION = /^[0-9]+(\.[0-9]+)?[smhd]?$/;
 const WRAPPERS: { readonly [name: string]: Wrapper } = {
   env: {
     flags: '0iv',
-    values: 'Cu',
+    values: 'u',
     long: ['ignore-environment', 'null', 'debug'],
-    longValues: ['chdir', 'unset'],
+    longValues: ['unset'],
+    dirValues: 'C',
+    dirLongValues: ['chdir'],
     assignments: true,
     dash: true,
   },
@@ -104,9 +112,14 @@ function wrapperOf(word: string): Wrapper | undefined {
 
 type Step = { k: number } | 'unsure' | 'runs-nothing';
 
-/** From the option words after a wrapper at w[k - 1], the index of the word it runs. */
-function skipWrapper(spec: Wrapper, w: readonly string[], k: number): Step {
+/**
+ * From the option words after a wrapper at w[k - 1], the index of the word it
+ * runs. A dir option is known only when the word holding its value lies
+ * before <stripped>.
+ */
+function skipWrapper(spec: Wrapper, w: readonly string[], k: number, stripped: number): Step {
   const value = (at: number): Step => (at < w.length && !NOT_LITERAL.test(w[at]) ? { k: at + 1 } : 'unsure');
+  const dirValue = (at: number): Step => (at < stripped ? value(at) : 'unsure');
   while (k < w.length && w[k].startsWith('-')) {
     const opt = w[k];
     if (NOT_LITERAL.test(opt)) return 'unsure';
@@ -126,10 +139,12 @@ function skipWrapper(spec: Wrapper, w: readonly string[], k: number): Step {
     if (opt.startsWith('--')) {
       const eq = opt.indexOf('=');
       const name = opt.slice(2, eq < 0 ? undefined : eq);
-      if (spec.longValues?.includes(name)) {
+      const dir = spec.dirLongValues?.includes(name) === true;
+      if (dir && eq >= 0 && k >= stripped) return 'unsure';
+      if (dir || spec.longValues?.includes(name)) {
         if (eq >= 0) k++;
         else {
-          const step = value(k + 1);
+          const step = dir ? dirValue(k + 1) : value(k + 1);
           if (step === 'unsure' || step === 'runs-nothing') return step;
           k = step.k;
         }
@@ -143,9 +158,11 @@ function skipWrapper(spec: Wrapper, w: readonly string[], k: number): Step {
       if (spec.lookups?.includes(ch)) return 'runs-nothing';
       if (spec.flags?.includes(ch)) continue;
       if (spec.attached?.includes(ch)) break;
-      if (spec.values?.includes(ch)) {
+      const dir = spec.dirValues?.includes(ch) === true;
+      if (dir && j + 1 < opt.length && k >= stripped) return 'unsure';
+      if (dir || spec.values?.includes(ch)) {
         if (j + 1 === opt.length) {
-          const step = value(k + 1);
+          const step = dir ? dirValue(k + 1) : value(k + 1);
           if (step === 'unsure' || step === 'runs-nothing') return step;
           next = step.k;
         }
@@ -174,6 +191,7 @@ function skipWrapper(spec: Wrapper, w: readonly string[], k: number): Step {
  * command or nothing, or, unsure, no later word's basename is git.
  */
 export function gitWord(w: readonly string[]): GitWord | null {
+  const stripped = unwrap(w, 0).k;
   let xargs = false;
   let k = 0;
   const unsure = (from: number): GitWord | null => {
@@ -189,7 +207,7 @@ export function gitWord(w: readonly string[]): GitWord | null {
     const spec = wrapperOf(word);
     if (spec === undefined) return null;
     if (base(word) === 'xargs') xargs = true;
-    const step = skipWrapper(spec, w, k + 1);
+    const step = skipWrapper(spec, w, k + 1, stripped);
     if (step === 'runs-nothing') return null;
     if (step === 'unsure') return unsure(k + 1);
     k = step.k;
