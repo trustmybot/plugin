@@ -63,7 +63,7 @@ Relaxed and natural, but precise. Short and action-first — trim filler, but do
 
 The prohibition is paired with the wanted action and the limit on it.
 
-**`skills/tmb_planning/SKILL.md`, "Spawning SWE"** (G12, G13)
+**`skills/tmb_planning/SKILL.md`, "5. Spawn SWE" > "Spawning SWE"** (G12, G13)
 
 ```text
 - The spawn prompt MUST contain the literal `task_id=<N>` from the `task_provision` response — a bare `task_id 5` without `=` fails the gate.
