@@ -232,9 +232,21 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const PATH_END = '(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])';
+
 /** A repo path as a doc mentions it: bare or after ./ or ../, never inside a longer path or name. */
 function pathPattern(path: string): RegExp {
-  return new RegExp(`(?:^|(?<=\\./)|(?<![A-Za-z0-9_./-]))${escapeRegExp(path)}(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`, 'm');
+  return new RegExp(`(?:^|(?<=\\./)|(?<![A-Za-z0-9_./-]))${escapeRegExp(path)}${PATH_END}`, 'm');
+}
+
+/**
+ * A path relative to the doc's own directory, counted only where it reads as a link: an inline
+ * link target, a reference definition, or ./<rel> anywhere. Bare, a name like README.md is prose (GH 2928).
+ */
+function siblingLinkPattern(rel: string): RegExp {
+  const name = `${escapeRegExp(rel)}${PATH_END}`;
+  const target = `<?(?:\\./)?${name}`;
+  return new RegExp(`\\]\\([ \\t]*${target}|^[ ]{0,3}\\[[^\\]\\n]+\\]:[ \\t]*${target}|(?<![A-Za-z0-9_./-])\\./${name}`, 'm');
 }
 
 /** A tool name as a word, or as the tail of an mcp__<server>__<tool> id. */
@@ -349,7 +361,7 @@ async function staleDocRefs(
     const text = contents.get(oid) ?? '';
     const dir = dirOf(doc);
     for (const { p, re } of paths) {
-      const local = dir !== '' && p.startsWith(`${dir}/`) ? pathPattern(p.slice(dir.length + 1)) : null;
+      const local = dir !== '' && p.startsWith(`${dir}/`) ? siblingLinkPattern(p.slice(dir.length + 1)) : null;
       if (re.test(text) || local?.test(text)) hits.push(`${doc} mentions removed path '${p}'`);
     }
     for (const { t, re } of toolNamePatterns) {
