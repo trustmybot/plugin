@@ -880,4 +880,70 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
       assert.equal(runCount(f), 1);
     });
   });
+
+  describe('leak_scan (GH 2929)', () => {
+    const token = ['ghp', 'aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5'].join('_');
+    const email = ['alice', 'corp.io'].join('@');
+    const home = ['', 'Users', 'alice', 'x'].join('/');
+
+    function leaky(): Fixture {
+      const f = fixture();
+      f.write('src/a.txt', `one\ntwo\nthree\nconst t = "${token}";\n`);
+      f.write('docs/contact.md', `Mail ${email}.\ncd ${home}\n`);
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.commit('leaky feature');
+      return f;
+    }
+
+    it('denies a token, an email and a home path by file, line and rule, never the token, and records no run', async () => {
+      const f = leaky();
+      const d = await denial(f);
+      assert.equal(d.check, 'leak_scan');
+      assert.equal(d.actual, 'docs/contact.md:1 email; docs/contact.md:2 home_path; src/a.txt:4 @secretlint/secretlint-rule-github');
+      assert.ok(!JSON.stringify(d).includes(token.slice(4)));
+      assert.equal(runCount(f), 0);
+    });
+
+    it('runs under waive_verification_gate_reason too', async () => {
+      assert.equal((await denial(leaky(), { waive_verification_gate_reason: 'the suite needs a GPU this host lacks' })).check, 'leak_scan');
+    });
+
+    it('allows noreply@ and example.com addresses', async () => {
+      const f = fixture();
+      f.write('docs/contact.md', 'Co-Authored-By: Claude <noreply@anthropic.com>\nWrite to foo@example.com.\n');
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.commit('feature');
+      await assertAllowed(f);
+      assert.equal(runCount(f), 1);
+    });
+
+    it('admits a hit a reasoned allow entry in .config/tmb/leak-scan.json matches, and denies an entry without a reason', async () => {
+      const f = fixture();
+      f.write('docs/contact.md', `Mail ${email}.\n`);
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.write('.config/tmb/leak-scan.json', JSON.stringify({ version: 1, allow: [{ rule: 'email', pattern: '@corp\\.io$' }] }));
+      f.commit('allow without reason');
+      assert.equal((await denial(f)).check, 'leak_scan_config');
+      f.write('.config/tmb/leak-scan.json', JSON.stringify({ version: 1, allow: [{ rule: 'email', pattern: '@corp\\.io$', reason: 'public team alias' }] }));
+      f.commit('allow with reason');
+      await assertAllowed(f);
+    });
+
+    it('denies through the built dist/hooks.js bundle, which loads secretlint', () => {
+      const f = leaky();
+      const payload = JSON.stringify({
+        tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status',
+        tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'completed' },
+      });
+      const r = spawnSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'swe-verification-gate'], {
+        input: payload,
+        env: f.env,
+        encoding: 'utf8',
+      });
+      assert.equal(r.status, 0, r.stderr);
+      const reason = JSON.parse(decision(r.stdout).permissionDecisionReason ?? '{}') as { check?: string; actual?: string };
+      assert.equal(reason.check, 'leak_scan', r.stdout);
+      assert.match(reason.actual ?? '', /src\/a\.txt:4 @secretlint\/secretlint-rule-github/);
+    });
+  });
 });
