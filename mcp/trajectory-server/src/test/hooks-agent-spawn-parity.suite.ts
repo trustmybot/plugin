@@ -21,11 +21,14 @@
  * tasks: clean running (10), linked pending (11), recorded worktree (12),
  * recorded but gone (13), squatted (14), no branch (15), docs pending (16),
  * ghost (17), empty branch_id (18), closed with no commit (19), running for a
- * reviewer (20), two review FAILs (21), an unregistered repo (22), runs the
+ * reviewer (20), two review FAILs at high (21), an unregistered repo (22), runs the
  * sweep must keep (23) and slashed (24). single/ registers one repo, ws/ none
  * and is a git repo itself; fresh/ is a schema-only DB and bad/ a corrupt one.
  *
- * A payload follows hooks-swe-run-parity.suite.ts's corpus keys. A divergent
+ * A payload follows hooks-swe-run-parity.suite.ts's corpus keys, plus
+ * corpus_worktrees: the linked worktrees addCaseWorktrees checks out in the
+ * copied sandbox before either side runs (GH 2866: require-task-spec needs one
+ * for a running task), a ref dropped after when drop_ref is set. A divergent
  * payload's sides need not share an exit code; each side's observed text then
  * leads with `exit=<code>`. The payload × locale (C, en_US.UTF-8) runs split
  * across hooks-agent-spawn-parity.shard-<k>of<n>.test.ts.
@@ -42,7 +45,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { goldenBash, goldenRoots, sandboxSha, settledTree } from './golden.js';
 import { shardOf } from './shard.js';
-import { byLocale, corpusFiles, materialize, noCmdPath, run, type CorpusPaths, type Run, type SideExpect } from './hooks-swe-run-parity.suite.js';
+import { byLocale, corpusFiles, materialize, noCmdPath, run, type CaseWorktree, type CorpusPaths, type Run, type SideExpect } from './hooks-swe-run-parity.suite.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -131,6 +134,15 @@ function addRun(db: DatabaseSync, task: number, spawnId: string | null, startedA
   );
 }
 
+/** Checks out each case worktree in sandbox <s>; a dropped ref leaves its worktree listed on an unborn branch. */
+export function addCaseWorktrees(s: string, worktrees: readonly CaseWorktree[]): void {
+  for (const wt of worktrees) {
+    const repo = join(s, wt.repo);
+    git(repo, 'worktree', 'add', '-q', '-B', wt.branch, join(s, wt.path));
+    if (wt.drop_ref === true) git(repo, 'update-ref', '-d', `refs/heads/${wt.branch}`);
+  }
+}
+
 /** The template sandbox, built at <s>. */
 export function buildTemplate(s: string): void {
   rmSync(s, { recursive: true, force: true });
@@ -159,7 +171,7 @@ export function buildTemplate(s: string): void {
     addTask(db, 18, '', 'running', 'plugin');
     addTask(db, 19, 'feat/closed', 'closed', 'plugin');
     addTask(db, 20, 'feat/review', 'running', 'plugin');
-    addTask(db, 21, 'feat/rework', 'running', 'plugin');
+    addTask(db, 21, 'feat/rework', 'running', 'plugin', { effort: 'high' });
     addTask(db, 22, 'feat/nowhere', 'running', 'nowhere');
     addTask(db, 23, 'feat/keep', 'running', 'plugin');
     addTask(db, 24, 'feat/slashed', 'running', 'slashed');
@@ -303,9 +315,10 @@ export function agentSpawnParityShard(k: number, n: number): void {
       let s: string;
       let template: string;
       let paths: CorpusPaths;
-      const restore = (): void => {
+      const restore = (worktrees: readonly CaseWorktree[]): void => {
         rmSync(s, { recursive: true, force: true });
         cpSync(template, s, { recursive: true });
+        addCaseWorktrees(s, worktrees);
       };
       before(() => {
         base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-agent-spawn-parity-')));
@@ -348,11 +361,11 @@ export function agentSpawnParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, c.env, c.cwd);
           const dbRel = relative(s, env.TRAJECTORY_DB_PATH ?? join(s, PROJECT_DB));
           const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
-            restore();
+            restore(c.worktrees);
             const setup = snapshot(s);
             return { ...quiet(run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env), 'bash'), tree: settledTree(setup, snapshot(s)) };
           });
-          restore();
+          restore(c.worktrees);
           const setup = snapshot(s);
           const node = quiet(run(process.execPath, [HOOKS_BUNDLE, gate], c, env), 'ts');
           const nodeTree = settledTree(setup, snapshot(s));

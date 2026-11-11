@@ -14,7 +14,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { projectSlug } from '../hooks/orphan-scan.js';
-import { buildTemplate as agentSpawnTemplate, caseEnv as agentSpawnEnv } from './hooks-agent-spawn-parity.suite.js';
+import { addCaseWorktrees, buildTemplate as agentSpawnTemplate, caseEnv as agentSpawnEnv } from './hooks-agent-spawn-parity.suite.js';
 import { buildSandbox as healthSandbox, caseEnv as healthEnv, materialize as healthCase } from './hooks-health-parity.suite.js';
 import { buildSandbox as mergeSandbox, caseEnv as mergeEnv, materialize as mergeCase } from './hooks-merge-lifecycle-parity.suite.js';
 import { buildSandbox as readmeSandbox, caseEnv as readmeEnv, materialize as readmeCase, resetDb as readmeReset } from './hooks-readme-staleness-parity.suite.js';
@@ -476,6 +476,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
         reset: () => {
           rmSync(dir, { recursive: true, force: true });
           cpSync(template, dir, { recursive: true });
+          addCaseWorktrees(dir, c.worktrees);
         },
       });
     }

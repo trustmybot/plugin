@@ -19,7 +19,8 @@
  * without the sqlite3 CLI as @NOJQ_PATH@ / @NOSQLITE_PATH@; corpus_env (null
  * unsets), corpus_cwd, corpus_stdin and corpus_expect (`empty` for no output,
  * or a phrase of the observed stdout, stderr and project DB rows, or an object
- * of them by locale) are removed before the run. A payload with
+ * of them by locale) are removed before the run, and so is corpus_worktrees,
+ * which only the agent-spawn suite applies. A payload with
  * corpus_divergent names a divergence decision 703 allows: corpus_expect is
  * then { bash, ts }, each an expectation or an object of them by locale, and
  * the two sides must differ in output or in the sandbox. The payload × locale
@@ -218,12 +219,21 @@ export function byLocale(expect: SideExpect, locale: string): string {
   return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
 
+/** A linked worktree a case checks out before either side runs: <branch> at <path> in <repo>, both sandbox-relative; drop_ref deletes the branch ref after. */
+export interface CaseWorktree {
+  repo: string;
+  branch: string;
+  path: string;
+  drop_ref?: boolean;
+}
+
 export interface Case {
   input: Buffer;
   env: Record<string, string | null>;
   cwd: string;
   expect: Expect;
   divergent: string | undefined;
+  worktrees: CaseWorktree[];
 }
 
 export interface CorpusPaths {
@@ -239,6 +249,7 @@ export function materialize(file: string, s: string, paths: CorpusPaths): Case {
     corpus_stdin: stdin,
     corpus_expect: expect = '',
     corpus_divergent: divergent,
+    corpus_worktrees: worktrees = [],
     ...payload
   } = JSON.parse(text) as {
     corpus_env?: Record<string, string | null>;
@@ -246,8 +257,9 @@ export function materialize(file: string, s: string, paths: CorpusPaths): Case {
     corpus_stdin?: string;
     corpus_expect?: Expect;
     corpus_divergent?: string;
+    corpus_worktrees?: CaseWorktree[];
   };
-  return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect, divergent };
+  return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect, divergent, worktrees };
 }
 
 export function caseEnv(s: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {

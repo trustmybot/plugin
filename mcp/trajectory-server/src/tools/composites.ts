@@ -84,6 +84,15 @@ import {
   SPAWN_NOTE_MAX_CHARS,
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, readWorkflowMode, type Effort } from './config.js';
+import {
+  applyReopenInTx,
+  hasFailSinceLastPass,
+  insertEffortRaised,
+  RE_REVIEW_CHANGE,
+  reReviewAdmission,
+  restoreForReReviewInTx,
+} from './reopen.js';
+import { REWORK_FLOOR_EFFORT } from '../task-rework.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
@@ -169,33 +178,6 @@ export function filesToDirs(files: readonly string[]): string[] {
     dirs.add(slash >= 0 ? path.slice(0, slash) : '');
   }
   return [...dirs];
-}
-
-// One task_effort_raised row: a rework (task_reopen) or retry (task_retry)
-// raised the effort swe runs the task at.
-function insertEffortRaised(
-  db: TrajectoryDB,
-  task: { issue_id: number; branch_id: string; task_id: number },
-  from: Effort,
-  to: Effort,
-  agent: string,
-  now: string,
-  failedTaskId?: number,
-): void {
-  insertAudit(db, {
-    issue_id: task.issue_id,
-    branch_id: task.branch_id,
-    from_node: agent,
-    event_type: 'task_effort_raised',
-    summary: `Task ${task.task_id} effort raised: ${from} → ${to}`,
-    content_json: JSON.stringify({
-      task_id: task.task_id,
-      from,
-      to,
-      ...(failedTaskId !== undefined ? { failed_task_id: failedTaskId } : {}),
-    }),
-    created_at: now,
-  });
 }
 
 // Parse the tasks.files JSON column into a string[] (empty on null/malformed).
@@ -1365,6 +1347,8 @@ function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): Wontfix
 
 const REOPENABLE_STATUSES = new Set(['pending', 'completed', 'closed', 'failed', 'escalated', 'running']);
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
+// A running task also hands off, through reReviewAdmission, to re-review a FAILed commit.
+const HANDOFF_STATUSES = new Set(['completed', 'needs_validation']);
 const verificationPathsDoc = (ref: string) =>
   `verification[] test files must exist at ${ref} or be in files[] (else verification_path_missing); adds suggested_verification.`;
 
@@ -1527,7 +1511,8 @@ export function compositeTools(
     {
       name: 'review_handoff',
       description:
-        "Hands a completed or needs_validation task's current commit to code-reviewer without changing its status: writes review_handoff (the review anchor, with the scope report: extras outside files[] with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
+        "Hands a completed or needs_validation task's current commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed. " +
+        "Writes review_handoff (the review anchor with the scope report: extras with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
         'Returns review_pending=true, reviewer_effort and, with session_id, reviewer_spawn, the whole Agent call. ' +
         'Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, for a task with verification[] or a non-wontfix finding, without a passing verification run of those commands plus one `[probe <id>]` per finding for the commit or a verification_gate_waived row (verification_run_missing).',
       inputSchema: {
@@ -2288,6 +2273,12 @@ export function compositeTools(
         if (task.issue_status === 'closed') {
           return err(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
         }
+        if (isEffort(effortArg) && effortRank(effortArg) < effortRank(REWORK_FLOOR_EFFORT) && hasFailSinceLastPass(db, taskId)) {
+          return err(
+            `effort_below_rework_floor: task ${taskId} has a review FAIL since its last passing review, so its rework runs at effort "${REWORK_FLOOR_EFFORT}"; ` +
+              `call task_reopen(task_id=${taskId}, reason, effort='${REWORK_FLOOR_EFFORT}') or omit effort. Task ${taskId} is unchanged ('${task.status}'); no row was written.`,
+          );
+        }
         const wontfix = parseWontfix(db, taskId, args['wontfix']);
 
         const repoPath = resolveRepoPath(db, task.repo);
@@ -2360,53 +2351,22 @@ export function compositeTools(
             const late = recordAdoptedWorktree(db, task.id, repoPath, adoptedWorktree);
             if (late) throw new AdoptRefusedError(late);
           }
-          db.run(
-            `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL,
-                    completion_report = NULL, spawn_note = ?, updated_at = ?${gate ? ', base_sha = ?, wm_commit = ?' : ''}
-              WHERE id = ?`,
-            [
-              JSON.stringify(files),
-              JSON.stringify(verification),
-              effort,
-              spawnNote,
-              now,
-              ...(gate ? [gate.base_sha, gate.wm_commit] : []),
-              taskId,
-            ],
-          );
-          const fenceLines = [
-            filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
-            verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
-            verificationDefaultsAdded.length > 0 ? `verification[] += repo defaults ${verificationDefaultsAdded.join(' ; ')}` : null,
-            effort !== task.effort ? `effort: ${task.effort} → ${effort}` : null,
-            gate?.decisionNote ?? null,
-          ].filter((l): l is string => l !== null);
-          insertDiscussion(db, {
-            issue_id: task.issue_id,
-            author: agent,
-            kind: 'decision',
-            body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join('\n'),
-            created_at: now,
-            task_id: task.id,
+          applyReopenInTx(db, {
+            task,
+            agent,
+            reason,
+            effort,
+            spawnNote,
+            now,
+            fence: { files, verification },
+            envGate: gate,
+            decisionLines: [
+              filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
+              verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
+              verificationDefaultsAdded.length > 0 ? `verification[] += repo defaults ${verificationDefaultsAdded.join(' ; ')}` : null,
+            ].filter((l): l is string => l !== null),
+            auditContent: { files_add: filesAdd, verification_add: verificationAdd },
           });
-          insertAudit(db, {
-            issue_id: task.issue_id,
-            branch_id: task.branch_id,
-            from_node: agent,
-            event_type: 'task_reopened',
-            summary: `Task ${taskId} reopened from ${task.status}: ${reason}`.slice(0, 200),
-            content_json: JSON.stringify({
-              task_id: taskId,
-              from_status: task.status,
-              reason,
-              files_add: filesAdd,
-              verification_add: verificationAdd,
-            }),
-            created_at: now,
-          });
-          if (effortRank(effort) > effortRank(task.effort)) {
-            insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
-          }
           for (const w of wontfix) {
             db.run(
               `UPDATE review_findings SET status = 'wontfix', resolved_at = ? WHERE id = ? AND task_id = ? AND status = 'open'`,
@@ -3555,12 +3515,21 @@ export function compositeTools(
           [taskId],
         );
         if (!task) return err(`No task with id=${taskId}`);
-        if (task.status !== 'completed' && task.status !== 'needs_validation') {
+        const reReview = task.status === 'running' ? reReviewAdmission(db, task) : null;
+        if (reReview !== null && 'refusal' in reReview) {
+          return err(
+            `re_review_refused: task ${taskId} is running and its commit cannot be re-reviewed: ${reReview.refusal}. ` +
+              `A running task is handed off again only when its latest verdict is a FAIL on its current commit, no swe run is live, ` +
+              `a passing verification run is recorded for the commit and its latest task_rework_analysis, dated after that FAIL, names ${RE_REVIEW_CHANGE}.`,
+          );
+        }
+        if (reReview === null && !HANDOFF_STATUSES.has(task.status)) {
           return err(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
               `review_handoff runs after SWE flips status to completed.`,
           );
         }
+        const handedOff = reReview === null ? task : { ...task, completion_report: reReview.completionReport };
         const commitSha = task.commit_sha;
         if (!commitSha) {
           return err(
@@ -3568,20 +3537,22 @@ export function compositeTools(
               `task_update_status(status='completed', commit_sha=<sha>), then retry review_handoff.`,
           );
         }
-        const gateError = handoffGateError(db, task, commitSha);
+        const gateError = handoffGateError(db, handedOff, commitSha);
         if (gateError !== null) return err(gateError);
 
         const { scope, repoPath } = taskScopeCheck(db, task, commitSha);
-        const recorded = handoffScope(scope, task.completion_report);
+        const recorded = handoffScope(scope, handedOff.completion_report);
+        const reReviewOf = reReview === null ? {} : { re_review_of: reReview.failValidationId };
         const now = nowISO();
         const result = db.transaction(() => {
+          if (reReview !== null) restoreForReReviewInTx(db, task.id, reReview, now);
           insertAudit(db, {
             issue_id: task.issue_id,
             branch_id: task.branch_id,
             from_node: 'bro',
             event_type: 'review_handoff',
             summary: `Task ${task.id} commit ${commitSha.slice(0, 12)} handed to code-reviewer.`,
-            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, scope: recorded }),
+            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, scope: recorded, ...reReviewOf }),
             created_at: now,
           });
           const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
@@ -3590,6 +3561,7 @@ export function compositeTools(
             task_id: task.id,
             commit_sha: commitSha,
             review_pending: true,
+            ...reReviewOf,
             reviewer_effort: reviewerEffort.effort,
             ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort, sessionId),
             scope: recorded,

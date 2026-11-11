@@ -15,6 +15,25 @@ export const SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <
 /** FAIL verdicts on a task since its last passing review from which a further swe run needs a proven rework analysis. */
 export const REWORK_FAIL_LIMIT = 2;
 
+/** The highest task effort: a task at it has no effort_raise left. */
+export const MAX_EFFORT = 'high';
+
+/** The effort a swe rework runs at while its task has a review FAIL since its last passing review (GH 2866). */
+export const REWORK_FLOOR_EFFORT = MAX_EFFORT;
+
+/**
+ * A scalar subquery: the review FAILs on task <taskIdSql> since its last
+ * passing review, counted by the same rule as the rework-limit gate's `since`
+ * CTE (validation_attempts ids after the newest pass). <taskIdSql> is a bound
+ * parameter or a sanitized integer literal.
+ */
+export function failsSinceLastPassSql(taskIdSql: string): string {
+  return `(SELECT COUNT(*) FROM validation_attempts f
+            WHERE f.task_id = ${taskIdSql} AND f.verdict = 'fail'
+              AND f.id > (SELECT COALESCE(MAX(p.id), 0) FROM validation_attempts p
+                           WHERE p.task_id = ${taskIdSql} AND p.verdict = 'pass'))`;
+}
+
 /** Why a task kept failing review, the inputs first (spec, world model, reviewer, environment), then swe's execution; design_drift when the reality drifts from the design. */
 export const REWORK_ROOT_CAUSES = [
   'spec_unclear',

@@ -239,6 +239,45 @@ describe('require-spawn-effort: the Agent call carries the effort the DB holds',
     assert.equal(run(payload('swe-helper', 'task_id=2')), '', 'a name that only starts with swe');
   });
 
+  describe('a review FAIL since the last pass floors a swe spawn at high (GH 2866)', () => {
+    before(() => {
+      exec(
+        db,
+        `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, effort, created_at, updated_at) VALUES
+          (30, 1, 'feat/fail-medium', 'dev', 'd', 'running', '## Success Criteria', 'medium', '${NOW}', '${NOW}'),
+          (31, 1, 'feat/fail-high', 'dev', 'd', 'running', '## Success Criteria', 'high', '${NOW}', '${NOW}'),
+          (32, 1, 'feat/fail-then-pass', 'dev', 'd', 'running', '## Success Criteria', 'medium', '${NOW}', '${NOW}');
+        INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES
+          (30, 1, 'code-reviewer', 'fail', 1, '${NOW}'),
+          (31, 1, 'code-reviewer', 'fail', 1, '${NOW}'),
+          (32, 1, 'code-reviewer', 'fail', 1, '${NOW}'),
+          (32, 2, 'code-reviewer', 'pass', 1, '${NOW}');`,
+      );
+    });
+
+    it('tasks.effort medium with a FAIL: a medium spawn is denied naming task_reopen(effort=high)', () => {
+      for (const effort of ['medium', 'low', 'high']) {
+        const out = run(payload('swe', 'task_id=30 You are swe.', effort));
+        assert.ok(out.includes(DENY), `effort ${effort}: deny`);
+        assert.ok(out.includes('review FAIL since its last passing review'), `effort ${effort}: names the FAIL`);
+        assert.ok(out.includes("task_reopen(task_id=30, reason=\\\"<why>\\\", effort='high')"), `effort ${effort}: names task_reopen`);
+      }
+      assert.ok(run(payload('swe', 'task_id=30 You are swe.')).includes(DENY), 'no effort: deny');
+    });
+
+    it('tasks.effort high with a FAIL: only a high spawn passes', () => {
+      assert.equal(run(payload('swe', 'task_id=31 You are swe.', 'high')), '');
+      const out = run(payload('swe', 'task_id=31 You are swe.', 'medium'));
+      assert.ok(out.includes(DENY), 'medium: deny');
+      assert.ok(out.includes('Allowed form: the same Agent call with effort=\\"high\\"'), 'names the high spawn');
+    });
+
+    it('a pass after the FAIL lifts the floor: the spawn needs only tasks.effort', () => {
+      assert.equal(run(payload('swe', 'task_id=32 You are swe.', 'medium')), '');
+      assert.ok(run(payload('swe', 'task_id=32 You are swe.', 'high')).includes(DENY), 'high is a tasks.effort mismatch');
+    });
+  });
+
   it('a pre-v37 DB (no tasks.effort) is denied with the restart-to-migrate remedy', () => {
     const old = join(sb.dir, 'v36.db');
     exec(old, SCHEMA);

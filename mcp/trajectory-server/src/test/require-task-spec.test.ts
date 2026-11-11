@@ -182,7 +182,8 @@ describe('require-task-spec: swe spawns need a pending or idle running task with
       INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (70, 'pending', 'Do the thing.', 'fix/no-wt', 'gitapp');
       INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (71, 'pending', 'Do the thing.', 'fix/has-wt', 'gitapp');
       INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (72, 'pending', 'Do the thing.', 'fix/on-main', 'mainapp');
-      INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (74, 'running', 'Do the thing.', 'fix/no-wt', 'gitapp');`,
+      INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (74, 'running', 'Do the thing.', 'fix/no-wt', 'gitapp');
+      INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (76, 'running', 'Do the thing.', 'fix/has-wt', 'gitapp');`,
     );
     makeRepo(join(sb.dir, 'ws/relapp'));
   });
@@ -350,7 +351,13 @@ describe('require-task-spec: swe spawns need a pending or idle running task with
       assert.ok(out.includes('task_reopen(task_id=72'), 'reason spells the task_reopen call');
     });
 
-    it('a running task with no worktree is not gated', () => assert.equal(run('task_id=74 please do the thing'), ''));
+    it('a running task in a git repo with no linked worktree is blocked with the task_reopen next step (GH 2866)', () => {
+      const out = run('task_id=74 please do the thing');
+      denied(out, 'task_id=74 is running and branch fix/no-wt has no linked worktree');
+      assert.ok(out.includes('task_reopen(task_id=74, reason='), 'reason spells the task_reopen call');
+    });
+
+    it('a running task whose branch is checked out in a linked worktree passes silently', () => assert.equal(run('task_id=76 please do the thing'), ''));
 
     it("GH 1553: a relative repos.path resolves against the DB's project root, not CLAUDE_PROJECT_DIR or the DB's dir", () => {
       const wsDb = join(sb.dir, 'ws/.claude/tmb/trajectory.db');

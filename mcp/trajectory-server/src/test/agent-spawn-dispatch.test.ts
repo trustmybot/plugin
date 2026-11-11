@@ -86,7 +86,8 @@ describe('agent-spawn-dispatch end to end', () => {
   describe('a clean swe spawn, then the rework limit', () => {
     let work: string;
     let db: string;
-    const spawn = () => dispatch(work, agent({ subagent_type: 'swe', effort: 'medium', prompt: 'task_id=1 worktree=/some/path You are SWE.' }), db);
+    let effort = 'medium';
+    const spawn = () => dispatch(work, agent({ subagent_type: 'swe', effort, prompt: 'task_id=1 worktree=/some/path You are SWE.' }), db);
 
     before(() => {
       work = join(sb.dir, 'clean');
@@ -116,6 +117,8 @@ describe('agent-spawn-dispatch end to end', () => {
 
     it('after two review FAILs the spawn is denied until an analysis plus its proven change; no Human row lifts it', () => {
       exec(db, "INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (1, 'fail', '2026-10-25T10:01:00.000Z'), (1, 'fail', '2026-10-25T10:02:00.000Z');");
+      exec(db, "UPDATE tasks SET effort = 'high' WHERE id = 1;");
+      effort = 'high';
       let out = spawn();
       assert.ok(out.includes(DENY), 'deny decision emitted');
       assert.ok(out.includes('task FAILs: 2 review FAILs on the task since its last passing review'),'rework-limit names the task-FAILs limit');
