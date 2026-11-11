@@ -9,7 +9,6 @@ Controlled-vocabulary registries — the source-of-truth names that hooks branch
 | [`CHANGELOG_AND_REBASES.md`](./CHANGELOG_AND_REBASES.md) | How a branch records its change (`changelog.d/` fragments) and which generated files stay untracked so a rebase never conflicts on them |
 | [`NAMING.md`](./NAMING.md) | The one-stem-per-feature rule — every surface implementing/testing/documenting a feature uses the same name |
 | [`FILE_HEADERS.md`](./FILE_HEADERS.md) | The purpose-header rule — a new `ts`, `tsx` or `sh` source file opens with a one-line comment saying what it is for |
-| [`CODEX_PORT.md`](./CODEX_PORT.md) | Porting TMB to the Codex host |
 
 ## Three layers of knowledge
 

@@ -14,5 +14,4 @@ Each folder's `README.md` lists the files it holds.
 | [`architecture/`](./architecture/) | Design rationale: the schema, the workflow gates, the role boundaries, the world model |
 | [`prompt-engineering/`](./prompt-engineering/) | How TMB writes and enforces the prompts that drive its agents |
 | [`contributing/`](./contributing/) | Naming, enum, label and changelog rules for contributors |
-| [`adapters/`](./adapters/) | The platform-adapter development standard |
 | `assets/` | Images the READMEs embed |

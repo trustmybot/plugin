@@ -19,10 +19,6 @@ The Codex entry exposes an immutable 15-tool adapter registry: 13 local Bro plan
 The two materialization tools manage only `.codex/agents/tmb_swe.toml` and `.codex/agents/tmb_code_reviewer.toml`. The getter is read-only and does not create `.tmb` or `.codex`. The setter installs or removes both current templates without overwriting unknown bytes. It rejects symlinks and unexpected file types, preserves all third-party Agent files, and reports a partial result if one managed target changes before a later failure. Scope 4 intentionally has no historical-template upgrades, process lock, rollback, fsync, or crash recovery.
 
 The Codex entry does not import the Claude tool registry, write `.claude/`, create workflow tasks or validation records, or perform Git delivery operations.
-
-See the [Codex MCP tool reference](../../docs/adapters/codex/TOOLS.md) for the
-exact materialization schemas, states, results, and recovery errors.
-
 ## Worktree setup
 
 A repo opts in to a build step for every worktree TMB makes with `.config/tmb/worktree-setup.json` (GH 2054):

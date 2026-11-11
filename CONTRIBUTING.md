@@ -32,8 +32,6 @@ Either way you still don't push to `dev` or `main` directly — branch protectio
 
 Adapters for other agent platforms (Codex, Cursor, OpenCode, Gemini CLI) are welcome — the shared core is deliberately host-neutral so an adapter is edge work, not a fork.
 
-[`docs/adapters/ADAPTER_CONTRACT.md`](docs/adapters/ADAPTER_CONTRACT.md) is the binding standard for that work: read it before writing any adapter code, and walk its conformance checklist in your PR description.
-
 Two things trip up first-time adapter PRs: the full Claude Code suite must stay green on every adapter change (a red reference suite means the adapter reached into shared code), and adapter-doctrine PRs — the contract itself, parity matrices, capability declarations — are merged by a maintainer, never auto-merged.
 
 ## TL;DR
@@ -195,7 +193,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 ## Scope
 
-Enterprise features (SSO, RBAC, SOC2, multi-tenant) are deferred until real paying-customer demand; focus stays on the solo/small-team workflow. Only `.claude-plugin/` is implemented today — other platform manifests are placeholders (see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md)).
+Enterprise features (SSO, RBAC, SOC2, multi-tenant) are deferred until real paying-customer demand; focus stays on the solo/small-team workflow. Only `.claude-plugin/` is implemented today.
 
 ## Security
 
