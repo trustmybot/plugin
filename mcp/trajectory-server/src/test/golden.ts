@@ -9,9 +9,10 @@
  * the gate and case. With TMB_HOOK_GOLDEN=record it calls `live` only for a
  * case and locale with no recording yet, writes that entry and returns what a
  * later read will return; a stored recording is the bash-era reference and is
- * never rewritten (GH 3001). hooks-parity.suite.ts's `live` runs the .sh while
- * it exists and `node dist/hooks.js <gate>` once it is gone, so a corpus case
- * added after the scripts went is recorded from the TypeScript gate.
+ * never rewritten (GH 3001). Every parity suite's `live` spawns
+ * `liveHookCommand(gate)`: the .sh while it exists and `node dist/hooks.js
+ * <gate>` once it is gone, so a case added after the scripts went is recorded
+ * from the TypeScript gate (GH 3017).
  *
  * A file maps each case to groups of locales that share one value, the key
  * being the sorted locales joined by commas: one group when all locales agree,
@@ -193,6 +194,12 @@ export function goldenStore(dir: string): GoldenBash {
 }
 
 export const goldenBash = goldenStore(GOLDEN_DIR);
+
+/** The command a record thunk spawns: the gate's .sh while it exists, else the TypeScript gate, so a case added after the scripts went is recorded from it. */
+export function liveHookCommand(gate: string, bash = 'bash', root: string = PLUGIN_ROOT): [string, string[]] {
+  const script = join(root, 'scripts/hooks', `${gate}.sh`);
+  return existsSync(script) ? [bash, [script]] : [process.execPath, [join(root, 'mcp/trajectory-server/dist/hooks.js'), gate]];
+}
 
 /** A recording as stored, for a suite that only compares with it and never records. */
 export function goldenRecording(gate: string, caseName: string, locale: string, roots: GoldenRoots): { code: number; stdout: string } {

@@ -28,7 +28,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { cksum } from '../hooks/lib/scope-fence.js';
 import { corpusFiles, type CorpusPaths, materialize, noCmdPath, snapshot } from './hooks-swe-run-parity.suite.js';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -188,7 +188,7 @@ export function sweScopeFenceParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, c.env, c.cwd);
           const { tree: bashTree, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildScopeSandbox(s);
-            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${GATE}.sh`)], c.input, env, c.cwd), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(GATE),c.input, env, c.cwd), tree: snapshot(s) };
           });
           buildScopeSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c.input, env, c.cwd);

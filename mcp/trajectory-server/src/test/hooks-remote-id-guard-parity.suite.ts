@@ -26,12 +26,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { noCmdPath } from './hooks-swe-run-parity.suite.js';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/remote-id-guard');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'remote-id-guard.sh');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const LOCALES = ['C', 'en_US.UTF-8'];
@@ -196,7 +195,7 @@ export function remoteIdGuardParityShard(k: number, n: number): void {
           });
           const cwd = join(s, 'project');
           const bash = goldenBash('remote-id-guard', f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
-            const r = run('bash', [HOOK_SH], c.input, env, cwd);
+            const r = run(...liveHookCommand('remote-id-guard'),c.input, env, cwd);
             return { ...r, stderr: r.stderr.replace(BASH_JOB_CONTROL_RACE, '') };
           });
           const node = run(process.execPath, [HOOKS_BUNDLE, 'remote-id-guard'], c.input, env, cwd);

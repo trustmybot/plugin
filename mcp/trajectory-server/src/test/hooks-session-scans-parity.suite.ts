@@ -42,7 +42,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { projectSlug } from '../hooks/orphan-scan.js';
 import { corpusFiles, type CorpusPaths, noCmdPath } from './hooks-swe-run-parity.suite.js';
-import { goldenBash, goldenRoots, sandboxSha, settledTree } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -526,7 +526,7 @@ export function sessionScansParityShard(k: number, n: number): void {
           const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base, '@SLUG@': projectSlug(join(s, 'project')), '@OTHER_SLUG@': projectSlug(join(s, 'other')) }), () => {
             fresh();
             const setup = scanTree(s);
-            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c.input, env, c.cwd), tree: settledTree(setup, scanTree(s)) };
+            return { ...run(...liveHookCommand(gate),c.input, env, c.cwd), tree: settledTree(setup, scanTree(s)) };
           });
           fresh();
           const setup = scanTree(s);

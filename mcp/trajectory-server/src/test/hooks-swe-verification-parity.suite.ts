@@ -39,7 +39,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const GATE = 'swe-verification-gate';
@@ -386,7 +386,7 @@ export function sweVerificationParityShard(k: number, n: number): void {
           const env = caseEnv(s, base, locale, c.env, c.cwd);
           const { tree: bashTree, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildVerificationSandbox(s);
-            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${GATE}.sh`)], c, env), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(GATE),c, env), tree: snapshot(s) };
           });
           buildVerificationSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c, env);
