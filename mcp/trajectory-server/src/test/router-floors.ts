@@ -11,6 +11,8 @@
  * the lightest advisory one, wm-read-before-provision, which writes an audit row, the 5 s its 3.5 s audit run budget plus 1 s
  * needs, reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one, and
  * prompt-write-approval, which reads the DB, the 6 s of cheatcode-install-approval, the DB-reading approval gate it mirrors.
+ * swe-edit-lint, born in the router too, takes the 10 s its spec sets for the
+ * repo's lint commands on the edited file (GH 2570).
  */
 export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
@@ -50,6 +52,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'liveness-alert': 6,
   'bash-output-trim': 4,
   'swe-downstream-context': 4,
+  'swe-edit-lint': 10,
   'reviewer-downstream-context': 6,
   'attribution-footer': 16,
   'clean-merged-branch': 11,

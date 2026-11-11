@@ -34,6 +34,15 @@
  * a setup failure denies with the failing command and its output tail, and
  * setup is never recorded as a verification command.
  *
+ * Once verification[] passes (or is reused) for the worktree HEAD, the close
+ * lints run (GH 2570, lib/close-lints.ts): the repo's .config/tmb/close-lints.json
+ * lints at HEAD, recorded as a lint_runs row (source gate) against
+ * merge-base(HEAD, PR target) with what verification[] left of the budget. A non-zero lint denies,
+ * naming each failing lint with its exit code and last 15 output lines; a
+ * malformed close-lints.json or an unresolvable merge-base denies with nothing
+ * run. A clean lint run of HEAD whose fingerprint and base_sha still hold is
+ * reused, not run again.
+ *
  * Budget: plugin_config.verification_timeout_s or TMB_VERIFICATION_TIMEOUT_S,
  * default 900 s, clamped to [1, 1800]; it counts command time only, worktree
  * setup included: verification[] gets what setup leaves, and a setup that
@@ -61,6 +70,7 @@ import { constants as osConstants, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { auditAppend, dbWrite, nowIso, type WriteResult } from './lib/audit.js';
+import { closeLintsPlan, describeFailures, LINT_TIMED_OUT, lintBaseSha, type LintRecordTarget, reusableLintRun, runCloseLints, runLabel } from './lib/close-lints.js';
 import { type DenyFix, denyJson, structuredDenyResult } from './lib/deny.js';
 import { branchSlug, DB_RETRY_FIX, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
 import { docChecks, type DocCheckFailure, gitText, revParse } from './lib/doc-checks.js';
@@ -69,6 +79,8 @@ import { leakScan } from './lib/leak-scan.js';
 import { prTargetRef } from './lib/git-refs.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
+import { jqCapture, jqInput } from './lib/jq-raw.js';
+import { CLOSE_LINTS_PATH } from './lib/lint-fingerprint.js';
 import { commandSubstitution, jqRawText, posixDirname } from './lib/project-env.js';
 import { repoSinglePath } from './lib/repo.js';
 import { normalizeRole } from './lib/role.js';
@@ -775,6 +787,7 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
 
   const scratch = makeScratch(db);
   let lock = '';
+  let verifiedMs = 0;
   try {
     const ctx: RunContext = {
       db,
@@ -800,6 +813,14 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
       );
     };
     const setupThenRun = async (runCtx: RunContext): Promise<string> => {
+      const ranFrom = Date.now();
+      try {
+        return await setupThenVerify(runCtx);
+      } finally {
+        verifiedMs += Date.now() - ranFrom;
+      }
+    };
+    const setupThenVerify = async (runCtx: RunContext): Promise<string> => {
       const setupStart = Date.now();
       const setup = await runWorktreeSetup(worktree, { env: { ...runCtx.env, PATH: toolchainPath }, totalTimeoutMs: runCtx.timeoutS * 1000 });
       const setupS = Math.ceil((Date.now() - setupStart) / 1000);
@@ -847,15 +868,41 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
         if (slot.kind === 'held') slot.release();
       }
     };
+    const closeLints = async (verified: string): Promise<string> => {
+      if (wtSha === '' || jqCapture(jqInput(verified), ['hookSpecificOutput', 'permissionDecision']) === 'deny') return verified;
+      const target: LintRecordTarget = { db, taskId, source: 'gate' };
+      const baseSha = await lintBaseSha(worktree, db, taskId, wtSha, genv);
+      if (baseSha === '') {
+        return deny(
+          `BLOCKED: close lints did not run — no merge-base of ${wtSha} with the task's PR target (repos.target_branch, parent_branch_id, else the repo default) resolves in ${worktree}, and the lint record names one.`,
+          'policy',
+        );
+      }
+      const plan = await closeLintsPlan(worktree, wtSha, genv);
+      if (typeof plan === 'string') return deny(`BLOCKED: close lints did not run — ${plan}`, RETRY_FIXED);
+      if (reusableLintRun(target, wtSha, baseSha, plan.fingerprint, genv) !== null) return verified;
+      const leftS = budget.timeoutS - Math.ceil(verifiedMs / 1000);
+      const run = await runCloseLints(worktree, wtSha, baseSha, leftS, { ...genv, PATH: toolchainPath }, target);
+      if (typeof run === 'string') return deny(`BLOCKED: close lints did not run — ${run}`, DB_RETRY_FIX);
+      if (run.exitCode === 0) return verified;
+      const timedOut = run.failures.some((f) => f.exitCode === LINT_TIMED_OUT);
+      return deny(
+        commandSubstitution(
+          `BLOCKED: close lints failed on ${wtSha} — ${run.failures.length} of ${run.results.length} failed; recorded as ${runLabel(run)}. verification[] passed; the close lints (${CLOSE_LINTS_PATH}) run after it.\n\n${describeFailures(run)}${timedOut ? `\n\nThe close lints get what verification[] leaves of the ${budget.timeoutS}s budget; raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the lint.` : ''}`,
+        ),
+        RETRY_FIXED,
+      );
+    };
+
     const reused = reuse();
-    if (reused !== null) return { stdout: reused, code: 0 };
+    if (reused !== null) return { stdout: await closeLints(reused), code: 0 };
     if (wtSha === '') return { stdout: await verify(), code: 0 };
 
     const lockRoot = `${posixDirname(db)}/locks`;
     try {
       mkdirSync(lockRoot, { recursive: true });
     } catch {
-      return { stdout: await verify(), code: 0 };
+      return { stdout: await closeLints(await verify()), code: 0 };
     }
     const lockDir = `${lockRoot}/verify-${taskId}-${wtSha}`;
     await acquireLock(lockDir, budget.timeoutS + 60);
@@ -866,8 +913,8 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
       /* the mtime stands in */
     }
     const reusedAfterWait = reuse();
-    if (reusedAfterWait !== null) return { stdout: reusedAfterWait, code: 0 };
-    return { stdout: await verify(), code: 0 };
+    if (reusedAfterWait !== null) return { stdout: await closeLints(reusedAfterWait), code: 0 };
+    return { stdout: await closeLints(await verify()), code: 0 };
   } finally {
     if (lock !== '') removeQuietly(lock);
     removeQuietly(scratch);

@@ -7,6 +7,8 @@
  * Then the suite-slot lock (GH 2092): concurrent gate runs of full suites
  * serialize outside the budget, a wait past the cap denies unrecorded, a
  * nested test-run shares the gate's slot and a targeted command never waits.
+ * Then the close lints (GH 2570): a failing lint denies by name, a passing one
+ * allows, a clean lint run is reused unrun and a malformed close-lints.json denies.
  * Last the changelog and stale-doc checks (GH 2866) on a linked worktree: one
  * deny and one allow per check, each deny recording no run, and neither the
  * reuse of a passing run, the waiver nor the preflight bypass skipping them.
@@ -376,6 +378,129 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     } finally {
       if (held.kind === 'held') held.release();
     }
+  });
+});
+
+describe('swe-verification-gate close lints (GH 2570)', { timeout: 60_000 }, () => {
+  const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const T1 = '2026-11-02T10:00:00.000Z';
+  const CONFIG = '.config/tmb/close-lints.json';
+  const closeLints = (lints: { name: string; command: string }[]): string => JSON.stringify({ version: 1, lints, fingerprint_inputs: ['src/**'] });
+  const TASKS: { id: number; slug: string; files: Record<string, string> }[] = [
+    { id: 60, slug: 'lint-fails', files: { [CONFIG]: closeLints([{ name: 'probe', command: 'test -f src/fixed.txt || { echo "probe: src/fixed.txt is missing"; exit 2; }' }]) } },
+    { id: 61, slug: 'lint-reused', files: { [CONFIG]: closeLints([{ name: 'count', command: 'echo ran >> ../count-61' }]) } },
+    { id: 62, slug: 'lint-malformed', files: { [CONFIG]: '{"version":1,"lints":"nope"}' } },
+  ];
+  let base: string;
+  let dbFile: string;
+  const wt = (slug: string): string => join(base, 'project/checkout/.claude/worktrees', slug);
+
+  const gitEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Lint',
+    GIT_AUTHOR_EMAIL: 'lint@example.invalid',
+    GIT_COMMITTER_NAME: 'Lint',
+    GIT_COMMITTER_EMAIL: 'lint@example.invalid',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const git = (dir: string, args: string[]): void => {
+    const r = spawnSync('git', ['-C', dir, '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { env: gitEnv, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  const commitAll = (dir: string, message: string): void => {
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', message]);
+  };
+
+  before(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-verification-lints-')));
+    mkdirSync(join(base, 'home'));
+    for (const t of TASKS) {
+      const dir = wt(t.slug);
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      writeFileSync(join(dir, 'src/a.txt'), 'a\n');
+      for (const [path, text] of Object.entries(t.files)) {
+        mkdirSync(dirname(join(dir, path)), { recursive: true });
+        writeFileSync(join(dir, path), text);
+      }
+      git(dir, ['init', '-q']);
+      commitAll(dir, t.slug);
+    }
+    dbFile = join(base, 'project/.claude/tmb/trajectory.db');
+    mkdirSync(dirname(dbFile), { recursive: true });
+    const db = new DatabaseSync(dbFile);
+    try {
+      db.exec(SCHEMA);
+      db.prepare('INSERT INTO repos (name, path, last_scanned_at) VALUES (?, ?, ?)').run('plugin', join(base, 'project/checkout'), T1);
+      db.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'close lints', 'open', ?, ?)").run(T1, T1);
+      const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, verification, created_at, updated_at) VALUES (?, 1, ?, 'd', 'running', 'plugin', ?, ?, ?)");
+      for (const t of TASKS) task.run(t.id, `feat/${t.slug}`, JSON.stringify(['true']), T1, T1);
+    } finally {
+      db.close();
+    }
+  });
+  after(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  const env = (): NodeJS.ProcessEnv => ({
+    HOME: join(base, 'home'),
+    CLAUDE_PROJECT_DIR: join(base, 'project'),
+    TRAJECTORY_DB_PATH: dbFile,
+    MISE_DATA_DIR: join(base, 'mise'),
+    PATH: process.env.PATH,
+    TMPDIR: base,
+    TMB_SUITE_LOCK_DIR: join(base, 'locks'),
+    TMB_VERIFICATION_TIMEOUT_S: '60',
+  });
+  const lintRuns = (taskId: number): { source: string; exit_code: number; results: string }[] => {
+    const db = new DatabaseSync(dbFile, { readOnly: true });
+    try {
+      return db
+        .prepare(
+          "SELECT r.source, r.exit_code, (SELECT group_concat(name || '=' || exit_code, ',') FROM (SELECT name, exit_code FROM lint_run_results WHERE run_id = r.id ORDER BY ordinal)) AS results FROM lint_runs r WHERE r.task_id = ? ORDER BY r.id",
+        )
+        .all(taskId)
+        .map((r) => ({ ...(r as { source: string; exit_code: number; results: string }) }));
+    } finally {
+      db.close();
+    }
+  };
+
+  it('denies a failing close lint after verification[] passes, naming the lint, its exit code and output', async () => {
+    const out = decision((await sweVerificationGate(completion(60), env())).stdout);
+    assert.equal(out.permissionDecision, 'deny');
+    const reason = out.permissionDecisionReason ?? '';
+    assert.match(reason, /^BLOCKED: close lints failed on [0-9a-f]{40} — 1 of 1 failed; recorded as lint run #\d+\./);
+    assert.match(reason, /Lint probe exited 2\.\nOutput \(last 15 lines\):\nprobe: src\/fixed\.txt is missing/);
+    assert.match(reason, /Allowed form: /);
+    assert.deepEqual(lintRuns(60), [{ source: 'gate', exit_code: 2, results: 'probe=2' }]);
+  });
+
+  it('allows the close once the lint passes, recording a clean run', async () => {
+    writeFileSync(join(wt('lint-fails'), 'src/fixed.txt'), 'fixed\n');
+    commitAll(wt('lint-fails'), 'fix');
+    const out = decision((await sweVerificationGate(completion(60), env())).stdout);
+    assert.equal(out.permissionDecision, undefined, out.permissionDecisionReason);
+    assert.deepEqual(lintRuns(60).at(-1), { source: 'gate', exit_code: 0, results: 'probe=0' });
+  });
+
+  it('reuses a clean lint run for the same commit, fingerprint and base without running the lints again', async () => {
+    const first = decision((await sweVerificationGate(completion(61), env())).stdout);
+    assert.equal(first.permissionDecision, undefined, first.permissionDecisionReason);
+    const again = decision((await sweVerificationGate(completion(61), env())).stdout);
+    assert.equal(again.permissionDecision, undefined);
+    assert.match(again.additionalContext ?? '', /^TMB: verification reused run #\d+ /);
+    assert.equal(readFileSync(join(wt('lint-reused'), '../count-61'), 'utf8'), 'ran\n');
+    assert.deepEqual(lintRuns(61), [{ source: 'gate', exit_code: 0, results: 'count=0' }]);
+  });
+
+  it('denies a malformed close-lints.json and records no lint run', async () => {
+    const out = decision((await sweVerificationGate(completion(62), env())).stdout);
+    assert.equal(out.permissionDecision, 'deny');
+    assert.match(out.permissionDecisionReason ?? '', /^BLOCKED: close lints did not run — \.config\/tmb\/close-lints\.json at [0-9a-f]{12}: /);
+    assert.deepEqual(lintRuns(62), []);
   });
 });
 

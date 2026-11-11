@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 68`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 69`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -15,7 +15,7 @@ The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of tru
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and who writes it is in the tools under `mcp/trajectory-server/src/tools/` (`world_model_search` finds the writer).
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 68`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 69`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -35,6 +35,8 @@ erDiagram
     repos |o--o{ validation_attempts : "repo (RESTRICT)"
     tasks ||--o{ verification_runs : "task_id (CASCADE)"
     verification_runs ||--o{ verification_run_commands : "run_id (CASCADE)"
+    tasks ||--o{ lint_runs : "task_id (CASCADE)"
+    lint_runs ||--o{ lint_run_results : "run_id (CASCADE)"
     tasks ||--o{ review_findings : "task_id (CASCADE)"
     issues ||--o{ roundtables : "issue_id (NO ACTION)"
     roundtables ||--o{ roundtable_votes : "roundtable_id (NO ACTION)"
@@ -212,6 +214,28 @@ erDiagram
         INTEGER run_id PK,FK "NOT NULL; → verification_runs.id CASCADE"
         INTEGER ordinal PK "NOT NULL"
         TEXT command "NOT NULL"
+        INTEGER exit_code
+        REAL elapsed_s
+        TEXT output_tail
+    }
+
+    lint_runs {
+        INTEGER id PK "NOT NULL"
+        INTEGER task_id FK "NOT NULL; → tasks.id CASCADE"
+        TEXT commit_sha "NOT NULL"
+        TEXT base_sha "NOT NULL"
+        TEXT fingerprint "NOT NULL"
+        TEXT source "NOT NULL; CHECK gate|integrate"
+        TEXT started_at "NOT NULL"
+        TEXT finished_at
+        INTEGER exit_code
+        TEXT created_at "NOT NULL"
+    }
+
+    lint_run_results {
+        INTEGER run_id PK,FK "NOT NULL; → lint_runs.id CASCADE"
+        INTEGER ordinal PK "NOT NULL"
+        TEXT name "NOT NULL"
         INTEGER exit_code
         REAL elapsed_s
         TEXT output_tail
@@ -711,6 +735,36 @@ Table constraints:
 
 - PRIMARY KEY `(run_id, ordinal)`
 
+### `lint_runs`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `task_id` | INTEGER | NOT NULL |  | FK → `tasks.id` ON DELETE CASCADE |
+| `commit_sha` | TEXT | NOT NULL |  |  |
+| `base_sha` | TEXT | NOT NULL |  |  |
+| `fingerprint` | TEXT | NOT NULL |  |  |
+| `source` | TEXT | NOT NULL |  | CHECK `source IN ('gate','integrate')` |
+| `started_at` | TEXT | NOT NULL |  |  |
+| `finished_at` | TEXT | nullable |  |  |
+| `exit_code` | INTEGER | nullable |  |  |
+| `created_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+
+### `lint_run_results`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `run_id` | INTEGER | NOT NULL |  | FK → `lint_runs.id` ON DELETE CASCADE |
+| `ordinal` | INTEGER | NOT NULL |  |  |
+| `name` | TEXT | NOT NULL |  |  |
+| `exit_code` | INTEGER | nullable |  |  |
+| `elapsed_s` | REAL | nullable |  |  |
+| `output_tail` | TEXT | nullable |  |  |
+
+Table constraints:
+
+- PRIMARY KEY `(run_id, ordinal)`
+
 ### `review_findings`
 
 | Column | Type | Null | Default | Constraints |
@@ -1114,6 +1168,8 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `validation_attempts` | `repo` | `repos(name)` | RESTRICT |
 | `verification_runs` | `task_id` | `tasks(id)` | CASCADE |
 | `verification_run_commands` | `run_id` | `verification_runs(id)` | CASCADE |
+| `lint_runs` | `task_id` | `tasks(id)` | CASCADE |
+| `lint_run_results` | `run_id` | `lint_runs(id)` | CASCADE |
 | `review_findings` | `task_id` | `tasks(id)` | CASCADE |
 | `roundtables` | `issue_id` | `issues(id)` | NO ACTION |
 | `roundtable_votes` | `roundtable_id` | `roundtables(id)` | NO ACTION |
@@ -1163,6 +1219,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_tasks_status` | `tasks` | `status` |  |  |
 | `idx_tasks_commit_sha` | `tasks` | `commit_sha` |  |  |
 | `idx_verification_runs_task_commit` | `verification_runs` | `task_id, commit_sha, finished_at` |  |  |
+| `idx_lint_runs_task_commit` | `lint_runs` | `task_id, commit_sha, finished_at` |  |  |
 | `idx_review_findings_task_status` | `review_findings` | `task_id, status` |  |  |
 | `idx_discussions_issue_created` | `discussions` | `issue_id, created_at` |  |  |
 | `idx_discussions_remote_comment` | `discussions` | `remote_comment_id` | yes | `remote_comment_id IS NOT NULL` |
@@ -1261,7 +1318,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 - **One timestamp format.** Every timestamp is UTC ISO 8601 with milliseconds, so ordering and keyset cursors compare them as plain strings.
 - **Nothing closes silently.** An issue never closes over live work, and a task never reaches `closed` without the record saying whether it was reviewed: a close with no passing review writes an explicit bypass or waiver row. A review passes a commit only when it was recorded at or after that commit's review anchor (bro's verification of it, or an integrate that carried the review across a trivial rebase); one shared rule in `mcp/trajectory-server/src/review-sql.ts` decides it for every reader.
 - **Verdicts are append-only.** A re-recorded review attempt adds a row instead of replacing one; a finding's status moves from open to fixed or waived, and the finding stays.
-- **Verification is recorded, not re-run.** Each run of a task's checks is a row with its commands, so bro and code-reviewer read the result for an exact commit.
+- **Verification is recorded, not re-run.** Each run of a task's checks, and each run of its close lints, is a row with its commands or lints, so bro, code-reviewer and the reviewer preflight read the result for an exact commit.
 - **Cost is metered, not stored as totals.** Agent runs carry measured token counts; task cost and rework are computed from them at read time.
 - **Audit is event-only.** Each audit row is one lifecycle event; tool-call capture lives in the eval-mode tables.
 - **Roles are enforced by the server, not the schema.** Which agent may write which table follows each tool's role check ([`RESPONSIBILITIES.md`](./RESPONSIBILITIES.md)).

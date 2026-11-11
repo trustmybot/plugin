@@ -1,45 +1,15 @@
 // L1 lint: no shipped prompt names this repository's own paths or scripts (mcp/trajectory-server, scripts/hooks/, scripts/maintenance/, changelog.d, tests/l<N>, regen-generated, dist-fresh, docs/architecture). TMB is general purpose, so such a prompt describes the user's project with this repo's layout. Lines naming product internals every install has (CLAUDE_PLUGIN_ROOT, .claude/tmb/, the plugin cache) pass. Scans the *.md files directly in agents/, commands/ and templates/agents/ and every *.md under skills/. Every run also checks fixtures/repo-paths-in-prompts/: has-paths.md yields at least six findings, allowlisted.md none.
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { findingsInText, repoPathProblems } from './lib/no-repo-paths-in-prompts.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIXTURES = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'repo-paths-in-prompts');
-const REPO_PATH = /mcp\/trajectory-server|scripts\/hooks\/|scripts\/maintenance\/|changelog\.d|tests\/l[0-9]|regen-generated|dist-fresh|docs\/architecture/;
-const ALLOW = /CLAUDE_PLUGIN_ROOT|\.claude\/tmb\/|plugin cache/;
-
-const isFile = (abs) => existsSync(abs) && statSync(abs).isFile();
-
-export function findingsInText(text) {
-  const lines = text.split('\n');
-  if (lines.at(-1) === '') lines.pop();
-  return lines.flatMap((line, i) => (REPO_PATH.test(line) && !ALLOW.test(line) ? [i + 1] : []));
-}
-
-function mdFiles(root, rel, recursive, out) {
-  const abs = join(root, rel);
-  if (!existsSync(abs)) return out;
-  for (const entry of readdirSync(abs, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    const child = `${rel}/${entry.name}`;
-    if (entry.isDirectory()) {
-      if (recursive) mdFiles(root, child, recursive, out);
-    } else if (entry.name.endsWith('.md') && isFile(join(root, child))) out.push(child);
-  }
-  return out;
-}
-
-export function repoPathProblems(root) {
-  const files = [
-    ...mdFiles(root, 'agents', false, []),
-    ...mdFiles(root, 'commands', false, []),
-    ...mdFiles(root, 'templates/agents', false, []),
-    ...mdFiles(root, 'skills', true, []),
-  ];
-  return files.flatMap((rel) => findingsInText(readFileSync(join(root, rel), 'utf8')).map((n) => `${rel}:${n}: repository path in prompt`));
-}
 
 test('has-paths.md yields at least six findings and allowlisted.md none', () => {
   const bad = join(FIXTURES, 'has-paths.md');

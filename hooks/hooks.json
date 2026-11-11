@@ -156,6 +156,17 @@
             "timeout": 9
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PostToolUse",
+            "timeout": 13,
+            "onFailure": "block"
+          }
+        ]
       }
     ],
     "PermissionDenied": [

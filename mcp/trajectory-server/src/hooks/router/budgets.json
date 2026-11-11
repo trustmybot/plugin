@@ -53,6 +53,11 @@
       "p99_sum_ms": 35.5,
       "group_budget_ms": 6000
     },
+    "PostToolUse:Write|Edit|MultiEdit": {
+      "max_budget_ms": 10000,
+      "p99_sum_ms": 34.8,
+      "group_budget_ms": 10000
+    },
     "PermissionDenied:Agent": {
       "max_budget_ms": 6000,
       "p99_sum_ms": 37.1,
@@ -1097,6 +1102,22 @@
       "floor_ms": 6000,
       "budget_ms": 6000,
       "date": "2026-11-02"
+    },
+    "swe-edit-lint": {
+      "kind": "advisory",
+      "bench_p50": 14.1,
+      "bench_p95": 24.6,
+      "bench_p99": 34.8,
+      "bench_runs": 640,
+      "bench_load_avg": 26.55,
+      "transcript_p99": null,
+      "reason": "no swe-edit-lint PostToolUse hook attachment in 8613 transcript files of the last 14 days: born in GH 2570, benched alone with the router-p99 worker (4 workers x 20 rounds)",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 10000,
+      "budget_ms": 10000,
+      "date": "2026-11-08"
     }
   }
 }
