@@ -86,9 +86,10 @@ Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Ex
 
 L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so the scan walker reads its plugin inventory from that file instead of spawning `claude plugin list --json`. L1 runs with `TMB_L1_OFFLINE=1`, so `l1-lint/manifest-shape.test.mjs` skips its `claude plugin validate --strict` step there; run the lint directly on a host with the `claude` CLI to include it. Each L4 flow runs with `bun test --timeout 30000`.
 
-Two switches narrow a run:
+Three switches narrow a run:
 
 - `--l1-only` (first argument) builds the payload, runs the L1 block, and exits with its result before L2.
+- `--l1-local` (first argument) is the local L1 tier: the same L1 table and self-checks as `--l1-only`, minus the steps that table flags slow and the wm-equivalence reindex check, each of which prints `→ SKIP (--l1-local)`. A step is flagged slow only when it measured above 30 s on a dev machine. It is the plugin repo's `.config/tmb/verification-defaults.json` command, so every swe close runs it (GH 2866); CI keeps `--l1-only`, so the skipped steps still gate each PR.
 - `TMB_L1_SKIP` holds space-separated lint basenames (`tool-description-budget.test.mjs`). A step whose arguments name one prints `→ SKIP (TMB_L1_SKIP)` and does not fail the run.
 
 ```bash
