@@ -40,8 +40,14 @@ export const GIT_ARGV0 = /^(.*\/)?git$/;
 export const GIT_VALUE_OPTION = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--attr-source', '--super-prefix', '--config-env', '--list-cmds']);
 /** A git global option and its value in one word, which cannot take the next word. */
 export const GIT_VALUE_JOINED = /^--[a-z][a-z0-9-]*=/;
-/** A resolved value bash's word splitting and pathname expansion leave as the one word it is: not empty, no IFS blank or other control byte, no expansion left, no glob, brace, quote or backslash character. */
-const ONE_WORD = /^[^\x00-\x20$`*?[\]{}'"\\]+$/;
+const WORD_BREAKER = /[$`*?[\]{}'"\\]/;
+
+/** Whether bash's word splitting and pathname expansion leave <value> as the one word it is: not empty, no IFS blank or other control byte, no expansion left, no glob, brace, quote or backslash character. */
+function isOneWord(value: string): boolean {
+  if (value === '' || WORD_BREAKER.test(value)) return false;
+  for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) <= 0x20) return false;
+  return true;
+}
 
 const VPLAIN = /^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$/;
 const VBAD = '*?[](){<>`';
@@ -719,7 +725,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
 
   /** Whether <word> holds a `$NAME` or `${NAME}` and every expansion in it resolves to a value that leaves <word> one literal word, unquoted (GH 2643). */
   function literalword(word: string): boolean {
-    return word.includes('$') && ONE_WORD.test(subst(word));
+    return word.includes('$') && isOneWord(subst(word));
   }
 
   function assignword(a: string, uncertain: boolean): boolean {
