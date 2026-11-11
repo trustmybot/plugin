@@ -5,7 +5,8 @@
 // ensureFresh compares the stamp with the target and brings the index there;
 // the caller waits for it. A read and the startup catch-up first fetch
 // origin/<target branch>, at most once per 10 minutes per repo
-// (fetchTargetIfDue). Then:
+// (fetchTargetIfDue); task_provision fetches whatever the window
+// (fetchTargetNow). Then:
 //   - no-op: the stamp is the target and current; no walk, no writes.
 //   - incremental: the stamp is a reachable commit; only the paths
 //     `git diff <indexed> <target>` names are re-parsed, whatever their number.
@@ -685,6 +686,11 @@ const NO_FETCH_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(['swe', 'code-
 // the fetch errored or ran past the cap; moved/unchanged: origin/<target>
 // after the fetch against before it.
 export type TargetFetch = 'skipped' | 'failed' | 'unchanged' | 'moved';
+export interface TargetFetchAttempt {
+  result: TargetFetch;
+  branch: string | null;
+  error: string | null;
+}
 export type TargetFetchRunner = (args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }) => Promise<void>;
 
 const execGitFetch: TargetFetchRunner = (args, opts) =>
@@ -697,7 +703,7 @@ const execGitFetch: TargetFetchRunner = (args, opts) =>
 
 let fetchRunner: TargetFetchRunner = execGitFetch;
 let fetchTimeoutMs = TARGET_FETCH_TIMEOUT_MS;
-const fetching = new Map<string, Promise<TargetFetch>>();
+const fetching = new Map<string, Promise<TargetFetchAttempt>>();
 
 export function stampTargetFetched(db: TrajectoryDB, repo: string, nowMs: number): void {
   try {
@@ -740,7 +746,7 @@ async function runFetchCapped(args: string[], cwd: string): Promise<void> {
   }
 }
 
-async function fetchTarget(db: TrajectoryDB, repo: string, repoPath: string, nowMs: number): Promise<TargetFetch> {
+async function fetchTarget(db: TrajectoryDB, repo: string, repoPath: string, nowMs: number): Promise<TargetFetchAttempt> {
   const branch = targetBranchOf(db, repo, repoPath);
   const ref = `refs/remotes/origin/${branch}`;
   const before = resolveRefCommit(repoPath, ref);
@@ -748,25 +754,24 @@ async function fetchTarget(db: TrajectoryDB, repo: string, repoPath: string, now
   try {
     await runFetchCapped(['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', 'origin', branch], repoPath);
   } catch (e) {
-    serverLog({ event: 'wm_target_fetch_failed', repo, branch, error: (e as Error).message });
-    return 'failed';
+    const error = (e as Error).message;
+    serverLog({ event: 'wm_target_fetch_failed', repo, branch, error });
+    return { result: 'failed', branch, error };
   }
-  return resolveRefCommit(repoPath, ref) === before ? 'unchanged' : 'moved';
+  return { result: resolveRefCommit(repoPath, ref) === before ? 'unchanged' : 'moved', branch, error: null };
 }
 
-// Before a world_model_* read and each startup catch-up reindex: fetch origin/<target branch> at most once per
-// TARGET_FETCH_TTL_MS per repo, the window shared through
-// wm_freshness.target_fetched_at, stamped on every attempt. Callers in this
-// process share one in-flight fetch. Never throws.
-export async function fetchTargetIfDue(db: TrajectoryDB, repo: string, opts: { agent: unknown; now?: number }): Promise<TargetFetch> {
+const SKIPPED: TargetFetchAttempt = { result: 'skipped', branch: null, error: null };
+
+async function fetchTargetShared(db: TrajectoryDB, repo: string, opts: { agent: unknown; now?: number; force: boolean }): Promise<TargetFetchAttempt> {
   try {
-    if (NO_FETCH_ROLES.has(normalizeAgent(opts.agent))) return 'skipped';
-    if (process.env['TMB_WM_INDEX_TARGET']) return 'skipped';
+    if (NO_FETCH_ROLES.has(normalizeAgent(opts.agent))) return SKIPPED;
+    if (process.env['TMB_WM_INDEX_TARGET']) return SKIPPED;
     const running = fetching.get(repo);
     if (running) return await running;
     const nowMs = opts.now ?? Date.now();
     const path = repoState(db, repo)?.path;
-    if (!path || !fetchDue(db, repo, nowMs) || !hasOrigin(path)) return 'skipped';
+    if (!path || (!opts.force && !fetchDue(db, repo, nowMs)) || !hasOrigin(path)) return SKIPPED;
     const run = fetchTarget(db, repo, path, nowMs);
     fetching.set(repo, run);
     try {
@@ -775,9 +780,25 @@ export async function fetchTargetIfDue(db: TrajectoryDB, repo: string, opts: { a
       if (fetching.get(repo) === run) fetching.delete(repo);
     }
   } catch (e) {
-    serverLog({ event: 'wm_target_fetch_failed', repo, error: (e as Error).message });
-    return 'failed';
+    const error = (e as Error).message;
+    serverLog({ event: 'wm_target_fetch_failed', repo, error });
+    return { result: 'failed', branch: null, error };
   }
+}
+
+// Before a world_model_* read and each startup catch-up reindex: fetch origin/<target branch> at most once per
+// TARGET_FETCH_TTL_MS per repo, the window shared through
+// wm_freshness.target_fetched_at, stamped on every attempt. Callers in this
+// process share one in-flight fetch. Never throws.
+export async function fetchTargetIfDue(db: TrajectoryDB, repo: string, opts: { agent: unknown; now?: number }): Promise<TargetFetch> {
+  return (await fetchTargetShared(db, repo, { ...opts, force: false })).result;
+}
+
+// Before task_provision plans against the world model (GH 2958): the same
+// capped fetch with the TTL window ignored, so the base resolves against a
+// just-fetched origin/<target branch>. Never throws.
+export async function fetchTargetNow(db: TrajectoryDB, repo: string, opts: { agent: unknown; now?: number }): Promise<TargetFetchAttempt> {
+  return fetchTargetShared(db, repo, { ...opts, force: true });
 }
 
 export function __setTargetFetchForTests(opts: { runner?: TargetFetchRunner; timeoutMs?: number } = {}): void {

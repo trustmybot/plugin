@@ -559,11 +559,6 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/hooks/wm-read-before-provision.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "mcp/trajectory-server/src/index.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
@@ -2066,9 +2061,6 @@
     }
   },
   "mcp/trajectory-server/src/test/wm-target-fetch.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 7
-    },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
     },
