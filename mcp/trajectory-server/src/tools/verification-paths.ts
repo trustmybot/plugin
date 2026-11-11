@@ -1,6 +1,7 @@
 // Guard G15: refuses a verification[] naming a test file absent at the ref and from files[], and suggests importing tests from the world model (GH 2581).
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { posix } from 'node:path';
+import { accessSync, constants, readdirSync } from 'node:fs';
+import { delimiter, join, posix } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { gitUnanswered, runGit } from '../utils/git-run.js';
 
@@ -26,7 +27,7 @@ export interface MissingTestPath {
 }
 
 export interface VerificationPathRefusal {
-  error: 'verification_path_missing' | 'verification_path_unverified';
+  error: 'verification_path_missing' | 'verification_path_unverified' | 'verification_not_command';
   ref: string | null;
   missing: MissingTestPath[];
 }
@@ -65,19 +66,39 @@ function closingParen(command: string, open: number): number {
 
 // Splits a shell command into words and control operators. Quotes are removed,
 // `$(…)` and backquotes stay inside their word, and redirections (`2>&1`,
-// `> out`, `&>file`) are dropped together with their target word.
+// `> out`, `&>file`) are dropped together with their target word. A heredoc
+// body is data, so the lines after its newline up to the delimiter are skipped.
 function shellTokens(command: string): ShellToken[] {
   const out: ShellToken[] = [];
   let word = '';
   let inWord = false;
   let dropNext = false;
+  let heredocNext: { stripTabs: boolean } | null = null;
+  const heredocs: { delimiter: string; stripTabs: boolean }[] = [];
   const endWord = () => {
     if (inWord) {
-      if (dropNext) dropNext = false;
-      else out.push({ word });
+      if (dropNext) {
+        dropNext = false;
+        if (heredocNext) heredocs.push({ delimiter: word, ...heredocNext });
+        heredocNext = null;
+      } else {
+        out.push({ word });
+      }
     }
     word = '';
     inWord = false;
+  };
+  const skipHeredocBodies = (from: number): number => {
+    let pos = from;
+    for (const { delimiter, stripTabs } of heredocs.splice(0)) {
+      while (pos < command.length) {
+        const nl = command.indexOf('\n', pos);
+        const line = command.slice(pos, nl < 0 ? command.length : nl);
+        pos = nl < 0 ? command.length : nl + 1;
+        if ((stripTabs ? line.replace(/^\t+/, '') : line) === delimiter) break;
+      }
+    }
+    return pos;
   };
   for (let i = 0; i < command.length; i++) {
     const c = command[i]!;
@@ -127,6 +148,10 @@ function shellTokens(command: string): ShellToken[] {
       if (/\d/.test(command[j] ?? '') && command[j - 1] === '&') {
         while (/\d|-/.test(command[j] ?? '')) j++;
       } else {
+        if (command.slice(i, j) === '<<') {
+          heredocNext = { stripTabs: command[j] === '-' };
+          if (heredocNext.stripTabs) j++;
+        }
         dropNext = true;
       }
       i = j - 1;
@@ -135,8 +160,10 @@ function shellTokens(command: string): ShellToken[] {
       if (op) {
         endWord();
         dropNext = false;
+        heredocNext = null;
         out.push({ op });
         i += op.length - 1;
+        if (op === '\n' && heredocs.length > 0) i = skipHeredocBodies(i + 1) - 1;
       } else if (/\s/.test(c)) {
         endWord();
       } else {
@@ -338,6 +365,89 @@ export function testPathTokens(command: string): TestPathToken[] {
   return out;
 }
 
+const ENGLISH_WORD = /^[A-Z][a-z]+$/;
+const SHELL_BUILTINS = new Set([
+  'cd', 'pushd', 'popd', 'test', '[', '[[', 'true', 'false', 'echo', 'printf', 'export', 'set', 'unset', 'source', '.',
+  ':', 'eval', 'exit', 'return', 'read', 'shift', 'trap', 'wait', 'type', 'alias', 'ulimit', 'umask', 'local',
+]);
+
+// The first command word of every simple command, env assignments and
+// prefix words skipped; `bash -c '<cmd>'` contributes its own commands.
+function firstCommandWords(script: string): string[] {
+  const out: string[] = [];
+  let words: string[] = [];
+  const finish = () => {
+    const argv = stripPrefix(words);
+    words = [];
+    const [prog] = argv;
+    if (prog === undefined) return;
+    out.push(prog);
+    const inner = shellScript(argv);
+    if (inner !== null) out.push(...firstCommandWords(inner));
+  };
+  for (const t of shellTokens(script)) {
+    if ('word' in t) words.push(t.word);
+    else finish();
+  }
+  finish();
+  return out;
+}
+
+// Exact-name lookup: a case-insensitive filesystem would answer `Test` for
+// `test`, so each PATH dir is listed once instead of probed per word.
+class PathExecutables {
+  private readonly listings = new Map<string, ReadonlySet<string>>();
+
+  has(word: string): boolean {
+    for (const dir of (process.env['PATH'] ?? '').split(delimiter)) {
+      if (!dir) continue;
+      if (this.listing(dir).has(word) && this.executable(join(dir, word))) return true;
+    }
+    return false;
+  }
+
+  private listing(dir: string): ReadonlySet<string> {
+    let names = this.listings.get(dir);
+    if (!names) {
+      try {
+        names = new Set(readdirSync(dir));
+      } catch {
+        names = new Set();
+      }
+      this.listings.set(dir, names);
+    }
+    return names;
+  }
+
+  private executable(path: string): boolean {
+    try {
+      accessSync(path, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function resolvesAsCommand(word: string, onPath: PathExecutables): boolean {
+  return word.includes('/') || SHELL_BUILTINS.has(word) || onPath.has(word);
+}
+
+// GH 2955: a verification[] entry whose command word is a capitalized English
+// word that runs as nothing is a prose sentence the close gate would fail on
+// with exit 127. Lower-case words are never refused for missing from PATH.
+export function checkVerificationProse(verification: readonly string[], ref: string | null): VerificationPathRefusal | null {
+  const onPath = new PathExecutables();
+  const missing: MissingTestPath[] = [];
+  for (const command of verification) {
+    const word = firstCommandWords(command).find((w) => ENGLISH_WORD.test(w) && !resolvesAsCommand(w, onPath));
+    if (word !== undefined) {
+      missing.push({ command, path: word, reason: `"${word}" is not a runnable command; give a shell command the close gate can run` });
+    }
+  }
+  return missing.length > 0 ? { error: 'verification_not_command', ref, missing } : null;
+}
+
 export function resolveTestPath(
   repoPath: string | null,
   dir: string,
@@ -443,8 +553,8 @@ function admitted(probe: TreeProbe, files: readonly string[], path: string): Tra
   return files.includes(path) ? 'yes' : probe.blob(path);
 }
 
-// Refuses (returns non-null) when a test path a verification[] command names
-// is not proven by git at `ref` and not listed verbatim in files[]. A git
+// Refuses (returns non-null) when a verification[] entry is prose, not a
+// command, or when a test path a verification[] command names is not proven by git at `ref` and not listed verbatim in files[]. A git
 // error, an unresolvable ref or no repo path refuses too.
 export function checkVerificationPaths(input: {
   repoPath: string | null;
@@ -453,6 +563,8 @@ export function checkVerificationPaths(input: {
   files: readonly string[];
 }): VerificationPathRefusal | null {
   const { repoPath, ref, verification, files } = input;
+  const prose = checkVerificationProse(verification, ref);
+  if (prose) return prose;
   const tokens = verification.flatMap(testPathTokens);
   if (tokens.length === 0) return null;
   const resolved = tokens.map((t) => ({ ...t, ...resolveTestPath(repoPath, t.dir, t.token) }));
@@ -513,8 +625,11 @@ export function verificationPathResult(tool: string, refusal: VerificationPathRe
     .map((m) => `${m.path}${m.checked_as ? ` (checked as ${m.checked_as})` : ''} in "${m.command}": ${m.reason}`)
     .join('; ');
   const message =
-    `${tool}: verification[] names test file(s) not proven at ${refusal.ref ?? '(no ref)'}: ${listed}. ` +
-    `List a test the task creates verbatim in files[], commit it first, or fix the command. Nothing was written.`;
+    refusal.error === 'verification_not_command'
+      ? `${tool}: verification[] holds prose, not shell commands: ${listed}. ` +
+        `Write each entry as a command whose exit code proves the criterion. Nothing was written.`
+      : `${tool}: verification[] names test file(s) not proven at ${refusal.ref ?? '(no ref)'}: ${listed}. ` +
+        `List a test the task creates verbatim in files[], commit it first, or fix the command. Nothing was written.`;
   return {
     isError: true,
     content: [{ type: 'text', text: JSON.stringify({ error: refusal.error, message, ref: refusal.ref, missing: refusal.missing }) }],
