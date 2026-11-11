@@ -139,6 +139,17 @@ export function skillTools(db: TrajectoryDB): {
         );
       }
 
+      const existing = db.get<Pick<Skill, 'file_path'>>(
+        `SELECT file_path FROM cheatcodes WHERE name = ? AND kind = 'skill' AND origin = 'builtin'`,
+        [name],
+      );
+      if (existing) {
+        throw new Error(
+          `skill_register rejected: skill "${name}" is already registered at ${existing.file_path ?? '(no file_path)'}. ` +
+          `Pick another name, or edit the existing skill with the Human's approval.`,
+        );
+      }
+
       const now = nowISO();
 
       // Skills are origin='builtin' rows in the unified cheatcodes registry
