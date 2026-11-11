@@ -41,9 +41,8 @@ export interface IssueLabelTaxonomy {
 
 export interface IssueToolOptions {
   /**
-   * Optional caller-resolved taxonomy snapshot. Codex supplies its strict
-   * config_get result so shared issue validation uses the same fail-closed
-   * snapshot instead of re-reading configuration with Claude's legacy
+   * Optional caller-resolved taxonomy snapshot. When supplied, issue
+   * validation uses it instead of re-reading configuration with the
    * malformed-value fallback.
    */
   readonly labelTaxonomy?: IssueLabelTaxonomy;
@@ -539,19 +538,21 @@ function syncFailureHint(outcomes: ReadonlyArray<SyncFailure['outcome']>): strin
   return outcomes.includes('unknown') ? SYNC_UNKNOWN_HINT : SYNC_RETRY_HINT;
 }
 
+interface AdoptionTarget {
+  backend: 'github' | 'gitlab';
+  remoteIid: number;
+  syncCtx: IssueSyncContext | null;
+}
+
 // Remote adoption (#36). Resolve the backend for a remote_iid (explicit arg, or
-// the repo's sole configured remote) and verify the remote issue exists via
-// gh/glab before any local link is persisted. Shared by issue_create's adopt-
-// at-create path and the after-the-fact issue_adopt_remote tool. Returns the
-// resolved backend on success, or a named error on an invalid iid / ambiguous
-// backend / failed remote verification.
-async function verifyAdoptionRemote(
+// the repo's sole configured remote) without spawning gh/glab. Returns a named
+// error on an invalid iid / ambiguous or unresolved backend.
+function resolveAdoptionTarget(
   db: TrajectoryDB,
   issueRepo: string | null,
   remoteBackendArg: 'github' | 'gitlab' | undefined,
   remoteIid: number,
-  spawnFn: SpawnFn | undefined,
-): Promise<{ ok: true; backend: 'github' | 'gitlab'; milestone: string | null; labels: string[] } | { ok: false; error: string }> {
+): { ok: true; target: AdoptionTarget } | { ok: false; error: string } {
   if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
     return { ok: false, error: `invalid_remote_iid: must be a positive integer, got ${String(remoteIid)}` };
   }
@@ -568,6 +569,16 @@ async function verifyAdoptionRemote(
       return { ok: false, error: 'remote_backend_unresolved: repo has no configured remote — pass remote_backend' };
     }
   }
+  return { ok: true, target: { backend, remoteIid, syncCtx } };
+}
+
+// Verify the resolved remote issue exists via gh/glab before any local link is
+// persisted, and read back its milestone and labels.
+async function verifyAdoptionTarget(
+  target: AdoptionTarget,
+  spawnFn: SpawnFn | undefined,
+): Promise<{ ok: true; backend: 'github' | 'gitlab'; milestone: string | null; labels: string[] } | { ok: false; error: string }> {
+  const { backend, remoteIid, syncCtx } = target;
   const cliBackend = backend === 'github' ? 'gh' : 'glab';
   const remote = syncCtx?.remoteFor(cliBackend);
   const verify = await verifyRemoteIssue(cliBackend, remoteIid, {
@@ -582,6 +593,19 @@ async function verifyAdoptionRemote(
     };
   }
   return { ok: true, backend, milestone: verify.milestone ?? null, labels: verify.labels ?? [] };
+}
+
+// Shared by issue_create's adopt-at-create path: resolve, then verify.
+async function verifyAdoptionRemote(
+  db: TrajectoryDB,
+  issueRepo: string | null,
+  remoteBackendArg: 'github' | 'gitlab' | undefined,
+  remoteIid: number,
+  spawnFn: SpawnFn | undefined,
+): Promise<{ ok: true; backend: 'github' | 'gitlab'; milestone: string | null; labels: string[] } | { ok: false; error: string }> {
+  const resolved = resolveAdoptionTarget(db, issueRepo, remoteBackendArg, remoteIid);
+  if (!resolved.ok) return resolved;
+  return verifyAdoptionTarget(resolved.target, spawnFn);
 }
 
 export interface RemoteCloseTarget {
@@ -711,7 +735,7 @@ export function issueTools(
           allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
           remote_iid: { type: 'number', description: 'Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing.' },
           remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional backend for remote_iid adoption. Defaults to the repo\'s sole configured remote.' },
-          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false).' },
         },
         required: ['agent', 'objective', 'labels'],
       },
@@ -724,7 +748,7 @@ export function issueTools(
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string', description: 'The issue string ID' },
-          include_description: { type: 'boolean', description: 'Whether to include the full description (default false). Architect + bro only.' },
+          include_description: { type: 'boolean', description: 'Include the full description (default false). swe callers never receive it.' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -816,7 +840,7 @@ export function issueTools(
           agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
           issue_id: { type: 'string', description: 'Issue ID as string' },
           description: { type: 'string', description: 'Full markdown description (no length cap)' },
-          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false).' },
         },
         required: ['agent', 'issue_id', 'description'],
       },
@@ -832,7 +856,7 @@ export function issueTools(
           milestone: { type: 'string', description: 'Milestone name; its milestones row is created for the issue repo when missing' },
           labels: { type: 'array', items: { type: 'string' }, description: 'Full replacement label set; must include one classification and one priority label, plus exactly one area label when the project configures issue_area_labels' },
           objective: { type: 'string', description: 'New objective (the remote issue title)' },
-          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false).' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -860,7 +884,7 @@ export function issueTools(
           remote_iid: { type: 'number', description: 'Remote issue number to adopt' },
           remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional. Defaults to the repo\'s sole configured remote.' },
           repo: { type: 'string', description: 'Optional repo name (matches a repos row) to verify against. Required when the issue has no repo and several repos exist; backfills a null issue repo on success.' },
-          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false).' },
         },
         required: ['agent', 'issue_id', 'remote_iid'],
       },
@@ -888,7 +912,7 @@ export function issueTools(
           backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Remote backend' },
           iid: { type: 'number', description: 'Remote issue number' },
           force: { type: 'boolean', description: 'Overwrite existing iid if already set (default false)' },
-          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false).' },
         },
         required: ['agent', 'issue_id', 'backend', 'iid'],
       },
@@ -1981,18 +2005,24 @@ export function issueTools(
         }
       }
 
-      const adoption = await verifyAdoptionRemote(db, adoptRepo, remoteBackendArg, remoteIid, spawnFn);
-      if (!adoption.ok) {
-        return err(adoption.error);
+      const resolved = resolveAdoptionTarget(db, adoptRepo, remoteBackendArg, remoteIid);
+      if (!resolved.ok) {
+        return err(resolved.error);
       }
 
       // Conflict: an existing link for the same backend to a DIFFERENT iid is a
-      // hard error; re-adopting the same iid is idempotent.
-      const existingIid = adoption.backend === 'github' ? row.gh_iid : row.gl_iid;
+      // hard error, checked before any gh/glab spawn; re-adopting the same iid
+      // is idempotent.
+      const existingIid = resolved.target.backend === 'github' ? row.gh_iid : row.gl_iid;
       if (existingIid != null && existingIid !== remoteIid) {
-        return err(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
+        return err(`already_linked: issue ${issueId} already has a ${resolved.target.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
       }
       const idempotent = existingIid === remoteIid;
+
+      const adoption = await verifyAdoptionTarget(resolved.target, spawnFn);
+      if (!adoption.ok) {
+        return err(adoption.error);
+      }
 
       const now = nowISO();
       const ghIid = adoption.backend === 'github' ? remoteIid : null;

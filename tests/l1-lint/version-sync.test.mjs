@@ -1,4 +1,4 @@
-// L1 lint: .codex-plugin/plugin.json, mcp/trajectory-server/package.json and the root package.json carry the version of .claude-plugin/plugin.json, so a release-prep PR that bumps only one fails.
+// L1 lint: mcp/trajectory-server/package.json and the root package.json carry the version of .claude-plugin/plugin.json, so a release-prep PR that bumps only one fails.
 import { strict as assert } from 'node:assert';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CANON = '.claude-plugin/plugin.json';
 const OTHERS = [
-  ['.codex-plugin/plugin.json', '.codex-plugin/plugin.json'],
   ['mcp/trajectory-server/package.json', 'mcp/trajectory-server/package.json'],
   ['package.json (workspace root)', 'package.json'],
 ];
@@ -31,7 +30,7 @@ function failureMessage(root, mismatches) {
     `Enforcing version sync (canonical: ${CANON} = ${version(root, CANON)})`,
     ...mismatches,
     '',
-    'Version sync FAILED. Bump all four to match in the same commit.',
+    'Version sync FAILED. Bump all three to match in the same commit.',
   ].join('\n');
 }
 
@@ -53,7 +52,7 @@ test('a manifest that lags the canonical version fails', () => {
   }
 });
 
-test('all four version fields agree', () => {
+test('all three version fields agree', () => {
   const mismatches = versionMismatches(ROOT);
   assert.deepEqual(mismatches, [], failureMessage(ROOT, mismatches));
 });

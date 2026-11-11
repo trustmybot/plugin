@@ -262,6 +262,12 @@ describe('prompt-intent-hints l3', () => {
       const o = runHook("Can you delete the test that's failing?");
       has(o, 'concerns-protocol hint', 'delete the test fires');
       has(o, 'tmb_concerns-protocol', 'CTX must point to skill, not restate procedure');
+      has(
+        o,
+        "Then follow the protocol: wait for the Human's call, or, when the Human said not to ask, record the concern with the recommended default as kind='decision' and proceed.",
+        'the hint names the away path the protocol admits (GH 2713)',
+      );
+      hasNot(o, 'a documented decision is not a substitute', 'the stale ban on a decision row is gone');
     });
 
     const fires: Array<[string, string, string]> = [
@@ -375,6 +381,13 @@ describe('prompt-intent-hints l3', () => {
       const o = runHookDb('looks good, push it');
       has(o, 'push-intent hint', 'unquoted push intent fires');
       has(o, 'feat/done', 'the unsigned task is listed');
+      has(
+        o,
+        'spawn code-reviewer per pending task with the `reviewer_spawn` Agent call review_handoff returned, passed as is (its prompt carries the anchors the spawn gates require), per tmb_push-gate; bro_atomic_close closes each task once it passes.',
+        'push hint spawns code-reviewer with the reviewer_spawn call review_handoff returned (GH 2743)',
+      );
+      hasNot(o, "prompt='task_id=<N>'", 'no bare task_id spawn prompt the anchor gates deny (GH 2743)');
+      hasNot(o, 'isolation=', 'no empty isolation argument');
     });
 
     it("GH 1199: 'still open' inside a quoted report → no resume hint", () => {
@@ -385,6 +398,7 @@ describe('prompt-intent-hints l3', () => {
       const o = runHookDb('keep going');
       has(o, 'resume-intent hint', 'unquoted resume intent fires');
       has(o, 'task_reopen(task_id=2', 'resume hint routes the pending task through task_reopen');
+      has(o, "Agent(subagent_type='swe', effort='<tasks.effort>', prompt='task_id=2')", 'resume hint spawns swe with its effort');
       hasNot(o, 'git switch', 'resume hint never switches the main checkout');
     });
 

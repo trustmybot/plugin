@@ -46,14 +46,14 @@ Before each `task_provision`, `task_reopen`, `task_retry` or `task_update_spec` 
 
 When the work comes from an existing issue, read it with `issue_get_with_discussions`: its newest `kind='decision'` supersedes the issue description, and the spec follows that decision.
 
-The plan for a multi-task issue goes in the issue description and the spec in `task_provision`, never in a file; scratch holds throwaway scripts, logs and data dumps only.
+The plan for a multi-task issue goes in the issue description and the spec in `task_provision`; scratch holds throwaway scripts, logs and data dumps only.
 
 Pick conservative defaults; name them in `## Description` Assumptions bullets. The repo wins: match what the project already uses before reaching for anything new.
 
 | Dimension | Principle |
 |---|---|
 | Dependencies | Prefer the project's existing conventions and the language's standard library over adding a new dependency |
-| Test runner | Match the repo's existing test runner and layout; don't introduce a second one |
+| Test runner | Use the repo's one existing test runner and layout |
 | Storage / IO | Match the project's established pattern (location, format, lifecycle); pick the smallest thing that fits |
 | File layout | Single file until it grows enough to warrant splitting; follow the repo's module structure |
 | Scope of execution | Assume the simplest runtime that satisfies the requirement (e.g. single-user, single-process) unless the spec says otherwise |
@@ -61,7 +61,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 Pass the typed machine contract on each swe-executed task:
 
 - `files: string[]` — the surfaces the task is expected to touch, at directory granularity and in the project's own layout: its source tree, its hooks or scripts, its tests, its docs, its changelog fragments where it keeps them. The swe may edit other paths inside its worktree and reports each one with a reason; you judge them at close.
-- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`. Dry-run each command before `task_provision` and prefer the repo's own test scripts or runner. Keep commands portable across BSD and GNU tools: `grep -c` on one file prints a bare count and exits 1 on zero matches, and BSD `wc -l` pads its count with spaces, so compare counts numerically with `test`.
+- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`. Dry-run each command before `task_provision` and prefer the repo's own test scripts or runner. Keep commands portable across BSD and GNU tools: `grep -c` on one file prints a bare count and exits 1 on zero matches, and BSD `wc -l` pads its count with spaces, so compare counts numerically with `test`. List the tests for the paths the task touches, plus the repo's type check or lint where it has one, and leave the full suite to CI when the repo's CI workflows run it before merge; a repo with no such CI keeps its full suite in verification[].
 - `effort` — the swe's effort level, by this rule:
 
 | Effort | When |
@@ -117,18 +117,22 @@ The Agent PreToolUse gates enforce a spawn contract:
 - The task must be `pending` (or `running` with no live SWE run) with a non-empty `spec_body` — `task_provision` guarantees this.
 - The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
-## 6. Verify on SWE return + atomic close
+## 6. Verify on SWE return, hand off to code-reviewer, close after the pass
 
 Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
 
 After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C <repo path> diff` of the commit, the repo path from `repos_list`). A diff too large to judge directly goes to a subagent that reports against the `SC<n>` ids. Judge the work against the spec on four counts:
 
-1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `bro_atomic_close` refuses the close and lists the extras grouped by surface; it closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, and afterwards `task_brief.scope` carries `extras_accepted` and `base_moved`.
+1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `review_handoff` records them with swe's reasons in `task_brief.scope.extras`, so code-reviewer reads them too; at the close, `bro_atomic_close` refuses and lists the extras grouped by surface, and closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, after which `task_brief.scope` carries `extras_accepted` and `base_moved`.
 2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
 3. `task_brief.completion_report` covers every `SC<n>` id, and the diff bears out each claim: a `met` shows in the diff, a `not_applicable` carries a reason you accept, and a `not_met` fails this check. The changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
-4. `world_model_get` on the changed directory confirms the change landed where expected.
+4. `git -C <repo path> show --stat <commit_sha>` lists the changed paths under the directories `files[]` names.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task). The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read. Then spawn code-reviewer for the push gate with the `reviewer_spawn` that `bro_atomic_close` returned (pass it your `session_id`) — the anchors only, which the spawn-shape hook enforces. Context the reviewer cannot read from `task_brief` goes in `bro_atomic_close`'s `spawn_note` (300 characters max). On a reviewer FAIL: surface it, hold the push, and rework the task (below).
+The order is swe → code-reviewer → bro's close:
+
+- **Hand off.** All four pass → call `review_handoff(task_id, session_id)` on the completed task. It refuses without a completion report covering every `SC<n>` id or without a passing verification run for the task's `commit_sha`, records the review anchor and the reviewer effort, leaves the status `completed`, and returns `reviewer_spawn`. Spawn code-reviewer with that `reviewer_spawn` as is — the anchors only, which the spawn-shape hook enforces; the spawn gate denies a code-reviewer spawn on a completed task with no handoff for its commit. Context the reviewer cannot read from `task_brief` goes in `review_handoff`'s `spawn_note` (300 characters max).
+- **Close after a PASS.** Call `bro_atomic_close` (`close_issue_if_last_task=true` when it's the last task); it refuses with `review_pass_missing` until a passing verdict follows the handoff of the task's current commit, and keeps the scope gate of check 1. The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read.
+- **Rework after a FAIL.** Surface it, hold the push, and `task_reopen` the completed task (below); the reworked commit takes a new `review_handoff`.
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
 
@@ -144,10 +148,11 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 
 - **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
 - **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, spawn_note?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`. After a FAIL, the `spawn_note` names each finding id to fix (`F<task>-<n>`) with its `class`, so the swe sweeps every sibling of that class; the swe reads them, with their probes, from `task_brief.open_findings`.
-- **Rework limits:** the spawn gate denies a further swe spawn or resume of a task at two review FAILs on it since its last pass, at six swe runs of it (budget handbacks aside), or at four FAILs across its issue's tasks, which also stops a `task_retry` or split task. Each counts since the Human's latest waiver, and only the Human lifts one, by typing `waive task <N>`; no row you write does. When one trips, stop and report the task, its findings and your proposed redesign or split to the Human.
+- **Rework limits:** the spawn gate denies a further swe spawn or resume of a task at two review FAILs on it since its last passing review. Debug the root cause, the inputs first (spec, world model, reviewer, environment), then swe's execution; record it with `task_rework_analysis` and make the change it names: spec_update with `task_update_spec`, effort_raise with `task_reopen(effort=...)`, world_model_fix with `scan_run`, `world_model_concept_upsert` or an `Area: World Model` issue. That analysis plus its proven change admits the next run. A shared approach cause or root_cause `design_drift` takes `task_retry` or a split instead: a new task with a redesigned spec, and a `design_drift` analysis ends the drifted task's swe runs. Nothing here waits on the Human.
 - **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
 - **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
+- **Resume the same swe** for in-scope rework (same spec, findings within `files[]`) when the task's effort is unchanged since its run, such as already `high`: after `task_reopen`, `SendMessage(to=<its agent id from the spawn result>)` naming the finding ids; `swe-resume-gate` judges it like a spawn. When `task_reopen` raised the effort or the agent id is gone, spawn a fresh swe at the task's effort. code-reviewer is always spawned fresh.
 
 When the hook alerts that a task has run past 60 minutes, relay it to the Human once, with its attempt count and its current blocker, and decide together whether to continue, redesign the spec or split the task.
 
-The worktree stays in place through `bro_atomic_close` and is removed once code-reviewer passes the task, so rework continues where SWE left off.
+The worktree stays in place through review and rework, so rework continues where SWE left off, and is removed when `bro_atomic_close` closes the task after code-reviewer's pass.

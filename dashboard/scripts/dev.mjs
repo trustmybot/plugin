@@ -21,12 +21,13 @@ for (const file of ['schema.sql', 'schema-eval.sql']) copyFileSync(join(SCHEMA_D
 
 const serverCtx = await esbuild.context({
   absWorkingDir: DASH,
-  entryPoints: ['server/main.ts'],
+  entryPoints: { server: 'server/main.ts', 'change-impact-worker': 'server/change-impact-worker.ts' },
   bundle: true,
   platform: 'node',
   format: 'esm',
   target: 'node22',
-  outfile: SERVER_OUT,
+  outdir: OUT,
+  outExtension: { '.js': '.mjs' },
   logLevel: 'info',
 });
 const webCtx = await esbuild.context({

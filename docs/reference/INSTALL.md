@@ -64,7 +64,7 @@ Nothing is written under `~/.claude` or anywhere else in your home directory. Th
   ```
 
   It also copies the plugin's `mcp/trajectory-server/dist/resolve-hook.mjs` to `.claude/tmb/resolve-hook.mjs`, which finds the active install and runs its router, `node <install>/mcp/trajectory-server/dist/hooks.js PreToolUse --shim` (a router entry with a part adds `--part <part>`), so the group's gates run as they do from the plugin. With no resolvable install, or an install without `dist/hooks.js`, the resolver prints a `failing OPEN` warning and allows the call. With `node` off PATH the entry cannot start, which Claude Code treats as a non-blocking error, so the call goes ahead. Entries an earlier `/onboard` wrote to run `.claude/tmb/resolve-hook.sh` are rewritten to `resolve-hook.mjs` by the next `/onboard`, which also deletes the `.sh` copy. In an interactive session the plugin's own hooks are active, the SessionStart marker exists, and every shim entry exits without running a gate, so each gate runs once. In a headless run there is no marker and the shim enforces. Answering **No** writes nothing; `onboard_apply(headless_enforcement='no')` removes exactly the managed entries and the resolver (`resolve-hook.mjs`, and a leftover `resolve-hook.sh`); the rest of `settings.local.json` is left as it was.
-- **Bash sandbox — default Yes (Recommended) where the recorded probe passed and no remote uses SSH, else No.** Answering **Yes** writes a `sandbox` block into the project's `.claude/settings.local.json` (Bash writes only in the project and the model cache, network only to the hosts TMB needs and your HTTPS remotes; on macOS also `enableWeakerNetworkIsolation`) plus `env` entries `npm_config_cache` and `BUN_INSTALL_CACHE_DIR` under `.claude/tmb/cache/`. Answering **No** removes exactly what TMB added. [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md) has the full block and the platform gate.
+- **Bash sandbox — default Yes (Recommended) where the recorded probe passed and no remote uses SSH, else No.** Answering **Yes** writes a `sandbox` block into the project's `.claude/settings.local.json` (Bash writes only in the project and the model cache, network only to the hosts TMB needs and your HTTPS remotes, `allowLocalBinding` so `/dashboard` can listen on loopback; on macOS also `enableWeakerNetworkIsolation`) plus `env` entries `npm_config_cache` and `BUN_INSTALL_CACHE_DIR` under `.claude/tmb/cache/`. Answering **No** removes exactly what TMB added. [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md) has the full block and the platform gate.
 - **`.gitignore`, when TMB creates `settings.local.json`.** If the sandbox or the headless shim creates `.claude/settings.local.json` in a git work tree that does not already ignore it, TMB appends `.claude/settings.local.json` to the project's `.gitignore`. A settings file that already existed, a path git already ignores, or a project outside git leaves `.gitignore` alone.
 
 ## Where bro's persona comes from
@@ -79,6 +79,16 @@ Neither hook runs its injection when the project is the TMB source checkout itse
 ## Leftovers from older versions
 
 Older `/onboard` runs wrote TMB gates into `~/.claude/settings.json` (entries stamped `"_tmb_managed": true`, or running `resolve-hook.sh`) and a resolver under `~/.claude/tmb-hooks/`. Those fire in every project. One warning names each such hook object once, by line and `--hook` name: a `Plugin:` line in the SessionStart inventory, and `WARN  legacy-user-hooks` from the health check (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" health`). [UPGRADE.md](./UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks) walks through removing them by hand. TMB does not edit that file itself.
+
+## Operating systems
+
+| OS | Claude Code workflow | Bash sandbox |
+|---|---|---|
+| macOS | Supported | Supported; `/onboard` defaults to Yes |
+| Linux | Supported (CI runs the suite on Linux) | Not yet validated; `/onboard` defaults to No |
+| Windows | WSL 2 only (native Windows is untested) | As Linux, under WSL 2; none on native Windows |
+
+Details: [Sandbox support](#sandbox-support).
 
 ## Sandbox support
 

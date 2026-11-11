@@ -5,7 +5,8 @@
 // carries the run id is this run's leak and fails the check; any other new
 // tmb*/claude* entry may belong to a concurrent session, so it is printed as a
 // warning and never fails. Claude Code's own per-session entries
-// (claude-*-cwd, claude-<uid>) are not counted at all.
+// (claude-*-cwd, claude-<uid>) are not counted at all. TMB_TMP_FOOTPRINT_ROOT
+// moves the watched root off /tmp (a test runs a runner against a sandbox dir).
 //
 // Usage:
 //   import { tmpFootprintStart, tmpFootprintParent, tmpFootprintCheck } from '../lib/tmp-footprint.mjs';
@@ -23,18 +24,24 @@ export function tmpFootprintParent() {
   return (process.env.TMPDIR || '/tmp').replace(/\/*$/, '');
 }
 
-/** The sorted /tmp/<name> entries a run could have made: tmb* and claude*, less Claude Code's own. */
+/** The watched root: TMB_TMP_FOOTPRINT_ROOT (default /tmp) with every trailing slash stripped. */
+export function tmpFootprintRoot() {
+  return (process.env.TMB_TMP_FOOTPRINT_ROOT || '/tmp').replace(/\/*$/, '');
+}
+
+/** The sorted <root>/<name> entries a run could have made: tmb* and claude*, less Claude Code's own. */
 export function tmpFootprintEntries() {
+  const root = tmpFootprintRoot();
   let names;
   try {
-    names = readdirSync('/tmp/');
+    names = readdirSync(`${root}/`);
   } catch {
     return [];
   }
   const own = `claude-${process.getuid?.() ?? ''}`;
   return names
     .filter((n) => (n.startsWith('tmb') || n.startsWith('claude')) && !/^claude-.*-cwd$/.test(n) && n !== own)
-    .map((n) => `/tmp/${n}`)
+    .map((n) => `${root}/${n}`)
     .sort();
 }
 
@@ -68,11 +75,12 @@ export function tmpFootprintCheck(suite, ...ownDirs) {
     if (basename(entry).includes(id)) own += `${entry}\n`;
     else foreign += `${entry}\n`;
   }
-  if (foreign) writeSync(1, `warning: /tmp gained entries not named for this run (another session?):\n${foreign}`);
+  const root = tmpFootprintRoot();
+  if (foreign) writeSync(1, `warning: ${root} gained entries not named for this run (another session?):\n${foreign}`);
   if (own) {
-    writeSync(1, `\nFAIL footprint: ${suite} left entries in /tmp:\n${own}`);
+    writeSync(1, `\nFAIL footprint: ${suite} left entries in ${root}:\n${own}`);
     return false;
   }
-  writeSync(1, `footprint: /tmp gained no entries from this run (${id})\n`);
+  writeSync(1, `footprint: ${root} gained no entries from this run (${id})\n`);
   return true;
 }

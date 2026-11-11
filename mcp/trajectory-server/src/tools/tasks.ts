@@ -34,6 +34,7 @@ import {
 import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from '../checkpoint.js';
 import { WM_FEEDBACK_SCHEMA, insertWmFeedback } from './validation.js';
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
+import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -63,7 +64,7 @@ export const BRANCH_ID_RE =
 
 // Hard cap on tasks.spec_body. Architect should cite existing code/conventions
 // rather than restate them; a spec longer than ~8k is usually a sign the task
-// should be split via depends_on. Very long specs push SWE cold-start into the
+// should be split into several tasks. Very long specs push SWE cold-start into the
 // minutes range (issue #55: a 55k-char spec hung the session). Tunable via
 // the TMB_SPEC_BODY_MAX_BYTES env var for downstream users with a different
 // SWE token budget; defaults to 8000 chars.
@@ -73,6 +74,15 @@ export const SPEC_BODY_MAX_BYTES = (() => {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 8000;
 })();
+
+function specBodyTooLongMessage(actual: number): string {
+  return (
+    `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${actual}). ` +
+    `Split into several tasks, or cite existing code/conventions instead of restating them. ` +
+    `Very long specs push SWE cold-start into the minutes range; see issue #55. ` +
+    `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`
+  );
+}
 
 function validateBranchId(branchId: string): void {
   if (!BRANCH_ID_RE.test(branchId)) {
@@ -240,13 +250,14 @@ const VALID_STATUSES = new Set([
 //     into 'closed' is bro_atomic_close, so task_update_status must not offer
 //     those edges (else bro could close a task without the atomic close's
 //     side effects).
-//   - 'closed'→'escalated' hands a closed task back to the Human; rework
-//     after a failed review goes through task_reopen (closed → running).
+//   - 'closed'→'escalated' hands a closed task back to the Human.
+//   - code-reviewer runs before the close, so a failed review leaves the task
+//     completed; its rework is completed → running (task_reopen).
 const BRO_TRANSITIONS: Record<string, Set<string>> = {
   pending: new Set(['running', 'failed', 'escalated']),
   running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
   needs_validation: new Set(['running', 'completed', 'failed', 'escalated']),
-  completed: new Set(['needs_validation', 'failed', 'escalated']),
+  completed: new Set(['running', 'needs_validation', 'failed', 'escalated']),
   failed: new Set(['pending', 'running', 'escalated', 'closed']),
   escalated: new Set(['pending', 'running', 'failed', 'closed']),
   closed: new Set(['escalated']),
@@ -308,6 +319,99 @@ export function insertSpecShapeWaiver(
   });
 }
 
+const REWORK_ANALYSIS_INVALID = 'rework_analysis_invalid';
+
+function reworkAnalysisInvalid(detail: string): Error {
+  return new Error(`${REWORK_ANALYSIS_INVALID}: ${detail}`);
+}
+
+function integerList(value: unknown, name: string): number[] {
+  if (!Array.isArray(value) || value.length === 0 || !value.every((v) => Number.isInteger(v))) {
+    throw reworkAnalysisInvalid(`${name} must be a non-empty array of integers`);
+  }
+  return [...new Set(value as number[])];
+}
+
+function oneOf<T extends string>(value: unknown, name: string, allowed: readonly T[]): T {
+  if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
+    throw reworkAnalysisInvalid(`${name} must be one of ${allowed.join(', ')} (got ${JSON.stringify(value)})`);
+  }
+  return value as T;
+}
+
+// One task_rework_analysis audit row (GH 2830): bro's typed analysis of a
+// task's review FAILs since its latest pass, which with its proven change
+// admits the next swe run past the rework-limit gate, or with design_drift
+// ends the task's swe runs, its work redesigned as a new task.
+export function recordReworkAnalysis(db: TrajectoryDB, args: Record<string, unknown>): { audit_id: number; task_id: number } {
+  const taskId = Number(args['task_id']);
+  if (!Number.isInteger(taskId)) throw reworkAnalysisInvalid('task_id must be an integer');
+  const task = db.get<{ id: number; issue_id: number; branch_id: string }>('SELECT id, issue_id, branch_id FROM tasks WHERE id = ?', [taskId]);
+  if (!task) throw reworkAnalysisInvalid(`task ${taskId} not found`);
+
+  const failIds = integerList(args['fail_validation_ids'], 'fail_validation_ids');
+  const passId = db.get<{ id: number | null }>(
+    "SELECT MAX(id) AS id FROM validation_attempts WHERE task_id = ? AND verdict = 'pass'",
+    [taskId],
+  )?.id ?? 0;
+  const fails = new Set(
+    db
+      .all<{ id: number }>("SELECT id FROM validation_attempts WHERE task_id = ? AND verdict = 'fail' AND id > ?", [taskId, passId])
+      .map((r) => r.id),
+  );
+  const foreign = failIds.filter((id) => !fails.has(id));
+  if (foreign.length > 0) {
+    throw reworkAnalysisInvalid(
+      `fail_validation_ids ${foreign.join(', ')} are not FAIL verdicts on task ${taskId} after its latest pass`,
+    );
+  }
+  const latestFail = Math.max(...fails);
+  if (!failIds.includes(latestFail)) {
+    throw reworkAnalysisInvalid(`fail_validation_ids must include the latest FAIL on task ${taskId}, validation_attempts row ${latestFail}`);
+  }
+
+  const rawFindings = args['finding_ids'];
+  const findingRe = new RegExp(`^F${taskId}-[0-9]+$`);
+  if (!Array.isArray(rawFindings) || rawFindings.length === 0) {
+    throw reworkAnalysisInvalid('finding_ids must be a non-empty array of finding ids');
+  }
+  const findings: unknown[] = rawFindings;
+  const badFinding = findings.find((f) => typeof f !== 'string' || !findingRe.test(f));
+  if (badFinding !== undefined) {
+    throw reworkAnalysisInvalid(`finding_ids entry ${JSON.stringify(badFinding)} does not match F${taskId}-<n>`);
+  }
+
+  const rootCause = oneOf(args['root_cause'], 'root_cause', REWORK_ROOT_CAUSES);
+  const change = oneOf(args['change'], 'change', REWORK_CHANGES);
+  const approachSharedCause = args['approach_shared_cause'];
+  if (typeof approachSharedCause !== 'boolean') throw reworkAnalysisInvalid('approach_shared_cause must be a boolean');
+  const pairingError = reworkPairingError(rootCause, change, approachSharedCause);
+  if (pairingError !== null) throw reworkAnalysisInvalid(pairingError);
+  const rationale = args['rationale'];
+  if (typeof rationale !== 'string' || rationale.trim().length < REWORK_RATIONALE_MIN_CHARS) {
+    throw reworkAnalysisInvalid(`rationale must be at least ${REWORK_RATIONALE_MIN_CHARS} characters`);
+  }
+
+  const auditId = insertAudit(db, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: normalizeAgent(args['agent']),
+    event_type: 'task_rework_analysis',
+    summary: `Task ${taskId} rework analysis: ${rootCause} → ${change}`,
+    content_json: JSON.stringify({
+      task_id: taskId,
+      fail_validation_ids: failIds,
+      finding_ids: [...new Set(findings as string[])],
+      root_cause: rootCause,
+      change,
+      approach_shared_cause: approachSharedCause,
+      rationale,
+    }),
+    created_at: nowISO(),
+  });
+  return { audit_id: auditId, task_id: taskId };
+}
+
 export function taskTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -334,12 +438,12 @@ export function taskTools(db: TrajectoryDB): {
                 spec_body: {
                   type: 'string',
                   description:
-                    'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it). Each top-level ## Success Criteria bullet starts with a unique id: `- SC1: ...`.',
+                    'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars; split the work into several tasks or cite existing code rather than exceeding it. Each top-level ## Success Criteria bullet starts with a unique id: `- SC1: ...`.',
                 },
                 repo: {
                   type: 'string',
                   description:
-                    'Optional relative path to this task\'s git repo (no ".." or leading "/"); omit for single-repo CC. Routes worktree creation.',
+                    'Name of a registered repo (a repos_list name). Required when more than one repo is registered; omit when exactly one is.',
                 },
                 prompt_bearing: {
                   type: 'number',
@@ -598,6 +702,33 @@ export function taskTools(db: TrajectoryDB): {
         required: ['agent', 'issue_id'],
       },
     },
+    {
+      name: 'task_rework_analysis',
+      description:
+        "Bro's analysis of a task's FAILs since its last pass; a newer proven change clears the two-FAIL rework limit; design_drift ends its swe runs: task_retry or split. Returns {audit_id, task_id}.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task_id: { type: 'number' },
+          fail_validation_ids: {
+            type: 'array',
+            items: { type: 'number' },
+            description: "validation_attempts ids of the task's FAILs after its latest pass, the latest FAIL included.",
+          },
+          finding_ids: { type: 'array', items: { type: 'string' }, description: 'Findings analyzed, each F<task_id>-<n>.' },
+          root_cause: { type: 'string', enum: [...REWORK_ROOT_CAUSES], description: 'world_model takes only world_model_fix; design_drift only split or retry.' },
+          change: {
+            type: 'string',
+            enum: [...REWORK_CHANGES],
+            description: 'spec_update, effort_raise and world_model_fix admit the next swe run once proven; split and retry start a new task; re_review and ask_human admit no swe run.',
+          },
+          approach_shared_cause: { type: 'boolean', description: 'Do the findings share one cause in the approach itself? true takes only split or retry.' },
+          rationale: { type: 'string', description: `At least ${REWORK_RATIONALE_MIN_CHARS} characters.` },
+        },
+        required: ['agent', 'task_id', 'fail_validation_ids', 'finding_ids', 'root_cause', 'change', 'approach_shared_cause', 'rationale'],
+      },
+    },
   ];
 
   const handlers: Record<string, Fn> = {
@@ -708,9 +839,8 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'scope_gate_violation',
                   message:
                     `Scope-ambiguity gate: issue ${issueId} has zero kind='question' discussions. ` +
-                    `Before creating tasks, architect must ask the Human at least one clarifying ` +
-                    `question via discussion_append(kind='question') and record their answer via ` +
-                    `discussion_append(kind='answer'). For truly trivial changes (typo fix, one-line ` +
+                    `Before creating tasks, ask the Human at least one clarifying question and record it ` +
+                    `with discussion_append(kind='question'). For truly trivial changes (typo fix, one-line ` +
                     `doc), pass waive_scope_gate=true with waive_scope_gate_reason="<why trivial>".`,
                   issue_id: issueId,
                   questions_found: 0,
@@ -724,9 +854,8 @@ export function taskTools(db: TrajectoryDB): {
       // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
       // task_create_batch must be preceded by an audit event with
       // event_type='branch_id_proposed' for this issue. Stops bro from spawning
-      // SWE without first running tmb_planning §Step 2 (which calls
-      // branch_id_propose, asks the Human to confirm, runs git switch -c, and
-      // emits the branch_id_proposed audit event).
+      // SWE without first running intent_start (tmb_planning section 3), which
+      // emits the branch_id_proposed audit event.
       const branchGateWaived = args['waive_branch_gate'] === true;
       const branchGateWaiverReason = (args['waive_branch_gate_reason'] ?? '') as string;
 
@@ -749,7 +878,7 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'branch_state_violation',
                   message:
                     `branch_state_violation: issue ${issueId} has zero audit events with event_type='branch_id_proposed'. ` +
-                    `Run tmb_planning §Step 2 first (it calls branch_id_propose, confirms with Human, runs git switch -c, and emits the audit event). ` +
+                    `Run intent_start first (tmb_planning section 3); it emits branch_id_proposed. task_provision creates the branch. ` +
                     `For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
                   issue_id: issueId,
                 }),
@@ -799,8 +928,8 @@ export function taskTools(db: TrajectoryDB): {
       }
 
       // --- Intent-discussion gate (MCP-level enforcement) ---
-      // tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human
-      // intent verbatim: ...') before task_create_batch. Production showed 0
+      // intent_start (tmb_planning section 3) logs the kind='intent' discussion
+      // before task_create_batch. Production showed 0
       // intent rows across 9 issues — bro consistently skipped this write
       // because no gate enforced it. Server-side now does.
       const intentGateWaived = args['waive_intent_gate'] === true;
@@ -828,8 +957,7 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'intent_gate_violation',
                   message:
                     `Intent gate: issue ${issueId} has zero kind='intent' discussions. ` +
-                    `tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human intent verbatim: "<the request>"') ` +
-                    `before task_create_batch. For exceptional cases, pass waive_intent_gate=true with waive_intent_gate_reason="<why>".`,
+                    `Log the intent with intent_start (tmb_planning section 3) before task_create_batch. For exceptional cases, pass waive_intent_gate=true with waive_intent_gate_reason="<why>".`,
                   issue_id: issueId,
                 }),
               },
@@ -911,13 +1039,7 @@ export function taskTools(db: TrajectoryDB): {
             throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
           }
           if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
-            throw new Error(
-              `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
-              `Split into multiple tasks via depends_on, or cite existing code/` +
-              `conventions rather than restating them inline. Very long specs ` +
-              `push SWE cold-start into the minutes range; see issue #55. ` +
-              `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
-            );
+            throw new Error(specBodyTooLongMessage(t.spec_body.length));
           }
         }
 
@@ -926,12 +1048,12 @@ export function taskTools(db: TrajectoryDB): {
           const repo = t.repo as string;
           if (repo.includes('..')) {
             throw new Error(
-              `Invalid repo "${repo}": must not contain "..". Use a relative path like "inner" or "repos/backend".`,
+              `Invalid repo "${repo}": must not contain "..". Pass a registered repo name (from repos_list).`,
             );
           }
           if (repo.startsWith('/')) {
             throw new Error(
-              `Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`,
+              `Invalid repo "${repo}": must not start with "/". Pass a registered repo name (from repos_list).`,
             );
           }
           effectiveRepoName = repo;
@@ -986,13 +1108,7 @@ export function taskTools(db: TrajectoryDB): {
             // Hard cap: SPEC_BODY_MAX_BYTES (default 8000) per task. See the
             // export at the top of the file for rationale + env override.
             if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
-              throw new Error(
-                `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
-                `Split into multiple tasks via depends_on, or cite existing code/` +
-                `conventions rather than restating them inline. Very long specs ` +
-                `push SWE cold-start into the minutes range; see issue #55. ` +
-                `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
-              );
+              throw new Error(specBodyTooLongMessage(t.spec_body.length));
             }
           }
 
@@ -1399,6 +1515,7 @@ export function taskTools(db: TrajectoryDB): {
       return ok(task ?? null);
     }),
 
+    task_rework_analysis: requireRoles('task_rework_analysis', ['bro'], wrapHandler((args) => Promise.resolve(ok(recordReworkAnalysis(db, args))))),
   };
 
   return { definitions, handlers };

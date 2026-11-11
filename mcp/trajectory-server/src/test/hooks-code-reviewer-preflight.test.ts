@@ -2,11 +2,14 @@
  * The code-reviewer-preflight gate (GH 1740) on temp git repos and a temp
  * trajectory DB: one deny and one allow per check, each deny naming its typed
  * check, and the agent-spawn-dispatch gate returning the deny before any PREPARE step.
+ * The changelog and stale-doc checks run at swe's close now; their tests live in
+ * hooks-swe-verification-gate.test.ts (GH 2866), and scripts/hooks/README.md
+ * must describe that split.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -327,143 +330,11 @@ describe('code-reviewer-preflight', () => {
     });
   });
 
-  describe('stale_doc_ref', () => {
-    it('denies a deleted path a docs/ file still names', async () => {
+  describe('the changelog and doc checks moved to the swe close gate (GH 2866)', () => {
+    it('allows a recorded, passing commit that drops a doc-named path and adds no fragment', async () => {
       const f = fixture();
-      featureCommit(f);
       f.git('rm', '-q', 'scripts/old.sh');
-      f.commit('drop old.sh');
-      f.record();
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'stale_doc_ref');
-      assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'scripts\/old\.sh'/);
-    });
-
-    it('denies a renamed path whose old name README.md still carries', async () => {
-      const f = fixture();
-      featureCommit(f);
-      f.git('mv', 'docs/guide.md', 'docs/handbook.md');
-      f.commit('rename guide');
-      f.record();
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'stale_doc_ref');
-      assert.match(d.actual ?? '', /README\.md mentions removed path 'docs\/guide\.md'/);
-    });
-
-    it('denies an MCP tool the diff removes that a skills/*/SKILL.md still mentions', async () => {
-      const f = fixture();
-      f.write('skills/s/SKILL.md', 'Call `mcp__plugin_tmb_trajectory-server__old_tool` then `keep_tool`.\n');
-      f.commit('skill names old_tool');
-      featureCommit(f);
-      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
-      f.commit('drop old_tool');
-      f.record();
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'stale_doc_ref');
-      assert.match(d.actual ?? '', /skills\/s\/SKILL\.md mentions removed MCP tool 'old_tool'/);
-    });
-
-    it('allows a deletion and a tool removal once the docs drop them', async () => {
-      const f = fixture();
-      featureCommit(f);
-      f.git('rm', '-q', 'scripts/old.sh');
-      f.write('docs/guide.md', 'Nothing to run first.\n');
-      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
-      f.commit('drop old.sh and old_tool');
-      f.record();
-      await assertAllowed(f);
-    });
-
-    describe('a path untracked as build output (GH 2054)', () => {
-      const BUILT_FILES: Record<string, string> = {
-        ...BASE_FILES,
-        'docs/guide.md': 'Run `scripts/old.sh` first, then `node pkg/dist/out.js`.\n',
-        'pkg/dist/out.js': 'built\n',
-      };
-
-      it('allows a path the diff drops from the index that the commit .gitignore ignores', async () => {
-        const f = fixture(BUILT_FILES);
-        featureCommit(f);
-        f.write('pkg/.gitignore', 'dist/\n');
-        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
-        f.commit('untrack dist');
-        f.record();
-        assert.equal(f.git('ls-files', 'pkg/dist'), '');
-        await assertAllowed(f);
-      });
-
-      it('still denies a plain deletion beside the untracked build output', async () => {
-        const f = fixture(BUILT_FILES);
-        featureCommit(f);
-        f.write('pkg/.gitignore', 'dist/\n');
-        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
-        f.git('rm', '-q', 'scripts/old.sh');
-        f.commit('untrack dist and drop old.sh');
-        f.record();
-        const d = denial((await run(f)).stdout);
-        assert.equal(d.check, 'stale_doc_ref');
-        assert.equal(d.actual, "docs/guide.md mentions removed path 'scripts/old.sh'");
-      });
-
-      it('denies when only the local exclude file, not the commit, ignores the path', async () => {
-        const f = fixture(BUILT_FILES);
-        featureCommit(f);
-        writeFileSync(join(f.repo, '.git/info/exclude'), 'dist/\n');
-        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
-        f.commit('untrack dist without a .gitignore');
-        f.record();
-        const d = denial((await run(f)).stdout);
-        assert.equal(d.check, 'stale_doc_ref');
-        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
-      });
-
-      it('counts the path as removed when git check-ignore fails (fail-closed)', async () => {
-        const f = fixture(BUILT_FILES);
-        featureCommit(f);
-        f.write('pkg/.gitignore', 'dist/\n');
-        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
-        f.commit('untrack dist');
-        f.record();
-        const bin = join(dirname(f.repo), 'bin');
-        mkdirSync(bin);
-        const wrapper = join(bin, 'git');
-        writeFileSync(
-          wrapper,
-          [
-            '#!/usr/bin/env node',
-            "const { spawnSync } = require('node:child_process');",
-            "if (process.argv.includes('check-ignore')) process.exit(128);",
-            `const r = spawnSync(${JSON.stringify(execFileSync('which', ['git'], { encoding: 'utf8' }).trim())}, process.argv.slice(2), { stdio: 'inherit' });`,
-            'process.exit(r.status ?? 1);',
-            '',
-          ].join('\n'),
-        );
-        chmodSync(wrapper, 0o755);
-        const env = { ...f.env, PATH: `${bin}:${f.env.PATH}` };
-        const d = denial(((await codeReviewerPreflight(payload(), env)) as { stdout: string }).stdout);
-        assert.equal(d.check, 'stale_doc_ref');
-        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
-      });
-    });
-  });
-
-  describe('missing_changelog', () => {
-    it('denies a diff that adds no file under changelog.d/', async () => {
-      const f = fixture();
-      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
-      f.commit('feature without fragment');
-      f.record();
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'missing_changelog');
-      assert.equal(d.actual, 'no file added under changelog.d/');
-    });
-
-    it('allows a repo without changelog.d/ that adds no fragment', async () => {
-      const files = { ...BASE_FILES };
-      delete files['changelog.d/README.md'];
-      const f = fixture(files);
-      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
-      f.commit('feature');
+      f.commit('drop old.sh without a fragment');
       f.record();
       await assertAllowed(f);
     });
@@ -528,5 +399,35 @@ describe('code-reviewer-preflight', () => {
       assert.ok(ran.includes('ensure-swe-worktree'));
       assert.ok(ran.includes('record-swe-spawn'));
     });
+  });
+});
+
+describe('scripts/hooks/README.md describes the GH 2866 split of the doc checks', () => {
+  const readme = readFileSync(resolve(SERVER_ROOT, '../../scripts/hooks/README.md'), 'utf8');
+  const between = (start: string, end: string): string => {
+    const from = readme.indexOf(start);
+    assert.notEqual(from, -1, `README has ${start}`);
+    const to = readme.indexOf(end, from);
+    assert.notEqual(to, -1, `README has ${end} after ${start}`);
+    return readme.slice(from, to);
+  };
+
+  it('the preflight paragraph names three checks and none of the doc checks', () => {
+    const preflight = between('`code-reviewer-preflight` judges a code-reviewer spawn', 'Then the TypeScript gate `rework-limit`');
+    assert.match(preflight, /with three deterministic checks/);
+    for (const check of ['sha_mismatch', 'no_passing_run', 'base_conflict']) assert.ok(preflight.includes(`\`${check}\` (`), `${check} is listed`);
+    for (const check of ['stale_doc_ref', 'missing_changelog']) assert.equal(preflight.includes(check), false, `${check} is not a preflight check`);
+  });
+
+  it('the swe-verification-gate paragraph owns stale_doc_ref and missing_changelog', () => {
+    const gate = between('Before anything else, `swe-verification-gate` runs the changelog and stale-doc checks', 'It then runs a task\'s `verification[]`');
+    for (const check of ['stale_doc_ref', 'missing_changelog']) assert.ok(gate.includes(`\`${check}\` (`), `${check} is described at the close gate`);
+  });
+
+  it('the swe-atomic-close auto-complete needs a passing run and otherwise writes gate_pending', () => {
+    const atomicClose = between('- `swe-atomic-close` binds the spawn', '\n');
+    assert.equal(atomicClose.includes('Otherwise a `pending` or `running` task with commits is auto-completed,'), false);
+    assert.match(atomicClose, /completed only when `verification_runs` holds a passing, not timed-out run for \(task, worktree HEAD\)/);
+    assert.ok(atomicClose.includes('`swe_atomic_close_gate_pending`'));
   });
 });

@@ -4,8 +4,9 @@
 // throwaway TrajectoryDB under os.tmpdir(), removed afterwards, pass or fail.
 // The normalized wm_files, wm_symbols and wm_edges rows of the two are then
 // compared (equivalence.ts). A mismatch writes a wm_reindex row with mode
-// 'mismatch', so the next read or catch-up rebuilds the repo in full
-// (mismatchPending in freshness.ts). The live DB gets only the audit rows.
+// 'mismatch' and the repo's indexed_stamp, so every reindex of the repo
+// rebuilds it in full until that stamp changes (mismatchPending in
+// freshness.ts). The live DB gets only the audit rows.
 // When indexed_commit moves during the compare the verdict is 'skipped'.
 // Nothing is filed anywhere else; every error is logged, never thrown.
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -107,6 +108,7 @@ function summaryOf(r: ShadowCompareResult): string {
 function record(db: TrajectoryDB, r: ShadowCompareResult, mismatches: Mismatch[], nowMs: number): void {
   const differs = mismatches.length > 0;
   db.transaction(() => {
+    const stamp = db.get<{ s: string | null }>(`SELECT indexed_stamp AS s FROM repos WHERE name = ?`, [r.repo])?.s ?? null;
     if (differs) {
       recordReindex(db, {
         repo: r.repo,
@@ -120,6 +122,7 @@ function record(db: TrajectoryDB, r: ShadowCompareResult, mismatches: Mismatch[]
         dirs_touched: 0,
         concepts_flagged: 0,
         ms: r.ms,
+        stamp,
       });
     }
     insertAudit(db, {
@@ -127,7 +130,7 @@ function record(db: TrajectoryDB, r: ShadowCompareResult, mismatches: Mismatch[]
       from_node: 'system',
       event_type: 'wm_shadow_compare',
       summary: summaryOf(r),
-      content_json: JSON.stringify({ repo: r.repo, commit: r.commit, verdict: r.verdict, tables: r.tables, ms: r.ms, reason: r.reason, error: r.error }),
+      content_json: JSON.stringify({ repo: r.repo, commit: r.commit, stamp, verdict: r.verdict, tables: r.tables, ms: r.ms, reason: r.reason, error: r.error }),
       repo: r.repo,
       created_at: new Date(nowMs).toISOString(),
     });

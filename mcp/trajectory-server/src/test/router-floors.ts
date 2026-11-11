@@ -7,9 +7,10 @@
  * trajectory-gates chain member's is its chain-table budget, but
  * swe-verification-gate's is 3627 s, so its group's router timeout is the
  * 3630 s the close gate's suite-slot wait needs (GH 2297). A gate born in
- * the router (bash-output-trim, swe-downstream-context) never had a registration; it takes the 4 s of
+ * the router (bash-output-trim, swe-downstream-context, test-run-nudge) never had a registration; it takes the 4 s of
  * the lightest advisory one, wm-read-before-provision, which writes an audit row, the 5 s its 3.5 s audit run budget plus 1 s
- * needs, and reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one.
+ * needs, reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one, and
+ * prompt-write-approval, which reads the DB, the 6 s of cheatcode-install-approval, the DB-reading approval gate it mirrors.
  */
 export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
@@ -20,6 +21,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'stay-on-base-guard': 6,
   'branch-up-to-date-with-remote': 16,
   'commit-msg-lint': 4,
+  'test-run-nudge': 4,
   'no-remote-auth-guard': 6,
   'remote-id-guard': 6,
   'debug-trajectory': 4,
@@ -37,6 +39,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'swe-verification-gate': 3627,
   'reviewer-identity-observe': 6,
   'cheatcode-install-approval': 6,
+  'prompt-write-approval': 6,
   'askuserquestion-length-lint': 6,
   'roundtable-auq-shape': 6,
   'cleanup-worktree-on-task-close': 11,
@@ -68,7 +71,6 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'substrate-preflight': 6,
   'orphan-scan': 7,
   'user-prompt-persona': 6,
-  'rework-waiver-capture': 6,
   'activation-routine': 6,
   'session-log-capture': 4,
   'prompt-intent-hints': 6,

@@ -3,7 +3,6 @@
 # anchored-cd (the command runs in a dir the code chose: a cd, git -C or a cwd option the lint cannot see),
 # fallback (used only when the DB, the caller or CLAUDE_PROJECT_DIR names nothing), test-harness,
 # not-location (a command that reads no location, or the cwd recorded as data).
-mcp/trajectory-server/src/codex-runtime.ts	const child = execFile(	anchored-cd	git runs with -C <cwd> in its argument list, past the lint's 3-line window
 mcp/trajectory-server/src/platform.ts	const cwd = opts?.cwd ?? process.cwd();	fallback	DB discovery starts here only when the caller passes no cwd; the server's startup path (GH 1553 WP1)
 mcp/trajectory-server/src/platform.ts	cwd: string = process.cwd(),	fallback	resolveClaudeSessionDir: the DB walk starts here only when CLAUDE_PROJECT_DIR is unset (GH 1553 WP1)
 mcp/trajectory-server/src/data-contracts.ts	sessionDir: env['CLAUDE_PROJECT_DIR'] || process.cwd(),	fallback	the other-DBs contract walks from the session dir, the server's start dir only when CLAUDE_PROJECT_DIR is unset (GH 1553 WP1)
@@ -38,7 +37,7 @@ mcp/trajectory-server/src/hooks/lib/persona.ts	const abs = isAbsolute(dir) ? dir
 mcp/trajectory-server/src/hooks/lib/project-env.ts	const cwd = process.cwd();	fallback	shellPwd, bash's `pwd`: its callers use it after the payload cwd or CLAUDE_PROJECT_DIR come up empty, or to join a relative cd or DB path
 mcp/trajectory-server/src/hooks/lib/sqlite-shell.ts	const r = spawnSync('sqlite3', cliArgs(call), {	not-location	runCli opens call.target, the DB path its caller resolved; sqlite3 finds nothing from the cwd
 mcp/trajectory-server/src/hooks/mcp-health-check.ts	const r = spawnSync('pgrep', ['-f', pattern],	not-location	pgrepLines counts MCP server processes from the process table; reads no project or repo
-mcp/trajectory-server/src/hooks/router/main.ts	const r = spawnSync(process.execPath, [`${root}/${BUNDLE}`, event, ...(part === undefined ? [] : [part])], {	not-location	hopTo hands the payload to the bundle of the install named by root; that router resolves from the payload, as this one does
+mcp/trajectory-server/src/hooks/router/main.ts	const run = (): SpawnSyncReturns<string> => spawn(process.execPath, [`${root}/${BUNDLE}`, event, ...(part === undefined ? [] : [part])], {	not-location	hopTo hands the payload to the bundle of the install named by root; that router resolves from the payload, as this one does
 mcp/trajectory-server/src/hooks/swe-scope-fence.ts	const cwd = jqFirst(input, [['cwd']], true) || env.PWD || process.cwd();	join-base	the dir a relative Write / Edit target joins to, before the fence compares it to the swe's worktree from agent-context
 mcp/trajectory-server/src/hooks/swe-downstream-context.ts	const cwd = str(input.cwd) || env.PWD || process.cwd();	join-base	the dir a relative Edit / Write target joins to, before the hook maps it into the swe's worktree from agent-context
 mcp/trajectory-server/src/startup-catchup.ts	const child = spawn(process.execPath, startupCatchupArgs(decision.script, decision.projectRoot), {	anchored-cd	run-scan.mjs gets decision.projectRoot as its argument and the DB as TRAJECTORY_DB_PATH

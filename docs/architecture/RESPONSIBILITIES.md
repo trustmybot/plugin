@@ -25,7 +25,9 @@ Three roles, split by what each can be trusted to do without marking its own hom
   1. **Token-heavy** — doing it in bro would fill bro's strategic context with diff noise.
   2. **No self-homework** — the verification gate runs the spec's checks on swe's commit, and bro judges the recorded run. The agent that writes the code does not sign it off.
   3. **Subagents are fragile** — swe runs as a subagent with a narrow tool allowlist and a fresh context; a hook deny or MCP error can end its run. Critical state writes stay with bro, the most permissioned and most resilient layer.
-- **code-reviewer** — an independent third party at the push gate. Read-only on files. The only agent whose verdict the push gate accepts.
+- **code-reviewer** — an independent third party at the push gate. It has no Edit or Write tool. The only agent whose verdict the push gate accepts.
+
+Each layer owns one level of quality and no layer repeats another's check: the Human intent, bro the environment, the spec and the architecture, swe functionality, code-reviewer the diff; see [Quality layers](FLOWS.md#quality-layers).
 
 ---
 

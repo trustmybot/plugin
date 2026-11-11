@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { contextOf, makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
 import { gateEnv, git, has, hasNot, newDb, sql } from './git-push-guard-l3.js';
-import { commitIn, GATE, NO_COMMITS, q, writeTranscript } from './swe-atomic-close-l3.js';
+import { commitIn, GATE, NO_COMMITS, q, recordRun, writeTranscript } from './swe-atomic-close-l3.js';
 
 const NOW = '2026-06-16T19:00:00.000Z';
 const BLOCK_DENY = 'PreToolUse:Bash hook error: BLOCKED: write target "python3" cannot be judged; use Edit or Write on the literal path.';
@@ -84,7 +84,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
     sql(db, "INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at) VALUES (?, 1, 'swe', ?, ?)", task, startedAt, completedAt);
   const wtHead = (task: number) => git(sb.env, join(repo, `.claude/worktrees/task-${task}`), 'rev-parse', 'HEAD');
 
-  /** A running task whose worktree carries one commit. */
+  /** A running task whose worktree carries one commit with a passing verification run. */
   function committedTask(id: number): void {
     insertTask(id, 'running');
     git(sb.env, repo, 'branch', `fix/task-${id}`, 'dev');
@@ -93,6 +93,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
     writeFileSync(join(wt, `c${id}.txt`), `c${id}\n`);
     git(sb.env, wt, 'add', `c${id}.txt`);
     git(sb.env, wt, 'commit', '-qm', `feat: c${id}`);
+    recordRun(db, id, wtHead(id));
   }
 
   before(() => {
@@ -118,7 +119,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
     git(sb.env, repo, 'branch', 'fix/task-140', 'HEAD');
     const wt140 = join(repo, '.claude/worktrees/task-140');
     git(sb.env, repo, 'worktree', 'add', '-q', wt140, 'fix/task-140');
-    commitIn(sb.env, wt140, 'w.txt', 'feat: w');
+    recordRun(db, 140, commitIn(sb.env, wt140, 'w.txt', 'feat: w'));
 
     otherRoot = join(sb.dir, 'other-plugin');
     mkdirSync(join(otherRoot, '.claude-plugin'), { recursive: true });

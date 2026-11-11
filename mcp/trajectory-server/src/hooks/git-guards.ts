@@ -8,6 +8,8 @@
  *      branch to its own upstream aside), and no commit on a shared workflow base.
  *   3. No force push to a protected branch.
  *   4. A new branch starts from the latest pr_target.
+ *   5. A git statement whose subcommand is not literal text (gitSubcommandOf,
+ *      GH 2641) is denied, since no rule can be judged on it.
  * Only a registered repo is guarded when the DB reads; a registered repo with
  * no policy gets github-flow with its default branch as target and sole
  * protected branch.
@@ -22,7 +24,19 @@
  */
 import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { cmdStatements, cwdState, denyAmbiguousGitTarget, gitSubcommand, payloadCwd, type Statement, stmtRepoRoot, stripLiterals } from './cmd-analysis/index.js';
+import {
+  ambiguousSubcommandReason,
+  cmdStatements,
+  cwdState,
+  denyAmbiguousGitTarget,
+  gitBesideExpansion,
+  gitSubcommandOf,
+  payloadCwd,
+  prefilterPasses,
+  type Statement,
+  stmtRepoRoot,
+  stripLiterals,
+} from './cmd-analysis/index.js';
 import { dbPath, haveSqlite, sqliteRo, sqlQuote, stripTrailingNewlines, taskBySlug } from './lib/db.js';
 import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
@@ -30,6 +44,7 @@ import { jqAlternatives, jqCompact, jqRawElements, jsonStream } from './lib/jq.j
 import { posixBasename } from './lib/project-env.js';
 import { lineStatements } from './lib/statement-rows.js';
 import { repoDefaultBranch, repoIsRegistered, repoNameForRoot, repoResolve } from './lib/repo.js';
+import { classifyUrl } from '../utils/classify-url.js';
 
 export const GATE_NAME = 'git-guards';
 
@@ -47,19 +62,23 @@ const SWITCH_TAIL = new Set(['', ' ', ';', '|', '&', ')']);
 export const PARSE_REASON =
   'BLOCKED: the git guard could not parse this command, so it cannot tell which statements run git, gh or glab, or in which checkout.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same command split into simpler commands with plain quoting' };
+const UNKNOWN_FIX: DenyFix = { allowed: 'git -C <path> <subcommand> …, the subcommand written literally' };
 const MALFORMED_REASON = "BLOCKED: this repo's protected_branches is malformed JSON; the repos row needs fixing or onboarding re-run.";
 
 /**
- * _cmd_needs_git_guard: a git, gh or glab word anywhere, the early exit before
+ * _cmd_needs_git_guard: a git, gh or glab word anywhere, as written or
+ * unquoted, a `$'…'` word (GH 2758), or a git word beside an expansion (GH 2641), the early exit before
  * any parse or DB read. Its letters and digits are ASCII in every locale, so a
  * word right after a non-ASCII letter is analysed, as the .sh does under LC_ALL=C.
  */
 export function needsGitGuard(command: string): boolean {
-  return NEEDS_GUARD.test(command);
+  return prefilterPasses(command, (text) => NEEDS_GUARD.test(text)) || gitBesideExpansion(command);
 }
 
-class Denied {
-  constructor(readonly result: GateResult) {}
+class Denied extends Error {
+  constructor(readonly result: GateResult) {
+    super('git-guards denied');
+  }
 }
 
 function deny(reason: string, fix: DenyFix): Denied {
@@ -69,6 +88,29 @@ function deny(reason: string, fix: DenyFix): Denied {
 interface Recovery {
   text: string;
   fix: DenyFix;
+}
+
+/** The URL `origin` fetches from in `git remote -v` output, else the first remote's. */
+export function primaryRemoteUrl(remotes: string): string {
+  const rows = remotes
+    .split('\n')
+    .map((line) => line.split(/[ \t]+/))
+    .filter((cols) => cols.length >= 2 && cols[0] !== '');
+  return (rows.find((cols) => cols[0] === 'origin') ?? rows[0])?.[1] ?? '';
+}
+
+/** The push-then-open recovery for <target>: `glab mr create` on a GitLab remote, `gh pr create` on any other. */
+export function forgeRecovery(remotes: string, target: string): Recovery {
+  if (classifyUrl(primaryRemoteUrl(remotes)) === 'gitlab') {
+    return {
+      text: ` Push your feature branch and open an MR into ${target}.`,
+      fix: { allowed: `git push origin <branch> && glab mr create --target-branch ${target} --source-branch <branch>` },
+    };
+  }
+  return {
+    text: ` Push your feature branch and open a PR into ${target}.`,
+    fix: { allowed: `git push origin <branch> && gh pr create --base ${target} --head <branch>` },
+  };
 }
 
 interface Row {
@@ -152,13 +194,13 @@ function inlineLandings(text: string): string {
 }
 
 /** ff_sync_other_ok: a statement a fast-forward sync may share its command with. */
-function ffSyncOtherOk(stmt: string): boolean {
+function ffSyncOtherOk(stmt: string, statement: string | Statement): boolean {
   if (stmt.includes('>') || stmt.includes('<')) return false;
   const w0 = words(stmt)[0] ?? '';
   if (FF_SYNC_COMPANIONS.has(w0)) return true;
   if (w0 !== 'git') return false;
   if (stmt.includes(':')) return false;
-  return FF_SYNC_GIT_READS.has(gitSubcommand(stmt).split(' ')[0]);
+  return FF_SYNC_GIT_READS.has((gitSubcommandOf(statement) ?? '').split(' ')[0]);
 }
 
 class GitGuards {
@@ -184,6 +226,11 @@ class GitGuards {
     this.stmts = rows.map((r) => r.stmt);
     this.landings = inlineLandings(stripTrailingNewlines(lines.map((l) => (l.includes('\t') ? l.slice(l.indexOf('\t') + 1) : l)).join('\n')));
     this.dbReadable = db !== '' && isFile(db) && haveSqlite(env);
+  }
+
+  /** Line <idx>'s statement, with its `cut` and `src`, when the line is all of one; else the line's text. */
+  private statementAt(idx: number): string | Statement {
+    return this.owners[idx] ?? this.stmts[idx];
   }
 
   private async git(dir: string, ...args: string[]): Promise<string> {
@@ -269,9 +316,9 @@ class GitGuards {
   }
 
   private async rule2Recovery(dir: string): Promise<Recovery> {
-    const pr: DenyFix = { allowed: `git push origin <branch> && gh pr create --base ${this.prTarget} --head <branch>` };
-    if (dir === '-' || dir === '?' || dir === '' || !isDir(dir)) return { text: '', fix: pr };
-    if (await this.git(dir, 'remote', '-v') !== '') return { text: ` Push your feature branch and open a PR into ${this.prTarget}.`, fix: pr };
+    if (dir === '-' || dir === '?' || dir === '' || !isDir(dir)) return { text: '', fix: forgeRecovery('', this.prTarget).fix };
+    const remotes = await this.git(dir, 'remote', '-v');
+    if (remotes !== '') return forgeRecovery(remotes, this.prTarget);
     return { text: ' This repo has no remote — leave the branch unmerged and surface it to the Human for integration.', fix: 'policy' };
   }
 
@@ -317,7 +364,7 @@ class GitGuards {
     const skip = branch === '' ? -1 : idx - 1;
     for (let j = 0; j < this.stmts.length; j++) {
       if (j === idx || j === skip || this.stmts[j] === '') continue;
-      if (!ffSyncOtherOk(this.stmts[j])) return false;
+      if (!ffSyncOtherOk(this.stmts[j], this.statementAt(j))) return false;
     }
     branch ||= await this.git(dir, 'branch', '--show-current');
     if (branch === '' || !await this.gitOk(dir, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`)) return false;
@@ -442,11 +489,12 @@ class GitGuards {
     this.judging = idx;
     const stmt = this.stmts[idx];
     if (stmt === '') return;
-    const sub = gitSubcommand(stmt);
+    const statement = this.statementAt(idx);
+    const sub = gitSubcommandOf(statement);
     let forge = '';
     if (stmt === 'gh pr create' || stmt.startsWith('gh pr create ')) forge = 'gh';
     else if (stmt === 'glab mr create' || stmt.startsWith('glab mr create ')) forge = 'glab';
-    if (!GUARDED_SUB.test(sub) && forge === '') return;
+    if (sub !== undefined && !GUARDED_SUB.test(sub) && forge === '') return;
 
     let dir = this.dirs[idx];
     let unresolved = false;
@@ -456,6 +504,10 @@ class GitGuards {
     }
     if (!await this.loadPolicy(await stmtRepoRoot(dir, this.cwd, this.env))) return;
 
+    if (sub === undefined) {
+      const what = typeof statement === 'string' ? statement : (statement.src ?? statement.stmt);
+      throw deny(ambiguousSubcommandReason(what, 'commits, merges, rebases, cherry-picks, pushes or creates a branch'), UNKNOWN_FIX);
+    }
     if (forge === 'gh') return await this.ghRule(stmt, dir, unresolved);
     if (forge === 'glab') return await this.glabRule(stmt, dir, unresolved);
     if (INTEGRATION_SUB.test(sub)) return await this.integrationRule(idx, sub, stmt, dir, unresolved);
