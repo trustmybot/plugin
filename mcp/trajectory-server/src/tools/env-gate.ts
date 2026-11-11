@@ -9,7 +9,7 @@ import { joinToolchainPath, toolchainDirs } from '../hooks/swe-verification-gate
 import { revParseCommit } from '../utils/git-objects.js';
 import { runGit } from '../utils/git-run.js';
 import { BASE_FETCH_TIMEOUT_MS, WORKTREE_TIMEOUT_MS } from '../utils/timeouts.js';
-import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
+import { prepareWorktreeDeps } from '../utils/worktree-deps.js';
 import { runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
 import { ensureFresh } from '../world-model/freshness.js';
 
@@ -183,14 +183,12 @@ export async function runEnvGate(input: EnvGateInput): Promise<EnvGatePass | Env
   const worktree = addWorktree(repoPath, branchId, worktreePath);
   if ('error' in worktree) return refuse({ stage: 'worktree', detail: worktree.error });
   worktreeCreated = !worktree.reused;
-  try {
-    linkWorktreeNodeModules(repoPath, worktreePath);
-  } catch {
-    // Best-effort: the setup stage is where a project proves its deps.
-  }
+  const env = setupEnv(worktreePath);
+  // Best-effort, install_error included: the setup stage is where a project proves its deps.
+  await prepareWorktreeDeps(repoPath, worktreePath, { env });
   stages.push({ stage: 'worktree', status: 'pass' });
 
-  const setup = await runWorktreeSetup(worktreePath, { env: setupEnv(worktreePath) });
+  const setup = await runWorktreeSetup(worktreePath, { env });
   if (setup.error !== undefined) {
     return refuse({ stage: 'setup', detail: setup.error, ...(setup.output_tail ? { output_tail: setup.output_tail } : {}) });
   }
