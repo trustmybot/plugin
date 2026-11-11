@@ -369,12 +369,11 @@ describe('router groups (GH 1692 R2)', () => {
     assert.deepEqual(d.gates.map((g) => g.gate), CHAIN_HEAD);
   });
 
-  it('every chain member but the trailing advisory wm-read-before-provision is enforcement: the chain fails closed on any of them', () => {
+  it('every chain member is enforcement, the trailing wm-read-before-provision (GH 2958) included: the chain fails closed on any of them', () => {
     const mcp = ROUTER_GROUPS.find((g) => g.matcher.startsWith('mcp__'));
     assert.ok(mcp);
-    const advisory = mcp.gates.filter((g) => g.kind !== 'enforcement');
-    assert.deepEqual(advisory.map((g) => g.name), ['wm-read-before-provision']);
-    assert.equal(mcp.gates.at(-1)?.name, 'wm-read-before-provision', 'it runs after every enforcement gate');
+    assert.deepEqual(mcp.gates.filter((g) => g.kind !== 'enforcement').map((g) => g.name), []);
+    assert.equal(mcp.gates.at(-1)?.name, 'wm-read-before-provision', 'it runs after every other gate');
   });
 
   it('an event\'s matchers do not overlap: each tool name belongs to one of its groups', () => {
@@ -865,7 +864,7 @@ describe('the router runs every gate from the TypeScript registry (GH 1692, F287
     }
     assert.equal(routerGates('PreToolUse', 'mcp__plugin_tmb_trajectory-server__task_list').some((g) => g.name === 'worktree-adopt-guard'), false);
     const wmRead = routerGates('PreToolUse', 'mcp__plugin_tmb_trajectory-server__task_provision').filter((g) => g.name === 'wm-read-before-provision');
-    assert.deepEqual(wmRead.map((g) => [g.kind, g.tsOnly, g.toolSuffix]), [['advisory', true, 'task_provision']]);
+    assert.deepEqual(wmRead.map((g) => [g.kind, g.tsOnly, g.toolSuffix]), [['enforcement', true, 'task_provision']]);
     for (const tool of ['task_reopen', 'task_retry', 'task_list']) {
       assert.equal(routerGates('PreToolUse', `mcp__plugin_tmb_trajectory-server__${tool}`).some((g) => g.name === 'wm-read-before-provision'), false, tool);
     }

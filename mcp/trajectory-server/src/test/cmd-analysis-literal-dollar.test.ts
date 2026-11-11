@@ -51,6 +51,29 @@ describe('an unescaped $ in "…" and an unquoted $ still expand (GH 2443)', () 
   });
 });
 
+describe('a bare $ starts no expansion, so it is literal and resolves against the cwd (GH 2451)', () => {
+  it('touch a$ resolves against the cwd', async () => {
+    assert.deepEqual(await run('touch a$'), ['/r/wt/a$']);
+  });
+
+  it('cd /etc && touch a$ resolves against the new cwd', async () => {
+    assert.deepEqual(await run('cd /etc && touch a$'), ['/etc/a$']);
+  });
+
+  it("a literal $ inside \"…\" resolves too", async () => {
+    assert.deepEqual(await run("touch \"$'$HOME'\""), ["/r/wt/$'/h'"]);
+  });
+
+  it('$$ is the shell pid, so it stays UNRESOLVED and is not read as two literal $', async () => {
+    assert.deepEqual(await run('touch a$$'), ['UNRESOLVED:$$:/r/wt/a$$']);
+    assert.deepEqual(await run('touch "a$$"'), ['UNRESOLVED:$$:/r/wt/a$$']);
+  });
+
+  it('$$$ is a pid and a literal $, so it stays UNRESOLVED', async () => {
+    assert.deepEqual(await run('touch a$$$'), ['UNRESOLVED:$$:/r/wt/a$$$']);
+  });
+});
+
 describe('without marks the encoder carries no DOLLAR byte (GH 2443)', () => {
   let parser: Parser;
   before(async () => {
