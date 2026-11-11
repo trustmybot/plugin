@@ -5,6 +5,8 @@ export interface ShutdownDeps {
   log: (signal: string) => void;
   exit: (code: number) => void;
   pid: number;
+  flushStdout?: (done: (error?: Error | null) => void) => void;
+  flushTimeoutMs?: number;
 }
 
 /**
@@ -24,6 +26,10 @@ export interface ShutdownDeps {
  *
  * shutdown() is idempotent (the `shuttingDown` guard) so SIGINT, SIGTERM, and
  * the two stdin events may all fire without a double-close.
+ *
+ * Exit waits for stdout writes already queued: pipe output is asynchronous and
+ * process.exit would truncate large JSON-RPC responses (GH 2161). It does not
+ * wait for unfinished handlers.
  */
 export function createShutdown(deps: ShutdownDeps): (signal: string) => void {
   let shuttingDown = false;
@@ -32,7 +38,32 @@ export function createShutdown(deps: ShutdownDeps): (signal: string) => void {
     shuttingDown = true;
     deps.log(signal);
     deps.closeDb();
-    deps.exit(0);
+    let finished = false;
+    const finish = (error?: Error | null) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(deadline);
+      if (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? error.message;
+        deps.log(`stdout-drain-error:${code}`);
+        process.stderr.write(`stdout drain failed: ${code}\n`);
+      }
+      deps.exit(error ? 1 : 0);
+    };
+    // A reader that never consumes output must not keep an orphan alive.
+    const deadline = setTimeout(
+      () => finish(Object.assign(new Error('stdout drain timed out'), { code: 'ETIMEDOUT' })),
+      deps.flushTimeoutMs ?? 5000,
+    );
+    deadline.unref();
+    const flushStdout = deps.flushStdout ?? ((done: (error?: Error | null) => void) => {
+      process.stdout.write('', done);
+    });
+    try {
+      flushStdout(finish);
+    } catch (error) {
+      finish(error as Error);
+    }
   };
 }
 
