@@ -183,7 +183,8 @@ describe('extractPurpose — structural fallback for data files', () => {
       'structural',
       'Bug report: Something in TMB is broken',
     );
-    expectPurpose('.github/workflows/dev-build.yml', 'name: dev-build\non:\n  push:\n    branches: [dev]\n', 'structural', 'dev-build');  });
+    expectPurpose('.github/workflows/dev-build.yml', 'name: dev-build\non:\n  push:\n    branches: [dev]\n', 'structural', 'dev-build');
+  });
 
   it('changelog.d fragments and txt files: <dir role>: <file name>', () => {
     expectPurpose('changelog.d/1813-foo.md', '### Fixed\n- **A fix** (GH 1813): details.\n', 'structural', 'changelog fragment: 1813-foo');

@@ -4982,10 +4982,10 @@ describe('agent_runs lifecycle — rows open with their run and close with their
       .all<Stamp>('SELECT agent_type, root_dir, host, exit_reason FROM agent_runs WHERE task_id = ? ORDER BY id', [taskId])
       .map((r) => ({ ...r }));
 
-  it('task_brief stamps the swe row with the task worktree and host', async () => {
+  it('task_brief stamps the swe row with the task worktree and the default claude host', async () => {
     const db = tempDB();
     const id = seed(db);
-    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null, { host: 'claude', projectRoot: '/tmp' });
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
     await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
     const branch = db.get<{ b: string }>('SELECT branch_id AS b FROM tasks WHERE id = ?', [id])!.b;
     assert.deepEqual(stamps(db, id), [
