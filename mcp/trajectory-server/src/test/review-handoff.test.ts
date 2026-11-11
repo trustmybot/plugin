@@ -191,4 +191,34 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: second, verification_summary: 'reworked and reviewed' });
     assert.equal(status(taskId), 'closed');
   });
+
+  it('SC1 (GH 2932): a docs-only handoff under reviewer_tier_settings returns and records the tier model, and the effort gate admits that spawn as is', async () => {
+    db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort_tiers', 'true'), ('reviewer_tier_settings', '{"docs_tests":{"model":"sonnet","effort":"high"}}')`);
+    try {
+      const { taskId, worktree } = await provision('feat/discount-docs');
+      await sweCommits(taskId, worktree, { 'documentation/faq.md': '# FAQ\n' });
+      const handoff = await ok('review_handoff', { agent: 'bro', task_id: String(taskId), session_id: SESSION });
+      const spawn = handoff['reviewer_spawn'] as { prompt: string; effort: string; model?: string; subagent_type: string };
+      assert.equal(spawn.model, 'sonnet');
+      assert.equal(spawn.effort, 'high');
+      const row = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'reviewer_effort_assigned' AND json_extract(content_json, '$.task_id') = ? ORDER BY id DESC LIMIT 1`,
+        [taskId],
+      )!;
+      const assigned = JSON.parse(row.content_json) as Record<string, unknown>;
+      assert.deepEqual([assigned['model'], assigned['effort'], assigned['reason']], ['sonnet', 'high', 'docs_tests']);
+
+      const effortGate = (toolInput: Record<string, unknown>) =>
+        runGate('require-spawn-effort', {
+          cwd: sb.dir,
+          input: JSON.stringify({ session_id: SESSION, hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { ...toolInput, description: 'review' } }),
+          env: { ...sb.env, CLAUDE_PROJECT_DIR: sb.dir, TRAJECTORY_DB_PATH: dbPath },
+        }).stdout;
+      assert.equal(effortGate(spawn), '', 'the returned spawn passes as is');
+      const withoutModel = { prompt: spawn.prompt, effort: spawn.effort, subagent_type: spawn.subagent_type };
+      assert.match(effortGate(withoutModel), /"permissionDecision":"deny"/, 'dropping the model is denied');
+    } finally {
+      db.run(`DELETE FROM plugin_config WHERE key IN ('reviewer_effort_tiers', 'reviewer_tier_settings')`);
+    }
+  });
 });
