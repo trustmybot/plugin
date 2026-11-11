@@ -552,7 +552,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
     assert.deepEqual(names('PostToolUse', mcp('task_update_status')), ['cleanup-worktree-on-task-close', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('validation_record')), ['cleanup-worktree-on-task-close', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('roundtable_close')), ['roundtable-cleanup-postcheck', 'task-overrun-alert', 'liveness-alert']);
-    assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-atomic-close-readme', 'task-overrun-alert', 'liveness-alert']);
+    assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-atomic-close-readme', 'cleanup-worktree-on-task-close', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', 'Bash'), ['bash-output-trim', 'attribution-footer', 'clean-merged-branch', 'close-issue-on-merge', 'ref-move-reindex']);
@@ -575,7 +575,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
     const lines = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8').trimEnd().split('\n');
     const rows = lines.map((l) => l.split(' '));
     for (const f of rows) assert.equal(f.length, f[6] === undefined ? 6 : 7, f.join(' '));
-    assert.equal(rows.filter((f) => f[0] === 'cleanup-worktree-on-task-close').length, 2);
+    assert.equal(rows.filter((f) => f[0] === 'cleanup-worktree-on-task-close').length, 3);
     assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*']]);
     assert.deepEqual(rows.filter((f) => f[3] === 'PreCompact').map((f) => [f[0], f[4], f[5]]), [['session-handoff', EMPTY_MATCHER_COLUMN, '*']]);
     assert.deepEqual(rows.filter((f) => f[3] === 'SubagentStop').map((f) => [f[0], f[2], f[4]]), [['consultant-persistence-gate', 'enforcement', '-'], ['swe-atomic-close', 'advisory', '-']]);

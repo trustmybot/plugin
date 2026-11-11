@@ -2,7 +2,7 @@
  * The require-spawn-effort gate (GH 1692): the
  * Agent call's `effort` must be the effort the trajectory DB holds for the
  * spawn. A swe spawn naming task_id=<N> needs tasks.effort of task N; a
- * code-reviewer spawn needs the effort bro_atomic_close assigned task N's
+ * code-reviewer spawn needs the effort review_handoff assigned task N's
  * review (GH 1955), else plugin_config.reviewer_effort (medium when unset);
  * any other agent is allowed. A missing effort is a mismatch. No resolvable
  * DB allows; a DB read failure denies, and a DB without tasks.effort gets the
@@ -81,10 +81,10 @@ function reviewerVerdict(payload: string, given: string, env: NodeJS.ProcessEnv)
   if (given === expected.effort) return ALLOW;
   if (expected.source === 'assigned') {
     return denyMismatch(
-      `code-reviewer for task_id=${taskId} (the task's assigned reviewer effort, returned by bro_atomic_close as reviewer_effort)`,
+      `code-reviewer for task_id=${taskId} (the task's assigned reviewer effort, returned by review_handoff as reviewer_effort)`,
       expected.effort,
       given,
-      "The assignment is the task's newest reviewer_effort_assigned audit row; the next bro_atomic_close of the task assigns it again.",
+      "The assignment is the task's newest reviewer_effort_assigned audit row; the next review_handoff of the task assigns it again.",
     );
   }
   return denyMismatch(

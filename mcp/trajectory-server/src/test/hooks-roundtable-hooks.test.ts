@@ -6,11 +6,13 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { consultantPersistenceGate, recoveryFix, recoveryMessage, stoppingAgent } from '../hooks/consultant-persistence-gate.js';
+import type { GateResult } from '../hooks/gate.js';
+import { transcriptStart } from '../hooks/lib/agent-context.js';
 import { fixedReason } from '../hooks/lib/deny.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
 import { roundtableAuqShape, shapeViolations } from '../hooks/roundtable-auq-shape.js';
@@ -192,5 +194,73 @@ describe('roundtable hook helpers', () => {
     assert.equal(stoppingAgent('{"subagent_type":"pm"}\n'), 'pm');
     assert.equal(stoppingAgent('{"tool_input":{"subagent_type":"ceo"}}\n'), 'ceo');
     assert.equal(stoppingAgent('{}\n'), '');
+  });
+});
+
+describe('consultant-persistence-gate counts rows since the spawn start (GH 2924)', () => {
+  let base: string;
+  let s: string;
+  before(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-consultant-spawn-')));
+    s = join(base, 'sandbox');
+  });
+  after(() => rmSync(base, { recursive: true, force: true }));
+
+  const db = (): string => join(s, 'project/.claude/tmb/trajectory.db');
+  const env = (): NodeJS.ProcessEnv => ({ HOME: join(s, 'home'), CLAUDE_PROJECT_DIR: join(s, 'project'), TRAJECTORY_DB_PATH: db(), LC_ALL: 'C' });
+  const transcriptFile = (name: string, lines: string[]): string => {
+    const path = join(s, 'transcripts', name);
+    writeFileSync(path, lines.map((l) => `${l}\n`).join(''));
+    return path;
+  };
+  const pmRow = (createdAt: string): void => {
+    const d = new DatabaseSync(db());
+    try {
+      d.prepare("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (1, 'pm', 'analysis', 'pm row', ?)").run(createdAt);
+    } finally {
+      d.close();
+    }
+  };
+  const stop = (transcript: string): GateResult => consultantPersistenceGate(JSON.stringify({ subagent_type: 'pm', agent_transcript_path: transcript }), env());
+
+  it('transcriptStart takes the earliest stamp of any form, not the first line, as UTC ISO', () => {
+    buildSandbox(s);
+    const t = transcriptFile('mixed.jsonl', [
+      '{"type":"summary"}',
+      'not json',
+      '{"timestamp":"2026-10-01 09:00:00"}',
+      '{"timestamp":"2026-10-01T08:30:00.250Z"}',
+      '{"timestamp":"2026-10-01T10:00:00+02:00"}',
+    ]);
+    assert.equal(transcriptStart(t), '2026-10-01T08:00:00.000Z');
+    assert.equal(transcriptStart(transcriptFile('none.jsonl', ['{"timestamp":"yesterday"}', '{"timestamp":17}'])), '');
+    assert.equal(transcriptStart(join(s, 'transcripts/missing.jsonl')), '');
+    assert.equal(transcriptStart(''), '');
+  });
+
+  it('a space-separated row at or after an ISO spawn start passes, one before it blocks', () => {
+    buildSandbox(s);
+    const t = transcriptFile('iso.jsonl', ['{"timestamp":"2026-10-01T11:00:00.000Z"}']);
+    pmRow('2026-10-01 10:59:59');
+    assert.deepEqual(JSON.parse(stop(t).stdout), { decision: 'block', reason: fixedReason(recoveryMessage(), recoveryFix('pm', '2')) });
+    pmRow('2026-10-01 11:00:00');
+    assert.deepEqual(stop(t), { stdout: '', code: 0 });
+  });
+
+  it('an ISO row after a space-separated spawn start passes', () => {
+    buildSandbox(s);
+    pmRow('2026-10-01T11:00:00.001Z');
+    assert.deepEqual(stop(transcriptFile('space.jsonl', ['{"timestamp":"2026-10-01 11:00:00"}'])), { stdout: '', code: 0 });
+  });
+
+  it('the recovery names the newest open issue by created_at, not the most recently updated one', () => {
+    buildSandbox(s);
+    const d = new DatabaseSync(db());
+    try {
+      d.prepare("UPDATE issues SET updated_at = '2026-12-01T00:00:00.000Z' WHERE id = 1").run();
+    } finally {
+      d.close();
+    }
+    assert.deepEqual(JSON.parse(stop('').stdout), { decision: 'block', reason: fixedReason(recoveryMessage(), recoveryFix('pm', '2')) });
   });
 });

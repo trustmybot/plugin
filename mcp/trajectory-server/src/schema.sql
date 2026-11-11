@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- column scans back to the nearest comma.
     completion_report TEXT,
     -- spawn_note (v48 GH 1744): at most 300 chars of context for the next
-    -- spawn and returned by task_brief. bro_atomic_close and task_reopen each
+    -- spawn and returned by task_brief. review_handoff and task_reopen each
     -- overwrite it (NULL when the call passes none).
     spawn_note        TEXT,
     -- checkpoint (v52 GH 1905): swe's handback as JSON {done left files
