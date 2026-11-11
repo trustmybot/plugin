@@ -1,2 +1,5 @@
 ### Added
 - **The world model now indexes Python** (GH 3032): `/scan` records each `.py` file's classes, methods, functions and module-level constants, and links its imports, calls and class instantiations to the files and symbols they reach, so `world_model_search` and `world_model_symbol` answer for Python code too.
+
+### Changed
+- **The world model links a reference only on proof** (GH 3032): a call, import, script or table reference now links to a symbol only when it is in the same file, reached through a resolved import, named by an explicit path or receiver type, or the only definition of that name. A name that merely matches a symbol in some other file, such as `import http` beside a local `http.py`, stays unlinked instead of being guessed.

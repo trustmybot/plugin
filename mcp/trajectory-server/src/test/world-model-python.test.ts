@@ -59,6 +59,10 @@ const FILES: Record<string, string> = {
     '',
   ].join('\n'),
   'pkg/c.py': 'def cee():\n    pass\n',
+  'pkg/d.py': 'def dee():\n    return uniquely_named_helper()\n',
+  'pkg/e.py': 'def uniquely_named_helper():\n    return 1\n',
+  'pkg/sub/http.py': 'def get():\n    pass\n',
+  'pkg/sub/x.py': 'import http\n',
 };
 
 describe('Python symbol extraction (GH 3032)', () => {
@@ -144,6 +148,20 @@ describe('Python symbol extraction (GH 3032)', () => {
     assert.equal(edge('pkg/b.py', 'pkg/b.py', 'imports', 'c')?.dst_path, 'pkg/c.py');
   });
 
+  it('no-guess: `import http` beside pkg/sub/http.py stays unlinked', () => {
+    assert.deepEqual(
+      { ...edge('pkg/sub/x.py', 'pkg/sub/x.py', 'imports', 'http') },
+      { resolution: 'unresolved', dst_id: null, dst_path: null },
+    );
+  });
+
+  it('no-guess: a call to a uniquely named function that is not imported stays unlinked', () => {
+    assert.deepEqual(
+      { ...edge('pkg/d.py', 'dee', 'calls', 'uniquely_named_helper') },
+      { resolution: 'unresolved', dst_id: null, dst_path: null },
+    );
+  });
+
   it('stores no const for a bare annotation', () => {
     assert.equal(symbol('pkg/a.py', 'const', 'T'), undefined);
   });
@@ -182,7 +200,7 @@ describe('resolvePythonImport', () => {
     assert.equal(resolvePythonImport('pkg/a.py', 'os.path', files), null);
   });
 
-  it('never resolves an absolute module against ancestors of the importing file', () => {
+  it('no-guess: never resolves an absolute module against ancestors of the importing file', () => {
     assert.equal(resolvePythonImport('pkg/sub/x.py', 'http', files), null);
     assert.equal(resolvePythonImport('pkg/sub/x.py', 'd', files), null);
   });

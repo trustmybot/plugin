@@ -395,11 +395,19 @@ class Resolver {
           this.importMap.set(from, m);
         }
       } else if (edge.kind === 'sources') {
-        const cands = this.byBase.get(edge.dst_name) ?? [];
-        const pick = cands.find((c) => posix.dirname(c.path) === posix.dirname(from)) ?? cands[0];
-        if (pick) push(this.sourced, from, pick.path);
+        const target = this.scriptTarget(edge.dst_name);
+        if (target !== undefined) push(this.sourced, from, target.path);
       }
     }
+  }
+
+  // The script a 'runs'/'sources' edge names: its explicit repo path, or the
+  // one file with that basename. Several same-named files are no proof.
+  private scriptTarget(name: string): { id: number; path: string } | undefined {
+    const byPath = name.includes('/') ? this.modules.get(name) : undefined;
+    if (byPath !== undefined) return { id: byPath, path: name };
+    const cands = this.byBase.get(name) ?? [];
+    return cands.length === 1 ? cands[0] : undefined;
   }
 
   // The file an 'imports' edge names. In Python, `from pkg import x` names
@@ -413,38 +421,23 @@ class Resolver {
     return resolvePythonImport(from, submodule, this.fileSet) ?? module;
   }
 
-  resolve(from: string, edge: ExtractedEdge): { dst: number; how: 'exact' | 'name' } | null {
+  resolve(from: string, edge: ExtractedEdge): Link | null {
     if (NAME_ONLY_EDGES.has(edge.kind)) return null;
     if (edge.kind === 'imports') {
       const target = this.importTarget(from, edge);
       if (!target) return null;
       const hit = (this.byName.get(edge.dst_name) ?? []).find((c) => c.path === target);
-      const dst = hit?.id ?? this.modules.get(target);
-      return dst === undefined ? null : { dst, how: 'exact' };
+      return linkOnProof(hit?.id ?? this.modules.get(target), 'resolved_import');
     }
-    if (edge.kind === 'bundles') {
-      const dst = this.modules.get(edge.dst_name);
-      return dst === undefined ? null : { dst, how: 'exact' };
-    }
+    if (edge.kind === 'bundles') return linkOnProof(this.modules.get(edge.dst_name), 'explicit_path');
     if (edge.kind === 'runs' || edge.kind === 'sources') {
-      const byPath = edge.dst_name.includes('/') ? this.modules.get(edge.dst_name) : undefined;
-      if (byPath !== undefined) return { dst: byPath, how: 'exact' };
-      const cands = this.byBase.get(edge.dst_name) ?? [];
-      const pick =
-        cands.find((c) => posix.dirname(c.path) === posix.dirname(from)) ?? (cands.length === 1 ? cands[0] : undefined);
-      return pick ? { dst: pick.id, how: cands.length === 1 ? 'exact' : 'name' } : null;
+      return linkOnProof(this.scriptTarget(edge.dst_name)?.id, 'unique_definition');
     }
     if (TABLE_EDGES.has(edge.kind)) {
       const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => c.kind === 'sql_table');
       const real = cands.filter((c) => !outsideConceptLane(c.path));
-      if (real.length === 1) return { dst: real[0]!.id, how: 'exact' };
-      const pick =
-        real.find((c) => c.path.endsWith('.sql')) ??
-        real[0] ??
-        cands.find((c) => c.path.endsWith('.sql') && !isTestPath(c.path)) ??
-        cands.find((c) => !isTestPath(c.path)) ??
-        cands[0];
-      return pick ? { dst: pick.id, how: 'name' } : null;
+      const only = real.length === 1 ? real[0] : real.length === 0 && cands.length === 1 ? cands[0] : undefined;
+      return linkOnProof(only?.id, 'unique_definition');
     }
     const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => CALLABLE.has(c.kind));
     const member = edge.hint !== null && edge.hint !== 'this';
@@ -452,19 +445,31 @@ class Resolver {
       const typed = cands.filter(
         (c) => c.kind === 'method' && !isTestPath(c.path) && c.qualified_name === `${edge.hint}.${edge.dst_name}`,
       );
-      return typed.length === 1 ? { dst: typed[0]!.id, how: 'name' } : null;
+      return linkOnProof(typed.length === 1 ? typed[0]!.id : undefined, 'receiver_type');
     }
     const same = cands.find((c) => c.path === from);
+    if (same) return linkOnProof(same.id, 'same_file');
     const viaImport = this.importMap.get(from)?.get(edge.dst_name);
+    if (viaImport) return linkOnProof(cands.find((c) => c.path === viaImport)?.id, 'resolved_import');
     const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
-    if (same) return { dst: same.id, how: 'exact' };
-    if (viaImport) {
-      const hit = cands.find((c) => c.path === viaImport);
-      if (hit) return { dst: hit.id, how: 'exact' };
-    } else if (viaSource) return { dst: viaSource.id, how: 'exact' };
-    const unique = cands.filter((c) => !isTestPath(c.path));
-    return unique.length === 1 && edge.dst_name.length >= 4 ? { dst: unique[0]!.id, how: 'name' } : null;
+    return linkOnProof(viaSource?.id, 'resolved_import');
   }
+}
+
+// Why a reference may be linked. A bare name matching a symbol elsewhere is
+// never proof: such an edge stays unresolved rather than risk a wrong link.
+// 'receiver_type' covers a declared or constructed receiver and self/cls,
+// whose hint is the enclosing class.
+type LinkProof = 'same_file' | 'resolved_import' | 'explicit_path' | 'receiver_type' | 'unique_definition';
+
+interface Link {
+  dst: number;
+  how: 'exact' | 'name';
+}
+
+function linkOnProof(dst: number | undefined, proof: LinkProof): Link | null {
+  if (dst === undefined) return null;
+  return { dst, how: proof === 'receiver_type' ? 'name' : 'exact' };
 }
 
 function push<V>(map: Map<string, V[]>, key: string, value: V): void {
