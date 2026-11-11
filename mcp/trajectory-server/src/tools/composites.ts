@@ -1479,7 +1479,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha>-<suffix> (node_modules linked; frozen install per lockfile root changed vs main) after .config/tmb/worktree-setup.json (failed step: named error, no command) under budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
+        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha>-<suffix> (node_modules linked; frozen install per changed installed lockfile root) after .config/tmb/worktree-setup.json (failed step: named error, no command) under budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
       inputSchema: {
         type: 'object',
         properties: {

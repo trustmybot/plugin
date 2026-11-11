@@ -2,7 +2,7 @@
 // GH 1853): link the main checkout's install, entry by entry, beside each
 // tracked package.json. A worktree whose manifests differ from main's would
 // build against an install that lacks its new deps (GH 3003), so each lockfile
-// root whose manifests differ gets a frozen install of its own instead.
+// root main installed whose manifests differ gets a frozen install of its own instead.
 // Shared by the environment gate (tools/env-gate.ts), pr_monitor_worktree and cli.js integrate;
 // standalone it runs as `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
 import { execFileSync, spawn } from 'node:child_process';
@@ -77,9 +77,13 @@ interface InstallRoot {
   members: string[];
 }
 
-function trackedInstallRoots(worktreePath: string): InstallRoot[] {
+// A lockfile dir main never installed (a test fixture, say) is no root: there is
+// nothing of main's to fall out of step with.
+function trackedInstallRoots(repoRoot: string, worktreePath: string): InstallRoot[] {
   const lockfiles = new Set(trackedFiles(worktreePath, LOCKFILE_NAMES));
-  const dirs = [...new Set([...lockfiles].map((p) => dirname(p)))].sort();
+  const dirs = [...new Set([...lockfiles].map((p) => dirname(p)))]
+    .filter((dir) => isDirectory(join(repoRoot, dir, 'node_modules')))
+    .sort();
   return dirs.map((dir) => {
     const [, argv] = LOCKFILE_INSTALLS.find(([lockfile]) => lockfiles.has(join(dir, lockfile)))!;
     return { dir, argv, members: [] };
@@ -104,8 +108,8 @@ export function linkWorktreeNodeModules(repoRoot: string, worktreePath: string):
 }
 
 /**
- * Each tracked dir holding a lockfile is an install root, owning the package
- * dirs whose nearest lockfile-holding ancestor (itself included) it is. A root
+ * Each tracked dir holding a lockfile that main installed is an install root,
+ * owning the package dirs whose nearest root ancestor (itself included) it is. A root
  * whose lockfiles or group's package.json files differ from main's gets a
  * frozen install and none of its group is linked: the install owns those dirs
  * (GH 2872). Every other group and every dir outside all groups is linked as
@@ -120,7 +124,7 @@ export async function prepareWorktreeDeps(
   let roots: InstallRoot[];
   try {
     dirs = trackedPackageDirs(worktreePath);
-    roots = trackedInstallRoots(worktreePath);
+    roots = trackedInstallRoots(repoRoot, worktreePath);
   } catch (error) {
     return gitListingFailed(error);
   }

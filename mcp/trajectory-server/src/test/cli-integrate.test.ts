@@ -642,6 +642,7 @@ describe('cli.js integrate', () => {
 
     it('a failing frozen install of a task that changes the lockfile exits 1 with the command and its output, branch unmoved (GH 3003)', () => {
       setup('clean');
+      mkdirSync(join(repo, 'node_modules'));
       git('checkout', '-q', 'feat/x-1');
       commitFile('package-lock.json', 'not json', 'feat: lockfile');
       commit = rev('HEAD');

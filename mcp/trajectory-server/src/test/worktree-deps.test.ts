@@ -457,6 +457,30 @@ describe('prepareWorktreeDeps (GH 3003)', () => {
     });
   });
 
+  it('a changed lockfile dir main never installed is no root: nothing installs and it is handled as linking does', async () => {
+    await withLockedWorktree(['other/bun.lock'], async ({ repoRoot, wt }) => {
+      writeFileSync(join(wt, 'other', 'package.json'), DEP_ADDED);
+      writeFileSync(join(wt, 'other', 'bun.lock'), 'lock-v2\n');
+      const { calls, runInstall } = recorder();
+      const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+      assert.deepEqual(calls, []);
+      assert.equal(r.installed, undefined);
+      assert.deepEqual(r.linked.sort(), ['.', 'pkg']);
+      assert.deepEqual(r.skipped, [{ dir: 'other', reason: `no install at ${join(repoRoot, 'other', 'node_modules')}` }]);
+    });
+  });
+
+  it('a changed lockfile in a never-installed dir under an installed root installs nothing', async () => {
+    await withLockedWorktree(['bun.lock', 'other/bun.lock'], async ({ repoRoot, wt }) => {
+      writeFileSync(join(wt, 'other', 'bun.lock'), 'lock-v2\n');
+      const { calls, runInstall } = recorder();
+      const r = await prepareWorktreeDeps(repoRoot, wt, { runInstall });
+      assert.deepEqual(calls, []);
+      assert.deepEqual(r.linked.sort(), ['.', 'pkg']);
+      assert.deepEqual(r.skipped.map((s) => s.dir), ['other']);
+    });
+  });
+
   it('two changed roots install one at a time in sorted order and link neither group', async () => {
     await withLockedWorktree(['bun.lock', 'dash/bun.lock'], async ({ repoRoot, wt }) => {
       writeFileSync(join(wt, 'dash', 'package.json'), DEP_ADDED);

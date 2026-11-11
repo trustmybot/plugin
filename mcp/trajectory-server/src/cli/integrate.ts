@@ -34,8 +34,10 @@
  *      squash-merged parent branch's, is skipped), both over every path, must
  *      match, else exit 2. No rebased commit left means the task's patch is
  *      already in <base> → exit 2.
- *      Each tracked dir holding a lockfile is an install root for the package
- *      dirs nearest beneath it. A root whose lockfile or any package.json in
+ *      Each tracked dir holding a lockfile whose main-checkout counterpart has
+ *      a node_modules dir is an install root for the package dirs nearest
+ *      beneath it; the install runs per installed lockfile root whose
+ *      manifests differ. A root whose lockfile or any package.json in
  *      its group differs from the main checkout's byte for byte gets the
  *      lockfile's frozen install, run in that root (GH 3003); every other
  *      tracked package dir gets the main checkout's untracked node_modules
