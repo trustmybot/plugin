@@ -3,7 +3,8 @@
  * trajectory DB: one deny and one allow per check, each deny naming its typed
  * check, and the agent-spawn-dispatch gate returning the deny before any PREPARE step.
  * The changelog and stale-doc checks run at swe's close now; their tests live in
- * hooks-swe-verification-gate.test.ts (GH 2866).
+ * hooks-swe-verification-gate.test.ts (GH 2866), and scripts/hooks/README.md
+ * must describe that split.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -398,5 +399,35 @@ describe('code-reviewer-preflight', () => {
       assert.ok(ran.includes('ensure-swe-worktree'));
       assert.ok(ran.includes('record-swe-spawn'));
     });
+  });
+});
+
+describe('scripts/hooks/README.md describes the GH 2866 split of the doc checks', () => {
+  const readme = readFileSync(resolve(SERVER_ROOT, '../../scripts/hooks/README.md'), 'utf8');
+  const between = (start: string, end: string): string => {
+    const from = readme.indexOf(start);
+    assert.notEqual(from, -1, `README has ${start}`);
+    const to = readme.indexOf(end, from);
+    assert.notEqual(to, -1, `README has ${end} after ${start}`);
+    return readme.slice(from, to);
+  };
+
+  it('the preflight paragraph names three checks and none of the doc checks', () => {
+    const preflight = between('`code-reviewer-preflight` judges a code-reviewer spawn', 'Then the TypeScript gate `rework-limit`');
+    assert.match(preflight, /with three deterministic checks/);
+    for (const check of ['sha_mismatch', 'no_passing_run', 'base_conflict']) assert.ok(preflight.includes(`\`${check}\` (`), `${check} is listed`);
+    for (const check of ['stale_doc_ref', 'missing_changelog']) assert.equal(preflight.includes(check), false, `${check} is not a preflight check`);
+  });
+
+  it('the swe-verification-gate paragraph owns stale_doc_ref and missing_changelog', () => {
+    const gate = between('Before anything else, `swe-verification-gate` runs the changelog and stale-doc checks', 'It then runs a task\'s `verification[]`');
+    for (const check of ['stale_doc_ref', 'missing_changelog']) assert.ok(gate.includes(`\`${check}\` (`), `${check} is described at the close gate`);
+  });
+
+  it('the swe-atomic-close auto-complete needs a passing run and otherwise writes gate_pending', () => {
+    const atomicClose = between('- `swe-atomic-close` binds the spawn', '\n');
+    assert.equal(atomicClose.includes('Otherwise a `pending` or `running` task with commits is auto-completed,'), false);
+    assert.match(atomicClose, /completed only when `verification_runs` holds a passing, not timed-out run for \(task, worktree HEAD\)/);
+    assert.ok(atomicClose.includes('`swe_atomic_close_gate_pending`'));
   });
 });
