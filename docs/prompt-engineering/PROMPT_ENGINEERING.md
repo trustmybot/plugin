@@ -97,6 +97,8 @@ Agentic prompts add tool use, autonomy, and multi-turn state:
 - [ ] No duplication, no stale references, no citation noise.
 - [ ] Tested against representative cases.
 
+[`GOLDEN_PROMPTS.md`](GOLDEN_PROMPTS.md) turns this checklist into scored criteria with examples.
+
 ---
 
 ## Deeper doctrine
