@@ -138,7 +138,7 @@ describe('leak_scan', () => {
 
   it('flags a Windows home path', async () => {
     const r = repo();
-    r.write('a.ps1', 'Set-Location C:\\Users\\bob\\repo\n');
+    r.write('a.ps1', `Set-Location ${['C:', 'Users', 'bob', 'repo'].join('\\')}\n`);
     r.commit();
     assert.equal((await r.scan())?.actual, 'a.ps1:1 home_path');
   });
