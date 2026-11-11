@@ -14,8 +14,9 @@ import {
 } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
+import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 69;
+export const TARGET_SCHEMA_VERSION = 70;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -842,6 +843,8 @@ function runMigrations(
   if (fromVersion < 68 && toVersion >= 68) migrateV67toV68(db);
   // v68→v69: lint_runs and lint_run_results, the close-lint record (GH 2570)
   if (fromVersion < 69 && toVersion >= 69) migrateV68toV69(db);
+  // v69→v70: wm_files.lane, each file's test or product lane (GH 2886)
+  if (fromVersion < 70 && toVersion >= 70) migrateV69toV70(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3568,6 +3571,30 @@ function migrateV68toV69(db: DatabaseSync): void {
         PRIMARY KEY (run_id, ordinal)
       );
     `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v69→v70: wm_files.lane (GH 2886), the test or product lane a scan stores
+// per file. Existing rows are backfilled by the default rules; the next scan
+// applies the project's world_model_test_lane config.
+function migrateV69toV70(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'wm_files') && !hasColumn(db, 'wm_files', 'lane')) {
+      db.exec("ALTER TABLE wm_files ADD COLUMN lane TEXT NOT NULL DEFAULT 'product' CHECK (lane IN ('test','product'))");
+      const markTest = db.prepare(`UPDATE wm_files SET lane = 'test' WHERE id = ?`);
+      for (const f of db.prepare('SELECT id, path FROM wm_files').all() as Array<{ id: number; path: string }>) {
+        if (isDefaultTestPath(f.path)) markTest.run(f.id);
+      }
+    }
     commitTransaction(db);
   } catch (err) {
     try {

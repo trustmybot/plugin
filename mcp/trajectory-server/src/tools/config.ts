@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
+import { DEFAULT_TEST_LANE, isTestLaneConfig, parseTestLaneConfig, type TestLaneConfig } from '../utils/test-paths.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -301,6 +302,22 @@ export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
   return 'truest';
 }
 
+export const WORLD_MODEL_TEST_LANE_KEY = 'world_model_test_lane';
+
+/**
+ * The project's test-lane globs (GH 2886). Unset, unparseable or malformed
+ * reads as the defaults only.
+ */
+export function readTestLaneConfig(db: Pick<TrajectoryDB, 'get'>): TestLaneConfig {
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [WORLD_MODEL_TEST_LANE_KEY]);
+  if (!row) return DEFAULT_TEST_LANE;
+  try {
+    return parseTestLaneConfig(JSON.parse(row.value_json));
+  } catch {
+    return DEFAULT_TEST_LANE;
+  }
+}
+
 /** Keys config_set refuses: only the Human sets them, through /onboard. */
 const HUMAN_ONLY_CONFIG_KEYS: ReadonlySet<string> = new Set([WORKFLOW_MODE_KEY]);
 
@@ -359,6 +376,11 @@ function validateKnownConfigValue(key: string, value: unknown): void {
   if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be {} (off) or an object {"label": non-empty string, "target": positive integer, "tools_shipped_at": ISO timestamp}, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === WORLD_MODEL_TEST_LANE_KEY && !isTestLaneConfig(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"extend"?: [glob...], "exclude"?: [glob...]} of non-empty strings, got ${JSON.stringify(value)}.`,
     );
   }
   if (key === WORKFLOW_MODE_KEY && !isWorkflowMode(value)) {

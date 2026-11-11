@@ -14,6 +14,7 @@ import { gitUnanswered, runGit } from '../utils/git-run.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readBlobSync } from '../utils/git-objects.js';
+import { isTestPath } from '../utils/test-paths.js';
 import { serverLog } from '../logger.js';
 import { ensureFresh, fetchTargetIfDue, freshnessBlock, freshnessFields, isStale, type Freshness, type FreshnessBlock } from '../world-model/freshness.js';
 import { needsReview, type NeedsReview } from '../world-model/needs-review.js';
@@ -24,7 +25,6 @@ import {
   coveringRunners,
   fileRefKey,
   IMPACT_MAX_DEPTH,
-  isTestPath,
   keywordSearchSymbols,
   staleFiles,
   symbolById,

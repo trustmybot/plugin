@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -326,7 +326,7 @@ export function readmeStalenessParityShard(k: number, n: number): void {
           const cwd = join(s, 'ws');
           const { audit: bashAudit, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             const fresh = resetDb(s);
-            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${GATE}.sh`)], c, env, cwd), audit: auditDump(fresh) };
+            return { ...run(...liveHookCommand(GATE), c, env, cwd), audit: auditDump(fresh) };
           });
           const db = resetDb(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c, env, cwd);

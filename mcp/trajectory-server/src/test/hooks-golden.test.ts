@@ -7,7 +7,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,7 @@ import {
   goldenLocales,
   goldenRoots,
   goldenStore,
+  liveHookCommand,
   sandboxSha,
   settledTree,
   tokenizeRoots,
@@ -117,7 +118,7 @@ function spansOf(text: string, opener: RegExp): [number, number][] {
 }
 
 const SCRIPT_PATH = /\b(?:join|resolve)\([^)]*scripts\/hooks[^)]*\.sh\b/;
-const BASH_SPAWN = /\brun\((?:'bash'|BASH),/;
+const BASH_SPAWN = /\brun\((?:'bash',|BASH,|\.\.\.liveHookCommand\()/;
 const COMMENT_LINE = /^\s*(?:\/\/|\/?\*)/;
 
 /** A `const` whose only calls build the path names the script without touching it: its uses are what count. */
@@ -217,6 +218,7 @@ describe('hook golden recordings', () => {
 
     it('flags a spawn, a read or a copy of a gate .sh outside a thunk', () => {
       assert.equal(flagged("run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh')], c);"), 1);
+      assert.equal(flagged('run(...liveHookCommand(gate), c);'), 1);
       assert.equal(flagged("cpSync(join(PLUGIN_ROOT, 'scripts/hooks', `${RESCAN_GATE}.sh`), join(plugin, 'scripts/hooks', `${RESCAN_GATE}.sh`));"), 1);
       assert.equal(flagged("const text = readFileSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`), 'utf8');"), 1);
       assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh');\nconst text = readFileSync(HOOK_SH, 'utf8');"), 1);
@@ -227,6 +229,7 @@ describe('hook golden recordings', () => {
     it('passes one inside a thunk, on the bash line of runSide, or guarded by record mode', () => {
       assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh');\ngoldenBash(g, f, l, r, () => {\n  return run('bash', [HOOK_SH], c);\n});"), 0);
       assert.equal(flagged("goldenBash(g, f, l, r, () => run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh')], c));"), 0);
+      assert.equal(flagged('goldenBash(g, f, l, r, () => run(...liveHookCommand(gate, BASH), c));'), 0);
       assert.equal(flagged("const runSide = (name) => {\n  if (name === 'bash') cpSync(join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh'), to);\n};"), 0);
       assert.equal(flagged("const gates = all.filter((g) => (isRecording() ? existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${g}.sh`)) : true));"), 0);
       assert.equal(flagged("const ps = ['bash /x/scripts/hooks/lib/orphan-scan.sh'];"), 0);
@@ -253,6 +256,29 @@ describe('hook golden recordings', () => {
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('liveHookCommand', () => {
+    let root: string;
+    let script: string;
+    before(() => {
+      root = mkdtempSync(join(tmpdir(), 'tmb-live-hook-'));
+      mkdirSync(join(root, 'scripts/hooks'), { recursive: true });
+      script = join(root, 'scripts/hooks', 'with-script.sh');
+      writeFileSync(script, '#!/bin/bash\n');
+    });
+    after(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it('spawns the gate .sh with the given bash while it exists', () => {
+      assert.deepEqual(liveHookCommand('with-script', '/opt/bash', root), ['/opt/bash', [script]]);
+      assert.deepEqual(liveHookCommand('with-script', undefined, root), ['bash', [script]]);
+    });
+
+    it('spawns node dist/hooks.js <gate> once the .sh is gone', () => {
+      assert.deepEqual(liveHookCommand('ts-only', '/opt/bash', root), [process.execPath, [join(root, 'mcp/trajectory-server/dist/hooks.js'), 'ts-only']]);
     });
   });
 

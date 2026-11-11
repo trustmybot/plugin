@@ -56,6 +56,8 @@ const DB_REASON =
 export const PARSE_REASON =
   'BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same push split into simpler commands with plain quoting' };
+const subcommandReason = (what: string): string =>
+  `${ambiguousSubcommandReason(what, 'pushes')} An option value in double quotes, such as \`git -C "$W" status\`, is allowed.`;
 const SUBCOMMAND_FIX: DenyFix = { allowed: 'git -C <path> push …, or the literal subcommand it runs' };
 const opaqueReason = (what: string): string =>
   `BLOCKED: ambiguous_git_subcommand: \`${what}\` runs code the guard cannot read (a \`bash -c\` or \`eval\` string built from an expansion, a command word that is an expansion, code a shell reads from stdin, a \`\${…@P}\` prompt expansion, a PS4 set other than by a literal \`PS4=\` assignment, a variable name a builtin takes from an expansion, or code nested too deep), so it cannot tell whether that code pushes. Write the code literally.`;
@@ -330,7 +332,7 @@ export const gitPushGuard: Gate = async (payload, env) => {
   if (opaque) return deny(opaqueReason(opaque.src ?? opaque.stmt), OPAQUE_FIX);
   const subs = listed.statements.map((statement) => gitSubcommandOf(statement));
   const unknown = listed.statements[subs.indexOf(undefined)];
-  if (unknown) return deny(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'pushes'), SUBCOMMAND_FIX);
+  if (unknown) return deny(subcommandReason(unknown.src ?? unknown.stmt), SUBCOMMAND_FIX);
   const pushes = listed.statements.filter((_, j) => {
     const sub = subs[j] ?? '';
     return pushVerb(sub) && !FORCE.test(` ${sub} `);

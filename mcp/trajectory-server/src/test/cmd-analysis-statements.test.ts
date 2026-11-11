@@ -298,6 +298,8 @@ describe("cmdStatements keeps an empty quoted git -C '' value (GH 2549)", () => 
     ['git -C "" push origin dev', 'push origin dev'],
     ["git -C $'' push origin dev", 'push origin dev'],
     ["git -c '' push origin dev", 'push origin dev'],
+    ["git --attr-source '' push origin dev", 'push origin dev'],
+    ["/usr/bin/git -C '' push origin dev", 'push origin dev'],
   ])
     it(`${cmd}: the subcommand is ${sub}`, async () => {
       const [stmt] = await listed(cmd, single);

@@ -1535,8 +1535,16 @@ export function taskTools(db: TrajectoryDB): {
         if (report?.wm_feedback) insertWmFeedback(db, task, agent, report.wm_feedback, now);
       });
 
-      const updated = db.get<Task>('SELECT * FROM tasks WHERE id = ?', [taskId]);
-      return ok({ ...updated, return_line: sweReturnLine(updated ?? task) });
+      const updated = db.get<Pick<Task, 'id' | 'status' | 'commit_sha'>>(
+        'SELECT id, status, commit_sha FROM tasks WHERE id = ?',
+        [taskId],
+      ) ?? task;
+      return ok({
+        task_id: updated.id,
+        status: updated.status,
+        commit_sha: updated.commit_sha,
+        return_line: sweReturnLine(updated),
+      });
     })),
 
     task_first_actionable: wrapHandler(async (args) => {

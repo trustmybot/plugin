@@ -185,6 +185,13 @@ export const KEYS = [
     setBy: 'the Human through `/onboard` only (its `onboard_apply` input is still to come under GH 2225): `config_set` refuses the key with `human_only_config_key`, and any value other than `truest` or `agile` is refused',
     effect: 'The project\'s workflow mode (GH 2225). The shared close path of `bro_atomic_close` and `task_recover` stamps it on `tasks.workflow_mode` when a task closes; unset, unparseable or unknown reads as `truest`. No gate reads it yet.',
   },
+  {
+    name: 'world_model_test_lane',
+    type: 'object: `{extend?: glob[], exclude?: glob[]}`, each an array of non-blank strings',
+    defaultText: 'unset (the default rules only)',
+    setBy: 'bro via `config_set` (any other shape is refused)',
+    effect: 'The project\'s test lane (GH 2886): paths the world model treats as tests, on top of the default per-language rules (dirs `test`, `tests`, `__tests__`, `spec`, `e2e`, `fixtures`; names `*.test.*`, `*.spec.*`, `*.suite.*`, `*_test.go`, `test_*.py`, `*_test.py`, `*_spec.rb`, `conftest.py`). A path matching an `extend` glob is test; one matching an `exclude` glob is product, and `exclude` wins. Each `scan_run` reads it and stores every file\'s lane in `wm_files.lane`; the server reads it again at start for in-process readers. A malformed stored value reads as the defaults.',
+  },
 ];
 
 function stripSqlComments(sql) {

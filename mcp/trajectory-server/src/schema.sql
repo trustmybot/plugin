@@ -467,7 +467,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 69, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 70, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -852,7 +852,9 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     symbols_md5 (GH 1680) is the stamp content_md5 || ':' ||
 --     EXTRACTOR_VERSION the file's wm_symbols rows were parsed at; NULL until
 --     first parsed. A scan re-parses a file only when it differs from the
---     current stamp.
+--     current stamp. lane (v70 GH 2886) is 'test' when the project's test-lane
+--     classifier (defaults plus plugin_config.world_model_test_lane) matches
+--     the path, else 'product'; every scan re-derives it.
 --   wm_symbols (GH 1680, ADR 0001 L1): one row per definition tree-sitter
 --     finds in a TS/JS, shell or SQL file. The stable anchor key is
 --     (repo, path, kind, qualified_name): 'Class.method' for methods, the
@@ -925,6 +927,7 @@ CREATE TABLE IF NOT EXISTS wm_files (
     last_commit_sha TEXT    NOT NULL DEFAULT '',
     updated_at      TEXT    NOT NULL,
     symbols_md5     TEXT,
+    lane            TEXT    NOT NULL DEFAULT 'product' CHECK (lane IN ('test','product')),
     UNIQUE (repo, path)
 );
 

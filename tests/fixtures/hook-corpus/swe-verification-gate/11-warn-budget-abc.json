@@ -8,5 +8,9 @@
   "corpus_env": {
     "TMB_VERIFICATION_TIMEOUT_S": "abc"
   },
-  "corpus_expect": "verification_timeout_s 'abc' is not an integer from 1 to 1800; using the default 900s"
+  "corpus_divergent": "decision 703: GH 2866 added the doc-checks note; the worktree HEAD has no .config/tmb/doc-checks.json, so the port adds a note that missing_changelog and stale_doc_ref were skipped, which the .sh predates",
+  "corpus_expect": {
+    "bash": "verification_timeout_s 'abc' is not an integer from 1 to 1800; using the default 900s",
+    "ts": "missing_changelog and stale_doc_ref skipped: no .config/tmb/doc-checks.json at"
+  }
 }

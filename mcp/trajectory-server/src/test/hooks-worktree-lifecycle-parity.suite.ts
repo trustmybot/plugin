@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -369,7 +369,7 @@ export function worktreeLifecycleParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, c);
           const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             restore(template, s);
-            return run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env, s);
+            return run(...liveHookCommand(gate), c, env, s);
           });
           restore(template, s);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env, s);

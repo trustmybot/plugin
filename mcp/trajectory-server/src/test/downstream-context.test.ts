@@ -15,8 +15,7 @@ import type { TrajectoryDB } from '../db.js';
 import { downstreamContextArm, enrollDownstreamContextAb, type DownstreamAbStore } from '../downstream-context-ab.js';
 import { downstreamContextAbReport, formatDownstreamContextAbReport, DOWNSTREAM_AB_METRICS } from '../downstream-context-ab-report.js';
 import { DOWNSTREAM_CONTEXT_AB_KEY, parseDownstreamContextAb } from '../tools/config.js';
-import { isTestPath as indexIsTestPath } from '../symbol-index.js';
-import { capSections, isTestPath, MAX_CHARS, MAX_REFS, symbolsInRanges } from '../hooks/lib/downstream.js';
+import { capSections, directDownstream, MAX_CHARS, MAX_REFS, symbolsInRanges } from '../hooks/lib/downstream.js';
 import { sweDownstreamContext } from '../hooks/swe-downstream-context.js';
 import { oldSideSpans, pendingReviewerTask, reviewerDownstreamContext } from '../hooks/reviewer-downstream-context.js';
 import { findGate } from '../hooks/registry.js';
@@ -224,9 +223,26 @@ describe('GH 1990: downstream-context hooks over a seeded DB', () => {
 });
 
 describe('GH 1990: downstream-context helpers', () => {
-  it('GH 1990: the hook isTestPath agrees with symbol-index', () => {
-    for (const p of ['src/test/a.ts', 'tests/x.sh', 'a/__tests__/b.ts', 'src/a.test.ts', 'src/a.ts', 'src/testing/a.ts', 'contest/a.ts', 'x.test.js']) {
-      assert.equal(isTestPath(p), indexIsTestPath(p), p);
+  it('GH 2886: directDownstream drops callers by their stored wm_files lane, else by the default rules', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gh2886-')));
+    const dbFile = join(base, 'trajectory.db');
+    const db = tempDB({ path: dbFile });
+    try {
+      const callers: Array<[number, string]> = [[20, 'src/b.ts'], [30, 'src/test/a.test.ts'], [40, 'qa/check.ts'], [50, 'tests/kept.ts'], [60, 'pkg/foo_test.go']];
+      db.run(`INSERT INTO wm_symbols (id, repo, path, kind, qualified_name, start_line, end_line, body_hash) VALUES (10, 'r', 'src/a.ts', 'function', 'foo', 1, 3, 'h')`);
+      for (const [id, path] of callers) {
+        db.run(`INSERT INTO wm_symbols (id, repo, path, kind, qualified_name, start_line, end_line, body_hash) VALUES (?, 'r', ?, 'function', ?, 1, 2, 'h')`, [id, path, `c${id}`]);
+        db.run(`INSERT INTO wm_edges (src_id, dst_id, dst_name, kind, resolution) VALUES (?, 10, 'foo', 'calls', 'exact')`, [id]);
+      }
+      for (const [path, lane] of [['qa/check.ts', 'test'], ['tests/kept.ts', 'product']]) {
+        db.run(`INSERT INTO wm_files (repo, path, dir, updated_at, lane) VALUES ('r', ?, ?, ?, ?)`, [path, path.split('/')[0], NOW, lane]);
+      }
+      const env = { PATH: process.env.PATH, HOME: join(base, 'home'), LC_ALL: 'C' };
+      const ds = directDownstream(dbFile, 'r', [10], env);
+      assert.deepEqual(ds?.refs.map((r) => r.path), ['src/b.ts', 'tests/kept.ts']);
+    } finally {
+      db.close();
+      rmSync(base, { recursive: true, force: true });
     }
   });
 

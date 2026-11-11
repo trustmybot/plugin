@@ -36,7 +36,7 @@ const GIT_ENV: NodeJS.ProcessEnv = {
 };
 
 const PUSH_REASON =
-  "BLOCKED: ambiguous_git_subcommand: `git $p origin dev` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally. Allowed form: git -C <path> push …, or the literal subcommand it runs";
+  "BLOCKED: ambiguous_git_subcommand: `git $p origin dev` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally. An option value in double quotes, such as `git -C \"$W\" status`, is allowed. Allowed form: git -C <path> push …, or the literal subcommand it runs";
 
 function git(dir: string, ...args: string[]): void {
   const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: GIT_ENV });

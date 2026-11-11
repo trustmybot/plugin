@@ -53,7 +53,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { noCmdPath } from './hooks-swe-run-parity.suite.js';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -539,7 +539,7 @@ export function mergeLifecycleParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, paths, c.env, c.cwd);
           const { tree: bashSnap, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             restore();
-            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env, scratch), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(gate), c, env, scratch), tree: snapshot(s) };
           });
           restore();
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env, scratch);

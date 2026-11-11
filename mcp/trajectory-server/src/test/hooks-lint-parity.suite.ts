@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LINT_GATES, lintSandbox, type LintSandbox } from './lint-hooks-sandbox.js';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -110,7 +110,7 @@ export function lintParityShard(k: number, n: number): void {
           ...extra,
         };
         const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': dir }), () => {
-          const r = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, dir, join(dir, 'bash.log'));
+          const r = run(...liveHookCommand(gate), input, env, dir, join(dir, 'bash.log'));
           return { code: r.code, stdout: r.stdout.toString('latin1'), calls: r.calls };
         });
         const node = run(process.execPath, [HOOKS_BUNDLE, gate], input, env, dir, join(dir, 'node.log'));

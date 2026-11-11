@@ -23,12 +23,11 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { goldenBash, goldenRoots } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/swe-boundary');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'swe-boundary.sh');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const LOCALES = ['C', 'en_US.UTF-8'];
@@ -235,7 +234,7 @@ export function sweBoundaryParityShard(k: number, n: number): void {
           const { audit: bashAudit, ...bash } = goldenBash('swe-boundary', f, locale, goldenRoots({ '@SANDBOX@': sb.dir, '@SCRATCH@': sb.scratchProject, '@SESSION@': shardSession(sb.dir), '@CLAUDE_TMP@': `/tmp/claude-${process.geteuid?.() ?? 0}` }), () => {
             resetState(sb, record, now);
             const start = auditMark(sb.db);
-            return { ...run('bash', [HOOK_SH], input, env, cwd), audit: auditRowsAfter(sb.db, start) };
+            return { ...run(...liveHookCommand('swe-boundary'), input, env, cwd), audit: auditRowsAfter(sb.db, start) };
           });
           resetState(sb, record, now);
           const middle = auditMark(sb.db);
