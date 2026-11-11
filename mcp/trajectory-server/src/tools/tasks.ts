@@ -34,6 +34,7 @@ import {
 import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from '../checkpoint.js';
 import { WM_FEEDBACK_SCHEMA, insertWmFeedback } from './validation.js';
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
+import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -315,6 +316,99 @@ export function insertSpecShapeWaiver(
     content_json: JSON.stringify({ task_id: task.task_id, gate: 'spec_shape', reason, waived_by: 'bro', source }),
     created_at: createdAt,
   });
+}
+
+const REWORK_ANALYSIS_INVALID = 'rework_analysis_invalid';
+
+function reworkAnalysisInvalid(detail: string): Error {
+  return new Error(`${REWORK_ANALYSIS_INVALID}: ${detail}`);
+}
+
+function integerList(value: unknown, name: string): number[] {
+  if (!Array.isArray(value) || value.length === 0 || !value.every((v) => Number.isInteger(v))) {
+    throw reworkAnalysisInvalid(`${name} must be a non-empty array of integers`);
+  }
+  return [...new Set(value as number[])];
+}
+
+function oneOf<T extends string>(value: unknown, name: string, allowed: readonly T[]): T {
+  if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
+    throw reworkAnalysisInvalid(`${name} must be one of ${allowed.join(', ')} (got ${JSON.stringify(value)})`);
+  }
+  return value as T;
+}
+
+// One task_rework_analysis audit row (GH 2830): bro's typed analysis of a
+// task's review FAILs since its latest pass, which with its proven change
+// admits the next swe run past the rework-limit gate, or with design_drift
+// blocks the task until the Human waives it.
+export function recordReworkAnalysis(db: TrajectoryDB, args: Record<string, unknown>): { audit_id: number; task_id: number } {
+  const taskId = Number(args['task_id']);
+  if (!Number.isInteger(taskId)) throw reworkAnalysisInvalid('task_id must be an integer');
+  const task = db.get<{ id: number; issue_id: number; branch_id: string }>('SELECT id, issue_id, branch_id FROM tasks WHERE id = ?', [taskId]);
+  if (!task) throw reworkAnalysisInvalid(`task ${taskId} not found`);
+
+  const failIds = integerList(args['fail_validation_ids'], 'fail_validation_ids');
+  const passId = db.get<{ id: number | null }>(
+    "SELECT MAX(id) AS id FROM validation_attempts WHERE task_id = ? AND verdict = 'pass'",
+    [taskId],
+  )?.id ?? 0;
+  const fails = new Set(
+    db
+      .all<{ id: number }>("SELECT id FROM validation_attempts WHERE task_id = ? AND verdict = 'fail' AND id > ?", [taskId, passId])
+      .map((r) => r.id),
+  );
+  const foreign = failIds.filter((id) => !fails.has(id));
+  if (foreign.length > 0) {
+    throw reworkAnalysisInvalid(
+      `fail_validation_ids ${foreign.join(', ')} are not FAIL verdicts on task ${taskId} after its latest pass`,
+    );
+  }
+  const latestFail = Math.max(...fails);
+  if (!failIds.includes(latestFail)) {
+    throw reworkAnalysisInvalid(`fail_validation_ids must include the latest FAIL on task ${taskId}, validation_attempts row ${latestFail}`);
+  }
+
+  const rawFindings = args['finding_ids'];
+  const findingRe = new RegExp(`^F${taskId}-[0-9]+$`);
+  if (!Array.isArray(rawFindings) || rawFindings.length === 0) {
+    throw reworkAnalysisInvalid('finding_ids must be a non-empty array of finding ids');
+  }
+  const findings: unknown[] = rawFindings;
+  const badFinding = findings.find((f) => typeof f !== 'string' || !findingRe.test(f));
+  if (badFinding !== undefined) {
+    throw reworkAnalysisInvalid(`finding_ids entry ${JSON.stringify(badFinding)} does not match F${taskId}-<n>`);
+  }
+
+  const rootCause = oneOf(args['root_cause'], 'root_cause', REWORK_ROOT_CAUSES);
+  const change = oneOf(args['change'], 'change', REWORK_CHANGES);
+  const approachSharedCause = args['approach_shared_cause'];
+  if (typeof approachSharedCause !== 'boolean') throw reworkAnalysisInvalid('approach_shared_cause must be a boolean');
+  const pairingError = reworkPairingError(rootCause, change, approachSharedCause);
+  if (pairingError !== null) throw reworkAnalysisInvalid(pairingError);
+  const rationale = args['rationale'];
+  if (typeof rationale !== 'string' || rationale.trim().length < REWORK_RATIONALE_MIN_CHARS) {
+    throw reworkAnalysisInvalid(`rationale must be at least ${REWORK_RATIONALE_MIN_CHARS} characters`);
+  }
+
+  const auditId = insertAudit(db, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: normalizeAgent(args['agent']),
+    event_type: 'task_rework_analysis',
+    summary: `Task ${taskId} rework analysis: ${rootCause} → ${change}`,
+    content_json: JSON.stringify({
+      task_id: taskId,
+      fail_validation_ids: failIds,
+      finding_ids: [...new Set(findings as string[])],
+      root_cause: rootCause,
+      change,
+      approach_shared_cause: approachSharedCause,
+      rationale,
+    }),
+    created_at: nowISO(),
+  });
+  return { audit_id: auditId, task_id: taskId };
 }
 
 export function taskTools(db: TrajectoryDB): {
@@ -605,6 +699,33 @@ export function taskTools(db: TrajectoryDB): {
           issue_id: { type: 'string' },
         },
         required: ['agent', 'issue_id'],
+      },
+    },
+    {
+      name: 'task_rework_analysis',
+      description:
+        "Bro's typed analysis of a task's FAILs since its last pass; a newer proven change clears the two-FAIL rework limit; design_drift blocks the task until the Human waives it. Returns {audit_id, task_id}.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task_id: { type: 'number' },
+          fail_validation_ids: {
+            type: 'array',
+            items: { type: 'number' },
+            description: "validation_attempts ids of the task's FAILs after its latest pass, the latest FAIL included.",
+          },
+          finding_ids: { type: 'array', items: { type: 'string' }, description: 'Findings analyzed, each F<task_id>-<n>.' },
+          root_cause: { type: 'string', enum: [...REWORK_ROOT_CAUSES], description: 'world_model takes only world_model_fix; design_drift only ask_human.' },
+          change: {
+            type: 'string',
+            enum: [...REWORK_CHANGES],
+            description: 'spec_update, effort_raise and world_model_fix admit the next swe run once proven; ask_human answers only design_drift.',
+          },
+          approach_shared_cause: { type: 'boolean', description: 'Do the findings share one cause in the approach itself? true takes only split or retry.' },
+          rationale: { type: 'string', description: `At least ${REWORK_RATIONALE_MIN_CHARS} characters.` },
+        },
+        required: ['agent', 'task_id', 'fail_validation_ids', 'finding_ids', 'root_cause', 'change', 'approach_shared_cause', 'rationale'],
       },
     },
   ];
@@ -1393,6 +1514,7 @@ export function taskTools(db: TrajectoryDB): {
       return ok(task ?? null);
     }),
 
+    task_rework_analysis: requireRoles('task_rework_analysis', ['bro'], wrapHandler((args) => Promise.resolve(ok(recordReworkAnalysis(db, args))))),
   };
 
   return { definitions, handlers };
