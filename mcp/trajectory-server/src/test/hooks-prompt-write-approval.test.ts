@@ -312,6 +312,59 @@ describe('prompt-write-approval (GH 2927)', () => {
       it('SC4: a swe stays exempt', async () => {
         for (const [command] of ANCESTOR_WRITES) assert.equal(await bash(command, { agent_type: 'tmb:swe', agent_id: 'a1' }, noDb()), null, command);
       });
+
+      describe('a top-anchored pathspec resolves against the repository top (F876-1)', () => {
+        const TOP_WRITES = ['git checkout HEAD -- :/.claude/skills', "git checkout HEAD -- ':(top).claude'", "git restore -- ':(top,glob).claude/**'", 'git checkout HEAD -- ":(glob,top).claude/**"', 'git checkout HEAD -- :/', "git checkout HEAD -- ':(exclude)x'", 'git checkout HEAD -- :/!x', 'git checkout --pathspec-from-file=f HEAD'];
+        const fromSrc = (): object => ({ cwd: join(project, 'src') });
+
+        beforeEach(() => mkdirSync(join(project, 'src'), { recursive: true }));
+
+        it('SC6: denies each from <root>/src with no approval, and allows a top pathspec elsewhere with no DB read', async () => {
+          for (const command of TOP_WRITES) denied(await bash(command, fromSrc()));
+          assert.ok(denied(await bash(TOP_WRITES[0], fromSrc())).includes(join(project, '.claude/skills')));
+          for (const command of ['git checkout HEAD -- :/src/a.ts', "git checkout HEAD -- ':(top)src'", 'git checkout HEAD -- a.ts']) assert.equal(await bash(command, fromSrc(), noDb()), null, command);
+        });
+
+        it('SC6: finds the top from the nearest .git, the cwd or a git -C dir', async () => {
+          mkdirSync(join(project, '.git'));
+          mkdirSync(join(project, 'src/deep'), { recursive: true });
+          denied(await bash('git checkout HEAD -- :/.claude', { cwd: join(project, 'src/deep') }));
+          denied(await bash('git -C src restore --source HEAD~1 :/'));
+          denied(await bash('cd src && git checkout HEAD -- :/'));
+          assert.equal(await bash('git -C src restore --source HEAD~1 :/src', {}, noDb()), null);
+        });
+
+        it('SC6: fails closed when git is told where the repository is', async () => {
+          for (const command of ['GIT_DIR=x git checkout -- :/src', 'git --git-dir=x checkout -- :/src', 'git --work-tree=.. checkout -- .']) denied(await bash(command, fromSrc()));
+          denied(await bash('git checkout -- :/src', fromSrc(), env({ GIT_WORK_TREE: join(project, 'src') })));
+        });
+
+        it('F876-1: the review probe commands are denied', async () => {
+          for (const [command, cwd] of [
+            ['git checkout HEAD -- :/', 'sub'],
+            ['git checkout HEAD -- :(top).claude', 'sub'],
+            ['git checkout HEAD -- :/.claude/skills', 'sub'],
+            ['git -C sub restore --source HEAD~1 :/', ''],
+          ]) {
+            mkdirSync(join(project, 'sub'), { recursive: true });
+            denied(await bash(command, { cwd: join(project, cwd), agent_type: 'tmb:code-reviewer', agent_id: 'z' }, noDb()));
+          }
+        });
+
+        it('denies a command that does not parse, since nothing it writes can be told', async () => {
+          assert.match(denied(await bash('git checkout HEAD -- :(top).claude', {}, noDb())), /cannot be judged: the command could not be parsed/);
+        });
+      });
+
+      describe('a mv into the root (F876-2)', () => {
+        it('SC7: denies a mv landing a .claude dir, in any letter case, and a mv into a prompt dir', async () => {
+          for (const command of ['mv x/.claude .', 'mv x/.Claude .', 'mv a.md .claude/skills/', 'mv -t . x/.claude', 'git mv x/.claude .', 'mv x/.c* .', 'mv -T x/skills .claude']) denied(await bash(command));
+        });
+
+        it('SC7: allows any other mv into the root with no DB read', async () => {
+          for (const command of ['mv a.txt .', 'mv src/ .', 'mv src/*.ts .', 'git mv a.txt .', 'mv -T src lib']) assert.equal(await bash(command, {}, noDb()), null, command);
+        });
+      });
     });
 
     it('SC4: leaves a never-judged target to containment-guard and denies the analyzer cap line', async () => {

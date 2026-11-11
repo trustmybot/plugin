@@ -13,20 +13,24 @@
  * Bash (GH 2942): each write target the cmd-analysis analyzer finds is judged
  * the same way, and every gated one needs its own approval scoped `full`, since
  * a shell write cannot be held to the skills: list. The analyzer's cap line
- * denies; its never-judged targets are containment-guard's. A command with no
- * gated target reads no DB.
+ * and a command that did not parse deny, since nothing it writes can be told
+ * (GH 2981); its other never-judged targets are containment-guard's. A command
+ * with no gated target reads no DB.
  *
  * A write naming only a dir above the prompt dirs (GH 2981) is gated too: a
  * `.claude`, `.claude/skills` or `.claude/agents` dir for any write, and the
  * root, any ancestor of it or of where the prompt dirs resolve when a whole
- * tree lands there (the analyzer's treeWrites mode: a recursive cp, mv, rsync,
- * tar extract, git checkout / restore pathspec or interpreter copy), since the
- * tree may carry a `.claude/skills` of its own.
+ * tree lands there (the analyzer's treeWrites mode: a recursive cp, rsync,
+ * tar extract, git checkout / restore pathspec, read from the repository's top
+ * for a `:/` or `:(top)` one, or interpreter copy), since the tree may carry a
+ * `.claude/skills` of its own. A mv lands only its sources' names, so a mv
+ * into the root is gated only when one is named `.claude`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
+import { NEVER_JUDGED, NEVER_JUDGED_FIX, UNJUDGED_PHRASE } from './containment-guard.js';
 import { judgedPath } from './no-source-edit-from-main.js';
 import { pathCanonical } from './lib/agent-context.js';
 import { DB_RETRY_FIX, dbPath, haveSqlite, projectRoot, sqlQuote, sqliteRo } from './lib/db.js';
@@ -219,14 +223,44 @@ function isPromptParent(spelled: string, target: string, root: string): boolean 
   return rootRels(spelled, target, root).some((rel) => PROMPT_PARENT.test(rel));
 }
 
+/** A shell glob as a case-insensitive RegExp whose `*` also matches a leading dot, or null when it is no valid class. */
+function globRegExp(glob: string): RegExp | null {
+  let re = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    const close = c === '[' ? glob.indexOf(']', i + 2) : -1;
+    if (c === '*') re += '.*';
+    else if (c === '?') re += '.';
+    else if (close > 0) {
+      const body = glob.slice(i + 1, close).replace(/\\/g, '\\\\');
+      re += `[${/^[!^]/.test(body) ? `^${body.slice(1)}` : body}]`;
+      i = close;
+    } else re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  }
+  try {
+    return new RegExp(`^${re}$`, 'i');
+  } catch {
+    return null;
+  }
+}
+
+/** Whether <path> is <of> or an ancestor of it, a glob in its last segment matching the name below its parent (an invalid glob matches). */
 function ancestorOrSelf(path: string, of: string): boolean {
-  return path === '/' || within(of, path);
+  if (path === '/' || within(of, path)) return true;
+  const slash = path.lastIndexOf('/');
+  const name = path.slice(slash + 1);
+  if (!/[*?[]/.test(name)) return false;
+  const parent = path.slice(0, slash) || '/';
+  const below = parent === '/' ? of.slice(1) : underRoot(of, parent);
+  if (below === null || below === '') return false;
+  return globRegExp(name)?.test(below.split('/')[0]) ?? true;
 }
 
 /**
  * Whether a tree written whole into <spelled> can reach a prompt dir: it is the root's `.claude`
  * dir (spelled or canonical) or an ancestor of it, or an ancestor of where the root's skill or
- * agent dirs or their symlinked entries resolve.
+ * agent dirs or their symlinked entries resolve; a glob last segment (`mv x/.c* .`) counts when
+ * it may match the next segment down.
  */
 function holdsPromptDirs(spelled: string, target: string, root: string): boolean {
   if (!isAbsolute(root) || root === '/') return false;
@@ -248,6 +282,9 @@ function gatedTargets(lines: readonly string[], base: string, isGated: (spelled:
   return out;
 }
 
+/** An analyzer line for a command (or a body it runs) that did not parse, so nothing it writes can be told. */
+const UNPARSED = 'UNRESOLVED:$(parse):';
+
 const analyzed = async (command: string, options: WritePathsOptions): Promise<string[]> => (await writePaths(command, options)).join('\n').split('\n');
 
 async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
@@ -258,13 +295,17 @@ async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): P
   if (lines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
   const treeLines = await analyzed(command, { cwd, root, env, treeWrites: true });
   if (treeLines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
+  const unparsed = lines.find((line) => line.startsWith(UNPARSED));
+  if (unparsed !== undefined) {
+    return denyResult(`BLOCKED: write target "${unparsed.slice(UNPARSED.length)}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED['$(parse)']}`, NEVER_JUDGED_FIX['$(parse)']);
+  }
 
   const base = baseDir(cwd, root);
   const promptWrite = (spelled: string, target: string): boolean => promptKind(spelled, target, root) !== null || isPromptParent(spelled, target, root);
-  const gated = new Set([
-    ...gatedTargets(lines, base, promptWrite),
-    ...gatedTargets(treeLines, base, (spelled, target) => promptWrite(spelled, target) || holdsPromptDirs(spelled, target, root)),
-  ]);
+  const plain = gatedTargets(lines, base, promptWrite);
+  const tree = gatedTargets(treeLines, base, (spelled, target) => promptWrite(spelled, target) || holdsPromptDirs(spelled, target, root));
+  // A full approval of a dir already admits any tree into it, so where a moved file lands inside a gated dir needs no second approval.
+  const gated = new Set([...plain, ...tree.filter((path) => !plain.some((dir) => underRoot(path, dir) !== null))]);
   if (gated.size === 0) return ALLOW;
 
   const db = approvalDb(env);
