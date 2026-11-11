@@ -50,7 +50,12 @@ import {
   passingRunForCommit,
   verificationWaivedForCommit,
 } from './verification-runs.js';
-import { appendVerificationDefaults, readVerificationDefaults, verificationDefaultsResult } from './verification-defaults.js';
+import {
+  appendVerificationDefaults,
+  readVerificationDefaults,
+  verificationDefaultsMissingField,
+  verificationDefaultsResult,
+} from './verification-defaults.js';
 import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
@@ -2055,6 +2060,7 @@ export function compositeTools(
             : {}),
           ...(diagnostic ? { diagnostic } : {}),
           verification_defaults_added: verificationDefaultsAdded,
+          ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
           ...suggestVerification(db, repoValue, repoPath, files, verification),
         });
       }),
@@ -2823,6 +2829,7 @@ export function compositeTools(
         }
         const suggested = () => ({
           verification_defaults_added: verificationDefaultsAdded,
+          ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
           ...suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification),
         });
         if (repoPath && retryBase) {

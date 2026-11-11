@@ -35,7 +35,7 @@ import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import type { Provider } from '../utils/classify-url.js';
-import { repoRowPath, resolveSoleRepoPath } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo, resolveSoleRepoPath } from '../utils/repo-paths.js';
 import {
   remotesView,
   repoRemotes,
@@ -59,6 +59,16 @@ import {
   type SandboxRecord,
 } from './onboard-sandbox.js';
 import { scanWorkspace, type Recommendation, type WorkspaceScan } from './onboard-scan.js';
+import {
+  NO_ENV_PROFILE_NOTE,
+  proposeVerificationDefaults,
+  readVerificationDefaults,
+  VERIFICATION_DEFAULTS_FILE,
+  verificationDefaultsBaseRef,
+  verificationDefaultsMissing,
+  writeVerificationDefaults,
+  type VerificationDefaultCandidate,
+} from './verification-defaults.js';
 
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
@@ -615,6 +625,32 @@ function bugReportQuestion(current: string | null, isReonboard: boolean): BuiltQ
   };
 }
 
+// AskUserQuestion takes 2-4 options per question and at most 4 questions.
+const AUQ_MAX_OPTIONS = 4;
+const AUQ_MAX_QUESTIONS = 4;
+const NO_DEFAULTS_WIRE = '__none__';
+
+// The candidates as multiSelect questions, spread evenly so none holds a lone
+// option; a single candidate gets a None option beside it.
+function verificationDefaultsQuestions(repo: string, ref: string, candidates: VerificationDefaultCandidate[]): BuiltQuestion[] {
+  const shown = candidates.slice(0, AUQ_MAX_OPTIONS * AUQ_MAX_QUESTIONS);
+  const count = Math.ceil(shown.length / AUQ_MAX_OPTIONS);
+  const groups = Array.from({ length: count }, (_, i) =>
+    shown.slice(Math.round((i * shown.length) / count), Math.round(((i + 1) * shown.length) / count)),
+  );
+  return groups.map((group, i) => {
+    const options: QuestionOption[] = group.map((c) => ({ label: c.command, description: `${c.category}, from ${c.source}`, wire: c.command }));
+    if (options.length === 1) options.push({ label: 'None', description: 'Write no defaults file.', wire: NO_DEFAULTS_WIRE });
+    return {
+      question: `Which commands should every ${repo} task run before it closes? They go into ${VERIFICATION_DEFAULTS_FILE}.`,
+      header: count > 1 ? `Checks ${i + 1}/${count}` : 'Checks',
+      multiSelect: true,
+      ...assemble(null, options, NO_ADVICE, null),
+      evidence: [`${repo} has no ${VERIFICATION_DEFAULTS_FILE} on ${ref}; these commands come from its recorded env profile.`],
+    };
+  });
+}
+
 // ---- Label → wire resolution -----------------------------------------------
 
 // Resolve a caller-supplied value against a set of options.
@@ -673,6 +709,15 @@ function applyRemoteChoice(db: TrajectoryDB, repo: string, providers: ReadonlyAr
   return setRemoteSync(db, repo, providers).map(
     (p) => `no ${p} remote on repo "${repo}"; issues for it will not sync to ${HOST_NAMES[p]}`,
   );
+}
+
+// The Checks answers as commands, each once, without the None option.
+function parseVerificationDefaultsAnswer(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.some((c) => typeof c !== 'string' || c.trim() === '')) {
+    throw new Error('verification_defaults must be an array of non-empty commands');
+  }
+  const commands = (raw as string[]).map((c) => c.trim()).filter((c) => c !== NO_DEFAULTS_WIRE && c.toLowerCase() !== 'none');
+  return [...new Set(commands)];
 }
 
 const ISSUE_SYNC_OPTIONS: QuestionOption[] = [
@@ -742,14 +787,14 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           },
           round: {
             type: 'string',
-            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report'],
+            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep).",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep). 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record).",
           },
           repo: {
             type: 'string',
             description:
-              "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Only valid with round='main', for either shape. Must match an existing repos.name. Omit for workspace-wide questions.",
+              "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Valid with round='main', for either shape, and with round='verification_defaults' (required there when the workspace has several repos). Must match an existing repos.name. Omit for workspace-wide questions.",
           },
         },
         required: ['round'],
@@ -813,6 +858,12 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             enum: ['yes', 'no'],
             description:
               "Optional. The 'bug_report' round answer: 'yes' lets bro offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; 'no' means bro never offers. Omit to keep the stored answer (default 'no'). Also accepted alone (no shape) on an onboarded project, with or without headless_enforcement.",
+          },
+          verification_defaults: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              "Optional. The 'verification_defaults' round answers: the chosen commands, for repo (or the sole repo). Writes {\"version\":1,\"commands\":[...]} to " + VERIFICATION_DEFAULTS_FILE + " in the repo's working tree and never commits; result verification_defaults {path, commands, written, refused, commit_needed, message}: it takes effect once committed to the PR target. An existing file with other commands is refused and left as it is; the rest of the apply still lands. Accepted alone (no shape), with repo.",
           },
           repo: {
             type: 'string',
@@ -1009,6 +1060,44 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     return { removed, refused };
   };
 
+  const verificationDefaultsRepo = (name: string | undefined): { name: string; path: string } => {
+    const repo = resolveSoleRepo(db, name);
+    if (repo) return repo;
+    throw new Error(name ? `unknown repo '${name}' — no matching repos row` : 'verification_defaults needs repo unless the workspace has exactly one repo');
+  };
+
+  const verificationDefaultsRound = (repoName: string | undefined): Record<string, unknown> => {
+    const target = verificationDefaultsRepo(repoName);
+    const ref = verificationDefaultsBaseRef(db, target.name, target.path);
+    if (ref === null) return { questions: [], notes: [`${target.name}: its PR target branch does not resolve in git`] };
+    const defaults = readVerificationDefaults(target.path, ref);
+    if (!verificationDefaultsMissing(target.path, ref, defaults)) {
+      const note = 'error' in defaults ? `${VERIFICATION_DEFAULTS_FILE} on ${ref} is invalid: ${defaults.error}` : `${target.name} already has ${VERIFICATION_DEFAULTS_FILE} on ${ref}`;
+      return { questions: [], notes: [note] };
+    }
+    const proposal = proposeVerificationDefaults(db, target.name);
+    if ('reason' in proposal) return { questions: [], reason: proposal.reason, notes: [NO_ENV_PROFILE_NOTE] };
+    if (proposal.candidates.length === 0) {
+      return { questions: [], notes: [`${target.name}'s recorded env profile has no lint, typecheck or test command`] };
+    }
+    return { questions: verificationDefaultsQuestions(target.name, ref, proposal.candidates) };
+  };
+
+  const applyVerificationDefaults = (target: { name: string; path: string }, commands: string[]): Record<string, unknown> => {
+    if (commands.length === 0) {
+      return {
+        repo: target.name,
+        path: join(target.path, VERIFICATION_DEFAULTS_FILE),
+        commands,
+        written: false,
+        refused: false,
+        commit_needed: false,
+        message: 'no command chosen; nothing written',
+      };
+    }
+    return { ...writeVerificationDefaults(target.name, target.path, verificationDefaultsBaseRef(db, target.name, target.path), commands) };
+  };
+
   const handlers: Record<string, Fn> = {
     onboard_state_get: requireRoles(
       'onboard_state_get',
@@ -1061,8 +1150,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       ['bro'],
       wrapHandler(async (args) => {
         const shape = args['shape'] as 'local' | 'remote' | undefined;
-        const round = args['round'] as 'shape' | 'main' | 'remote' | 'sync' | 'sandbox' | 'bug_report';
+        const round = args['round'] as 'shape' | 'main' | 'remote' | 'sync' | 'sandbox' | 'bug_report' | 'verification_defaults';
         const repo = args['repo'] as string | undefined;
+
+        if (round === 'verification_defaults') return ok(verificationDefaultsRound(repo));
 
         const git = probeGit(probeDir());
 
@@ -1162,6 +1253,20 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             throw new Error(`standalone=true is applied alone — drop ${others.join(', ')}; the new project onboards after the session restart`);
           }
           return ok(makeStandalone());
+        }
+        const chosenDefaults =
+          args['verification_defaults'] === undefined ? null : parseVerificationDefaultsAnswer(args['verification_defaults']);
+        const defaultsTarget = chosenDefaults === null ? null : verificationDefaultsRepo(args['repo'] as string | undefined);
+        const defaultsField = (): { verification_defaults?: Record<string, unknown> } =>
+          defaultsTarget && chosenDefaults ? { verification_defaults: applyVerificationDefaults(defaultsTarget, chosenDefaults) } : {};
+        if (defaultsTarget && args['shape'] === undefined) {
+          const others = Object.keys(args).filter(
+            (k) => !['verification_defaults', 'repo', 'agent'].includes(k) && args[k] !== undefined,
+          );
+          if (others.length > 0) {
+            throw new Error(`verification_defaults without shape is applied alone — drop ${others.join(', ')}, or pass shape for the full apply`);
+          }
+          return ok({ ok: true, ...defaultsField() });
         }
         const rawStray = args['remove_stray_dbs'];
         if (rawStray !== undefined && (!Array.isArray(rawStray) || rawStray.some((p) => typeof p !== 'string'))) {
@@ -1270,6 +1375,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
               protected_branches: protectedRepo,
               ...(remoteRepo.length > 0 ? { remote: remoteRepo } : {}),
             },
+            ...defaultsField(),
           });
         }
 
@@ -1486,6 +1592,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             bug_report_consent,
             ...(warning ? { warning } : {}),
           },
+          ...defaultsField(),
         });
       }),
     ),
