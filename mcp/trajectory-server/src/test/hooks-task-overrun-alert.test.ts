@@ -122,10 +122,15 @@ function fixture(): Fixture {
 const gate = makeTaskOverrunAlert(() => NOW);
 const broPrompt = JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's', prompt: 'hi' });
 
+interface HookOutput {
+  hookSpecificOutput: { hookEventName: string; additionalContext: string };
+}
+
+const parseOutput = (stdout: string) => JSON.parse(stdout) as HookOutput;
+
 function context(stdout: string): string {
   assert.notEqual(stdout, '', 'expected an alert');
-  const out = JSON.parse(stdout);
-  return out.hookSpecificOutput.additionalContext as string;
+  return parseOutput(stdout).hookSpecificOutput.additionalContext;
 }
 
 describe('task-overrun-alert', () => {
@@ -150,7 +155,7 @@ describe('task-overrun-alert', () => {
     f.fail(5, '\n  Missing changelog fragment\nsecond line');
     const first = gate(broPrompt, f.env);
     assert.equal(first.code, 0);
-    const out = JSON.parse(first.stdout);
+    const out = parseOutput(first.stdout);
     assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
     assert.equal(
       out.hookSpecificOutput.additionalContext,
@@ -183,9 +188,9 @@ describe('task-overrun-alert', () => {
     f.task(10, 200, 'closed');
     f.task(11, 30);
     const post = JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'mcp__plugin_tmb_trajectory-server__task_list' });
-    const out = JSON.parse(gate(post, f.env).stdout);
+    const out = parseOutput(gate(post, f.env).stdout);
     assert.equal(out.hookSpecificOutput.hookEventName, 'PostToolUse');
-    const lines = (out.hookSpecificOutput.additionalContext as string).split('\n');
+    const lines = out.hookSpecificOutput.additionalContext.split('\n');
     assert.equal(lines.length, 2);
     assert.match(lines[0], /^TMB: task 3 has been running 120 min \(attempts: 0 swe spawns; blocker: status running\)/);
     assert.match(lines[1], /^TMB: task 8 has been running 90 min/);
@@ -204,7 +209,7 @@ describe('task-overrun-alert', () => {
     const f = fixture();
     f.task(20, 500, 'closed');
     f.liveRun('a20', 20, 402);
-    const out = JSON.parse(gate(broPrompt, f.env).stdout);
+    const out = parseOutput(gate(broPrompt, f.env).stdout);
     assert.equal(
       out.hookSpecificOutput.additionalContext,
       'TMB: swe run a20 (task 20, task status closed) started 402 min ago and has not stopped. Check whether it is stuck and stop it if so.',

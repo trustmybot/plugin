@@ -33,7 +33,6 @@ export const OVERRUN_ENV = 'TMB_TASK_OVERRUN_MIN';
 export const DEFAULT_OVERRUN_MIN = 60;
 const EVENT = 'task_overrun_alerted';
 const RUN_EVENT = 'agent_run_overrun_alerted';
-const REOPEN_EVENT = 'task_reopened';
 const FROM_NODE = `hook:${GATE_NAME}`;
 const MS_PER_MIN = 60_000;
 const SYSTEM_ISSUE = '-1';
@@ -102,7 +101,7 @@ function overruns(db: string, now: Date, limitMin: number, env: NodeJS.ProcessEn
     db,
     `WITH live AS (
        SELECT t.*, COALESCE((SELECT MAX(r.created_at) FROM audit r
-                              WHERE r.event_type = '${REOPEN_EVENT}' AND json_valid(r.content_json)
+                              WHERE r.event_type = 'task_reopened' AND json_valid(r.content_json)
                                 AND json_extract(r.content_json, '$.task_id') = t.id), t.created_at) AS since
          FROM tasks t
         WHERE t.status = 'running')
@@ -111,7 +110,7 @@ function overruns(db: string, now: Date, limitMin: number, env: NodeJS.ProcessEn
          'attempts', (SELECT COUNT(*) FROM agent_runs WHERE task_id = l.id AND ${SWE_SPAWN_SQL}),
          'fail', (SELECT feedback FROM validation_attempts v WHERE v.task_id = l.id AND v.verdict = 'fail' ORDER BY v.id DESC LIMIT 1))), '[]')
        FROM live l
-      WHERE NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type = '${EVENT}' AND json_valid(a.content_json)
+      WHERE NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type = 'task_overrun_alerted' AND json_valid(a.content_json)
                          AND json_extract(a.content_json, '$.task_id') = l.id
                          AND julianday(a.created_at) >= julianday(l.since));`,
     env,
