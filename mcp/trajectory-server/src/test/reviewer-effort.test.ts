@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
-import { configTools } from '../tools/config.js';
+import { configTools, REVIEWER_TIER_SETTINGS_KEY } from '../tools/config.js';
 import { isDocsOrTestPath, reviewerEffortAbArm, reviewerEffortTier } from '../reviewer-effort.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -251,9 +251,9 @@ describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)'
     assert.deepEqual(rowsOf(51), [{ task_id: 51, commit_sha: off.sha, effort: 'medium', reason: 'config' }]);
 
     await setConfig('reviewer_effort_ab', { label: 'gh-2932', target: 2 });
-    const fixedArm = await handOff(53, ['docs/a.md']);
+    await handOff(53, ['docs/a.md']);
     assert.deepEqual(rowsOf(53).map((r) => [r['effort'], r['model'], r['reason'], r['arm']]), [['medium', undefined, 'config', 'fixed']]);
-    const tieredArm = await handOff(54, ['docs/a.md']);
+    await handOff(54, ['docs/a.md']);
     assert.deepEqual(rowsOf(54).map((r) => [r['effort'], r['model'], r['reason'], r['arm']]), [['high', 'sonnet', 'docs_tests', 'tiered']]);
   });
 
@@ -400,7 +400,7 @@ describe('config_set: reviewer_effort_tiers and reviewer_effort_ab shapes', () =
     const db = tempDB();
     try {
       const config = configTools(db);
-      const set = async (value: unknown) => call(config.handlers, 'config_set', { agent: 'bro', key: 'reviewer_tier_settings', value });
+      const set = async (value: unknown) => call(config.handlers, 'config_set', { agent: 'bro', key: REVIEWER_TIER_SETTINGS_KEY, value });
       const valid = [
         {},
         { docs_tests: { model: 'sonnet', effort: 'high' } },
@@ -422,7 +422,7 @@ describe('config_set: reviewer_effort_tiers and reviewer_effort_ab shapes', () =
       ];
       for (const value of invalid) {
         const r = await set(value);
-        assert.ok(r.isError && parse(r).error.includes('typed_field_violation'), `refuses ${JSON.stringify(value)}`);
+        assert.ok(r.isError && (parse(r) as { error: string }).error.includes('typed_field_violation'), `refuses ${JSON.stringify(value)}`);
       }
     } finally {
       db.close();

@@ -215,7 +215,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
           env: { ...sb.env, CLAUDE_PROJECT_DIR: sb.dir, TRAJECTORY_DB_PATH: dbPath },
         }).stdout;
       assert.equal(effortGate(spawn), '', 'the returned spawn passes as is');
-      const { model: _model, ...withoutModel } = spawn;
+      const withoutModel = { prompt: spawn.prompt, effort: spawn.effort, subagent_type: spawn.subagent_type };
       assert.match(effortGate(withoutModel), /"permissionDecision":"deny"/, 'dropping the model is denied');
     } finally {
       db.run(`DELETE FROM plugin_config WHERE key IN ('reviewer_effort_tiers', 'reviewer_tier_settings')`);
