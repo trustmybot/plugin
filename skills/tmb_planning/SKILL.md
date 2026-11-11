@@ -1,6 +1,6 @@
 ---
 name: tmb_planning
-description: Bro's code-touching flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, verify on return, atomic-close. Loaded on the first code-touching ask of a session.
+description: Bro's code-touching flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, hand off to code-reviewer, atomic-close after its pass. Loaded on the first code-touching ask of a session.
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
 effort: high
 ---
@@ -61,7 +61,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 Pass the typed machine contract on each swe-executed task:
 
 - `files: string[]` — the surfaces the task is expected to touch, at directory granularity and in the project's own layout: its source tree, its hooks or scripts, its tests, its docs, its changelog fragments where it keeps them. The swe may edit other paths inside its worktree and reports each one with a reason; you judge them at close.
-- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`. Dry-run each command before `task_provision` and prefer the repo's own test scripts or runner. Keep commands portable across BSD and GNU tools: `grep -c` on one file prints a bare count and exits 1 on zero matches, and BSD `wc -l` pads its count with spaces, so compare counts numerically with `test`. List the tests for the paths the task touches, plus the repo's type check or lint where it has one, and leave the full suite to CI when the repo's CI workflows run it before merge; a repo with no such CI keeps its full suite in verification[].
+- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`. The project's verification defaults (`.config/tmb/verification-defaults.json`) apply automatically on provision, retry, reopen and spec update, so verification[] lists only the task-specific checks. Dry-run each command before `task_provision` and prefer the repo's own test scripts or runner. Keep commands portable across BSD and GNU tools: `grep -c` on one file prints a bare count and exits 1 on zero matches, and BSD `wc -l` pads its count with spaces, so compare counts numerically with `test`. List the tests for the paths the task touches, plus the repo's type check or lint where it has one, and leave the full suite to CI when the repo's CI workflows run it before merge; a repo with no such CI keeps its full suite in verification[].
 - `effort` — the swe's effort level, by this rule:
 
 | Effort | When |
@@ -117,24 +117,16 @@ The Agent PreToolUse gates enforce a spawn contract:
 - The task must be `pending` (or `running` with no live SWE run) with a non-empty `spec_body` — `task_provision` guarantees this.
 - The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
-## 6. Verify on SWE return, hand off to code-reviewer, close after the pass
+## 6. Hand off to code-reviewer on SWE return, close after the pass
 
-Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
+Hand off, review and close each task as it returns; a task's close waits on nothing but its own review. The order is swe returns → `review_handoff` → code-reviewer → `bro_atomic_close`. Code owns the checks: you re-run no checks and re-review no diff. Your own judgment covers two things only:
 
-After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C <repo path> diff` of the commit, the repo path from `repos_list`). A diff too large to judge directly goes to a subagent that reports against the `SC<n>` ids. Judge the work against the spec on four counts:
+1. **Scope extras.** Every changed path outside `files[]` is one the swe reported with a reason you accept. `review_handoff` records them with swe's reasons in `task_brief.scope.extras`, so code-reviewer reads them too; at the close, `bro_atomic_close` refuses and lists the extras grouped by surface, and closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, after which `task_brief.scope` carries `extras_accepted` and `base_moved`.
+2. **Architecture fit.** Whether the change fits the design and the spec's intent, judged from `task_brief` and the commit's changed paths (`git -C <repo path> show --stat <commit_sha>`, the repo path from `repos_list`). A misfit goes back to your spec: record it with `bro_verification_fail_record` (name the misfit and why), leave the task open, and amend the spec with `task_update_spec` or redesign it with `task_retry`.
 
-1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `review_handoff` records them with swe's reasons in `task_brief.scope.extras`, so code-reviewer reads them too; at the close, `bro_atomic_close` refuses and lists the extras grouped by surface, and closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, after which `task_brief.scope` carries `extras_accepted` and `base_moved`.
-2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
-3. `task_brief.completion_report` covers every `SC<n>` id, and the diff bears out each claim: a `met` shows in the diff, a `not_applicable` carries a reason you accept, and a `not_met` fails this check. The changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
-4. `git -C <repo path> show --stat <commit_sha>` lists the changed paths under the directories `files[]` names.
-
-The order is swe → code-reviewer → bro's close:
-
-- **Hand off.** All four pass → call `review_handoff(task_id, session_id)` on the completed task. It refuses without a completion report covering every `SC<n>` id or without a passing verification run for the task's `commit_sha`, records the review anchor and the reviewer effort, leaves the status `completed`, and returns `reviewer_spawn`. Spawn code-reviewer with that `reviewer_spawn` as is — the anchors only, which the spawn-shape hook enforces; the spawn gate denies a code-reviewer spawn on a completed task with no handoff for its commit. Context the reviewer cannot read from `task_brief` goes in `review_handoff`'s `spawn_note` (300 characters max).
-- **Close after a PASS.** Call `bro_atomic_close` (`close_issue_if_last_task=true` when it's the last task); it refuses with `review_pass_missing` until a passing verdict follows the handoff of the task's current commit, and keeps the scope gate of check 1. The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read.
+- **Hand off.** After SWE returns `status=completed`, call `review_handoff(task_id, session_id)` on the completed task. It refuses without a completion report covering every `SC<n>` id or without a passing verification run for the task's `commit_sha` (the gate reuses a passing run for the same task and commit), and a refusal goes back to swe. It records the review anchor and the reviewer effort, leaves the status `completed`, and returns `reviewer_spawn`. Spawn code-reviewer with that `reviewer_spawn` as is — the anchors only, which the spawn-shape hook enforces; the spawn gate denies a code-reviewer spawn on a completed task with no handoff for its commit. Context the reviewer cannot read from `task_brief` goes in `review_handoff`'s `spawn_note` (300 characters max).
+- **Close after a PASS.** Call `bro_atomic_close` (`close_issue_if_last_task=true` when it's the last task); it refuses with `review_pass_missing` until a passing verdict follows the handoff of the task's current commit, and keeps the scope gate on the extras. Judge the architecture fit before you call it. The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read.
 - **Rework after a FAIL.** The FAIL already reopened the task at `high` with a `spawn_note`; surface it, hold the push, and spawn swe (below); the reworked commit takes a new `review_handoff`.
-
-If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
 
 ### Integrate after the review pass
 
@@ -153,6 +145,6 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 - **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
 - **Resume the same swe** for in-scope rework (same spec, findings within `files[]`) when the task's effort is unchanged since its run, such as already `high`: once the task is `running` again, `SendMessage(to=<its agent id from the spawn result>)` naming the finding ids; `swe-resume-gate` judges it like a spawn. When the FAIL raised the effort or the agent id is gone, spawn a fresh swe at the task's effort. code-reviewer is always spawned fresh.
 
-When the hook alerts that a task has run past 60 minutes, relay it to the Human once, with its attempt count and its current blocker, and decide together whether to continue, redesign the spec or split the task.
+When the hook alerts that a task has run past 60 minutes, decide whether to continue, redesign the spec or split the task, record the decision, and inform the Human once, with its attempt count and its current blocker, without waiting.
 
 The worktree stays in place through review and rework, so rework continues where SWE left off, and is removed when `bro_atomic_close` closes the task after code-reviewer's pass.

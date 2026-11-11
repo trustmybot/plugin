@@ -1,7 +1,7 @@
 # TMB Workflows
 
 The decision chain is **Human → bro → SWE** with two distinct gates:
-- **bro is the task gate** — closes after SWE returns + verifies.
+- **bro is the task gate** — hands each returned task to review, judges its architecture fit after the pass, then closes it.
 - **code-reviewer is the push gate** — reviews each completed task after bro's `review_handoff`, and bro's `bro_atomic_close` follows its pass; `git-push-guard` blocks a push whose task commits lack a passing review.
 
 All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. Roles live in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
@@ -18,11 +18,11 @@ Every flow follows the memory model in [`MEMORY.md`](MEMORY.md). The brand workf
 
 ## Quality layers
 
-Every flow is built on two axes. The first is a responsibility boundary: each layer owns one level of quality and hands the next a ready state. The second is method: deterministic or judgment. bro, swe and code-reviewer never overlap in responsibility or work, because overlap wastes resources: each check has exactly one owner, and no layer redoes another layer's check. This section is the target design; GH 2866 task C aligns the flow tables below with it.
+Every flow is built on two axes. The first is a responsibility boundary: each layer owns one level of quality and hands the next a ready state. The second is method: deterministic or judgment. bro, swe and code-reviewer never overlap in responsibility or work, because overlap wastes resources: each check has exactly one owner, and no layer redoes another layer's check.
 
 | Layer, in handoff order | Owns | Method | Hands over (contract) |
 |---|---|---|---|
-| **Human** | intent. The Human is the outer layer; merges run automatically under the merge policy, so the Human does not gate each PR | judgment | a requirement |
+| **Human** | intent. The Human is the outer layer and merges each PR, unless the project's merge policy delegates merging | judgment | a requirement |
 | **bro (environment)** | a ready-to-work environment: a clean worktree cut from the latest base, a passing build, and a world model indexed at that base | deterministic | the worktree, the base commit and the world-model commit |
 | **bro (spec)** | an actionable requirement: intent, files, checks and success criteria. bro's architecture judgment enters here | judgment | the spec |
 | **swe** | functionality-level quality: every deterministic check in its scope passes (lint, word and size limits, type checks, unit tests, changelog fragment), and the world model shows no downstream caller breaks. It does not rebuild the environment bro handed over or rewrite the spec | deterministic | ready-to-review: a passing check run recorded on the commit, plus a report against every success criterion |
@@ -48,7 +48,7 @@ Every flow is built on two axes. The first is a responsibility boundary: each la
 | 2 | **Code-touching task** (canonical) | Code change ask | bro → swe (`task_provision` cuts branch + worktree); code-reviewer per task after `review_handoff`, then `bro_atomic_close` after its pass; the integrate command when the base moved | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR | `agent-spawn-dispatch`, `containment-guard`, `swe-verification-gate`, `swe-atomic-close`, `code-reviewer-preflight`, `git-push-guard`, `close-issue-on-merge` |
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a decision + blast-radius, then standard SWE flow | + a decision record | `task_provision`'s decision body (the universal decision gate) |
 | 6 | Push gate / PR review | Each completed task after `review_handoff`; `git push` of a commit with no passing review | bro → code-reviewer (one per handed-off task, parallel), then `bro_atomic_close` on each pass | a verdict per reviewed commit, with its findings | `code-reviewer-after-atomic-close`, `code-reviewer-spawn-note`, `code-reviewer-preflight`, `git-push-guard` |
-| 8 | SWE retry / escalation | A failed check of bro's four, a code-reviewer fail verdict, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task | `task_reopen` / `task_retry` composites, `rework-limit`, `swe-resume-gate` |
+| 8 | SWE retry / escalation | An architecture misfit bro finds, a code-reviewer fail verdict, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task | `task_reopen` / `task_retry` composites, `rework-limit`, `swe-resume-gate` |
 | **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → code-reviewer per actionable comment batch | stored comments, new issues and tasks, the run's resume point | — |
 | 33 | Multi-repo path discipline | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo | — |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
@@ -180,7 +180,7 @@ Knowing how to install, test and lint a repo is bro's job, and **no toolset is h
 
 This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`), loop ids (`L1`..`L8`) and guard ids (`G1`..`G16`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first. Ids are never renumbered: a new step takes a primed id (`S4′`) and a new loop or guard the next number.
 
-Bro is both planner AND task gate, and the handoff order is swe → code-reviewer → bro: when SWE returns and bro verifies the task, bro hands its commit to code-reviewer (S13) while the task stays completed, and closes the task only after code-reviewer's pass (S14). `git-push-guard` holds any push whose task commits lack a passing review.
+Bro is both planner AND task gate, and the handoff order is swe → code-reviewer → bro: when SWE returns, bro hands its commit to code-reviewer (S13) while the task stays completed, and only after code-reviewer's pass judges the architecture fit (S12) and closes the task (S14). `git-push-guard` holds any push whose task commits lack a passing review.
 
 #### Steps
 
@@ -198,7 +198,7 @@ Bro is both planner AND task gate, and the handoff order is swe → code-reviewe
 | S9 | <a id="S9"></a>swe | Edits, tests and commits in the worktree. Tests run through the test runner wrapper, which returns a short summary and keeps the full output in a log; a full suite waits for a machine-wide suite slot so parallel worktrees don't overload the machine. Guards G1–G4 fire on each call, and G16 on each commit; a deny is L1 | commits on the task branch; each deny is audited |
 | S10 | <a id="S10"></a>swe | `task_update_status(completed, commit_sha, report)`; the typed report gives every success criterion a status with evidence and lists the edits outside the file list, the findings fixed and the bug classes swept. `swe-verification-gate` first checks the worktree HEAD against its merge base with the PR target for a changelog fragment and for deleted paths or dropped tool names still cited in docs, where the changelog directory, the doc files and the tool sources come from the project's own config and a check the project leaves unconfigured is skipped with a note (no waiver skips these), then runs the verification commands and every blocking finding's probe in the worktree (L2) | a recorded verification run, the closing commit and the report on the task |
 | S11 | <a id="S11"></a>hook | `swe-atomic-close` at SubagentStop: auto-completes a still-running task whose commits carry a passing verification run for HEAD (unless the run wrote a checkpoint, L6); with no such run the task stays open and bro is told to resume the swe so it closes through the gate. It also meters the run and its tool-output sizes, and records why the run stopped (a checkpoint handback or a hook block), telling bro to resume or to name the block in the rework note | the run is closed with its tokens, duration and stop cause |
-| S12 | <a id="S12"></a>bro | Verify: `task_brief` + `git diff` of the commit, judged on the four checks: scope vs the file list, a passing verification run, the report covers every success criterion, `world_model_get` on the changed directory | nothing on a pass; a failed check is recorded (`bro_verification_fail_record`) |
+| S12 | <a id="S12"></a>bro | After S17 reads a pass: judges whether the change fits the design and the spec's intent, and whether it accepts the swe's extras. It re-runs no checks and re-reviews no diff | nothing on a fit; a misfit is recorded (`bro_verification_fail_record`) and goes back to the spec (`task_update_spec` or `task_retry`) |
 | S13 | <a id="S13"></a>bro | `review_handoff` refuses a handoff the report does not cover, or with no passing run for the task's commit; it records the review anchor with the swe's extras and their reasons, assigns the reviewer effort and leaves the task completed. Its short spawn note is the only prose the reviewer gets beyond its anchors, and the result can carry the ready-made S15 spawn call | the commit is handed to review and the handoff audited |
 | S14 | <a id="S14"></a>bro + hooks | After S17 reads a pass: `bro_atomic_close` refuses without a passing verdict after the handoff of the task's current commit, keeps the scope gate on the extras, then closes the task; `post-atomic-close-readme` and `cleanup-worktree-on-task-close` fire after it | the task is closed and the pass audited; README drift is surfaced and the worktree removed |
 | S15 | <a id="S15"></a>bro → code-reviewer | `Agent(subagent_type=code-reviewer)`, the prompt carrying `name=value` anchors and the spawn note only; the code-reviewer spawn gates require a completed task handed off at its commit (or a closed one), cap the prose and run the machine preflight (L8) | a reviewer starts only on a commit a machine can already vouch for |
@@ -207,7 +207,7 @@ Bro is both planner AND task gate, and the handoff order is swe → code-reviewe
 | S18 | <a id="S18"></a>bro | Base moved → the integrate command rebases the reviewed commit in a temporary worktree and reruns the verification commands; a clean rebase carries the reviewed commit's pass to the new SHA, which bro pushes, and a conflict is L4. An unmoved base skips this step | a verification run on the rebased SHA and the task branch moved to it |
 | S19 | <a id="S19"></a>bro | `git push`; `git-push-guard` allows it only when each pushed task commit has a passing review recorded for that commit | the remote branch |
 | S20 | <a id="S20"></a>bro | `gh pr create --base <pr_target>` (`glab mr create` on GitLab); `attribution-footer` checks the PR body's attribution | the PR |
-| S21 | <a id="S21"></a>Human | Merges the PR; once it reports merged, bro runs the post-merge cleanup | the merged PR |
+| S21 | <a id="S21"></a>Human | Merges the PR, unless the project's merge policy delegates merging; once it reports merged, bro runs the post-merge cleanup | the merged PR |
 | S22 | <a id="S22"></a>hook | After a successful in-session `gh pr merge` / `glab mr merge`: `close-issue-on-merge` closes the branch's live tasks and each issue the PR closes by an explicit closing-ref; `clean-merged-branch` removes the merged local branch and its worktree. A merge made on GitHub fires neither. | tasks and issues closed; a task closed with no passing review is audited as a bypass |
 
 #### Loops
@@ -259,9 +259,9 @@ flowchart TD
     S3 -.->|GitHub issue| S4p["S4′ issue_create adopts it"] --> S5
     S5 --> S6["S6 task_provision"] --> S7["S7 spawn swe"] --> S8["S8 task_brief"]
     S8 --> S9["S9 edit + test in worktree"] --> S10["S10 task_update_status + swe-verification-gate"]
-    S10 --> S11["S11 SubagentStop swe-atomic-close + stop cause"] --> S12["S12 bro: the four checks"] --> S13["S13 review_handoff"]
+    S10 --> S11["S11 SubagentStop swe-atomic-close + stop cause"] --> S13["S13 review_handoff"]
     S13 --> S15["S15 spawn code-reviewer + preflight"] --> S16["S16 validation_record"] --> S17["S17 validation_history"]
-    S17 -->|pass| S14["S14 bro_atomic_close + README check + worktree cleanup"] --> S18["S18 integrate if the base moved"] --> S19["S19 git push"] --> S20["S20 gh pr create"]
+    S17 -->|pass| S12["S12 bro: architecture fit"] --> S14["S14 bro_atomic_close + README check + worktree cleanup"] --> S18["S18 integrate if the base moved"] --> S19["S19 git push"] --> S20["S20 gh pr create"]
     S20 --> S21["S21 Human merges"] --> S22["S22 close-issue-on-merge"]
     S9 -.->|L1 hook block| S9
     S10 -.->|L2 gate deny| S9
@@ -287,7 +287,7 @@ Same chain as flow 2, plus: in `task_provision`'s decision body (S6), bro record
 
 - Skills: `tmb_planning` triggers the architectural ceremony when the change introduces a new boundary/module, touches schema or public API, or has external side effects (see its "Architectural changes" section).
 - For human-driven deliberation, the user enters Claude Code's native plan mode (Shift+Tab) — bro doesn't run a bespoke Q+A loop. The decision record captures the outcome.
-- Bro's four checks after SWE returns (S12) are unchanged — never skipped, even for architectural changes.
+- Bro's architecture judgment after the review pass (S12) is unchanged — never skipped, even for architectural changes.
 
 ---
 
@@ -330,7 +330,7 @@ Each verdict records whether the review ran with MCP access or through the honor
 
 ### 8. SWE retry / escalation
 
-Triggered when one of bro's four checks fails (flow 2 S12), code-reviewer records a fail (L3), `code-reviewer-preflight` denies (L8), or the integrate command hits a conflict (L4). A code-reviewer fail has already moved the task back to running at high (L3). Other work on the same task goes through `task_reopen`, which moves it back to running and recreates its worktree when missing; bro then spawns a fresh swe, or resumes the swe that wrote the commit by `SendMessage` (L7). A wrong approach or an integrate conflict goes through the `task_retry` composite — it cuts the new branch and worktree through `task_provision`'s environment gate, then one transaction appends the retry rationale, creates a new task, carries the failed task's open review findings onto it, and audits the retry. Then bro spawns SWE on it.
+Triggered when bro's architecture judgment finds a misfit (flow 2 S12), code-reviewer records a fail (L3), `code-reviewer-preflight` denies (L8), or the integrate command hits a conflict (L4). A code-reviewer fail has already moved the task back to running at high (L3). Other work on the same task goes through `task_reopen`, which moves it back to running and recreates its worktree when missing; bro then spawns a fresh swe, or resumes the swe that wrote the commit by `SendMessage` (L7). A wrong approach or an integrate conflict goes through the `task_retry` composite — it cuts the new branch and worktree through `task_provision`'s environment gate, then one transaction appends the retry rationale, creates a new task, carries the failed task's open review findings onto it, and audits the retry. Then bro spawns SWE on it.
 
 Two FAILs on a task since its last passing review trip the rework limit (L5); bro's analysis plus its proven change admits the next run. A design-drift analysis ends the task's swe runs, and bro redesigns the work through `task_retry` or a split. A swe that runs out of turns hands back a checkpoint instead of failing (L6). A task still running after an hour raises the overrun advisory (G8).
 
