@@ -165,6 +165,8 @@ test("each lint's per-file scope selects the same repo files as its whole-tree t
   for (const lint of LINTS) {
     const fromTree = [...new Set(wholeTree[lint.name]())].filter((f) => inUniverse.has(f)).sort();
     const fromScope = universe.filter(lint.lib.scope(ROOT)).sort();
+    // A lint whose file kind the repo no longer tracks (no-bare-mktemp's shell scripts, retired by GH 2662) has nothing to compare.
+    if (fromScope.length === 0 && fromTree.length === 0) continue;
     assert.ok(fromTree.length > 0, `${lint.name}: the whole-tree list is empty`);
     assert.deepEqual(fromScope, fromTree, `${lint.name}: per-file scope and whole-tree list differ`);
   }
