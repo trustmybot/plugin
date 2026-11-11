@@ -8,7 +8,6 @@ import {
   serverLog as defaultServerLog,
 } from './logger.js';
 import {
-  assertSafeProjectWritePath,
   resolveClaudeDbPath,
   resolveClaudePluginName,
   resolveClaudePluginVersion,
@@ -17,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 67;
+export const TARGET_SCHEMA_VERSION = 68;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -70,8 +69,6 @@ export interface TrajectoryDBDependencies {
   readonly pluginVersion: string | null;
   readonly serverLog: TrajectoryLog;
   readonly sqlLog: TrajectoryLog;
-  /** Canonical project root for Codex-bound persistent databases. */
-  readonly trustedProjectRoot?: string;
 }
 
 export interface TrajectoryDBOptions {
@@ -114,17 +111,6 @@ export class TrajectoryDB {
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
     this.migrate = options.migrate === true;
-    if (
-      dbPath !== ':memory:' &&
-      resolvedDependencies.trustedProjectRoot !== undefined
-    ) {
-      assertSafeProjectWritePath(
-        resolvedDependencies.trustedProjectRoot,
-        dbPath,
-        'Trajectory database',
-        'file',
-      );
-    }
     this.db = new DatabaseSync(dbPath);
     try {
       // busy_timeout comes first so every lock taken from here on waits for it.
@@ -462,7 +448,6 @@ function resolveDependencies(
     pluginVersion: dependencies.pluginVersion,
     serverLog: noThrowTrajectoryLog(dependencies.serverLog),
     sqlLog: noThrowTrajectoryLog(dependencies.sqlLog),
-    trustedProjectRoot: dependencies.trustedProjectRoot,
   };
 }
 
@@ -852,8 +837,10 @@ function runMigrations(
   if (fromVersion < 65 && toVersion >= 65) migrateV64toV65(db);
   // v65→v66: tasks.workflow_mode, the workflow mode a task closed under (GH 2225)
   if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
-  // v66→v67: wm_files.lane, each file's test or product lane (GH 2886)
+  // v66→v67: tasks.base_sha and tasks.wm_commit, the environment gate's commits (GH 2866)
   if (fromVersion < 67 && toVersion >= 67) migrateV66toV67(db);
+  // v67→v68: wm_files.lane, each file's test or product lane (GH 2886)
+  if (fromVersion < 68 && toVersion >= 68) migrateV67toV68(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3505,10 +3492,31 @@ function migrateV65toV66(db: DatabaseSync): void {
   }
 }
 
-// v66→v67: wm_files.lane (GH 2886), the test or product lane a scan stores
+// v66→v67: tasks.base_sha and tasks.wm_commit (GH 2866), the base commit and
+// world-model commit the environment gate proved. Existing rows keep NULL.
+function migrateV66toV67(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'tasks')) {
+      for (const column of ['base_sha', 'wm_commit']) {
+        if (!hasColumn(db, 'tasks', column)) db.exec(`ALTER TABLE tasks ADD COLUMN ${column} TEXT`);
+      }
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v67→v68: wm_files.lane (GH 2886), the test or product lane a scan stores
 // per file. Existing rows are backfilled by the default rules; the next scan
 // applies the project's world_model_test_lane config.
-function migrateV66toV67(db: DatabaseSync): void {
+function migrateV67toV68(db: DatabaseSync): void {
   beginImmediate(db);
   try {
     if (tableExists(db, 'wm_files') && !hasColumn(db, 'wm_files', 'lane')) {

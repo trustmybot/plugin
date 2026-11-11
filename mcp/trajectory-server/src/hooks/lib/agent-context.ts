@@ -3,7 +3,7 @@
  * agent's context from its identity and the trajectory DB, never from the
  * shared session cwd. Where the .sh exports TMB_CTX_*, these return them.
  */
-import { existsSync, lstatSync, readlinkSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { jqAlternatives } from './jq.js';
 import {
   branchSlug,
@@ -59,6 +59,38 @@ export function agentTranscript(input = ''): string {
   if (main === '' || id === '' || !/^[A-Za-z0-9_-]+$/.test(id)) return '';
   const t = `${main.endsWith('.jsonl') ? main.slice(0, -'.jsonl'.length) : main}/subagents/agent-${id}.jsonl`;
   return isFile(t) ? t : '';
+}
+
+/** An ISO or space-separated stamp; one without a zone is UTC, as SQLite reads it. */
+const TRANSCRIPT_STAMP = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d(?:\.\d+)?)(Z|[+-]\d\d:\d\d)?$/;
+
+function stampMs(value: unknown): number {
+  if (typeof value !== 'string') return Number.NaN;
+  const m = TRANSCRIPT_STAMP.exec(value);
+  return m === null ? Number.NaN : Date.parse(`${m[1]}T${m[2]}${m[3] ?? 'Z'}`);
+}
+
+/** The earliest entry `timestamp` in <transcript> as a UTC ISO string, or "" with no file or no readable stamp. */
+export function transcriptStart(transcript: string): string {
+  if (transcript === '' || !isFile(transcript)) return '';
+  let text: string;
+  try {
+    text = readFileSync(transcript, 'utf8');
+  } catch {
+    return '';
+  }
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const line of text.split('\n')) {
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const ms = entry !== null && typeof entry === 'object' ? stampMs((entry as { timestamp?: unknown }).timestamp) : Number.NaN;
+    if (ms < earliest) earliest = ms;
+  }
+  return Number.isFinite(earliest) ? new Date(earliest).toISOString() : '';
 }
 
 /** `IFS='|' read -r a b c d <<< row`: four fields, the last one taking the rest. */

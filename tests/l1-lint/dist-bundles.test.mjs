@@ -1,4 +1,4 @@
-// L1 lint (GH 2149): mcp/trajectory-server/dist/index.js, codex.js and run-scan.js are self-contained esbuild bundles (first line opens with the `var __` prelude, no relative import/export ... from line), not tsc module output, so a marketplace install with no node_modules still boots (#647, GH 1157).
+// L1 lint (GH 2149): mcp/trajectory-server/dist/index.js and run-scan.js are self-contained esbuild bundles (first line opens with the `var __` prelude, no relative import/export ... from line), not tsc module output, so a marketplace install with no node_modules still boots (#647, GH 1157).
 import { strict as assert } from 'node:assert';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -29,7 +29,7 @@ test('a missing bundle is caught', () => {
 });
 
 test('dist entrypoints are esbuild bundles', () => {
-  const problems = ['index.js', 'codex.js', 'run-scan.js']
+  const problems = ['index.js', 'run-scan.js']
     .map((name) => checkBundle(join(DIST, name), `mcp/trajectory-server/dist/${name}`))
     .filter(Boolean);
   assert.deepEqual(

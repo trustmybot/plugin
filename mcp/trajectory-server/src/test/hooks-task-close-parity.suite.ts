@@ -172,15 +172,16 @@ export function buildCloseSandbox(s: string): void {
     git(repo, 'worktree', 'add', '-q', path, branch);
     return path;
   };
-  commit(wt('feat/auto', 'auto'), 'work.txt', 'auto work');
-  commit(wt('feat/pending-commit', 'pending-commit'), 'work.txt', 'pending work');
+  const verifiedHeads = new Map<number, string>();
+  verifiedHeads.set(30, commit(wt('feat/auto', 'auto'), 'work.txt', 'auto work'));
+  verifiedHeads.set(31, commit(wt('feat/pending-commit', 'pending-commit'), 'work.txt', 'pending work'));
   wt('feat/no-commit', 'no-commit');
   wt('feat/checkpoint', 'checkpoint');
   commit(wt('feat/failed', 'failed'), 'work.txt', 'failed work');
   wt('feat/done', 'done');
   wt('feat/escalated', 'escalated');
   wt('feat/blocked', 'blocked');
-  commit(wt('feat/empty-parent', 'empty-parent'), 'work.txt', 'empty parent work');
+  verifiedHeads.set(38, commit(wt('feat/empty-parent', 'empty-parent'), 'work.txt', 'empty parent work'));
   git(repo, 'branch', 'release', base);
   const stale = wt('feat/stale', 'stale');
   const released = commit(stale, 'release.txt', 'release on origin');
@@ -193,7 +194,7 @@ export function buildCloseSandbox(s: string): void {
   git(other, 'init', '-q', '-b', 'dev');
   commit(other, 'README.md', 'other init');
   git(other, 'checkout', '-q', '-b', 'feat/nowt');
-  commit(other, 'work.txt', 'no worktree work');
+  verifiedHeads.set(40, commit(other, 'work.txt', 'no worktree work'));
 
   const T0 = at(-3600);
   trajectoryDb(join(s, PROJECT_DB), (db) => {
@@ -232,6 +233,10 @@ export function buildCloseSandbox(s: string): void {
     run.run(4, 42, 'swe', 'tool_use:toolu_42a', at(-600), null, null, null, null);
     run.run(5, 42, 'swe', 'tool_use:toolu_42b', at(-600), null, null, null, null);
     run.run(6, 43, 'code-reviewer', 'agent-43', at(0), null, null, null, null);
+    const verified = db.prepare(
+      "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (?, ?, 'gate', ?, ?, 0, 600, 0)",
+    );
+    for (const [taskId, head] of verifiedHeads) verified.run(taskId, head, at(0), at(5));
     db.prepare("INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '\"low\"')").run();
   });
 

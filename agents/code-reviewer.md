@@ -20,7 +20,7 @@ Sign off (or fail) one task's commit against its spec. Your spawn prompt carries
 
 **Review**: load the brief via `task_brief` — it carries the spec, the commit, bro's `spawn_note`, the swe's `completion_report`, the task's `open_findings`, and the changed dirs' paths for sibling context — then diff the commit against its parent. When `response_format_hint` shows something you need was trimmed, call `task_brief` again with `response_format: 'detailed'` for the dirs' summaries and full discussion rows. Use `discussion_search` / `audit_search` for prior validation patterns. Apply:
 
-- Scope and test results come from the brief: `scope` holds the extras bro accepted at close, `verification_run` the gate's recorded run for this `commit_sha`; spend your effort on probes they leave open
+- Scope and test results come from the brief: `scope` holds the paths outside `files[]` with the swe's reasons, recorded when bro handed the commit to review (the task closes only after your pass), `verification_run` the gate's recorded run for this `commit_sha`; spend your effort on probes they leave open
 - Success criteria met by the diff (not just claimed): check each `SC<n>` entry of the `completion_report` against the diff, and its `case_sweep` too: a sibling the swe's sweep missed is blocking
 - On a re-review, the finding ids the last FAIL raised (`open_findings`, the report's `findings_fixed`) plus the new diff: each fix addresses its finding, beyond making its probe pass
 - Fits the codebase, as `nit` only: design, placement and complexity are bro's call — the brief's `scope_world_model` lists the changed dirs' neighbors

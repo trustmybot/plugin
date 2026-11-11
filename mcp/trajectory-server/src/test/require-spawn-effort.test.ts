@@ -127,7 +127,7 @@ describe('require-spawn-effort: the Agent call carries the effort the DB holds',
           const out = run(payload('code-reviewer', REVIEW_PROMPT, given));
           assert.ok(out.includes(DENY), `deny for ${given ?? 'no effort'}`);
           assert.ok(out.includes('Allowed form: the same Agent call with effort=\\"high\\"'), 'names the assigned value');
-          assert.ok(out.includes("the task's assigned reviewer effort, returned by bro_atomic_close"), 'names the source');
+          assert.ok(out.includes("the task's assigned reviewer effort, returned by review_handoff"), 'names the source');
           assert.ok(!out.includes('config_set(key=\\"reviewer_effort\\"'), 'not the config remedy');
         }
       } finally {

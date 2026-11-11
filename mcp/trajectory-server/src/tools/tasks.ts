@@ -250,13 +250,14 @@ const VALID_STATUSES = new Set([
 //     into 'closed' is bro_atomic_close, so task_update_status must not offer
 //     those edges (else bro could close a task without the atomic close's
 //     side effects).
-//   - 'closed'→'escalated' hands a closed task back to the Human; rework
-//     after a failed review goes through task_reopen (closed → running).
+//   - 'closed'→'escalated' hands a closed task back to the Human.
+//   - code-reviewer runs before the close, so a failed review leaves the task
+//     completed; its rework is completed → running (task_reopen).
 const BRO_TRANSITIONS: Record<string, Set<string>> = {
   pending: new Set(['running', 'failed', 'escalated']),
   running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
   needs_validation: new Set(['running', 'completed', 'failed', 'escalated']),
-  completed: new Set(['needs_validation', 'failed', 'escalated']),
+  completed: new Set(['running', 'needs_validation', 'failed', 'escalated']),
   failed: new Set(['pending', 'running', 'escalated', 'closed']),
   escalated: new Set(['pending', 'running', 'failed', 'closed']),
   closed: new Set(['escalated']),

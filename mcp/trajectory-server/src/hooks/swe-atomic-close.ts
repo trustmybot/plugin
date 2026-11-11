@@ -12,9 +12,16 @@
  *                                         to resume swe from task_brief.checkpoint
  *   pending|running + live background   → status stays, swe_atomic_close_background_wait
  *     command in the transcript           audit + additionalContext: swe's resumed turn closes it
- *   pending|running + commits          → status completed + commit_sha, checkpoint
- *                                         cleared + swe_atomic_close_auto_completed audit
+ *   pending|running + commits + a       → status completed + commit_sha, checkpoint
+ *     passing verification run at HEAD    cleared + swe_atomic_close_auto_completed audit
+ *   pending|running + commits, no       → status stays, swe_atomic_close_gate_pending
+ *     passing verification run at HEAD    audit + additionalContext: bro resumes swe
  *   pending|running + no commits        → additionalContext warning to bro
+ *
+ * The passing run is a verification_runs row for (task, HEAD) with exit 0, not
+ * timed out. swe-verification-gate records one only after the changelog and
+ * stale-doc checks pass on HEAD (GH 2866), so the safety net completes no task
+ * the close gate would have refused; without one, the swe closes through the gate.
  *   any other status                    → metrics only
  *   any status + stop_cause hook_block  → additionalContext names the block
  *   code-reviewer                       → metrics only
@@ -387,6 +394,17 @@ function flagOversizeReturn(db: string, input: JqInput, agentType: string, taskR
   }
 }
 
+/** A passing, not timed-out verification_runs row for (task, commit); a read failure counts as none. */
+function hasPassingRun(db: string, taskId: string, commit: string, env: NodeJS.ProcessEnv): boolean {
+  if (commit === '') return false;
+  const count = sqliteRo(
+    db,
+    `SELECT COUNT(*) FROM verification_runs WHERE task_id = ${taskId} AND commit_sha = '${sqlQuote(commit)}' AND exit_code = 0 AND timed_out = 0;`,
+    env,
+  );
+  return /^[1-9][0-9]*$/.test(count);
+}
+
 export const sweAtomicClose: Gate = async (payload, env) => {
   const inputText = commandSubstitution(payload);
   const input = jqInput(payload);
@@ -618,7 +636,24 @@ SELECT 1 FROM tasks
     if (!r.ok) process.stderr.write(`${r.error}\n`);
     context = `SWE for task #${taskId} ended its turn waiting on background command ${ids}; the task stays ${taskStatus}. Don't close or respawn it: swe resumes when that command finishes, and its resumed turn closes the task.`;
   } else if (taskStatus === 'pending' || taskStatus === 'running') {
-    if (hasCommits) {
+    if (hasCommits && !hasPassingRun(db, safeTaskId, wtHead, env)) {
+      decision = 'gate-pending';
+      const r = auditAppend(
+        db,
+        {
+          issueId: safeIssueId,
+          branchId: branch,
+          fromNode: FROM_NODE,
+          eventType: 'swe_atomic_close_gate_pending',
+          summary: `Task #${safeTaskId} stays ${taskStatus} on SubagentStop: no passing verification run at ${wtHead}`,
+          contentJson: jqCompact({ task_id: jqNumber(safeTaskId), commit_sha: wtHead }),
+        },
+        { caller: GATE_NAME, env },
+      );
+      out.stdout += r.stdout;
+      if (!r.ok) process.stderr.write(`${r.error}\n`);
+      context = `SWE for task #${taskId} stopped with commits at ${wtHead} but no passing verification run for that commit, so the task stays ${taskStatus}. Resume the swe so it closes through task_update_status(status='completed'), whose gate runs the changelog and doc checks and verification[] on HEAD.`;
+    } else if (hasCommits) {
       decision = 'auto-completed';
       const safeWtHead = sqlQuote(wtHead);
       safeNow = sqlQuote(nowIso());

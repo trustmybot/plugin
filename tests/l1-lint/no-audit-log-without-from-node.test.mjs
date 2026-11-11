@@ -1,4 +1,4 @@
-// L1 lint: every audit_append() call in a prompt file passes from_node= (!2892 BLOCKER 1 — six prompt files crashed bro on its first call). Scans agents/*.md, commands/*.md, templates/agents/*.md, skills/**/SKILL.md and the top-level platform files CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md. A call runs from the line naming audit_append( to the first line holding a ')'; a call with no from_node= in it fails. Every run also checks fixtures/audit-log-from-node/missing.md is caught.
+// L1 lint: every audit_append() call in a prompt file passes from_node= (!2892 BLOCKER 1 — six prompt files crashed bro on its first call). Scans agents/*.md, commands/*.md, templates/agents/*.md, skills/**/SKILL.md and the top-level CLAUDE.md. A call runs from the line naming audit_append( to the first line holding a ')'; a call with no from_node= in it fails. Every run also checks fixtures/audit-log-from-node/missing.md is caught.
 import { strict as assert } from 'node:assert';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIXTURES = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'audit-log-from-node');
 const SCAN_DIRS = ['agents', 'commands', 'templates/agents'];
-const TOP_LEVEL_MDS = ['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md'];
+const TOP_LEVEL_MDS = ['CLAUDE.md'];
 
 export function checkFile(base, file) {
   const out = [];

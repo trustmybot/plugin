@@ -345,38 +345,6 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/codex-package.ts": {
-    "preserve-caught-error": {
-      "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/codex-runtime.ts": {
-    "@typescript-eslint/only-throw-error": {
-      "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/codex-tools.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
-    "@typescript-eslint/no-redundant-type-constituents": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 13
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/codex.ts": {
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
   "mcp/trajectory-server/src/db.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
@@ -621,7 +589,7 @@
   },
   "mcp/trajectory-server/src/platform.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     }
   },
   "mcp/trajectory-server/src/readme-drift.ts": {
@@ -943,27 +911,6 @@
   "mcp/trajectory-server/src/test/cmd-strip-literals.test.ts": {
     "no-control-regex": {
       "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/test/codex-agent-materializer.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 48
-    },
-    "@typescript-eslint/require-await": {
-      "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/codex-installed-cache.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/codex-runtime.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 6
-    },
-    "@typescript-eslint/unbound-method": {
-      "count": 2
     }
   },
   "mcp/trajectory-server/src/test/completion-report.test.ts": {
@@ -1626,11 +1573,6 @@
       "count": 59
     }
   },
-  "mcp/trajectory-server/src/test/platform.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
-    }
-  },
   "mcp/trajectory-server/src/test/pr-monitor.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 52
@@ -2073,9 +2015,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "mcp/trajectory-server/src/test/verification-paths.test.ts": {

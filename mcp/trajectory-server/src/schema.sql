@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- column scans back to the nearest comma.
     completion_report TEXT,
     -- spawn_note (v48 GH 1744): at most 300 chars of context for the next
-    -- spawn and returned by task_brief. bro_atomic_close and task_reopen each
+    -- spawn and returned by task_brief. review_handoff and task_reopen each
     -- overwrite it (NULL when the call passes none).
     spawn_note        TEXT,
     -- checkpoint (v52 GH 1905): swe's handback as JSON {done left files
@@ -211,7 +211,16 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- close path read it when the task closed. NULL for open tasks and for
     -- tasks closed before v66. Keep this comment comma-free for the same DROP
     -- COLUMN reason.
-    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))
+    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile')),
+    -- base_sha (v67 GH 2866): the base commit the task worktree was cut from
+    -- as the environment gate of task_provision / task_reopen / task_retry
+    -- resolved it after its fetch. NULL for tasks created before v67.
+    base_sha          TEXT,
+    -- wm_commit (v67 GH 2866): the commit the world model was indexed at when
+    -- the environment gate passed. NULL before v67 and when the server ran
+    -- without a world-model graph. Keep this comment comma-free for the same
+    -- DROP COLUMN reason.
+    wm_commit         TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -419,7 +428,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 67, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 68, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -804,7 +813,7 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     symbols_md5 (GH 1680) is the stamp content_md5 || ':' ||
 --     EXTRACTOR_VERSION the file's wm_symbols rows were parsed at; NULL until
 --     first parsed. A scan re-parses a file only when it differs from the
---     current stamp. lane (v67 GH 2886) is 'test' when the project's test-lane
+--     current stamp. lane (v68 GH 2886) is 'test' when the project's test-lane
 --     classifier (defaults plus plugin_config.world_model_test_lane) matches
 --     the path, else 'product'; every scan re-derives it.
 --   wm_symbols (GH 1680, ADR 0001 L1): one row per definition tree-sitter

@@ -384,38 +384,62 @@ function missingHistory(root: string | null): string | null {
   return null;
 }
 
+// Each replay step runs against the A the previous step left behind, so once
+// one fails the rest would compare against a diverged A.
+let replayStepFailed = false;
+
+// One test per replayed commit so each hang guard covers a single incremental
+// step plus one clean rebuild, not the whole replay (GH 2810).
 describe('real-history replay over the plugin checkout (SC2)', () => {
-  it(`steps A through the last ${REPLAY_COMMITS} first-parent commits, equal to a clean rebuild after each`, { timeout: 240_000 }, async (t: TestContext) => {
-    const root = pluginCheckout();
-    const missing = missingHistory(root);
-    if (missing) {
+  const root = pluginCheckout();
+  const missing = missingHistory(root);
+  if (missing) {
+    it(`steps A through the last ${REPLAY_COMMITS} first-parent commits, equal to a clean rebuild after each`, (t: TestContext) => {
       if (process.env['CI'] === 'true') assert.fail(`real-history replay needs full history under CI: ${missing} (checkout with fetch-depth: 0)`);
       t.diagnostic(`skipped: ${missing}`);
       t.skip(missing);
-      return;
-    }
-    const commits = git(root!, 'rev-list', '--first-parent', '-n', String(REPLAY_COMMITS + 1), 'HEAD').split('\n').reverse();
-    const ws = mkdtempSync(join(tmpdir(), 'wm-equiv-replay-'));
-    const clone = join(ws, 'plugin');
-    let a: Indexed | null = null;
-    try {
-      git(ws, 'clone', '-q', '--no-checkout', '--shared', root!, clone);
+    });
+    return;
+  }
+  const checkout = root!;
+  const commits = git(checkout, 'rev-list', '--first-parent', '-n', String(REPLAY_COMMITS + 1), 'HEAD').split('\n').reverse();
+  let ws: string | null = null;
+  let a: Indexed | null = null;
+
+  before(
+    async () => {
+      ws = mkdtempSync(join(tmpdir(), 'wm-equiv-replay-'));
+      git(ws, 'clone', '-q', '--no-checkout', '--shared', checkout, join(ws, 'plugin'));
       process.env[PIN_TARGET] = commits[0]!;
       a = await cleanScan(ws);
-      for (const sha of commits.slice(1)) {
-        process.env[PIN_TARGET] = sha;
-        await stepIncremental(a, 'plugin', sha);
-        const b = await cleanScan(ws);
-        try {
-          assertEquivalent(a.db, b.db, 'plugin', `at ${sha.slice(0, 12)} (${git(root!, 'show', '-s', '--format=%s', sha)})`);
-        } finally {
-          b.close();
-        }
-      }
-    } finally {
-      delete process.env[PIN_TARGET];
-      a?.close();
-      rmSync(ws, { recursive: true, force: true });
-    }
+    },
+    { timeout: 240_000 },
+  );
+  after(() => {
+    delete process.env[PIN_TARGET];
+    a?.close();
+    if (ws) rmSync(ws, { recursive: true, force: true });
   });
+
+  for (const sha of commits.slice(1)) {
+    const label = `at ${sha.slice(0, 12)} (${git(checkout, 'show', '-s', '--format=%s', sha)})`;
+    it(label, { timeout: 240_000 }, async (t: TestContext) => {
+      if (replayStepFailed) {
+        t.skip('an earlier replay step failed');
+        return;
+      }
+      // Set before the work and cleared only on success, so a throw or a
+      // timeout both leave it set for the steps after this one.
+      replayStepFailed = true;
+      process.env[PIN_TARGET] = sha;
+      await stepIncremental(a!, 'plugin', sha);
+      const b = await cleanScan(ws!);
+      try {
+        assertEquivalent(a!.db, b.db, 'plugin', label);
+      } finally {
+        b.close();
+      }
+      replayStepFailed = false;
+    });
+  }
 });
