@@ -10,7 +10,7 @@
 
 TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `code-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets.
 
-> **Claude Code is the complete workflow today.** Codex supports explicit local planning and can install two standalone project-level Agents for implementation and advisory review. It does not yet provide TMB task orchestration, trusted validation, Push gates, or lifecycle Hooks. Cursor / OpenCode / Gemini CLI remain placeholders. See [`CODEX.md`](CODEX.md) and [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
+> **TMB runs on Claude Code.** Operating-system support: [`docs/reference/INSTALL.md`](docs/reference/INSTALL.md#operating-systems).
 
 ---
 

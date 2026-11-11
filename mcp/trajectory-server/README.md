@@ -1,6 +1,6 @@
 # @trustmybot/trajectory-server
 
-MCP stdio server that persists TMB workflow trajectory to SQLite. The Claude package starts `dist/index.js` through the root `.mcp.json`; the Codex package starts the isolated `dist/codex.js` through `adapters/codex/.mcp.json`.
+MCP stdio server that persists TMB workflow trajectory to SQLite. The plugin starts `dist/index.js` through the root `.mcp.json`.
 
 ## Build & run
 
@@ -13,15 +13,6 @@ node dist/index.js
 (The plugin spawns this automatically via `.mcp.json` — manual run is only needed for isolated testing.)
 
 The build also writes `scripts/hooks/lib/audit-events.txt` (via `scripts/maintenance/gen-enums-doc.mjs --txt`): the closed `audit.event_type` set from `src/audit-events.ts`, one `event<TAB>writers` line per event, that the hooks validate against. `writers` names who may author each event; `audit_append` refuses a caller whose role is not listed (`audit_event_not_writable_by_role`) and records `from_node` as the caller. After adding an event type, run `node scripts/maintenance/gen-enums-doc.mjs` from the plugin root to regenerate the `audit.event_type` table in `docs/contributing/ENUMS.md`. The build also regenerates `scripts/hooks/lib/data-contracts.json` (the SessionStart banner's copy of the data contracts) via `scripts/maintenance/emit-data-contracts.mjs`. After a schema change, run `node scripts/maintenance/gen-erd-doc.mjs` to regenerate `docs/architecture/ERD.md`; after adding a `plugin_config` key, give it a `KEYS` entry in `scripts/maintenance/gen-config-keys-doc.mjs` and run that script to regenerate [`docs/reference/CONFIG_KEYS.md`](../../docs/reference/CONFIG_KEYS.md).
-
-The Codex entry exposes an immutable 15-tool adapter registry: 13 local Bro planning tools plus `agent_materialization_get` and `agent_materialization_set`. Every call requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files. Planning state stays beneath `<project>/.tmb/tmb/`.
-
-The two materialization tools manage only `.codex/agents/tmb_swe.toml` and `.codex/agents/tmb_code_reviewer.toml`. The getter is read-only and does not create `.tmb` or `.codex`. The setter installs or removes both current templates without overwriting unknown bytes. It rejects symlinks and unexpected file types, preserves all third-party Agent files, and reports a partial result if one managed target changes before a later failure. Scope 4 intentionally has no historical-template upgrades, process lock, rollback, fsync, or crash recovery.
-
-The Codex entry does not import the Claude tool registry, write `.claude/`, create workflow tasks or validation records, or perform Git delivery operations.
-
-See the [Codex MCP tool reference](../../docs/adapters/codex/TOOLS.md) for the
-exact materialization schemas, states, results, and recovery errors.
 
 ## Worktree setup
 
@@ -76,7 +67,7 @@ Server logs (`mcp-server.log`, `sql.log`, `issue-sync.log`) live in `logs/` besi
 
 `TrajectoryDB` has two construction modes. The existing one-argument constructor keeps Claude behavior and discovers `plugin_version` from `CLAUDE_PLUGIN_ROOT`. Supplying `TrajectoryDBDependencies` switches to an authoritative explicit mode: the provided `pluginVersion`, `serverLog`, and `sqlLog` are used without falling back to Claude process state; `pluginVersion: null` deliberately disables version synchronization. Logger callback failures are isolated and never change a database operation's result.
 
-Codex-bound consumers pass the context's canonical `projectRoot` as `trustedProjectRoot` when creating a project logger, `TrajectoryDB`, or `WorldModelGraph`. Each consumer then revalidates its target immediately before creating or opening state. Explicit project loggers also reject symlink leaves and create new log files with mode `0600` on POSIX; the legacy Claude singleton keeps its existing append semantics. This is a fail-closed guard against path replacement between context resolution and use, not a claim of atomic protection against a same-user filesystem mutation in the final syscall window.
+Explicit project loggers reject symlink leaves and create new log files with mode `0600` on POSIX; the default Claude singleton keeps its existing append semantics.
 
 ## Health
 
@@ -93,7 +84,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Issues | `tools/issues.ts` | `issue_create`, `issue_get`, `issue_list`, `issue_resume`, `issue_close`, `issue_link`, `issue_adopt_remote` |
 | Milestones | `tools/milestones.ts` | `milestone_close` (reconcile + seed run inside `scan_run`) |
 | Tasks | `tools/tasks.ts` | `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`, `task_rework_analysis` |
-| Task composites | `tools/composites.ts` | `task_provision`, `task_brief` (optional `section`: `core` \| `verification` \| `scope` \| `history` \| `all`; default `core` for swe, `all` for every other caller; optional `response_format`: `concise` by default, `detailed` for world-model summaries and full discussion rows), `task_retry`, `task_recover`, `task_reopen` (bro: closed/failed/escalated/running → running, widen fences, recreate the worktree), `task_update_spec` (bro: replace files/verification/spec_body of a live task), `bro_atomic_close` |
+| Task composites | `tools/composites.ts` | `task_provision`, `task_brief` (optional `section`: `core` \| `verification` \| `scope` \| `history` \| `all`; default `core` for swe, `all` for every other caller; optional `response_format`: `concise` by default, `detailed` for world-model summaries and full discussion rows), `task_retry`, `task_recover`, `task_reopen` (bro: pending/completed/closed/failed/escalated/running → running, completed for a review FAIL, widen fences, recreate the worktree), `task_update_spec` (bro: replace files/verification/spec_body of a live task), `review_handoff` (bro: hand a completed task's commit to code-reviewer, status unchanged), `bro_atomic_close` (bro: close after code-reviewer's pass) |
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `tools/audit.ts` | `audit_append`, `audit_list`, `audit_search` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |

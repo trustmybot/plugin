@@ -20,7 +20,7 @@ import {
   type RunContext,
 } from './agent-runs.js';
 import { outsideProject } from './containment.js';
-import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks } from './lifecycle.js';
+import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks, taskHasPassingReview } from './lifecycle.js';
 import {
   syncIssueCloseRemotes,
   resolveDefaultMilestone,
@@ -444,7 +444,7 @@ const BRIEF_RESPONSE_FORMAT_HINT =
 const BRIEF_SECTION_HINTS = {
   core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
   verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
-  scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
+  scope: "scope {files, extras, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
 };
 
@@ -538,6 +538,119 @@ function closeTaskInTx(
   }
 
   return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed };
+}
+
+interface ScopedTask {
+  repo: string | null;
+  parent_branch_id: string | null;
+  files: string | null;
+}
+
+// The task's own changes (merge-base with origin/<pr_target> .. commit)
+// against its typed files[], with the repo path it resolved. Unchecked, with
+// a reason, when the repo or the PR target does not resolve.
+function taskScopeCheck(db: TrajectoryDB, task: ScopedTask, commitSha: string): { scope: ScopeCheck; repoPath: string | null } {
+  const repoPath = resolveRepoPath(db, task.repo);
+  const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
+    (b): b is string => typeof b === 'string' && b.length > 0,
+  );
+  let targetRef: string | null = null;
+  if (repoPath) {
+    for (const candidate of targetCandidates) {
+      targetRef = resolveBaseRef(repoPath, candidate);
+      if (targetRef) break;
+    }
+  }
+  const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id) : null;
+  const scope: ScopeCheck =
+    repoPath && targetRef
+      ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
+      : {
+          outOfScope: [],
+          changed: [],
+          checked: false,
+          reason: repoPath
+            ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
+            : `cannot resolve a path for repo '${task.repo ?? ''}'`,
+        };
+  return { scope, repoPath };
+}
+
+// The scope report review_handoff records for code-reviewer: each changed
+// path outside files[] with the reason swe's completion report gave for it
+// (null when it gave none). Nothing here is accepted; bro_atomic_close's
+// scope gate still judges the extras.
+export interface HandoffScope {
+  extras: Array<{ path: string; reason: string | null }>;
+  checked: boolean;
+  base_moved: boolean;
+  recorded_base: string | null;
+  merge_base: string | null;
+}
+
+function handoffScope(scope: ScopeCheck, completionReport: string | null): HandoffScope {
+  const reasons = new Map((parseStoredReport(completionReport)?.extras ?? []).map((e) => [e.path, e.reason]));
+  return {
+    extras: scope.outOfScope.map((path) => ({ path, reason: reasons.get(path) ?? null })),
+    checked: scope.checked,
+    base_moved: scope.baseMoved === true,
+    recorded_base: scope.recordedBase ?? null,
+    merge_base: scope.mergeBase ?? null,
+  };
+}
+
+// The completion-report and verification gates a commit clears before it is
+// handed to code-reviewer: an error message naming the fix, else null.
+function handoffGateError(
+  db: TrajectoryDB,
+  task: { id: number; verification: string | null; spec_body: string | null; completion_report: string | null },
+  commitSha: string,
+): string | null {
+  const unreported = reportMissingIds(task.completion_report, specCriterionIds(task.spec_body));
+  if (unreported.length > 0) {
+    return (
+      `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ` +
+      `${task.completion_report ? 'does not cover' : 'is missing for'}: ${unreported.join(', ')}. Resume the swe on ` +
+      `task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}', report={criteria: ` +
+      `[{id, status}, ...]}) with one entry per id, then retry review_handoff.`
+    );
+  }
+
+  // A task with verification[] (or a non-wontfix review finding, GH 1737)
+  // hands off only on a passing recorded run of its current verification[]
+  // plus finding probes for this commit, or a verification_gate_waived row
+  // for it (GH 1672). The SubagentStop auto-complete and a later
+  // task_update_spec both reach here without the swe gate having run that
+  // verification[] on this commit.
+  const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db, task.id));
+  if (
+    verificationCommands.length > 0 &&
+    passingRunForCommit(db, task.id, commitSha, verificationCommands) === null &&
+    !verificationWaivedForCommit(db, task.id, commitSha)
+  ) {
+    return (
+      `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no ` +
+      `passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before ` +
+      `verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: ` +
+      `resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') — ` +
+      `swe-verification-gate runs verification[] in the task worktree and records the run — then retry review_handoff. ` +
+      `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
+    );
+  }
+  return null;
+}
+
+// The scope record of the newest `eventType` audit row naming this task and commit.
+function scopeRecordFor<T>(db: TrajectoryDB, eventType: string, taskId: number, commitSha: string | null): Partial<T> | null {
+  if (!commitSha) return null;
+  const row = db.get<{ content_json: string }>(
+    `SELECT content_json FROM audit
+      WHERE event_type = ? AND json_valid(content_json)
+        AND json_extract(content_json, '$.task_id') = ? AND json_extract(content_json, '$.commit_sha') = ?
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [eventType, taskId, commitSha],
+  );
+  return row ? ((JSON.parse(row.content_json) as { scope?: Partial<T> }).scope ?? null) : null;
 }
 
 function outsideProjectResult(refusal: NonNullable<ReturnType<typeof outsideProject>>): CallToolResult {
@@ -1245,7 +1358,7 @@ function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): Wontfix
   });
 }
 
-const REOPENABLE_STATUSES = new Set(['pending', 'closed', 'failed', 'escalated', 'running']);
+const REOPENABLE_STATUSES = new Set(['pending', 'completed', 'closed', 'failed', 'escalated', 'running']);
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
 const verificationPathsDoc = (ref: string) =>
   `verification[] test files must exist at ${ref} or be in files[] (else verification_path_missing); adds suggested_verification.`;
@@ -1407,14 +1520,36 @@ export function compositeTools(
       },
     },
     {
+      name: 'review_handoff',
+      description:
+        "Hands a completed or needs_validation task's current commit to code-reviewer without changing its status: writes review_handoff (the review anchor, with the scope report: extras outside files[] with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
+        'Returns review_pending=true, reviewer_effort and, with session_id, reviewer_spawn, the whole Agent call. ' +
+        'Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, for a task with verification[] or a non-wontfix finding, without a passing verification run of those commands plus one `[probe <id>]` per finding for the commit or a verification_gate_waived row (verification_run_missing).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task_id: { type: 'string' },
+          spawn_note: {
+            type: 'string',
+            description: `Optional context for code-reviewer beyond task_brief, at most ${SPAWN_NOTE_MAX_CHARS} chars; task_brief returns it. Overwrites any earlier note.`,
+          },
+          session_id: {
+            ...RUN_SESSION_ID_SCHEMA,
+            description:
+              "Optional: your host session id. With it the result carries reviewer_spawn {prompt, effort, subagent_type} to pass as is; without it, reviewer_spawn_unavailable: 'session_id'.",
+          },
+        },
+        required: ['agent', 'task_id'],
+      },
+    },
+    {
       name: 'bro_atomic_close',
       description:
-        "Bro's task close: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
-        'Runs before code-reviewer: the result carries review_pending=true, reviewer_effort (the effort that spawn must pass) and, with session_id, reviewer_spawn, that whole Agent call. ' +
+        "Bro's task close after code-reviewer passed: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
+        "Refuses with review_pass_missing until a passing verdict follows the task's review_handoff for its commit_sha, which must name the task's current commit. " +
         'An issue left open reports issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes on merge or via issue_close. ' +
-        'Gates that refuse the close: scope, changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base); ' +
-        'verification, a task with verification[] or a non-wontfix review finding needs a passing verification_runs row for the commit, run after any task_update_spec amend, whose commands match verification[] plus one `[probe <id>]` per such finding, or a verification_gate_waived row (else verification_run_missing); ' +
-        'report, SC<n>: ids in the spec need a stored completion report covering each (else completion_report_missing naming them). ' +
+        'The scope gate refuses changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base). ' +
         'PostToolUse hooks fire on bro_atomic_close, not task_update_status.',
       inputSchema: {
         type: 'object',
@@ -1430,8 +1565,7 @@ export function compositeTools(
             type: 'boolean',
             description:
               'When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, ' +
-              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. ' +
-              'Before code-reviewer has passed this task the issue stays open (tasks_without_review, review_pending).',
+              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why.',
           },
           waive_scope_gate: {
             type: 'boolean',
@@ -1445,18 +1579,6 @@ export function compositeTools(
           scope_waiver_reason: {
             type: 'string',
             description: 'Required with waive_scope_gate (at least 10 characters): why bro accepts the extra paths.',
-          },
-          spawn_note: {
-            type: 'string',
-            description:
-              `Optional context for code-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); ` +
-              'task_brief returns it as spawn_note. Overwrites any earlier note (NULL when omitted). The reviewer spawn prompt carries only the anchors.',
-          },
-          session_id: {
-            ...RUN_SESSION_ID_SCHEMA,
-            description:
-              "Optional: your host session id (the session_id=<id> the activation routine injects each turn). With it the result carries reviewer_spawn {prompt, effort, subagent_type}, " +
-              "the code-reviewer Agent call to pass as is, whose subagent_session_id anchor it becomes; without it the result carries reviewer_spawn_unavailable: 'session_id' instead.",
           },
         },
         required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
@@ -1582,7 +1704,7 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Refused when the task's issue is closed. " +
+        "Rework a task: moves a pending, completed, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Refused when the task's issue is closed. " +
         `${verificationPathsDoc('the branch tip')} ` +
         'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, base_sha, wm_commit, env_gate, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
@@ -1652,7 +1774,7 @@ export function compositeTools(
       name: 'task_brief',
       description:
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
-        "scope {files, extras_accepted, base_moved} from the latest close, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
+        "scope {files, extras, extras_accepted, base_moved} from the review handoff and close of the current commit, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
         "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, freshness, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
@@ -2124,7 +2246,7 @@ export function compositeTools(
         if (!task) return err(`task_reopen: task ${taskId} not found`);
         if (!REOPENABLE_STATUSES.has(task.status)) {
           return err(
-            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. ` +
+            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, completed, closed, failed, escalated or running tasks. ` +
               `Amend a live task's spec with task_update_spec.`,
           );
         }
@@ -2628,22 +2750,18 @@ export function compositeTools(
             }
           }
 
-          // The latest bro_atomic_close scope record (extras bro accepted, base
-          // moved) — code-reviewer reads it instead of recomputing the diff.
-          const closeRow = db.get<{ content_json: string | null }>(
-            `SELECT content_json FROM audit
-              WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
-                AND json_extract(content_json, '$.task_id') = ?
-              ORDER BY created_at DESC, id DESC LIMIT 1`,
-            [task.id],
-          );
-          const closeScope = closeRow?.content_json
-            ? ((JSON.parse(closeRow.content_json) as { scope?: Partial<CloseScope> }).scope ?? null)
-            : null;
+          // The scope report review_handoff recorded for the current commit
+          // (extras with swe's reasons, base moved) — code-reviewer reads it
+          // instead of recomputing the diff — and, once closed, the extras
+          // bro_atomic_close accepted for that commit.
+          const handoff = scopeRecordFor<HandoffScope>(db, 'review_handoff', task.id, task.commit_sha);
+          const closeScope = task.status === 'closed' ? scopeRecordFor<CloseScope>(db, 'bro_verification_pass', task.id, task.commit_sha) : null;
+          const movedFrom = handoff ?? closeScope;
           const scope = {
             files: parseTaskFiles(task.files),
+            extras: Array.isArray(handoff?.extras) ? handoff.extras : [],
             extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
-            base_moved: closeScope ? closeScope.base_moved === true : null,
+            base_moved: movedFrom ? movedFrom.base_moved === true : null,
           };
           if (concise) {
             trimmed ||= scope_world_model.some(
@@ -3372,29 +3490,13 @@ export function compositeTools(
       }),
     ),
 
-    bro_atomic_close: requireRoles(
-      'bro_atomic_close',
+    review_handoff: requireRoles(
+      'review_handoff',
       ['bro'],
-      wrap(async (args) => {
+      wrap((args) => Promise.resolve().then(() => {
         const taskId = args['task_id'] as string;
         if (!taskId) return err('Missing required arg: task_id');
-
-        const commitSha = ((args['commit_sha'] as string | undefined) ?? '').toLowerCase();
-        if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err('commit_sha must be a 7..40-char hex SHA.');
-        }
-
-        const verificationSummary = args['verification_summary'];
-        if (verificationSummary === undefined || verificationSummary === null) {
-          return err('Missing required arg: verification_summary');
-        }
-        if (typeof verificationSummary !== 'string') {
-          return err('verification_summary must be a string');
-        }
-
-        const closeIssueIfLast = args['close_issue_if_last_task'] === true;
-        const waiveScopeGate = args['waive_scope_gate'] === true;
-        const spawnNote = parseSpawnNote(args['spawn_note'], 'bro_atomic_close');
+        const spawnNote = parseSpawnNote(args['spawn_note'], 'review_handoff');
         const sessionId = parseRunSessionId(args['session_id']);
 
         const task = db.get<{
@@ -3420,79 +3522,124 @@ export function compositeTools(
         if (task.status !== 'completed' && task.status !== 'needs_validation') {
           return err(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
-              `bro_atomic_close runs after SWE flips status to completed.`,
+              `review_handoff runs after SWE flips status to completed.`,
           );
         }
-
-        const unreported = reportMissingIds(task.completion_report, specCriterionIds(task.spec_body));
-        if (unreported.length > 0) {
+        const commitSha = task.commit_sha;
+        if (!commitSha) {
           return err(
-            `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ` +
-              `${task.completion_report ? 'does not cover' : 'is missing for'}: ${unreported.join(', ')}. Resume the swe on ` +
-              `task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}', report={criteria: ` +
-              `[{id, status}, ...]}) with one entry per id, then retry bro_atomic_close.`,
+            `commit_sha_missing: task ${task.id} records no commit_sha. Resume the swe on task_id=${task.id} to call ` +
+              `task_update_status(status='completed', commit_sha=<sha>), then retry review_handoff.`,
           );
         }
+        const gateError = handoffGateError(db, task, commitSha);
+        if (gateError !== null) return err(gateError);
 
-        // --- Close-time verification gate (GH 1672) ---
-        // A task with verification[] closes only on a passing recorded run of
-        // its current verification[] plus its review finding probes (GH 1737)
-        // for this commit, or a
-        // verification_gate_waived row for it. The SubagentStop auto-complete
-        // and a later task_update_spec both reach here without the swe gate
-        // having run that verification[] on this commit.
-        const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db, task.id));
-        if (
-          verificationCommands.length > 0 &&
-          passingRunForCommit(db, task.id, commitSha, verificationCommands) === null &&
-          !verificationWaivedForCommit(db, task.id, commitSha)
-        ) {
+        const { scope, repoPath } = taskScopeCheck(db, task, commitSha);
+        const recorded = handoffScope(scope, task.completion_report);
+        const now = nowISO();
+        const result = db.transaction(() => {
+          insertAudit(db, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: 'bro',
+            event_type: 'review_handoff',
+            summary: `Task ${task.id} commit ${commitSha.slice(0, 12)} handed to code-reviewer.`,
+            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, scope: recorded }),
+            created_at: now,
+          });
+          const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
+          db.run('UPDATE tasks SET spawn_note = ? WHERE id = ?', [spawnNote, task.id]);
+          return {
+            task_id: task.id,
+            commit_sha: commitSha,
+            review_pending: true,
+            reviewer_effort: reviewerEffort.effort,
+            ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort, sessionId),
+            scope: recorded,
+          };
+        });
+        return ok(result);
+      })),
+    ),
+
+    bro_atomic_close: requireRoles(
+      'bro_atomic_close',
+      ['bro'],
+      wrap(async (args) => {
+        const taskId = args['task_id'] as string;
+        if (!taskId) return err('Missing required arg: task_id');
+
+        const commitArg = ((args['commit_sha'] as string | undefined) ?? '').toLowerCase();
+        if (!commitArg || !/^[0-9a-f]{7,40}$/.test(commitArg)) {
+          return err('commit_sha must be a 7..40-char hex SHA.');
+        }
+
+        const verificationSummary = args['verification_summary'];
+        if (verificationSummary === undefined || verificationSummary === null) {
+          return err('Missing required arg: verification_summary');
+        }
+        if (typeof verificationSummary !== 'string') {
+          return err('verification_summary must be a string');
+        }
+        if (args['spawn_note'] !== undefined) {
+          return err('spawn_note moved to review_handoff, which hands the commit to code-reviewer before this close; call bro_atomic_close without it.');
+        }
+
+        const closeIssueIfLast = args['close_issue_if_last_task'] === true;
+        const waiveScopeGate = args['waive_scope_gate'] === true;
+
+        const task = db.get<{
+          id: number;
+          issue_id: number;
+          branch_id: string;
+          parent_branch_id: string | null;
+          status: string;
+          commit_sha: string | null;
+          repo: string | null;
+          files: string | null;
+        }>(
+          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files
+             FROM tasks WHERE id = ? LIMIT 1`,
+          [taskId],
+        );
+        if (!task) return err(`No task with id=${taskId}`);
+        if (task.status !== 'completed' && task.status !== 'needs_validation') {
           return err(
-            `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no ` +
-              `passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before ` +
-              `verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: ` +
-              `resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') — ` +
-              `swe-verification-gate runs verification[] in the task worktree and records the run — then retry bro_atomic_close. ` +
-              `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`,
+            `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
+              `bro_atomic_close runs after SWE flips status to completed and code-reviewer passes the commit.`,
+          );
+        }
+        // The pass is judged on tasks.commit_sha, so the close keeps that
+        // exact spelling: a short or differently cased commit_sha would
+        // detach the task from its review anchor.
+        const commitSha = task.commit_sha;
+        if (!commitSha || !(commitSha.toLowerCase().startsWith(commitArg) || commitArg.startsWith(commitSha.toLowerCase()))) {
+          return err(
+            `commit_sha_mismatch: task ${task.id}'s current commit is ${commitSha ?? '(none)'}, not ${commitArg}. ` +
+              `Close the commit code-reviewer passed; new work goes through swe, review_handoff and a fresh review first.`,
+          );
+        }
+        if (!taskHasPassingReview(db, task.id)) {
+          return err(
+            `review_pass_missing: task ${task.id} has no passing code-reviewer verdict recorded after its review_handoff for commit ${commitSha}. ` +
+              `Call review_handoff(task_id=${task.id}, session_id=...), spawn the reviewer_spawn it returns, and retry bro_atomic_close once the verdict is a pass; ` +
+              `on a fail, task_reopen(task_id=${task.id}) for rework.`,
           );
         }
 
         // --- Close-time files[] scope gate ---
-        // The task's own changes (merge-base with origin/<pr_target> .. commit)
-        // against its typed files[]. Extras refuse the close, grouped by
-        // surface, unless bro accepts them with waive_scope_gate +
-        // scope_waiver_reason; the acceptance lands in scope_gate_waived.
-        // Fail-CLOSED when the repo/commit can't be resolved. task_recover's
-        // shared close path is intentionally NOT gated.
+        // Extras refuse the close, grouped by surface, unless bro accepts them
+        // with waive_scope_gate + scope_waiver_reason; the acceptance lands in
+        // scope_gate_waived. Fail-CLOSED when the repo/commit can't be
+        // resolved. task_recover's shared close path is intentionally NOT gated.
         const now = nowISO();
         const scopeWaiverReason = typeof args['scope_waiver_reason'] === 'string' ? args['scope_waiver_reason'].trim() : '';
         if (waiveScopeGate && scopeWaiverReason.length < 10) {
           return err('bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.');
         }
 
-        const repoPath = resolveRepoPath(db, task.repo);
-        const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
-          (b): b is string => typeof b === 'string' && b.length > 0,
-        );
-        let targetRef: string | null = null;
-        if (repoPath) {
-          for (const candidate of targetCandidates) {
-            targetRef = resolveBaseRef(repoPath, candidate);
-            if (targetRef) break;
-          }
-        }
-        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id) : null;
-        const scope: ScopeCheck =
-          repoPath && targetRef
-            ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
-            : {
-                outOfScope: [],
-                changed: [],
-                checked: false,
-                reason: repoPath
-                  ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
-                  : `cannot resolve a path for repo '${task.repo ?? ''}'`,
-              };
+        const { scope } = taskScopeCheck(db, task, commitSha);
         const baseMoved = scope.baseMoved === true;
         const scopeRecord = {
           extras_accepted: waiveScopeGate ? scope.outOfScope : [],
@@ -3562,14 +3709,9 @@ export function compositeTools(
             });
           }
           const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, null, scopeRecord);
-          const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
-          db.run('UPDATE tasks SET spawn_note = ? WHERE id = ?', [spawnNote, task.id]);
           return {
             task_id: task.id,
             issue_closed: closed.issue_closed,
-            review_pending: true,
-            reviewer_effort: reviewerEffort.effort,
-            ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort.effort, sessionId),
             base_moved: baseMoved,
             ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
             ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),

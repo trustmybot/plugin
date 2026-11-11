@@ -24,7 +24,7 @@ const RUN_ID = 'db-path-rule';
 
 /** The columns and tables the hooks under test read. */
 const SCHEMA = `
-  CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT DEFAULT 'o', status TEXT DEFAULT 'open', repo TEXT, updated_at TEXT DEFAULT '2026-01-01');
+  CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT DEFAULT 'o', status TEXT DEFAULT 'open', repo TEXT, created_at TEXT DEFAULT '2026-01-01', updated_at TEXT DEFAULT '2026-01-01');
   CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER DEFAULT 1, branch_id TEXT, status TEXT, spec_body TEXT DEFAULT '## spec', repo TEXT, parent_branch_id TEXT, files TEXT, verification TEXT, prompt_bearing INTEGER DEFAULT 0, commit_sha TEXT);
   CREATE TABLE repos (name TEXT, path TEXT, target_branch TEXT, branching_model TEXT, protected_branches TEXT);
   CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);
@@ -257,7 +257,7 @@ describe('db-path-rule: one trajectory-DB location rule across the hooks, and fa
     {
       hook: 'code-reviewer-after-atomic-close',
       payload: () => '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"task_id=4"}}',
-      normal: 'status=closed but actual status=completed',
+      normal: 'has no review_handoff for the task\'s current commit',
     },
     { hook: 'stay-on-base-guard', payload: () => '{"tool_name":"Bash","tool_input":{"command":"git checkout feat/open"}}', normal: 'belongs to open task #2' },
     { hook: 'no-worktree-branch-create', payload: () => BRANCH_CREATE, normal: 'cannot create a branch' },

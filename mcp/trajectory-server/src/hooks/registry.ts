@@ -291,6 +291,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'validation_record'),
     routerGate(RT_CLEANUP_GATE, 'advisory', 'roundtable_close'),
     routerGate(README_STALENESS_GATE, 'advisory', 'bro_atomic_close'),
+    routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'bro_atomic_close'),
     routerGate(SPAWN_HINT_GATE, 'advisory', 'task_create_batch'),
     routerGate(OVERRUN_GATE, 'advisory'),
     routerGate(LIVENESS_ALERT_GATE, 'advisory'),

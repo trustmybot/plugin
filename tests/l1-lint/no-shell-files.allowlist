@@ -1,5 +1,3 @@
 # Tracked shell files (*.sh, *.bash) admitted by no-shell-files.test.mjs, one per line as
 # <repo-relative path>  # <reason>. TMB ships TypeScript, not shell (GH 1692); admit only a
 # file another lane owns, and remove its entry once the file is ported.
-tests/l0-install/codex-plugin-surface-smoke.sh  # Codex lane: drives the real Codex installer in an isolated CODEX_HOME
-tests/l1-lint/codex-scope4-contract.sh  # Codex lane: freezes the Scope-4 Codex Agent catalog and adapter surfaces
