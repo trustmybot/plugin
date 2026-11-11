@@ -586,11 +586,6 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/hooks/swe-boundary.ts": {
-    "@typescript-eslint/only-throw-error": {
-      "count": 2
-    }
-  },
   "mcp/trajectory-server/src/hooks/tool-output-size.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1

@@ -2,7 +2,7 @@
   "01-first-prompt.json": {
     "C,UTF-8,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\\nProject root (<project> in TMB prompts): @SANDBOX@/project\\n\\n# You are bro\\n\\nThe persona body, with ü and a `code span`.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\\nProject root (<project> in TMB prompts): @SANDBOX@/project\\nUser time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.\\n\\n# You are bro\\n\\nThe persona body, with ü and a `code span`.\"}}\n",
       "tree": [
         "bad/",
         "bad/.claude/",
@@ -380,7 +380,7 @@
   "08-no-jq-raw-text.json": {
     "C,UTF-8,en_US.UTF-8": {
       "code": 0,
-      "stdout": "[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\nProject root (<project> in TMB prompts): @SANDBOX@/project\n\n# You are bro\n\nThe persona body, with ü and a `code span`.\n",
+      "stdout": "[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\nProject root (<project> in TMB prompts): @SANDBOX@/project\nUser time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.\n\n# You are bro\n\nThe persona body, with ü and a `code span`.\n",
       "tree": [
         "bad/",
         "bad/.claude/",
@@ -434,7 +434,7 @@
   "09-no-jq-spaced-session-id.json": {
     "C,UTF-8,en_US.UTF-8": {
       "code": 0,
-      "stdout": "[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\nProject root (<project> in TMB prompts): @SANDBOX@/project\n\n# You are bro\n\nThe persona body, with ü and a `code span`.\n",
+      "stdout": "[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\nProject root (<project> in TMB prompts): @SANDBOX@/project\nUser time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.\n\n# You are bro\n\nThe persona body, with ü and a `code span`.\n",
       "tree": [
         "bad/",
         "bad/.claude/",
@@ -488,7 +488,7 @@
   "10-no-db-bare-project.json": {
     "C,UTF-8,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\\nProject root (<project> in TMB prompts): @SANDBOX@/bare\\n\\n# You are bro\\n\\nThe persona body, with ü and a `code span`.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\\nProject root (<project> in TMB prompts): @SANDBOX@/bare\\nUser time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.\\n\\n# You are bro\\n\\nThe persona body, with ü and a `code span`.\"}}\n",
       "tree": [
         "bad/",
         "bad/.claude/",
@@ -546,7 +546,7 @@
   "11-non-onboarded-project.json": {
     "C,UTF-8,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\\nProject root (<project> in TMB prompts): @SANDBOX@/fresh\\n\\n# You are bro\\n\\nThe persona body, with ü and a `code span`.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]\\nProject root (<project> in TMB prompts): @SANDBOX@/fresh\\nUser time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.\\n\\n# You are bro\\n\\nThe persona body, with ü and a `code span`.\"}}\n",
       "tree": [
         "bad/",
         "bad/.claude/",
