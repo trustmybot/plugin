@@ -20,7 +20,7 @@ export const WRITE_SHAPES: readonly string[] = [
   'find -exec / -execdir / -ok / -delete / -fprint', 'fd -x / -X', 'xargs fed by find or fd',
 ];
 
-const PROMPT_FILES = new Set(['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md']);
+const PROMPT_FILES = new Set(['CLAUDE.md']);
 
 /** tmb_cmd_write_shapes: the write shapes the Bash rules judge, comma-joined. */
 export function writeShapes(): string {
@@ -38,8 +38,7 @@ export async function surfaceRoot(abs: string, env: NodeJS.ProcessEnv = process.
 }
 
 /**
- * tmb_is_prompt_surface_path <path> [<root>]: a CLAUDE/CODEX/CURSOR/GEMINI.md
- * anywhere, or a .md under agents/, skills/, commands/, templates/ or rules/
+ * tmb_is_prompt_surface_path <path> [<root>]: a CLAUDE.md anywhere, or a .md under agents/, skills/, commands/, templates/ or rules/
  * (or .claude/agents|skills|commands|rules/) of <root>, the path's own repo
  * root when none is given.
  */

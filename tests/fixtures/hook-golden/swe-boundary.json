@@ -387,21 +387,21 @@
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-d-dot-claude-rules.json": {
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/.claude/rules/style.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/.claude/rules/style.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-d-notebook-template.json": {
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/templates/a.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/templates/a.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-d-root-claude-md-prompt-bearing.json": {
@@ -422,7 +422,7 @@
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/x/SKILL.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/x/SKILL.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-db-error.json": {
@@ -534,7 +534,7 @@
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-unresolved-ctx-bash-surface-by-branch.json": {
@@ -604,14 +604,14 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/docs/CLAUDE.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/docs/CLAUDE.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/allow-d-prompt-bearing.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/allow-d-src-edit.json": {
@@ -779,7 +779,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/context-h-relative-target.json": {
@@ -877,21 +877,21 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/deny-d-dot-claude-rules.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/.claude/rules/style.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/.claude/rules/style.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/deny-d-notebook-template.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/templates/a.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/templates/a.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/deny-d-root-claude-md-prompt-bearing.json": {
@@ -912,7 +912,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/x/SKILL.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/x/SKILL.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/deny-db-error.json": {
@@ -982,7 +982,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task. This is policy: stop and report.\"}}\n"
     }
   },
   "generic/deny-unresolved-ctx-bash-surface-by-branch.json": {

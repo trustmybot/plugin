@@ -187,7 +187,7 @@ describe('swe-boundary helpers: the frozen shell answers agree', () => {
         ['.claude/templates/r.md', '', false],
         ['src/agents/a.md', '', false],
         ['docs/CLAUDE.md', '', true],
-        ['GEMINI.md', '', true],
+        ['GEMINI.md', '', false],
         [`${repo}/agents/a.md`, '', true],
         [`${repo}/src/a.ts`, '', false],
         [`${repo}/src/agents/a.md`, '', false],

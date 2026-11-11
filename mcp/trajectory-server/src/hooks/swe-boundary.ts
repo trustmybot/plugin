@@ -810,7 +810,7 @@ class Boundary {
       }
     }
     return deny(
-      `BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: ${target}. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task.`,
+      `BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md). Target: ${target}. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task.`,
       'policy',
     );
   }
