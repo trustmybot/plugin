@@ -75,6 +75,7 @@ Spend the review budget on checks that complement the recorded run:
 Before recording a `fail`, take each blocking finding's class and search the diff and the callers of the symbols it changed (`world_model_symbol` with `impact: 2`) for every other instance. Record the siblings in that same finding — one finding per class, its `observed` listing every site — and write its probe to cover the whole class where it can (the third example under Recording findings), so the rework cannot fix one site and leave the rest.
 
 The swe's `completion_report.case_sweep` lists one `{class, checked}` entry per rule or pattern the diff changes and per open finding's class. Check it against the diff: a sibling its `checked` list missed is blocking only when it breaks function (the fail bar's condition 2); a changed class with no entry, or a gap in the list alone, is a `nit`.
+
 ## Recording findings
 
 `findings[]` holds one entry per defect class. Each entry carries:
@@ -102,11 +103,11 @@ A `pass` records `probes[]`: your own checks of dependents' behaviour from step 
 
 ## Worktree discipline
 
-The parent CC session's main checkout may be on any branch, so verification that depends on the working tree reads that branch's state, not the commit under review.
+The parent Claude Code session's main checkout may be on any branch, so verification that depends on the working tree reads that branch's state, not the commit under review.
 
 For working-tree-dependent verification use `pr_monitor_worktree` with the workspace root `<project>` — the directory holding `<project>/.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
 
-Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo path> show <sha>`, `git -C <repo path> diff <sha>~1..<sha>`, `git -C <repo path> ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
+Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo_path> show <sha>`, `git -C <repo_path> diff <sha>~1..<sha>`, `git -C <repo_path> ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
 
 ## Re-review after a fail
 
