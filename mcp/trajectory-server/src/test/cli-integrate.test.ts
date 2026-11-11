@@ -650,7 +650,7 @@ describe('cli.js integrate', () => {
       const r = integrate('main');
       assert.equal(r.code, 1, r.err);
       assert.equal(r.out, '', 'nothing on stdout');
-      assert.match(r.err, /frozen install failed: npm ci: exited 1\nOutput \(last 20 lines\):\n/);
+      assert.match(r.err, /frozen install failed in \.: npm ci: exited 1\nOutput \(last 20 lines\):\n/);
       assert.match(r.err, /worktree setup failed on [0-9a-f]{40}; no verification run recorded, feat\/x-1 unmoved/);
       assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
       assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');

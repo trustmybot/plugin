@@ -283,7 +283,7 @@ describe('pr_monitor_worktree runs worktree setup before its command', () => {
       assert.equal(r.isError, true);
       assert.equal(parse(r)['passed'], false);
       const error = parse(r)['error'] as string;
-      assert.match(error, /worktree setup failed, command not run: frozen install failed: npm ci: exited 1/);
+      assert.match(error, /worktree setup failed, command not run: frozen install failed in \.: npm ci: exited 1/);
       assert.deepEqual(reviewDirs(repoRoot, sha), [], 'worktree removed');
       assert.equal(existsSync(join(repoRoot, '.claude/command-ran')), false, 'command not run');
     } finally {

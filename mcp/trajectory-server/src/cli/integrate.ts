@@ -34,12 +34,13 @@
  *      squash-merged parent branch's, is skipped), both over every path, must
  *      match, else exit 2. No rebased commit left means the task's patch is
  *      already in <base> → exit 2.
- *      When the worktree's root lockfile and every tracked package.json match
- *      the main checkout's byte for byte, each untracked node_modules of the
- *      main checkout beside a tracked package.json is linked into the worktree
- *      entry by entry (GH 1541); when one differs, the lockfile's frozen
- *      install runs in the worktree instead (GH 3003), and its failure → exit 1
- *      with the command and its output tail on stderr, branch unmoved.
+ *      Each tracked dir holding a lockfile is an install root for the package
+ *      dirs nearest beneath it. A root whose lockfile or any package.json in
+ *      its group differs from the main checkout's byte for byte gets the
+ *      lockfile's frozen install, run in that root (GH 3003); every other
+ *      tracked package dir gets the main checkout's untracked node_modules
+ *      linked in entry by entry (GH 1541). The first failed install → exit 1
+ *      with the root, the command and its output tail on stderr, branch unmoved.
  *      When the worktree holds .config/tmb/worktree-setup.json (GH 2054), its
  *      commands run first; a failure → exit 1 with the failing command and its
  *      output tail on stderr, nothing recorded, branch unmoved.

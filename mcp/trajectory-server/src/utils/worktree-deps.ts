@@ -1,8 +1,8 @@
 // Untracked node_modules installs never reach a fresh git worktree (GH 1541,
 // GH 1853): link the main checkout's install, entry by entry, beside each
 // tracked package.json. A worktree whose manifests differ from main's would
-// build against an install that lacks its new deps (GH 3003), so it gets a
-// frozen install of its own instead.
+// build against an install that lacks its new deps (GH 3003), so each lockfile
+// root whose manifests differ gets a frozen install of its own instead.
 // Shared by the environment gate (tools/env-gate.ts), pr_monitor_worktree and cli.js integrate;
 // standalone it runs as `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
 import { execFileSync, spawn } from 'node:child_process';
@@ -14,7 +14,7 @@ import { SUBPROCESS_TIMEOUT_MS, WORKTREE_DEPS_INSTALL_TIMEOUT_MS } from './timeo
 export interface WorktreeDepsResult {
   linked: string[];
   skipped: { dir: string; reason: string }[];
-  installed?: { command: string };
+  installed?: { dir: string; command: string }[];
   install_error?: string;
 }
 
@@ -26,7 +26,7 @@ export interface PrepareWorktreeDepsOptions {
   runInstall?: InstallRunner;
 }
 
-// Checked in this order; the first lockfile present in the worktree root picks the command.
+// Checked in this order; the first lockfile an install root holds picks the command.
 const LOCKFILE_INSTALLS: readonly (readonly [string, readonly string[]])[] = [
   ['bun.lock', ['bun', 'install', '--frozen-lockfile']],
   ['bun.lockb', ['bun', 'install', '--frozen-lockfile']],
@@ -56,12 +56,41 @@ function pathPresent(path: string): boolean {
   }
 }
 
-function trackedPackageDirs(worktreePath: string): string[] {
-  const out = execFileSync('git', ['-C', worktreePath, 'ls-files', '-z', '--', 'package.json', '*/package.json'], {
+function trackedFiles(worktreePath: string, names: readonly string[]): string[] {
+  const pathspecs = names.flatMap((name) => [name, `*/${name}`]);
+  const out = execFileSync('git', ['-C', worktreePath, 'ls-files', '-z', '--', ...pathspecs], {
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: SUBPROCESS_TIMEOUT_MS,
   }).toString();
-  return [...new Set(out.split('\0').filter(Boolean).map((p) => dirname(p)))];
+  return out.split('\0').filter(Boolean);
+}
+
+function trackedPackageDirs(worktreePath: string): string[] {
+  return [...new Set(trackedFiles(worktreePath, ['package.json']).map((p) => dirname(p)))];
+}
+
+const LOCKFILE_NAMES = LOCKFILE_INSTALLS.map(([lockfile]) => lockfile);
+
+interface InstallRoot {
+  dir: string;
+  argv: readonly string[];
+  members: string[];
+}
+
+function trackedInstallRoots(worktreePath: string): InstallRoot[] {
+  const lockfiles = new Set(trackedFiles(worktreePath, LOCKFILE_NAMES));
+  const dirs = [...new Set([...lockfiles].map((p) => dirname(p)))].sort();
+  return dirs.map((dir) => {
+    const [, argv] = LOCKFILE_INSTALLS.find(([lockfile]) => lockfiles.has(join(dir, lockfile)))!;
+    return { dir, argv, members: [] };
+  });
+}
+
+function nearestRoot(dir: string, rootsByDir: ReadonlyMap<string, InstallRoot>): InstallRoot | undefined {
+  for (let at = dir; ; at = dirname(at)) {
+    const root = rootsByDir.get(at);
+    if (root !== undefined || at === '.') return root;
+  }
 }
 
 export function linkWorktreeNodeModules(repoRoot: string, worktreePath: string): WorktreeDepsResult {
@@ -74,38 +103,54 @@ export function linkWorktreeNodeModules(repoRoot: string, worktreePath: string):
   return linkPackageDirs(repoRoot, worktreePath, dirs);
 }
 
-/** Links main's install when the worktree's manifests match main's, else runs a frozen install; never throws. */
+/**
+ * Each tracked dir holding a lockfile is an install root, owning the package
+ * dirs whose nearest lockfile-holding ancestor (itself included) it is. A root
+ * whose lockfiles or group's package.json files differ from main's gets a
+ * frozen install and none of its group is linked: the install owns those dirs
+ * (GH 2872). Every other group and every dir outside all groups is linked as
+ * linkWorktreeNodeModules does. The first failed install stops the rest; never throws.
+ */
 export async function prepareWorktreeDeps(
   repoRoot: string,
   worktreePath: string,
   opts: PrepareWorktreeDepsOptions = {},
 ): Promise<WorktreeDepsResult> {
   let dirs: string[];
+  let roots: InstallRoot[];
   try {
     dirs = trackedPackageDirs(worktreePath);
+    roots = trackedInstallRoots(worktreePath);
   } catch (error) {
     return gitListingFailed(error);
   }
-  const argv = lockfileInstall(worktreePath);
-  if (argv === null || manifestsMatch(repoRoot, worktreePath, dirs)) return linkPackageDirs(repoRoot, worktreePath, dirs);
-  const command = argv.join(' ');
-  try {
-    await (opts.runInstall ?? spawnInstall)(argv, worktreePath, opts.env ?? process.env);
-    return { linked: [], skipped: [], installed: { command } };
-  } catch (error) {
-    return { linked: [], skipped: [], install_error: `frozen install failed: ${command}: ${(error as Error).message}` };
+  const rootsByDir = new Map(roots.map((root) => [root.dir, root]));
+  for (const dir of dirs) nearestRoot(dir, rootsByDir)?.members.push(dir);
+
+  const installed: { dir: string; command: string }[] = [];
+  const installOwned = new Set<string>();
+  for (const root of roots) {
+    if (manifestsMatch(repoRoot, worktreePath, root)) continue;
+    const command = root.argv.join(' ');
+    try {
+      await (opts.runInstall ?? spawnInstall)(root.argv, join(worktreePath, root.dir), opts.env ?? process.env);
+    } catch (error) {
+      return {
+        linked: [],
+        skipped: [],
+        ...(installed.length > 0 ? { installed } : {}),
+        install_error: `frozen install failed in ${root.dir}: ${command}: ${(error as Error).message}`,
+      };
+    }
+    installed.push({ dir: root.dir, command });
+    for (const dir of root.members) installOwned.add(dir);
   }
+  const result = linkPackageDirs(repoRoot, worktreePath, dirs.filter((dir) => !installOwned.has(dir)));
+  return installed.length > 0 ? { ...result, installed } : result;
 }
 
 function gitListingFailed(error: unknown): WorktreeDepsResult {
   return { linked: [], skipped: [{ dir: '.', reason: `git ls-files failed: ${(error as Error).message}` }] };
-}
-
-function lockfileInstall(worktreePath: string): readonly string[] | null {
-  for (const [lockfile, argv] of LOCKFILE_INSTALLS) {
-    if (pathPresent(join(worktreePath, lockfile))) return argv;
-  }
-  return null;
 }
 
 function readOrNull(path: string): Buffer | null {
@@ -123,8 +168,11 @@ function sameBytes(a: string, b: string): boolean {
   return left.equals(right);
 }
 
-function manifestsMatch(repoRoot: string, worktreePath: string, dirs: readonly string[]): boolean {
-  const manifests = [...LOCKFILE_INSTALLS.map(([lockfile]) => lockfile), ...dirs.map((dir) => join(dir, 'package.json'))];
+function manifestsMatch(repoRoot: string, worktreePath: string, root: InstallRoot): boolean {
+  const manifests = [
+    ...LOCKFILE_NAMES.map((lockfile) => join(root.dir, lockfile)),
+    ...root.members.map((dir) => join(dir, 'package.json')),
+  ];
   return manifests.every((rel) => sameBytes(join(repoRoot, rel), join(worktreePath, rel)));
 }
 
