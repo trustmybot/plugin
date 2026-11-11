@@ -7,7 +7,8 @@ import { dirname, join } from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { gitUnanswered, runGit } from '../utils/git-run.js';
-import { resolveCutBase, resolveRepoDefaultBranch } from '../utils/git-refs.js';
+import { resolveCutBase } from '../utils/git-refs.js';
+import { repoTargetBase } from '../utils/repo-paths.js';
 import { effectiveCommands, type RepoEnvRow } from './env.js';
 
 export const VERIFICATION_DEFAULTS_FILE = '.config/tmb/verification-defaults.json';
@@ -109,8 +110,7 @@ export function proposeVerificationDefaults(db: TrajectoryDB, repo: string): Ver
 
 // Where task_provision reads the repo's defaults: the cut base of its PR target.
 export function verificationDefaultsBaseRef(db: TrajectoryDB, repo: string, repoPath: string): string | null {
-  const target = db.get<{ target_branch: string | null }>(`SELECT target_branch FROM repos WHERE name = ?`, [repo])?.target_branch;
-  return resolveCutBase(repoPath, target ?? resolveRepoDefaultBranch(repoPath))?.ref ?? null;
+  return resolveCutBase(repoPath, repoTargetBase(db, repoPath, repo))?.ref ?? null;
 }
 
 // readVerificationDefaults answers { commands: [] } at a resolving ref only when

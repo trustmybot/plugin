@@ -14,6 +14,8 @@ import {
   proposeVerificationDefaults,
   readVerificationDefaults,
   VERIFICATION_DEFAULTS_FILE,
+  verificationDefaultsBaseRef,
+  verificationDefaultsHint,
 } from '../tools/verification-defaults.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
@@ -362,6 +364,42 @@ describe('proposeVerificationDefaults (GH 2866)', () => {
       assert.deepEqual(proposeVerificationDefaults(db, 'app'), { candidates: [], reason: 'no_env_profile' });
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe('the defaults base ref resolves like task_provision (GH 2866)', () => {
+  it("an empty pr_target means unset: the default branch, as provision reads it", async () => {
+    const none = setup(null);
+    try {
+      none.db.run(`UPDATE repos SET target_branch = '' WHERE name = 'app'`);
+      const ref = verificationDefaultsBaseRef(none.db, 'app', none.repoRoot);
+      assert.equal(typeof ref, 'string');
+      const out = parse(await none.provision('feat/empty-target', ['true']));
+      assert.equal(typeof out['task_id'], 'number', JSON.stringify(out));
+      assert.ok(String(out['verification_defaults_missing']).startsWith(`${ref} has no `), JSON.stringify(out));
+      await recordProfiles(none.db, 'app', [{ package_path: '.', ecosystem: 'python', commands: { test: [candidate('make test', 'Makefile:3')] } }]);
+      assert.deepEqual(verificationDefaultsHint(none.db, 'app', none.repoRoot), {
+        repo: 'app',
+        ref,
+        candidates: [{ command: 'make test', category: 'test', source: 'Makefile:3' }],
+      });
+    } finally {
+      none.cleanup();
+    }
+
+    const present = setup(DEFAULTS);
+    try {
+      present.db.run(`UPDATE repos SET target_branch = '' WHERE name = 'app'`);
+      const ref = verificationDefaultsBaseRef(present.db, 'app', present.repoRoot);
+      assert.equal(typeof ref, 'string');
+      assert.deepEqual(readVerificationDefaults(present.repoRoot, ref), { commands: [LINT, 'bun run lint'] });
+      const out = parse(await present.provision('feat/empty-target', ['true']));
+      assert.deepEqual(out['verification_defaults_added'], [LINT, 'bun run lint']);
+      await recordProfiles(present.db, 'app', [{ package_path: '.', ecosystem: 'python', commands: { test: [candidate('make test', 'Makefile:3')] } }]);
+      assert.equal(verificationDefaultsHint(present.db, 'app', present.repoRoot), null);
+    } finally {
+      present.cleanup();
     }
   });
 });
