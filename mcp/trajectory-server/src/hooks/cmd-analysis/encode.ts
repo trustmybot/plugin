@@ -375,6 +375,12 @@ export class Encoder {
     return dollar && this.marks && c === '$' ? DOLLAR : neutral(c, this.marks);
   }
 
+  /** `$` at src[i] starts no expansion, so bash keeps it literal (GH 2451). */
+  private literalDollar(i: number): boolean {
+    const next = this.src[i + 1];
+    return next === undefined || !/[A-Za-z0-9_@*#?$!{(`-]/.test(next);
+  }
+
   /** Unquoted text: a backslash escapes the next char; a backslash-newline is dropped, as bash joins the lines (GH 2646). */
   private plain(from: number, to: number): string {
     const { src } = this;
@@ -382,7 +388,12 @@ export class Encoder {
     for (let i = from; i < to; i++) {
       const c = src[i];
       if (c !== '\\') {
-        out += literalMark(c, this.marks) ? QM_LITERAL : c;
+        if (this.marks && c === '$' && i + 1 < to && src[i + 1] === '$') {
+          // `$$` is the shell's pid, an expansion: neither `$` is literal (GH 2451).
+          out += '$$';
+          i++;
+        } else if (c === '$' && this.marks && this.literalDollar(i)) out += DOLLAR;
+        else out += literalMark(c, this.marks) ? QM_LITERAL : c;
         continue;
       }
       const next = i + 1 < to ? src[i + 1] : undefined;
@@ -392,7 +403,7 @@ export class Encoder {
     return out;
   }
 
-  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes, and a backslash-newline whole; `literal` keeps every `$` literal, else only an escaped one. */
+  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes, and a backslash-newline whole; `literal` keeps every `$` literal, else only one that starts no expansion. */
   private quoted(from: number, to: number, escapes: boolean, literal: boolean): string {
     const { src } = this;
     let out = '';
@@ -403,7 +414,11 @@ export class Encoder {
         const next = i + 1 < to ? src[i + 1] : undefined;
         if (next !== '\n') out += this.literal(next, true);
         if (next !== undefined) i++;
-      } else out += this.literal(c, literal);
+      } else if (!literal && c === '$' && i + 1 < to && src[i + 1] === '$') {
+        // `$$` is the shell's pid in "…" too, never a literal `$` (GH 2451).
+        out += '$$';
+        i++;
+      } else out += this.literal(c, literal || (c === '$' && this.literalDollar(i)));
     }
     return out;
   }
