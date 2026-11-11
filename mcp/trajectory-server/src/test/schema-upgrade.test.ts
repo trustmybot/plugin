@@ -4948,6 +4948,8 @@ describe('schema upgrade — v35 -> v36 verification_runs + verification_run_com
         worktree_path: null,
         worktree_adopted: 0,
         workflow_mode: null,
+        base_sha: null,
+        wm_commit: null,
       })),
     );
 
@@ -5034,6 +5036,8 @@ describe('schema upgrade — v36 -> v37 tasks.effort + agent_runs.effort', () =>
         worktree_path: null,
         worktree_adopted: 0,
         workflow_mode: null,
+        base_sha: null,
+        wm_commit: null,
       })),
       'existing tasks keep every value and read effort medium',
     );
@@ -5994,11 +5998,13 @@ describe('schema upgrade — v50 / v51 -> v52 agent_runs.stop_cause, stop_detail
         { name: 'stop_detail', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'hook_block_tokens', type: 'INTEGER', notnull: 0, dflt_value: null },
       ]);
-      assert.deepEqual(tail('tasks', 4), [
+      assert.deepEqual(tail('tasks', 6), [
         { name: 'checkpoint', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'worktree_path', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'worktree_adopted', type: 'INTEGER', notnull: 1, dflt_value: '0' },
         { name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'base_sha', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'wm_commit', type: 'TEXT', notnull: 0, dflt_value: null },
       ]);
       assert.deepEqual(
         { ...migrated.get<Record<string, unknown>>('SELECT id, plugin_version, stop_cause, stop_detail FROM agent_runs WHERE id = 11') },
@@ -6469,12 +6475,14 @@ describe('schema upgrade — v53 -> v54 tasks.worktree_path and worktree_adopted
     assert.deepEqual(
       migrated
         .all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(tasks)')
-        .slice(-3)
+        .slice(-5)
         .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value })),
       [
         { name: 'worktree_path', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'worktree_adopted', type: 'INTEGER', notnull: 1, dflt_value: '0' },
         { name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'base_sha', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'wm_commit', type: 'TEXT', notnull: 0, dflt_value: null },
       ],
     );
     assert.deepEqual(
@@ -6514,6 +6522,66 @@ describe('schema upgrade — v53 -> v54 tasks.worktree_path and worktree_adopted
     const names = again.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.equal(names.filter((n) => n === 'worktree_path' || n === 'worktree_adopted').length, 2);
     assert.equal(readdirSync(tmpDir).filter((f) => f.includes('.pre-v67.') && f.endsWith('.bak')).length, 1);
+    again.close();
+  });
+});
+
+describe('schema upgrade — v66 -> v67 tasks.base_sha and wm_commit (GH 2866)', () => {
+  const seedV66 = (dbPath: string): void => {
+    new TrajectoryDB(dbPath, undefined, MIGRATE).close();
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`
+      INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (5, 'o', 'open', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z');
+      INSERT INTO tasks (id, issue_id, branch_id, description, status, workflow_mode, created_at, updated_at)
+        VALUES (7, 5, 'feat/7-x', 'd', 'running', NULL, '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z'),
+               (8, 5, 'feat/8-y', 'd', 'closed', 'agile', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z');
+      ALTER TABLE tasks DROP COLUMN wm_commit;
+      ALTER TABLE tasks DROP COLUMN base_sha;
+      UPDATE plugin_meta SET schema_version = 66 WHERE id = 1;
+    `);
+    raw.close();
+  };
+  const tasksColumns = (db: TrajectoryDB) =>
+    db
+      .all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(tasks)')
+      .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }));
+
+  it('a v66 DB gains base_sha and wm_commit as trailing nullable tasks columns, matching a fresh DB, with old rows NULL', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV66(dbPath);
+    const raw = new DatabaseSync(dbPath);
+    const tasksBefore = raw.prepare('SELECT * FROM tasks ORDER BY id').all().map((r) => ({ ...(r as object) }));
+    raw.close();
+
+    const migrated = new TrajectoryDB(dbPath, undefined, MIGRATE);
+    const fresh = new TrajectoryDB(join(tmpDir, 'fresh.db'));
+    assertSchemaParity(migrated, fresh);
+    assert.deepEqual(tasksColumns(migrated), tasksColumns(fresh), 'PRAGMA table_info(tasks) matches a fresh DB in names, order, types, notnull and defaults');
+    assert.deepEqual(tasksColumns(migrated).slice(-2), [
+      { name: 'base_sha', type: 'TEXT', notnull: 0, dflt_value: null },
+      { name: 'wm_commit', type: 'TEXT', notnull: 0, dflt_value: null },
+    ]);
+    assert.deepEqual(
+      migrated.all('SELECT * FROM tasks ORDER BY id').map((r) => ({ ...(r as object) })),
+      tasksBefore.map((t) => ({ ...t, base_sha: null, wm_commit: null })),
+      'tasks provisioned before v67 keep every value and carry no recorded base or world-model commit',
+    );
+    assert.equal(migrated.get<{ schema_version: number }>('SELECT schema_version FROM plugin_meta WHERE id = 1')?.schema_version, 67);
+    assert.equal(readdirSync(tmpDir).filter((f) => f.startsWith('trajectory.db.pre-v67.') && f.endsWith('.bak')).length, 1);
+    migrated.close();
+    fresh.close();
+  });
+
+  it('re-opening a migrated v66 DB is a no-op: no second backup and one copy of each column', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV66(dbPath);
+    new TrajectoryDB(dbPath, undefined, MIGRATE).close();
+    const again = new TrajectoryDB(dbPath, undefined, MIGRATE);
+    const names = tasksColumns(again).map((c) => c.name);
+    assert.equal(names.filter((n) => n === 'base_sha' || n === 'wm_commit').length, 2);
+    assert.equal(readdirSync(tmpDir).filter((f) => f.startsWith('trajectory.db.pre-v67.') && f.endsWith('.bak')).length, 1);
     again.close();
   });
 });
