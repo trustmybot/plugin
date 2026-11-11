@@ -32,7 +32,7 @@ import {
 import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph.js';
-import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { SUBPROCESS_TIMEOUT_MS, WORKTREE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
@@ -40,7 +40,17 @@ import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
 import { readRepoTargetBranch, repoRowPath, repoTargetBase, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
-import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
+import { parseBudget } from '../hooks/swe-verification-gate.js';
+import {
+  envGateFailedResult,
+  envGateField,
+  fetchBaseStage,
+  runEnvGate,
+  setupEnv,
+  type BranchStageOutcome,
+  type EnvGatePass,
+  type EnvStageReport,
+} from './env-gate.js';
 import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
@@ -75,7 +85,6 @@ import { recordEffortInputs } from '../effort-inputs.js';
 import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
 
-const WORKTREE_TIMEOUT_MS = 60_000;
 const STDOUT_KEEP = 4096;
 const STDERR_KEEP = 2048;
 
@@ -603,44 +612,6 @@ function worktreeOfBranch(repoPath: string, branchId: string): string | null {
   return null;
 }
 
-// Adds the task's worktree unless git already tracks one at that path (matched
-// by realpath: `git worktree list --porcelain` emits canonicalized paths, e.g.
-// /private/var/… for a /var/… symlink), then links the main checkout's
-// node_modules into it and runs the repo's opt-in worktree setup, on reuse
-// too (GH 1853, GH 2054). Throws only when `git worktree add` fails; a setup
-// failure is reported in `setup`, never thrown.
-async function ensureTaskWorktree(
-  repoPath: string,
-  branchId: string,
-  worktreePath = taskWorktreePath(repoPath, branchId),
-): Promise<{ worktreePath: string; reused: boolean; setup: WorktreeSetupResult }> {
-  let reused = false;
-  if (existsSync(worktreePath)) {
-    const canonicalWt = realpathSync(worktreePath);
-    try {
-      reused = git(repoPath, ['worktree', 'list', '--porcelain'])
-        .split('\n')
-        .some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === canonicalWt);
-    } catch {
-      reused = false;
-    }
-  }
-  if (!reused) {
-    git(repoPath, ['worktree', 'add', worktreePath, branchId], WORKTREE_TIMEOUT_MS);
-  }
-  try {
-    linkWorktreeNodeModules(repoPath, worktreePath);
-  } catch {
-    // Best-effort: a missing link never fails provisioning.
-  }
-  return { worktreePath, reused, setup: await runWorktreeSetup(worktreePath, { env: setupEnv(worktreePath) }) };
-}
-
-// Worktree setup gets the user's toolchain PATH, as verification[] does.
-function setupEnv(worktreePath: string): NodeJS.ProcessEnv {
-  return { ...process.env, PATH: joinToolchainPath(toolchainDirs(process.env, worktreePath), process.env.PATH ?? '') };
-}
-
 // The tool-result field for a setup, absent when the repo has no setup file.
 function setupField(setup: WorktreeSetupResult | undefined): { worktree_setup?: WorktreeSetupResult } {
   return setup && (setup.ran || setup.error !== undefined) ? { worktree_setup: setup } : {};
@@ -1051,7 +1022,7 @@ function isGitRepo(repoPath: string): boolean {
   }
 }
 
-function branchDivergedResult(
+function branchDivergedPayload(
   tool: string,
   branchId: string,
   ref: string,
@@ -1059,29 +1030,81 @@ function branchDivergedResult(
   distance: { ahead: number; behind: number } | null,
   openPrs: OpenChangeRequest[],
   remedy: string,
-): CallToolResult {
+): Record<string, unknown> {
   const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(', ')}.` : '';
   return {
-    isError: true,
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify({
-          error: 'branch_exists_diverged',
-          branch_id: branchId,
-          ref,
-          base: baseRef,
-          ahead: distance?.ahead ?? null,
-          behind: distance?.behind ?? null,
-          open_prs: openPrs,
-          message:
-            `${tool}: branch '${branchId}' already exists and '${ref}' has diverged from '${baseRef}' ` +
-            `(${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : 'distance unknown'}).${prNote} ` +
-            `${remedy} No task row was created.`,
-        }),
-      },
-    ],
+    error: 'branch_exists_diverged',
+    branch_id: branchId,
+    ref,
+    base: baseRef,
+    ahead: distance?.ahead ?? null,
+    behind: distance?.behind ?? null,
+    open_prs: openPrs,
+    message:
+      `${tool}: branch '${branchId}' already exists and '${ref}' has diverged from '${baseRef}' ` +
+      `(${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : 'distance unknown'}).${prNote} ` +
+      `${remedy} No task row was created.`,
   };
+}
+
+// The ungated (adopted worktree) path's refusal for a failed branch stage.
+function branchRefusalResult(tool: string, refusal: { detail: string; payload?: Record<string, unknown> }, nothingWritten: string): CallToolResult {
+  if (refusal.payload) return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify(refusal.payload) }] };
+  return err(`${tool}: ${refusal.detail} ${nothingWritten}`);
+}
+
+// The environment gate's branch stage over ensureTaskBranch's outcome; a
+// diverged branch keeps its branch_exists_diverged payload.
+function taskBranchStage(
+  branch: TaskBranchOutcome,
+  base: string,
+  repoLabel: string,
+  divergedPayload?: (ref: string, baseRef: string) => Record<string, unknown>,
+): BranchStageOutcome {
+  switch (branch.kind) {
+    case 'ready':
+      return { ok: true, created: branch.created, baseRef: branch.cutBase?.ref ?? null };
+    case 'base_unresolved':
+      return { ok: false, detail: `base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoLabel}'.` };
+    case 'git_failed':
+      return { ok: false, detail: `${branch.what} in repo '${repoLabel}' (${(branch.error as Error).message.split('\n')[0] || 'git failed'}).` };
+    case 'diverged':
+      return {
+        ok: false,
+        detail: `'${branch.ref}' has diverged from '${branch.baseRef}'.`,
+        ...(divergedPayload ? { payload: divergedPayload(branch.ref, branch.baseRef) } : {}),
+      };
+  }
+}
+
+// task_reopen's branch stage: an existing local branch is kept as-is, an
+// origin-only one is checked out locally, and a missing one is cut from the
+// rework base. baseRef is the rework base's cut ref either way.
+function reopenBranchStage(repoPath: string, branchId: string, base: string, repoLabel: string): BranchStageOutcome {
+  const baseRef = resolveCutBase(repoPath, base)?.ref ?? null;
+  if (refSha(repoPath, `refs/heads/${branchId}`)) return { ok: true, created: false, baseRef };
+  const originRef = `refs/remotes/origin/${branchId}`;
+  if (refSha(repoPath, originRef)) {
+    try {
+      git(repoPath, ['branch', branchId, originRef]);
+    } catch (e) {
+      return { ok: false, detail: `failed to create branch '${branchId}' from '${originRef}' (${(e as Error).message.split('\n')[0] || 'git failed'}).` };
+    }
+    return { ok: true, created: true, baseRef };
+  }
+  return taskBranchStage(ensureTaskBranch(repoPath, branchId, base), base, repoLabel);
+}
+
+// Runs a gated tool's DB transaction; a throw removes what the gate created.
+function gatedTransaction<T>(db: TrajectoryDB, gate: EnvGatePass | null, fn: () => T): T | AdoptRefusal {
+  try {
+    const result = adoptingTransaction(db, fn);
+    if (isAdoptRefusal(result)) gate?.rollback();
+    return result;
+  } catch (e) {
+    gate?.rollback();
+    throw e;
+  }
 }
 
 // Refuses a branch_id the issue already has a task on, before any git call, so
@@ -1258,9 +1281,9 @@ export function compositeTools(
       name: 'task_retry',
       description:
         "Retry a failed task in one transaction: appends the rationale, creates a new task inheriting issue_id, parent_branch_id and repo, " +
-        "then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
+        "its branch and worktree cut by task_provision's environment gate. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
         `${verificationPathsDoc('the base')} ` +
-        'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.',
+        'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, base_sha, wm_commit, env_gate, worktree_path, worktree_adopted?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1471,11 +1494,11 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        'Sets up one task for swe. The branch is set up before the DB commit, so a git failure writes no task row. ' +
+        'Sets up one task for swe. Before the DB commit an environment gate runs fetch, branch, worktree, setup and reindex; a failed stage returns env_gate_failed and writes nothing. ' +
         "A new branch is cut from local <base> when it is a fast-forward ahead of origin/<base>, else from origin/<base> (git_setup 'created'); an existing ref at or behind the base tip is fast-forwarded ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind, open PRs) unless reuse_existing. " +
-        "Writes a kind='decision' discussion and the task in one transaction, then the worktree (fail-soft; worktree_reused when it exists). " +
+        "Writes a kind='decision' discussion and the task in one transaction. " +
         `${verificationPathsDoc('the base')} ` +
-        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?}.',
+        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_sha, wm_commit, env_gate, base_diverged?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1559,9 +1582,9 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, and recreates a missing branch and worktree. Refused when the task's issue is closed. " +
+        "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Refused when the task's issue is closed. " +
         `${verificationPathsDoc('the branch tip')} ` +
-        'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.',
+        'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, base_sha, wm_commit, env_gate, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1813,9 +1836,9 @@ export function compositeTools(
         // Resolve the repo path + base ref and create the branch ref BEFORE
         // writing the task row. A git failure here returns an error and
         // persists NOTHING, so the same (issue_id, branch_id) retries cleanly
-        // — no orphan task row left occupying the UNIQUE constraint. A retry
-        // after a partial failure finds the ref at the base tip and reuses
-        // it. Only the worktree stays fail-soft (recoverable, post-commit).
+        // — no orphan task row left occupying the UNIQUE constraint. The
+        // environment gate builds the worktree before the commit too; only an
+        // adopted worktree is switched after it.
         let repoPath: string | null = null;
         if (repoValue) {
           const reposRow = db.get<{ path: string }>(
@@ -1868,7 +1891,17 @@ export function compositeTools(
         // local <base> when it is a fast-forward ahead of origin/<base>, else
         // origin/<base> (a diverged base is reported as base_diverged); error
         // when neither resolves — before anything is created.
+        // The environment gate (runEnvGate) fetches origin/<base> first, so
+        // the verification defaults below are read at the fetched tip. An
+        // adopted worktree keeps the ungated path.
         const reuseExisting = args['reuse_existing'] === true;
+        const nothingWritten = 'No task row was created — retry with the same branch_id once the cause is fixed.';
+        let fetched: EnvStageReport | null = null;
+        if (adoptedWorktree === null) {
+          const fetch = fetchBaseStage(repoPath, base);
+          if (!fetch.ok) return envGateFailedResult('task_provision', fetch, nothingWritten);
+          fetched = fetch.report;
+        }
         const pathRef =
           resolveCutBase(repoPath, base)?.ref ?? (reuseExisting ? existingBranchRef(repoPath, branchId) : null);
         const defaults = readVerificationDefaults(repoPath, pathRef);
@@ -1878,32 +1911,45 @@ export function compositeTools(
           const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification, files });
           if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
         }
-        const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
-        if (branch.kind === 'base_unresolved') {
-          return err(
-            `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. ` +
-              `No task row was created — retry with a valid base and the same branch_id.`,
+        const cut: { base?: CutBase | null } = {};
+        const branchStage = (): BranchStageOutcome => {
+          const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
+          if (branch.kind === 'ready') cut.base = branch.cutBase;
+          return taskBranchStage(branch, base, repoValue ?? '', (ref, baseRef) =>
+            branchDivergedPayload(
+              'task_provision',
+              branchId,
+              ref,
+              baseRef,
+              refDistance(repoPath, baseRef, ref),
+              openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn'] as SpawnFn | undefined),
+              'Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is.',
+            ),
           );
-        }
-        if (branch.kind === 'git_failed') {
-          return err(
-            `task_provision: ${branch.what} in repo '${repoValue}' ` +
-              `(${(branch.error as Error).message.split('\n')[0] || 'git failed'}). No task row was created — ` +
-              `retry with the same branch_id.`,
-          );
-        }
-        if (branch.kind === 'diverged') {
-          return branchDivergedResult(
-            'task_provision',
+        };
+        let gate: EnvGatePass | null = null;
+        let branchCreated: boolean;
+        if (fetched) {
+          const passed = await runEnvGate({
+            db,
+            dbPath,
+            graph: graphHolder?.ensureGraph() ?? null,
+            repo: repoValue,
+            repoPath,
             branchId,
-            branch.ref,
-            branch.baseRef,
-            refDistance(repoPath, branch.baseRef, branch.ref),
-            openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn'] as SpawnFn | undefined),
-            'Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is.',
-          );
+            worktreePath: taskWorktreePath(repoPath, branchId),
+            fetched,
+            ensureBranch: branchStage,
+          });
+          if (!passed.ok) return envGateFailedResult('task_provision', passed, nothingWritten);
+          gate = passed;
+          branchCreated = passed.branchCreated;
+        } else {
+          const stage = branchStage();
+          if (!stage.ok) return branchRefusalResult('task_provision', stage, nothingWritten);
+          branchCreated = stage.created;
         }
-        const { cutBase } = branch;
+        const cutBase = cut.base ?? null;
         const resolvedBaseRef = cutBase?.ref ?? null;
 
         // --- DB TRANSACTION (atomic) ---
@@ -1916,12 +1962,12 @@ export function compositeTools(
         // Any DB error rolls back the whole transaction.
         const now = nowISO();
         const gitRepoPath = repoPath;
-        const result = adoptingTransaction(db, () => {
+        const result = gatedTransaction(db, gate, () => {
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               branchId,
@@ -1934,6 +1980,8 @@ export function compositeTools(
               JSON.stringify(files),
               JSON.stringify(verification),
               effort,
+              gate?.base_sha ?? null,
+              gate?.wm_commit ?? null,
               now,
               now,
             ],
@@ -1955,7 +2003,7 @@ export function compositeTools(
             issue_id: issueId,
             author: agent,
             kind: 'decision',
-            body: decisionBody,
+            body: gate?.decisionNote ? `${decisionBody}\n\n${gate.decisionNote}` : decisionBody,
             created_at: now,
             task_id: row.id,
           });
@@ -1990,32 +2038,16 @@ export function compositeTools(
         });
         if (isAdoptRefusal(result)) return adoptRefusalResult(result);
 
-        // --- WORKTREE SIDE-EFFECT AFTER THE COMMIT (fail-soft) ---
-        // The branch ref + task row are committed; the worktree is the only
-        // recoverable side-effect, so a failure here returns git_setup:'error'
-        // + a diagnostic without rolling back the task — bro can retry the
-        // worktree setup. Idempotent: an existing worktree is reused, not
-        // re-created. An adopted worktree is switched to the branch instead.
-        let gitSetup: 'created' | 'reused' | 'error' = branch.created ? 'created' : 'reused';
-        let worktreeReused = false;
-        let worktreeSetup: WorktreeSetupResult | undefined;
+        // An adopted worktree is switched to the branch after the commit,
+        // fail-soft into git_setup:'error' + a diagnostic.
+        let gitSetup: 'created' | 'reused' | 'error' = branchCreated ? 'created' : 'reused';
         let diagnostic: string | undefined;
         const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, branchId);
-
         if (adoptedWorktree !== null) {
           diagnostic = switchAdoptedWorktree(adoptedWorktree, branchId);
           if (diagnostic !== undefined) gitSetup = 'error';
-        } else {
-          try {
-            const wt = await ensureTaskWorktree(repoPath, branchId);
-            worktreeReused = wt.reused;
-            worktreeSetup = wt.setup;
-          } catch (e) {
-            gitSetup = 'error';
-            diagnostic = (e as Error).message;
-          }
+          await spawnReindex(repoValue, repoPath, resolvedBaseRef);
         }
-        await spawnReindex(repoValue, repoPath, resolvedBaseRef);
 
         return ok({
           task_id: result.task_id,
@@ -2027,10 +2059,11 @@ export function compositeTools(
           effort_inputs: result.effort_inputs,
           worktree_path: worktreePath,
           git_setup: gitSetup,
-          worktree_reused: worktreeReused,
-          ...setupField(worktreeSetup),
+          worktree_reused: gate?.worktreeReused ?? false,
+          ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           ...(resolvedBaseRef ? { base_ref: resolvedBaseRef } : {}),
+          ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(cutBase?.diverged
             ? {
                 base_diverged: {
@@ -2114,6 +2147,17 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
 
+        // The environment gate runs for a git repo without adopt_worktree; its
+        // fetch comes first so the defaults below are read at the fetched tip.
+        const gatedRepo = repoPath !== null && adoptedWorktree === null && isGitRepo(repoPath) ? repoPath : null;
+        const nothingWritten = `Task ${taskId} is unchanged ('${task.status}'); no row was written.`;
+        const gatedBase = gatedRepo ? normalizeBase(gatedRepo, reworkBase(db, gatedRepo, task.repo, task.parent_branch_id)) : null;
+        let fetched: EnvStageReport | null = null;
+        if (gatedRepo && gatedBase) {
+          const fetch = fetchBaseStage(gatedRepo, gatedBase);
+          if (!fetch.ok) return envGateFailedResult('task_reopen', fetch, nothingWritten);
+          fetched = fetch.report;
+        }
         const defaultsRef = reworkDefaultsRef(db, repoPath, task);
         const defaults = readVerificationDefaults(repoPath, defaultsRef);
         if ('error' in defaults) return verificationDefaultsResult('task_reopen', defaultsRef, defaults.error);
@@ -2136,22 +2180,49 @@ export function compositeTools(
           rework: true,
           current: task.effort,
         });
+        let gate: EnvGatePass | null = null;
+        if (gatedRepo && gatedBase && fetched) {
+          const repoName = suggestionRepo(db, task.repo);
+          const passed = await runEnvGate({
+            db,
+            dbPath,
+            graph: graphHolder?.ensureGraph() ?? null,
+            repo: repoName,
+            repoPath: gatedRepo,
+            branchId: task.branch_id,
+            worktreePath: taskWorktreeDir(gatedRepo, task),
+            fetched,
+            ensureBranch: () => reopenBranchStage(gatedRepo, task.branch_id, gatedBase, repoName ?? ''),
+          });
+          if (!passed.ok) return envGateFailedResult('task_reopen', passed, nothingWritten);
+          gate = passed;
+        }
         const now = nowISO();
-        const refused = adoptingTransaction(db, () => {
+        const refused = gatedTransaction(db, gate, () => {
           if (adoptedWorktree !== null && repoPath) {
             const late = recordAdoptedWorktree(db, task.id, repoPath, adoptedWorktree);
             if (late) throw new AdoptRefusedError(late);
           }
           db.run(
             `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL,
-                    completion_report = NULL, spawn_note = ?, updated_at = ? WHERE id = ?`,
-            [JSON.stringify(files), JSON.stringify(verification), effort, spawnNote, now, taskId],
+                    completion_report = NULL, spawn_note = ?, updated_at = ?${gate ? ', base_sha = ?, wm_commit = ?' : ''}
+              WHERE id = ?`,
+            [
+              JSON.stringify(files),
+              JSON.stringify(verification),
+              effort,
+              spawnNote,
+              now,
+              ...(gate ? [gate.base_sha, gate.wm_commit] : []),
+              taskId,
+            ],
           );
           const fenceLines = [
             filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
             verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
             verificationDefaultsAdded.length > 0 ? `verification[] += repo defaults ${verificationDefaultsAdded.join(' ; ')}` : null,
             effort !== task.effort ? `effort: ${task.effort} → ${effort}` : null,
+            gate?.decisionNote ?? null,
           ].filter((l): l is string => l !== null);
           insertDiscussion(db, {
             issue_id: task.issue_id,
@@ -2199,10 +2270,14 @@ export function compositeTools(
 
         let worktreePath: string | null = null;
         let worktreeRecreated = false;
-        let worktreeSetup: WorktreeSetupResult | undefined;
         let branchCreated = false;
         let diagnostic: string | undefined;
-        if (repoPath) {
+        if (gate && gatedRepo) {
+          worktreePath = taskWorktreeDir(gatedRepo, task);
+          worktreeRecreated = !gate.worktreeReused;
+          branchCreated = gate.branchCreated;
+        } else if (repoPath && adoptedWorktree !== null) {
+          worktreePath = adoptedWorktree;
           try {
             if (!refSha(repoPath, `refs/heads/${task.branch_id}`)) {
               if (refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
@@ -2217,24 +2292,16 @@ export function compositeTools(
                 branchCreated = branch.kind === 'ready' && branch.created;
               }
             }
-            if (adoptedWorktree !== null) {
-              worktreePath = adoptedWorktree;
-              diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
-            } else {
-              const wt = await ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
-              worktreePath = wt.worktreePath;
-              worktreeRecreated = !wt.reused;
-              worktreeSetup = wt.setup;
-            }
+            diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
           } catch (e) {
-            worktreePath = adoptedWorktree ?? taskWorktreeDir(repoPath, task);
             diagnostic = (e as Error).message;
           }
+          await spawnReindex(task.repo, repoPath, resolveCutBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id))?.ref);
+        } else if (repoPath) {
+          worktreePath = taskWorktreeDir(repoPath, task);
+          diagnostic = `repo path '${repoPath}' is not a git repository; worktree not checked`;
         } else {
           diagnostic = `cannot resolve a repo path for task.repo='${task.repo ?? ''}'; worktree not checked`;
-        }
-        if (repoPath) {
-          await spawnReindex(task.repo, repoPath, resolveCutBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id))?.ref);
         }
 
         return ok({
@@ -2247,9 +2314,10 @@ export function compositeTools(
           wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
-          ...setupField(worktreeSetup),
+          ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           branch_created: branchCreated,
+          ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(diagnostic ? { diagnostic } : {}),
           verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
@@ -2778,12 +2846,13 @@ export function compositeTools(
           current: failed.effort,
         });
 
-        // Branch before the transaction (a git failure persists no row, as in
-        // task_provision); the worktree after it, fail-soft into diagnostic.
+        // The environment gate before the transaction (a failed stage persists
+        // no row, as in task_provision); an adopted worktree is switched after
+        // it, fail-soft into diagnostic.
         const repoValue = repoOverride ?? failed.repo;
         const resolvedPath = resolveRepoPath(db, repoValue);
         const repoPath = resolvedPath && isGitRepo(resolvedPath) ? resolvedPath : null;
-        let branchSetup: { gitSetup: 'created' | 'reused'; baseRef: string } | null = null;
+        let branchSetup: { gitSetup: 'created' | 'reused'; baseRef: string | null } | null = null;
         if (repoPath) {
           for (const path of [repoPath, adoptPath ?? taskWorktreePath(repoPath, newBranchId)]) {
             const refusal = outsideProject('task_retry', runContext.projectRoot, path);
@@ -2798,6 +2867,15 @@ export function compositeTools(
         }
         const retryFiles = parseTaskFiles(failed.files);
         const retryBase = repoPath ? normalizeBase(repoPath, reworkBase(db, repoPath, repoValue, failed.parent_branch_id)) : null;
+        // The environment gate's fetch comes first so the defaults below are
+        // read at the fetched tip; an adopted worktree keeps the ungated path.
+        const nothingWritten = 'No task row was created.';
+        let fetched: EnvStageReport | null = null;
+        if (repoPath && retryBase && adoptedWorktree === null) {
+          const fetch = fetchBaseStage(repoPath, retryBase);
+          if (!fetch.ok) return envGateFailedResult('task_retry', fetch, nothingWritten);
+          fetched = fetch.report;
+        }
         const pathRef = repoPath && retryBase ? resolveCutBase(repoPath, retryBase)?.ref ?? null : null;
         const defaults = readVerificationDefaults(repoPath, pathRef);
         if ('error' in defaults) return verificationDefaultsResult('task_retry', pathRef, defaults.error);
@@ -2815,42 +2893,50 @@ export function compositeTools(
           ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
           ...suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification),
         });
+        let gate: EnvGatePass | null = null;
         if (repoPath && retryBase) {
           const base = retryBase;
-          const branch = ensureTaskBranch(repoPath, newBranchId, base);
-          if (branch.kind === 'base_unresolved') {
-            return err(
-              `task_retry: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue ?? ''}'. ` +
-                `No task row was created.`,
+          const branchStage = (): BranchStageOutcome =>
+            taskBranchStage(ensureTaskBranch(repoPath, newBranchId, base), base, repoValue ?? '', (ref, baseRef) =>
+              branchDivergedPayload(
+                'task_retry',
+                newBranchId,
+                ref,
+                baseRef,
+                refDistance(repoPath, baseRef, ref),
+                openChangeRequestsForBranch(db, repoValue, repoPath, newBranchId, args['_spawnFn'] as SpawnFn | undefined),
+                'Pick a fresh new_branch_id (branch_id_propose).',
+              ),
             );
+          if (fetched) {
+            const passed = await runEnvGate({
+              db,
+              dbPath,
+              graph: graphHolder?.ensureGraph() ?? null,
+              repo: suggestionRepo(db, repoValue),
+              repoPath,
+              branchId: newBranchId,
+              worktreePath: taskWorktreePath(repoPath, newBranchId),
+              fetched,
+              ensureBranch: branchStage,
+            });
+            if (!passed.ok) return envGateFailedResult('task_retry', passed, nothingWritten);
+            gate = passed;
+            branchSetup = { gitSetup: passed.branchCreated ? 'created' : 'reused', baseRef: passed.base_ref };
+          } else {
+            const stage = branchStage();
+            if (!stage.ok) return branchRefusalResult('task_retry', stage, nothingWritten);
+            branchSetup = { gitSetup: stage.created ? 'created' : 'reused', baseRef: stage.baseRef };
           }
-          if (branch.kind === 'git_failed') {
-            return err(
-              `task_retry: ${branch.what} in repo '${repoValue ?? ''}' ` +
-                `(${(branch.error as Error).message.split('\n')[0] || 'git failed'}). No task row was created.`,
-            );
-          }
-          if (branch.kind === 'diverged') {
-            return branchDivergedResult(
-              'task_retry',
-              newBranchId,
-              branch.ref,
-              branch.baseRef,
-              refDistance(repoPath, branch.baseRef, branch.ref),
-              openChangeRequestsForBranch(db, repoValue, repoPath, newBranchId, args['_spawnFn'] as SpawnFn | undefined),
-              'Pick a fresh new_branch_id (branch_id_propose).',
-            );
-          }
-          branchSetup = { gitSetup: branch.created ? 'created' : 'reused', baseRef: branch.cutBase!.ref };
         }
 
         const now = nowISO();
-        const result = adoptingTransaction(db, () => {
+        const result = gatedTransaction(db, gate, () => {
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -2863,6 +2949,8 @@ export function compositeTools(
               failed.files,
               storedVerification,
               effort,
+              gate?.base_sha ?? null,
+              gate?.wm_commit ?? null,
               now,
               now,
             ],
@@ -2877,7 +2965,7 @@ export function compositeTools(
             issue_id: failed.issue_id,
             author: 'bro',
             kind: 'decision',
-            body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
+            body: [`Retry rationale (failed task ${failedTaskId}): ${rationale}`, gate?.decisionNote].filter(Boolean).join('\n\n'),
             created_at: now,
             task_id: newTask.id,
           });
@@ -2935,17 +3023,10 @@ export function compositeTools(
         }
         const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, newBranchId);
         let diagnostic: string | undefined;
-        let worktreeSetup: WorktreeSetupResult | undefined;
         if (adoptedWorktree !== null) {
           diagnostic = switchAdoptedWorktree(adoptedWorktree, newBranchId);
-        } else {
-          try {
-            worktreeSetup = (await ensureTaskWorktree(repoPath, newBranchId)).setup;
-          } catch (e) {
-            diagnostic = (e as Error).message;
-          }
+          await spawnReindex(repoValue, repoPath, branchSetup.baseRef);
         }
-        await spawnReindex(repoValue, repoPath, branchSetup.baseRef);
         return ok({
           task_id: result.id,
           branch_id: result.branch_id,
@@ -2954,8 +3035,9 @@ export function compositeTools(
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
           worktree_path: worktreePath,
-          ...setupField(worktreeSetup),
+          ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
+          ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(diagnostic ? { diagnostic } : {}),
           ...suggested(),
         });
@@ -3156,7 +3238,7 @@ export function compositeTools(
           try {
             linkWorktreeNodeModules(repoPath, wtPath);
           } catch {
-            // Best-effort, as in ensureTaskWorktree.
+            // Best-effort, as in the environment gate's worktree stage.
           }
           const setup = await runWorktreeSetup(wtPath, { env: setupEnv(wtPath) });
           if (setup.error !== undefined) {

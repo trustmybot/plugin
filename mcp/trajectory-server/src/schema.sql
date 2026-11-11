@@ -211,7 +211,16 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- close path read it when the task closed. NULL for open tasks and for
     -- tasks closed before v66. Keep this comment comma-free for the same DROP
     -- COLUMN reason.
-    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))
+    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile')),
+    -- base_sha (v67 GH 2866): the base commit the task worktree was cut from
+    -- as the environment gate of task_provision / task_reopen / task_retry
+    -- resolved it after its fetch. NULL for tasks created before v67.
+    base_sha          TEXT,
+    -- wm_commit (v67 GH 2866): the commit the world model was indexed at when
+    -- the environment gate passed. NULL before v67 and when the server ran
+    -- without a world-model graph. Keep this comment comma-free for the same
+    -- DROP COLUMN reason.
+    wm_commit         TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -419,7 +428,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 66, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 67, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
