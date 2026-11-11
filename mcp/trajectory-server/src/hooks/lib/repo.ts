@@ -10,6 +10,7 @@ import { haveSqlite, realdir, repoPathAbs, sqliteRo, sqlQuote } from './db.js';
 import { cdPwd, gitOk, gitOut, isDir } from './git.js';
 import { posixDirname, shellPwd } from './project-env.js';
 import { statSync } from 'node:fs';
+import { basename } from 'node:path';
 
 function isFile(path: string): boolean {
   if (path === '') return false;
@@ -111,13 +112,28 @@ export async function repoDefaultBranch(root: string, env: NodeJS.ProcessEnv = p
   return await gitOut(root, ['symbolic-ref', '--short', 'HEAD'], env) || 'main';
 }
 
+/**
+ * The checkout a common git dir not named `.git` serves, from its own
+ * `core.worktree` (relative to the common dir), "" when unset: a submodule's
+ * common dir sits at `<super>/.git/modules/<name>`, so its parent is no checkout.
+ */
+async function commonDirWorktree(target: string, common: string, env: NodeJS.ProcessEnv): Promise<string> {
+  const worktree = await gitOut(target, ['--git-dir', common, 'config', '--local', '--get', 'core.worktree'], env);
+  if (worktree === '') return '';
+  return cdPwd(worktree.startsWith('/') ? worktree : `${common}/${worktree}`, shellPwd(env));
+}
+
 /** tmb_repo_git_root <dir>: the main checkout of the repo <dir> (or its nearest existing parent) is in, "" when none. */
 export async function repoGitRoot(target: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   if (target === '') return '';
   while (!isDir(target) && target !== '/' && target !== '.') target = posixDirname(target);
   if (!isDir(target)) return '';
   const common = await gitOut(target, ['rev-parse', '--path-format=absolute', '--git-common-dir'], env);
-  if (common !== '') return cdPwd(posixDirname(common), shellPwd(env));
+  if (common !== '') {
+    if (basename(common) === '.git') return cdPwd(posixDirname(common), shellPwd(env));
+    const checkout = await commonDirWorktree(target, common, env);
+    if (checkout !== '') return checkout;
+  }
   return await gitOut(target, ['rev-parse', '--show-toplevel'], env);
 }
 
