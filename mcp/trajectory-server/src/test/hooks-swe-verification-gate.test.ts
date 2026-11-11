@@ -575,6 +575,44 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
       await assertAllowed(f);
     });
 
+    describe('a sibling of the doc named by its same-directory spelling (GH 2928)', () => {
+      const siblingFixture = (other: string) =>
+        fixture({ ...BASE_FILES, 'docs/x/README.md': 'Index.\n', 'docs/x/other.md': other });
+
+      const dropReadme = (f: Fixture) => {
+        featureCommit(f);
+        f.git('rm', '-q', 'docs/x/README.md');
+        f.commit('drop docs/x/README.md');
+      };
+
+      for (const prose of ['touched dirs whose README.md is stale\n', 'See ../README.md and sub/README.md.\n', '`README.md` and [README.md] in prose.\n']) {
+        it(`allows the removal when other.md says ${JSON.stringify(prose.trim())}`, async () => {
+          const f = siblingFixture(prose);
+          dropReadme(f);
+          await assertAllowed(f);
+        });
+      }
+
+      for (const link of ['[index](README.md)', '[index](./README.md#top)', '[index](<README.md>)', '[index]: ./README.md', '[index]: README.md', 'see ./README.md', 'see docs/x/README.md']) {
+        it(`denies the removal when other.md holds ${JSON.stringify(link)}`, async () => {
+          const f = siblingFixture(`Start here.\n${link}\n`);
+          dropReadme(f);
+          const d = await denial(f);
+          assert.equal(d.check, 'stale_doc_ref');
+          assert.equal(d.actual, "docs/x/other.md mentions removed path 'docs/x/README.md'");
+        });
+      }
+
+      it('denies when a doc in another directory names the full path', async () => {
+        const f = siblingFixture('No index here.\n');
+        f.write('docs/guide.md', 'Run `scripts/old.sh` first; the index is docs/x/README.md.\n');
+        dropReadme(f);
+        const d = await denial(f);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.equal(d.actual, "docs/guide.md mentions removed path 'docs/x/README.md'");
+      });
+    });
+
     describe('a path untracked as build output (GH 2054)', () => {
       const BUILT_FILES: Record<string, string> = {
         ...BASE_FILES,
