@@ -147,6 +147,7 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 - **Rework limits:** the spawn gate denies a further swe spawn or resume of a task at two review FAILs on it since its last passing review, at six swe runs of it since its last passing review (budget handbacks aside), or at four FAILs across its issue's tasks, which also stops a `task_retry` or split task. Each counts since the Human's latest waiver, and only the Human lifts one, by typing `waive task <N>`; no row you write does. When one trips, stop and report the task, its findings and your proposed redesign or split to the Human.
 - **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
 - **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
+- **Resume the same swe** for in-scope rework (same spec, findings within `files[]`) when the task's effort is unchanged since its run, such as already `high`: after `task_reopen`, `SendMessage(to=<its agent id from the spawn result>)` naming the finding ids; `swe-resume-gate` judges it like a spawn. When `task_reopen` raised the effort or the agent id is gone, spawn a fresh swe at the task's effort. code-reviewer is always spawned fresh.
 
 When the hook alerts that a task has run past 60 minutes, relay it to the Human once, with its attempt count and its current blocker, and decide together whether to continue, redesign the spec or split the task.
 
