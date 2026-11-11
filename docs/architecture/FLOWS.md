@@ -18,14 +18,21 @@ Every flow follows the memory model in [`MEMORY.md`](MEMORY.md). The brand workf
 
 ## Quality layers
 
-Every flow is built on two axes. The first is a responsibility boundary: each role hands the next a state that is ready for its job, and owns one level of quality. The second is method: swe and code-reviewer work mostly by deterministic means (commands, gates, world-model queries), while bro works by judgment, like an architect. swe closes only when every deterministic check in its scope passes: lint, word and size limits, unit tests, type checks and changelog fragments. Those checks are cheap and certain, so they never reach the reviewer. code-reviewer works like a CI code reviewer run locally before any PR, which saves the cost of a hosted reviewer.
+Every flow is built on two axes. The first is a responsibility boundary: each layer owns one level of quality and hands the next a ready state. The second is method: deterministic or judgment. bro, swe and code-reviewer never overlap in responsibility or work, because overlap wastes resources: each check has exactly one owner, and no layer redoes another layer's check. This section is the target design; GH 2866 task C aligns the flow tables below with it.
 
-| Role, in handoff order | Owns | Method | Hands over |
+| Layer, in handoff order | Owns | Method | Hands over (contract) |
 |---|---|---|---|
-| **bro (before)** | the ready-to-work environment: branch, worktree, spec, file list and checks | judgment | an environment ready for swe to work in |
-| **swe** | functionality-level quality: every deterministic check in its scope passes, and the world model shows no downstream caller breaks | deterministic | code ready for review |
-| **code-reviewer** | diff-level quality: does the change break other behavior? It uses the world model to find what depends on the diff | deterministic | a review report ready for bro |
-| **bro (after)** | architecture-level quality: does the change align with the design? | judgment | a change the Human can trust |
+| **Human** | intent. The Human is the outer layer; merges run automatically under the merge policy, so the Human does not gate each PR | judgment | a requirement |
+| **bro (environment)** | a ready-to-work environment: a clean worktree cut from the latest base, a passing build, and a world model indexed at that base | deterministic | the worktree, the base commit and the world-model commit |
+| **bro (spec)** | an actionable requirement: intent, files, checks and success criteria. bro's architecture judgment enters here | judgment | the spec |
+| **swe** | functionality-level quality: every deterministic check in its scope passes (lint, word and size limits, type checks, unit tests, changelog fragment), and the world model shows no downstream caller breaks | deterministic | ready-to-review: a passing check run recorded on the commit, plus a report against every success criterion |
+| **code-reviewer** | diff-level quality: whether the diff breaks other behavior, probed through the world model's dependents. It does not re-run swe's checks | deterministic | a recorded verdict with its findings and probes |
+| **bro (architecture)** | architecture-level quality: whether the change fits the design and the spec's intent. It re-runs no checks and re-reviews no diff | judgment | a decision, then the push |
+
+- **Gated handoffs.** Every handoff carries its typed contract, and a gate refuses the handoff when the artifact is missing.
+- **Leaks point upstream.** When a later layer or CI catches a cheap check, the fix is to move that check into the layer that owns it, not to do more rework. The leak rate per layer is the health metric.
+- **CI confirms; it does not discover.**
+- **Failures return to their owner.** A failed check goes back to swe, a review finding goes back to swe at higher effort, and a design misfit goes back to bro's spec. None of these waits on the Human.
 
 ## Quick index
 
