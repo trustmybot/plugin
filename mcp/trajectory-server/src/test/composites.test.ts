@@ -392,7 +392,7 @@ describe('task_retry', () => {
     assert.match(parse(r)['error'] as string, /must not start with/);
   });
 
-  it('retry cap: rejects the 4th retry attempt (3 prior in lineage)', async () => {
+  it('no retry cap: a 4th retry in one lineage succeeds (GH 2857)', async () => {
     const db = tempDB();
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
     const tasks = taskTools(db);
@@ -442,17 +442,8 @@ describe('task_retry', () => {
     const id1 = await retryFrom(id0, 'fix/cap-v2');
     const id2 = await retryFrom(id1, 'fix/cap-v3');
     const id3 = await retryFrom(id2, 'fix/cap-v4');
-
-    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: id3, status: 'failed' });
-    await mkBranch('fix/cap-v5');
-
-    const denied = await call(composites.handlers, 'task_retry', {
-      agent: 'bro', failed_task_id: id3, new_branch_id: 'fix/cap-v5',
-      corrected_spec_body: 's', retry_rationale: 'fourth retry', description: 'd',
-    });
-    assert.ok(denied.isError, '4th retry must be rejected by the retry cap');
-    assert.match(parse(denied)['error'] as string, /retry limit reached \(3\)/);
-    assert.match(parse(denied)['error'] as string, /escalate to Human/);
+    const id4 = await retryFrom(id3, 'fix/cap-v5');
+    assert.notEqual(id4, id3);
 
     db.close();
   });

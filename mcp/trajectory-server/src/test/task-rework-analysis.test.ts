@@ -1,12 +1,12 @@
 /**
- * task_rework_analysis (GH 2830): bro's typed analysis of a task's review
- * FAILs since its last pass writes one task_rework_analysis audit row and
- * refuses a non-bro agent, a FAIL id not on the task or not after its latest
- * pass, a list missing the latest FAIL, a malformed finding id, an unknown
- * root_cause or change, a missing approach_shared_cause, a pairing outside the
- * rules (world_model takes only world_model_fix, design_drift only ask_human,
- * ask_human answers only design_drift, a shared approach cause takes only split
- * or retry), and a short rationale. With a newer task_spec_amended row the
+ * task_rework_analysis (GH 2830, GH 2857): bro's typed analysis of a task's
+ * review FAILs since its last pass writes one task_rework_analysis audit row
+ * and refuses a non-bro agent, a FAIL id not on the task or not after its
+ * latest pass, a list missing the latest FAIL, a malformed finding id, an
+ * unknown root_cause or change, a missing approach_shared_cause, a pairing
+ * outside the rules (world_model takes only world_model_fix, design_drift only
+ * split or retry, a shared approach cause takes only split or retry), and a
+ * short rationale. With a newer task_spec_amended row the
  * rework-limit gate admits the next swe spawn.
  */
 import { after, before, describe, it } from 'node:test';
@@ -143,7 +143,10 @@ describe('task_rework_analysis', () => {
     const a = f.verdict('fail');
     const allowed: Array<[string, string]> = [
       ['world_model', 'world_model_fix'],
-      ['design_drift', 'ask_human'],
+      ['design_drift', 'retry'],
+      ['design_drift', 'split'],
+      ['spec_wrong', 'ask_human'],
+      ['environment', 'ask_human'],
       ['spec_wrong', 'world_model_fix'],
       ['reviewer_disputed', 're_review'],
       ['environment', 'retry'],
@@ -165,21 +168,34 @@ describe('task_rework_analysis', () => {
     }
   });
 
-  it('refuses design_drift with any change but ask_human', async () => {
+  it('refuses design_drift with any change but split or retry, ask_human included (GH 2857)', async () => {
     const f = fixture();
     const a = f.verdict('fail');
-    for (const change of ['spec_update', 'world_model_fix', 'effort_raise', 'split', 'retry', 're_review']) {
-      await refused(f, valid([a], { root_cause: 'design_drift', change }), /rework_analysis_invalid: root_cause design_drift takes only change ask_human/);
+    for (const change of ['spec_update', 'world_model_fix', 'effort_raise', 're_review', 'ask_human']) {
+      await refused(f, valid([a], { root_cause: 'design_drift', change }), /rework_analysis_invalid: root_cause design_drift takes only change split or retry/);
     }
   });
 
-  it('refuses ask_human with any root_cause but design_drift', async () => {
+  it('records design_drift with split or retry, the approach shared or not', async () => {
     const f = fixture();
     const a = f.verdict('fail');
-    for (const root_cause of ['spec_unclear', 'spec_wrong', 'reviewer_disputed', 'environment', 'swe_execution']) {
-      await refused(f, valid([a], { root_cause, change: 'ask_human' }), /rework_analysis_invalid: change ask_human answers only root_cause design_drift/);
+    for (const change of ['split', 'retry']) {
+      for (const approach_shared_cause of [false, true]) {
+        const r = await f.call(valid([a], { root_cause: 'design_drift', change, approach_shared_cause }));
+        assert.ok(!r.isError, JSON.stringify(r.content));
+      }
     }
+    assert.equal(f.rows().length, 4);
+  });
+
+  it('ask_human answers any root_cause whose pairing allows it, and no root_cause requires it', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
     await refused(f, valid([a], { root_cause: 'world_model', change: 'ask_human' }), /rework_analysis_invalid: root_cause world_model takes only change world_model_fix/);
+    for (const root_cause of ['spec_unclear', 'spec_wrong', 'reviewer_disputed', 'environment', 'swe_execution']) {
+      const r = await f.call(valid([a], { root_cause, change: 'ask_human' }));
+      assert.ok(!r.isError, `${root_cause}: ${JSON.stringify(r.content)}`);
+    }
   });
 
   it('refuses approach_shared_cause true with any change but split or retry', async () => {
@@ -192,7 +208,7 @@ describe('task_rework_analysis', () => {
         /rework_analysis_invalid: approach_shared_cause true takes only change split or retry .*a redesign, not another patch/,
       );
     }
-    await refused(f, valid([a], { root_cause: 'design_drift', change: 'ask_human', approach_shared_cause: true }), /approach_shared_cause true takes only change split or retry/);
+    await refused(f, valid([a], { root_cause: 'spec_wrong', change: 'ask_human', approach_shared_cause: true }), /approach_shared_cause true takes only change split or retry/);
     await refused(f, valid([a], { root_cause: 'world_model', change: 'world_model_fix', approach_shared_cause: true }), /approach_shared_cause true takes only change split or retry/);
   });
 

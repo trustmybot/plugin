@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context, wm-read-before-provision and ref-move-reindex have no hook-corpus
+ * liveness-alert, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context, wm-read-before-provision and ref-move-reindex have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -99,7 +99,6 @@ export const ROUTER_CORPUS_GATES = [
   'substrate-preflight',
   'orphan-scan',
   'user-prompt-persona',
-  'rework-waiver-capture',
   'activation-routine',
   'session-log-capture',
   'prompt-intent-hints',
@@ -562,8 +561,6 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
     }
   }
 
-  if (want('rework-waiver-capture')) cases.push(...reworkWaiverCases(join(root, 'rework-waiver-capture'), emptyProject));
-
   return {
     cases,
     cleanup: () => {
@@ -664,37 +661,6 @@ function livenessCases(dir: string, cwd: string): RouterCase[] {
     cwd,
     fakeUid: false,
     reset: () => build(typeof startedAt === 'function' ? startedAt() : startedAt),
-  }));
-}
-
-/** rework-waiver-capture's cases, on a DB holding task 3 of issue 9, rebuilt per case. */
-function reworkWaiverCases(dir: string, cwd: string): RouterCase[] {
-  const db = join(dir, 'trajectory.db');
-  mkdirSync(dir, { recursive: true });
-  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
-  const build = (): void => {
-    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
-    const d = new DatabaseSync(db);
-    d.exec(schema);
-    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
-    d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (3, 9, 'feat/3-x', 'd', 'closed', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
-    d.close();
-  };
-  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
-  const scenarios: readonly (readonly [string, string])[] = [
-    ['waives-a-task', 'waive task 3'],
-    ['waives-with-hash', 'please Waive task #3, it is fine'],
-    ['waives-an-unknown-task', 'waive task 999'],
-    ['other-wording', 'skip the rework on task 3'],
-  ];
-  return scenarios.map(([file, prompt]) => ({
-    gate: 'rework-waiver-capture',
-    file,
-    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's', prompt }),
-    env,
-    cwd,
-    fakeUid: false,
-    reset: build,
   }));
 }
 

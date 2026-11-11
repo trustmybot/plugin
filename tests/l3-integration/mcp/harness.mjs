@@ -79,9 +79,9 @@ export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l
        FROM tasks t WHERE t.id = ${id};`]);
 }
 
-// seedHumanRow writes an author='human' discussions row, which only the
-// rework-waiver-capture hook writes (discussion_append refuses author='human',
-// GH 2148), and returns its id. Needs a startClient({ fileDb: true }) dbPath.
+// seedHumanRow writes an author='human' discussions row, which no tool writes
+// (discussion_append refuses author='human', GH 2148), and returns its id.
+// Needs a startClient({ fileDb: true }) dbPath.
 export function seedHumanRow(dbPath, issueId, { kind, body }) {
   const q = (v) => String(v).replace(/'/g, "''");
   const out = execFileSync('sqlite3', ['-cmd', '.timeout 5000', dbPath,

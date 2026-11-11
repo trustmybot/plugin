@@ -903,7 +903,7 @@ describe('the router runs every gate from the TypeScript registry (GH 1692, F287
       const defaults = await decide('UserPromptSubmit', prompt, env);
       assert.equal(defaults.denied, null);
       assert.deepEqual(defaults.gates.map((g) => g.gate), routerGates('UserPromptSubmit', '').map((g) => g.name));
-      assert.ok(defaults.gates.some((g) => g.gate === 'rework-waiver-capture'));
+      assert.ok(defaults.gates.some((g) => g.gate === 'task-overrun-alert'));
       const worktree = await decide('WorktreeCreate', JSON.stringify({ hook_event_name: 'WorktreeCreate', session_id: 'ts-events', name: 'n', cwd: dir }), env);
       assert.deepEqual(worktree.gates.map((g) => g.gate), ['worktree-create']);
     } finally {

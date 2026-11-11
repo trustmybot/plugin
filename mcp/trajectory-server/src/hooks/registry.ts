@@ -39,7 +39,6 @@ import { GATE_NAME as SESSION_LOG_GATE, sessionLogCapture } from './session-log-
 import { GATE_NAME as SESSION_HANDOFF_GATE, sessionHandoff } from './session-handoff.js';
 import { GATE_NAME as SESSION_START_PERSONA_GATE, sessionStartPersona } from './session-start-persona.js';
 import { GATE_NAME as USER_PROMPT_PERSONA_GATE, userPromptPersona } from './user-prompt-persona.js';
-import { GATE_NAME as REWORK_WAIVER_GATE, reworkWaiverCapture } from './rework-waiver-capture.js';
 import { GATE_NAME as CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate } from './consultant-persistence-gate.js';
 import { GATE_NAME as RT_AUQ_SHAPE_GATE, roundtableAuqShape } from './roundtable-auq-shape.js';
 import { GATE_NAME as RT_CLEANUP_GATE, roundtableCleanupPostcheck } from './roundtable-cleanup-postcheck.js';
@@ -118,7 +117,6 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [SESSION_START_PERSONA_GATE, sessionStartPersona],
   [SESSION_HANDOFF_GATE, sessionHandoff],
   [USER_PROMPT_PERSONA_GATE, userPromptPersona],
-  [REWORK_WAIVER_GATE, reworkWaiverCapture],
   [CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate],
   [RT_AUQ_SHAPE_GATE, roundtableAuqShape],
   [RT_CLEANUP_GATE, roundtableCleanupPostcheck],
@@ -310,7 +308,6 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PERSONA_GATE, 'advisory')], { part: 'persona' }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PRESCAN_GATE, 'advisory')], { part: 'prescan' }),
   eventGroup('UserPromptSubmit', '', [
-    routerGate(REWORK_WAIVER_GATE, 'advisory'),
     routerGate(ACTIVATION_GATE, 'advisory'),
     routerGate(SESSION_LOG_GATE, 'advisory'),
     routerGate(PROMPT_INTENT_GATE, 'advisory'),
