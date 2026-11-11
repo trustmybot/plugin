@@ -65,8 +65,9 @@ describe('code-reviewer-no-worktree', () => {
       assert.equal(denyReason(r.stdout), fixedReason(DENY_REASON, DENY_FIX));
     }
   });
-  it('names tmb_planning section 6, not V1/V2/V3 (GH 2743)', () => {
-    assert.ok(DENY_REASON.includes('(tmb_planning section 6: the four checks + review_handoff)'), DENY_REASON);
+  it('names the review_handoff → code-reviewer → bro_atomic_close order, not the retired section-6 checks (GH 2866)', () => {
+    assert.ok(DENY_REASON.includes('The order on SWE return is review_handoff → code-reviewer → bro_atomic_close'), DENY_REASON);
+    assert.ok(!DENY_REASON.includes('four checks'), DENY_REASON);
     assert.ok(!DENY_REASON.includes('V1/V2/V3'), DENY_REASON);
   });
   it('allows other isolation values, other agents and other tools', () => {
