@@ -66,19 +66,39 @@ function closingParen(command: string, open: number): number {
 
 // Splits a shell command into words and control operators. Quotes are removed,
 // `$(…)` and backquotes stay inside their word, and redirections (`2>&1`,
-// `> out`, `&>file`) are dropped together with their target word.
+// `> out`, `&>file`) are dropped together with their target word. A heredoc
+// body is data, so the lines after its newline up to the delimiter are skipped.
 function shellTokens(command: string): ShellToken[] {
   const out: ShellToken[] = [];
   let word = '';
   let inWord = false;
   let dropNext = false;
+  let heredocNext: { stripTabs: boolean } | null = null;
+  const heredocs: { delimiter: string; stripTabs: boolean }[] = [];
   const endWord = () => {
     if (inWord) {
-      if (dropNext) dropNext = false;
-      else out.push({ word });
+      if (dropNext) {
+        dropNext = false;
+        if (heredocNext) heredocs.push({ delimiter: word, ...heredocNext });
+        heredocNext = null;
+      } else {
+        out.push({ word });
+      }
     }
     word = '';
     inWord = false;
+  };
+  const skipHeredocBodies = (from: number): number => {
+    let pos = from;
+    for (const { delimiter, stripTabs } of heredocs.splice(0)) {
+      while (pos < command.length) {
+        const nl = command.indexOf('\n', pos);
+        const line = command.slice(pos, nl < 0 ? command.length : nl);
+        pos = nl < 0 ? command.length : nl + 1;
+        if ((stripTabs ? line.replace(/^\t+/, '') : line) === delimiter) break;
+      }
+    }
+    return pos;
   };
   for (let i = 0; i < command.length; i++) {
     const c = command[i]!;
@@ -128,6 +148,10 @@ function shellTokens(command: string): ShellToken[] {
       if (/\d/.test(command[j] ?? '') && command[j - 1] === '&') {
         while (/\d|-/.test(command[j] ?? '')) j++;
       } else {
+        if (command.slice(i, j) === '<<') {
+          heredocNext = { stripTabs: command[j] === '-' };
+          if (heredocNext.stripTabs) j++;
+        }
         dropNext = true;
       }
       i = j - 1;
@@ -136,8 +160,10 @@ function shellTokens(command: string): ShellToken[] {
       if (op) {
         endWord();
         dropNext = false;
+        heredocNext = null;
         out.push({ op });
         i += op.length - 1;
+        if (op === '\n' && heredocs.length > 0) i = skipHeredocBodies(i + 1) - 1;
       } else if (/\s/.test(c)) {
         endWord();
       } else {

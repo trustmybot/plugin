@@ -75,6 +75,20 @@ describe('checkVerificationProse (GH 2955)', () => {
     }
   });
 
+  it('reads heredoc bodies as data, not commands, and resumes after the delimiter', () => {
+    for (const command of [
+      "cat > f.md <<'EOF'\n# Title\nSome text\nEOF\ngrep -q text f.md",
+      "python3 - <<'EOF'\nPrint = 1\nEOF",
+      'cat <<-END | grep -q x\n\tConfirm this\n\tEND\ntrue',
+      'cat <<A <<"B"\nAlpha\nA\nBeta\nB\necho done',
+      'grep -q x <<<"Confirm"',
+    ]) {
+      assert.equal(checkVerificationProse([command], 'main'), null, command);
+    }
+    const refusal = checkVerificationProse(["cat <<'EOF'\nSome text\nEOF\nConfirm the output"], 'main');
+    assert.deepEqual(refusal?.missing.map((m) => m.path), ['Confirm']);
+  });
+
   it('admits a capitalized word that is an executable on PATH', () => {
     const bin = mkdtempSync(join(tmpdir(), 'verification-prose-bin-'));
     const savedPath = process.env['PATH'];
