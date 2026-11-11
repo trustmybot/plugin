@@ -11,6 +11,7 @@ import { gitOk, gitOut, cdPwd, isDir } from '../lib/git.js';
 import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode, heredocEncoder } from './encode.js';
+import { NOT_LITERAL, gitWord } from './git-word.js';
 import { bashParser } from './parser.js';
 import { ALT, DECLARE, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, isGitCommand, operandWords, statementsEnc, type Record } from './statements.js';
 
@@ -420,15 +421,23 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
   const out: Statement[] = [];
   const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, escaped ? 'escaped' : 'calls')
     .filter((record) => record.dir !== LOOP_OPEN && record.dir !== LOOP_CLOSE)
-    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt), tail: record.tail === true, ...(record.cut ? { cut: record.cut } : {}) }))
+    .map((record) => ({
+      dir: record.dir,
+      stmt: readStmt(record.stmt),
+      tail: record.tail === true,
+      ...(record.cut ? { cut: record.cut } : {}),
+      ...(record.wrappers ? { wrappers: record.wrappers } : {}),
+    }))
     .filter((record) => record.stmt !== '');
   let srcs: Array<string | undefined> | undefined;
   const srcAt = (k: number): string | undefined => (srcs ??= sources(parser, cmd, home, records.map((record) => record.stmt)))[k];
   const ps4 = hiddenPs4(parser, cmd);
   const ps4Stmts = ps4 && records.some((record) => decode(record.stmt).includes('PS4'));
-  for (const [k, { dir, stmt, tail, cut }] of records.entries()) {
+  for (const [k, { dir, stmt, tail, cut, wrappers }] of records.entries()) {
     const own = (opaque: boolean): void => {
-      for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}), ...(opaque ? { opaque: true as const } : {}) }, () => srcAt(k)));
+      for (const one of dir.split(ALT)) {
+        out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}), ...(wrappers ? { wrappers } : {}), ...(opaque ? { opaque: true as const } : {}) }, () => srcAt(k)));
+      }
     };
     const { codes, check, stdin } = dir.startsWith('=') ? NO_CODE : codeOf(stmt);
     const words = readWords(stmt);
@@ -439,7 +448,7 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
       (ps4 && (!ps4Stmts || decode(stmt).includes('PS4'))) ||
       ps4Word(words) ||
       (!tail && DYNAMIC.test(decode(argv0)) && !ASSIGNMENT.test(decode(argv0))) ||
-      (cut !== undefined && !isGitCommand(argv0) && !assigner) ||
+      (cut !== undefined && gitWord(words) === null && !assigner) ||
       (assigner && (cut !== undefined || DYNAMIC.test(decode(stmt))) && dynamicName(argv0, rawWords(srcAt(k))));
     if (codes.length === 0 || stdin || prompt || depth >= MAX_DEPTH) {
       own(stdin || prompt || unreadable || codes.length > 0);
@@ -493,61 +502,93 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
   if (listed === null) return { ok: false };
   let state: string | undefined;
   const statements: Statement[] = [];
+  const shown = (text: string): string => text.replace(HD_MARK, '<<').replace(ENCODED, '_');
   for (const entry of listed) {
     let dir = entry.dir;
     if (dir.startsWith('@/')) dir = isDir(cwd) ? `${cwd.replace(/\/$/, '')}${dir.slice(1)}` : '-';
     else if (dir === '@') dir = state ??= await cwdState(cwd, env);
-    const stmt = entry.stmt.replace(HD_MARK, '<<').replace(ENCODED, '_');
-    statements.push(withSource({ dir, stmt, ...(entry.cut ? { cut: entry.cut } : {}), ...(entry.opaque ? { opaque: entry.opaque } : {}) }, () => entry.src));
+    const stmt = shown(entry.stmt);
+    const extra = {
+      ...(entry.cut ? { cut: entry.cut } : {}),
+      ...(entry.wrappers ? { wrappers: shown(entry.wrappers) } : {}),
+      ...(entry.opaque ? { opaque: entry.opaque } : {}),
+    };
+    statements.push(withSource({ dir, stmt, ...extra }, () => entry.src));
   }
   return { ok: true, statements };
 }
 
-/** tmb_git_subcommand <stmt>: the words from git's subcommand on, "" when <stmt> is no git command. */
+/** git's words in <w> from the word gitWord finds, that word made `git`. */
+function fromGit(w: readonly string[], at: number): string[] {
+  return ['git', ...w.slice(at + 1)];
+}
+
+/**
+ * tmb_git_subcommand <stmt>: the words from git's subcommand on, "" when
+ * <stmt> is no git command; git behind wrappers or by path as gitWord finds
+ * it, an unsure place included (GH 2797).
+ */
 export function gitSubcommand(stmt: string): string {
-  const w = readWords(stmt);
-  if (w[0] !== 'git') return '';
+  const words = readWords(stmt);
+  const found = gitWord(words);
+  if (found === null) return '';
+  const w = fromGit(words, found.at);
   const k = subcommandAt(w);
   return k < w.length ? w.slice(k).join(' ') : '';
 }
 
 const VALUE_OPTIONS = ['-C', '-c', '--git-dir', '--work-tree', '--namespace'];
 const VALUE_JOINED = /^--(git-dir|work-tree|namespace)=/;
-/** A word bash may turn into other words (a parameter, command or arithmetic expansion, a brace or glob pattern), or a redirect, which leaves git's words. */
-const NOT_LITERAL = /[$`*?[{]|^[0-9]*[<>]|^&>/;
 /** The same for a value-taking option's argument, where a parameter, command or arithmetic expansion cannot move the subcommand. */
 const NOT_LITERAL_VALUE = /[*?[]|(^|[^$]){|^[0-9]*[<>]|^&>/;
 
-type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statement, 'cut' | 'src'>>);
+type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statement, 'cut' | 'src' | 'wrappers'>>);
 
 /**
  * git's subcommand in <statement> and the words after it, as gitSubcommand
- * gives them, git named bare or by a path to it (GH 2987), or undefined when
- * it is unknown (GH 2634): the subcommand word,
+ * gives them, or undefined when it is unknown (GH 2634): the subcommand word,
  * or an option word before it that is no value-taking option's argument,
  * holds an expansion, a brace or glob pattern, or is a redirect; an
  * argument of `-C` / `-c` / `--git-dir` / `--work-tree` / `--namespace`
  * (or the `=value` of the last three) only when it is a pattern or a
  * redirect. Where an unquoted $( ) or backtick cut the statement inside that
  * span, the words are read from its `src`, read only then, and a `src` that
- * is missing or does not line up leaves it unknown.
+ * is missing or does not line up leaves it unknown. git behind wrappers or
+ * by path counts (GH 2797); an unsure place (gitWord), the `wrappers` the
+ * listing skipped reading another one or reaching a git the statement's own
+ * words do not (`env $X git push`), or an `xargs` git with no subcommand
+ * word, which stdin supplies, leaves it unknown.
  */
 export function gitSubcommandOf(statement: SubcommandInput): string | undefined {
-  const { stmt, cut } = typeof statement === 'string' ? { stmt: statement, cut: undefined } : statement;
+  const { stmt, cut, wrappers } = typeof statement === 'string' ? { stmt: statement, cut: undefined, wrappers: undefined } : statement;
   let w = readWords(stmt);
-  if (!isGitCommand(w[0] ?? '')) return '';
-  let k = subcommandAt(w);
+  const found = gitWord(w);
+  if (found === null) return wrappers !== undefined && gitWord([...readWords(wrappers), ...w]) !== null ? undefined : '';
+  if (!found.sure) return undefined;
+  let xargs = found.xargs;
+  if (wrappers !== undefined) {
+    const lead = readWords(wrappers);
+    const whole = gitWord([...lead, ...w]);
+    if (whole === null || !whole.sure || whole.at !== lead.length + found.at) return undefined;
+    xargs ||= whole.xargs;
+  }
+  let g = fromGit(w, found.at);
+  let k = found.at + subcommandAt(g);
   if (cut !== undefined && typeof statement !== 'string') {
     const at = cut === 'glued' ? w.length - 1 : w.length;
     if (k >= at) {
       const src = statement.src;
       const words = src === undefined ? null : sourceWords(src);
-      if (words === null || !isGitCommand(words[0]?.text ?? '') || words.findIndex((word) => word.sub) !== at) return undefined;
+      if (words === null || words.findIndex((word) => word.sub) !== at) return undefined;
       w = words.map((word) => word.text);
-      k = subcommandAt(w);
+      const again = gitWord(w);
+      if (again === null || !again.sure || again.at !== found.at) return undefined;
+      g = fromGit(w, found.at);
     }
   }
-  return spanLiteral(w) ? (k < w.length ? w.slice(k).join(' ') : '') : undefined;
+  k = subcommandAt(g);
+  if (xargs && k >= g.length) return undefined;
+  return spanLiteral(g) ? (k < g.length ? g.slice(k).join(' ') : '') : undefined;
 }
 
 /** Whether git's words up to its subcommand are literal, each value-taking option's argument judged by NOT_LITERAL_VALUE. */
