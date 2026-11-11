@@ -5,9 +5,9 @@
  * wrapper read by its own option table. A wrapper option the table does not
  * know, a `--chdir=` word the listing left for a dir it moved, or a word the
  * table must skip that is not literal makes the place unsure: git is then
- * the first later word whose basename is git, if any. `env -C` and
- * `sudo -D` / `-R` stay out of the table: the dir they move git to is not
- * the statement's.
+ * the first later word whose basename is git, if any. `env -C` / `--chdir`
+ * take a dir value, since the listing moves the statement into that dir;
+ * `sudo -D` / `-R` stay out of the table.
  */
 import { ASSIGNMENT } from './unwrap.js';
 
@@ -48,9 +48,9 @@ const DURATION = /^[0-9]+(\.[0-9]+)?[smhd]?$/;
 const WRAPPERS: { readonly [name: string]: Wrapper } = {
   env: {
     flags: '0iv',
-    values: 'u',
+    values: 'Cu',
     long: ['ignore-environment', 'null', 'debug'],
-    longValues: ['unset'],
+    longValues: ['chdir', 'unset'],
     assignments: true,
     dash: true,
   },

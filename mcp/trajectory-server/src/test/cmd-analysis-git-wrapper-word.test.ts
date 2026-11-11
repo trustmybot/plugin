@@ -92,6 +92,10 @@ describe('git behind a wrapper or by path (GH 2797)', () => {
       'gtimeout 5 git push',
       'nice -5 git push',
       'env - git push',
+      'env -C /x git push',
+      'env -C/x git push',
+      'env --chdir /x git push',
+      'env --chdir=/x git push',
       'sudo --user=me -- git push',
       'xargs -0 -n1 -P4 git push',
       'sudo nice -n 5 timeout 5 env A=1 git push',
@@ -109,6 +113,7 @@ describe('git behind a wrapper or by path (GH 2797)', () => {
       'timeout bad git push',
       'env $X git push',
       'sudo -D /x git push',
+      'env -C $X git push',
       'xargs -I {} git push {}',
     ]) {
       assert.equal(gitSubcommandOf(stmt), undefined, stmt);
@@ -131,7 +136,7 @@ describe('git behind a wrapper or by path (GH 2797)', () => {
     assert.equal(bogus.wrappers, 'env --bogus');
     assert.deepEqual(await subsOf('env --bogus git push origin dev'), [undefined]);
     assert.deepEqual(await subsOf('nice -n $N git push'), [undefined]);
-    assert.deepEqual(await subsOf('env -C /x git push'), [undefined]);
+    assert.deepEqual(await subsOf('env -C /x git push'), ['push']);
     assert.deepEqual(await subsOf('sudo env A=1 git push origin dev'), ['push origin dev']);
     assert.deepEqual(await subsOf('time -p A=1 git push'), ['push']);
     assert.deepEqual(await subsOf('cd /a && env git push'), ['', 'push']);
@@ -166,7 +171,7 @@ describe('git-push-guard gates git behind a wrapper or by path (GH 2797)', () =>
   it('denies a wrapped or path git push as it denies git push', async () => {
     await withGuard(async (run) => {
       assert.match(await run('git push origin dev'), WORKTREE);
-      for (const command of ['env git push origin dev', '/usr/bin/git push origin dev', 'xargs git push origin dev', 'doas git push origin dev', 'setsid git push origin dev']) {
+      for (const command of ['env git push origin dev', '/usr/bin/git push origin dev', 'xargs git push origin dev', 'doas git push origin dev', 'setsid git push origin dev', 'env -C . git push origin dev']) {
         assert.match(await run(command), WORKTREE, command);
       }
     });
@@ -174,7 +179,7 @@ describe('git-push-guard gates git behind a wrapper or by path (GH 2797)', () =>
 
   it('denies a push behind an unknown wrapper option or with an unknown subcommand as unknown', async () => {
     await withGuard(async (run) => {
-      for (const command of ['env --bogus git push origin dev', 'nice -n $N git push origin dev', 'echo dev | xargs git', 'env -C . git push origin dev', '/usr/bin/git $(echo push) origin dev']) {
+      for (const command of ['env --bogus git push origin dev', 'nice -n $N git push origin dev', 'echo dev | xargs git', 'sudo -D /x git push origin dev', '/usr/bin/git $(echo push) origin dev']) {
         assert.match(await run(command), UNKNOWN, command);
       }
     });
