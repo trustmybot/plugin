@@ -74,7 +74,19 @@ grep -nE -- "$2" "${procs}" | cut -d: -f1 | grep . || exit 1
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           objective TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'open',
+          repo TEXT,
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id INTEGER NOT NULL,
+          branch_id TEXT,
+          from_node TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          content_json TEXT,
+          repo TEXT,
+          created_at TEXT NOT NULL
         );
       `);
     } finally {
@@ -180,6 +192,76 @@ grep -nE -- "$2" "${procs}" | cut -d: -f1 | grep . || exit 1
   it('a malformed or missing session_id is not injected', () => {
     hasNot(runHook({ prompt: '@bro status', session_id: 'bad id; rm -rf' }), 'session_id=', 'malformed id dropped');
     hasNot(runHook(input('@bro status')), 'session_id=', 'no id without one in the payload');
+  });
+
+  describe('GH 3029: /compact nudge past bro_compact_nudge_tokens', () => {
+    const NUDGE = "this bro session's context is";
+    const call = (id: string, input: number, cacheRead: number, extra: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        type: 'assistant',
+        ...extra,
+        message: { id, model: 'claude-opus-5-5', usage: { input_tokens: input, cache_creation_input_tokens: 1000, cache_read_input_tokens: cacheRead } },
+      });
+    const usageTranscript = (name: string, lastContext: number) => {
+      const p = join(sb.dir, `transcript-usage-${name}.jsonl`);
+      writeFileSync(
+        p,
+        lines(
+          '{"role":"assistant","content":"Entering bro mode."}',
+          call('msg_early', 10, 500_000),
+          call('msg_last', 10, lastContext - 1010),
+          call('msg_side', 10, 900_000, { isSidechain: true }),
+          JSON.stringify({ type: 'assistant', message: { model: '<synthetic>', usage: { input_tokens: 900_000 } } }),
+        ),
+      );
+      return p;
+    };
+    const nudgeRows = (session: string): string[] => {
+      const d = new DatabaseSync(db);
+      try {
+        return d
+          .prepare("SELECT content_json FROM audit WHERE event_type='bro_compact_nudged' AND json_extract(content_json, '$.session_id') = ?")
+          .all(session)
+          .map((r) => String(r.content_json));
+      } finally {
+        d.close();
+      }
+    };
+    const nudges = (session: string) => String(nudgeRows(session).length);
+    const prompt = (session: string, transcript: string) => runHook({ prompt: 'carry on', session_id: session, transcript_path: transcript });
+
+    it('a context above the default threshold nudges once, with one audit row; the next prompt does not', () => {
+      sql(db, "DELETE FROM plugin_config WHERE key='bro_compact_nudge_tokens'");
+      const session = 'nudge-session-0001';
+      const first = contextOf(prompt(session, usageTranscript('over', 90_000)));
+      has(first, `${NUDGE} 90000 tokens, past bro_compact_nudge_tokens (80000)`, 'nudge names the last call context and the default threshold');
+      has(first, '/compact', 'nudge asks for /compact');
+      assert.equal(nudges(session), '1', 'one bro_compact_nudged row');
+      assert.deepEqual(JSON.parse(nudgeRows(session)[0]), { session_id: session, context_tokens: 90_000, threshold: 80_000 });
+      hasNot(contextOf(prompt(session, usageTranscript('over', 90_000))), NUDGE, 'second prompt of the session gets no nudge');
+      assert.equal(nudges(session), '1', 'still one row after the second prompt');
+    });
+
+    it('a context at or under the threshold does not nudge', () => {
+      sql(db, "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('bro_compact_nudge_tokens', '90000')");
+      const session = 'nudge-session-0002';
+      hasNot(contextOf(prompt(session, usageTranscript('at', 90_000))), NUDGE, 'context equal to the threshold');
+      hasNot(contextOf(prompt(session, usageTranscript('under', 50_000))), NUDGE, 'context under the threshold');
+      assert.equal(nudges(session), '0', 'no audit row');
+    });
+
+    it('threshold 0 turns the nudge off', () => {
+      sql(db, "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('bro_compact_nudge_tokens', '0')");
+      const session = 'nudge-session-0003';
+      hasNot(contextOf(prompt(session, usageTranscript('off', 500_000))), NUDGE, 'no nudge when off');
+      assert.equal(nudges(session), '0', 'no audit row');
+      sql(db, "DELETE FROM plugin_config WHERE key='bro_compact_nudge_tokens'");
+    });
+
+    it('no usage in the transcript or no session id: no nudge', () => {
+      hasNot(contextOf(prompt('nudge-session-0004', t.bro)), NUDGE, 'transcript without usage');
+      hasNot(contextOf(runHook({ prompt: 'carry on', transcript_path: usageTranscript('nosession', 500_000) })), NUDGE, 'no session id');
+    });
   });
 
   it('bro mode + server running: no HALT', () => {

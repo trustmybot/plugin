@@ -106,7 +106,7 @@ flowchart LR
 
 ### 1. First contact (auto-fired `/onboard`)
 
-On each bro turn (a prompt that names bro, or a session already in bro mode), `activation-routine` checks whether the project is onboarded. If it is not, the gate injects a first-contact directive; bro fires `/onboard` at once and runs its ceremony before any reply. When no trajectory server is running, the gate puts a HALT note in front of its context, telling bro to dispatch no work and to follow its recovery skill. Other turns skip the gate.
+On each bro turn (a prompt that names bro, or a session already in bro mode), `activation-routine` checks whether the project is onboarded. If it is not, the gate injects a first-contact directive; bro fires `/onboard` at once and runs its ceremony before any reply. When no trajectory server is running, the gate puts a HALT note in front of its context, telling bro to dispatch no work and to follow its recovery skill. Once per session, when bro's latest context passes the `bro_compact_nudge_tokens` config key (80000 tokens by default, 0 turns it off), the gate adds one advisory line asking bro to have the Human run /compact at the next natural break; the compaction restore brings back the issue, its tasks and the newest decision. The nudge never blocks. Other turns skip the gate.
 
 Each round starts from fresh evidence: the server re-probes the project (origin URL, whether gh/glab is installed and authed) and scans every registered repo offline. Every question carries the evidence behind its recommendation, which bro shows in chat before the AUQ; the recommended option comes first and is pre-selected.
 
