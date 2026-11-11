@@ -187,8 +187,9 @@ describe('removal deletes a TMB-owned network key only while it is still true', 
   let project: string;
 
   const settingsPath = () => join(project, '.claude', 'settings.local.json');
-  const read = () => JSON.parse(readFileSync(settingsPath(), 'utf8'));
-  const edit = (change: (settings: { sandbox: Record<string, unknown> & { network: Record<string, unknown> } }) => void) => {
+  type WrittenSettings = { sandbox: Record<string, unknown> & { network: Record<string, unknown> } };
+  const read = () => JSON.parse(readFileSync(settingsPath(), 'utf8')) as WrittenSettings;
+  const edit = (change: (settings: WrittenSettings) => void) => {
     const settings = read();
     change(settings);
     writeFileSync(settingsPath(), JSON.stringify(settings));
