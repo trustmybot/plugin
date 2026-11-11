@@ -13,7 +13,7 @@ const scanPin = pinScanEnv();
 after(() => scanPin.restore());
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
-const parse = (r: RawResult): Record<string, unknown> => JSON.parse(r.content[0]!.text);
+const parse = (r: RawResult): Record<string, unknown> => JSON.parse(r.content[0].text) as Record<string, unknown>;
 
 const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 const PROSE = 'Run schema-upgrade.test and confirm all cases pass';
@@ -54,9 +54,9 @@ describe('checkVerificationProse (GH 2955)', () => {
       assert.ok(refusal, command);
       assert.equal(refusal.error, 'verification_not_command');
       assert.equal(refusal.missing.length, 1);
-      assert.equal(refusal.missing[0]!.command, command);
-      assert.equal(refusal.missing[0]!.path, word);
-      assert.match(refusal.missing[0]!.reason, /not a runnable command/);
+      assert.equal(refusal.missing[0].command, command);
+      assert.equal(refusal.missing[0].path, word);
+      assert.match(refusal.missing[0].reason, /not a runnable command/);
     }
   });
 
@@ -104,7 +104,7 @@ describe('prose verification guard in the task tools (GH 2955)', () => {
     seed(db, repo.repoRoot);
     const composites = compositeTools(db, join(repo.ws, '.claude', 'tmb', 'trajectory.db'));
     const call = (name: string, args: Record<string, unknown>) =>
-      composites.handlers[name]!({ agent: 'bro', ...args }) as unknown as Promise<RawResult>;
+      composites.handlers[name]({ agent: 'bro', ...args }) as unknown as Promise<RawResult>;
     const provision = (branch_id: string, task: Record<string, unknown>) =>
       call('task_provision', {
         issue_id: 1, branch_id, decision_body: 'Chosen approach: refuse prose.',
@@ -113,7 +113,7 @@ describe('prose verification guard in the task tools (GH 2955)', () => {
     return { ...repo, db, call, provision };
   };
   const assertProseRefusal = (r: RawResult) => {
-    assert.equal(r.isError, true, r.content[0]!.text);
+    assert.equal(r.isError, true, r.content[0].text);
     const body = parse(r);
     assert.equal(body['error'], 'verification_not_command');
     assert.deepEqual(body['missing'], [{ command: PROSE, path: 'Run', reason: '"Run" is not a runnable command; give a shell command the close gate can run' }]);

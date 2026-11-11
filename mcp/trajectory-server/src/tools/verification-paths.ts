@@ -353,8 +353,9 @@ function firstCommandWords(script: string): string[] {
   const finish = () => {
     const argv = stripPrefix(words);
     words = [];
-    if (argv.length === 0) return;
-    out.push(argv[0]!);
+    const [prog] = argv;
+    if (prog === undefined) return;
+    out.push(prog);
     const inner = shellScript(argv);
     if (inner !== null) out.push(...firstCommandWords(inner));
   };
