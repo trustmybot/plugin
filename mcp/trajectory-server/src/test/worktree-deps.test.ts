@@ -11,6 +11,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   rmSync,
   symlinkSync,
@@ -60,7 +61,8 @@ function makeRepo(): { ws: string; repoRoot: string; git: (cwd: string, ...a: st
   return { ws, repoRoot, git };
 }
 
-const ROOT_ENTRIES = ['.bin', '.package-lock.json', '@scope', 'left-pad', 'marker'];
+const MAIN_ROOT_ENTRIES = ['.bin', '.package-lock.json', '@scope', 'left-pad', 'marker'];
+const WORKTREE_ROOT_ENTRIES = ['.bin', '@scope', 'left-pad', 'marker'];
 
 function isLinkTo(path: string, target: string): boolean {
   return lstatSync(path).isSymbolicLink() && readlinkSync(path) === target;
@@ -69,7 +71,9 @@ function isLinkTo(path: string, target: string): boolean {
 function isPerEntryLinkTo(dest: string, src: string): boolean {
   const stat = lstatSync(dest);
   if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
-  const names = readdirSync(src).sort();
+  const names = readdirSync(src)
+    .filter((name) => name !== '.package-lock.json')
+    .sort();
   return (
     JSON.stringify(readdirSync(dest).sort()) === JSON.stringify(names) &&
     names.every((name) => isLinkTo(join(dest, name), join(src, name)))
@@ -106,7 +110,7 @@ describe('task_provision links node_modules (GH 1853)', () => {
       assert.equal(out['git_setup'], 'created');
       assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
       assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
-      assert.deepEqual(readdirSync(join(wt, 'node_modules')).sort(), ROOT_ENTRIES);
+      assert.deepEqual(readdirSync(join(wt, 'node_modules')).sort(), WORKTREE_ROOT_ENTRIES);
       assert.equal(existsSync(join(wt, 'other', 'node_modules')), false);
     } finally {
       rmSync(ws, { recursive: true, force: true });
@@ -188,11 +192,25 @@ describe('linkWorktreeNodeModules', () => {
       linkWorktreeNodeModules(repoRoot, wt);
       rmSync(join(wt, 'node_modules'), { recursive: true, force: true });
       rmSync(join(wt, 'pkg', 'node_modules'), { recursive: true, force: true });
-      assert.deepEqual(readdirSync(join(repoRoot, 'node_modules')).sort(), ROOT_ENTRIES);
+      assert.deepEqual(readdirSync(join(repoRoot, 'node_modules')).sort(), MAIN_ROOT_ENTRIES);
       for (const file of ['marker', '.package-lock.json', '.bin/tool', 'left-pad/index.js', '@scope/pkg/index.js']) {
         assert.ok(existsSync(join(repoRoot, 'node_modules', file)), `main install lost ${file}`);
       }
       assert.ok(existsSync(join(repoRoot, 'pkg', 'node_modules', 'marker')));
+    });
+  });
+
+  it('leaves npm\'s hidden lockfile unlinked so a worktree install cannot overwrite the main copy (F816-1)', () => {
+    withWorktree((repoRoot, wt) => {
+      linkWorktreeNodeModules(repoRoot, wt);
+      const worktreeLock = join(wt, 'node_modules', '.package-lock.json');
+      const mainLock = join(repoRoot, 'node_modules', '.package-lock.json');
+      assert.equal(existsSync(worktreeLock), false);
+      writeFileSync(worktreeLock, '{"worktree":true}\n');
+      assert.equal(lstatSync(worktreeLock).isSymbolicLink(), false);
+      assert.equal(readFileSync(mainLock, 'utf8'), '{}\n');
+      rmSync(join(wt, 'node_modules'), { recursive: true, force: true });
+      assert.equal(readFileSync(mainLock, 'utf8'), '{}\n');
     });
   });
 
@@ -205,7 +223,7 @@ describe('linkWorktreeNodeModules', () => {
       assert.deepEqual(r.skipped.map((s) => s.dir), ['other']);
       assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
       assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
-      assert.deepEqual(readdirSync(join(repoRoot, 'node_modules')).sort(), ROOT_ENTRIES);
+      assert.deepEqual(readdirSync(join(repoRoot, 'node_modules')).sort(), MAIN_ROOT_ENTRIES);
     });
   });
 

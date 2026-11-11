@@ -81,12 +81,18 @@ function isWholeDirLinkTo(dest: string, src: string): boolean {
   }
 }
 
+// npm rewrites its hidden lockfile after every install; a link would let a
+// worktree install overwrite the main checkout's copy.
+const NPM_REGENERATED_ENTRIES = new Set(['.package-lock.json']);
+
 // A real dir of per-entry links: removing it, as `npm ci` does, removes only links.
 // A partial dir would read as `already exists` forever, so a failure removes it.
 function linkEachEntry(src: string, dest: string): void {
   mkdirSync(dest);
   try {
-    for (const name of readdirSync(src)) symlinkSync(join(src, name), join(dest, name));
+    for (const name of readdirSync(src)) {
+      if (!NPM_REGENERATED_ENTRIES.has(name)) symlinkSync(join(src, name), join(dest, name));
+    }
   } catch (error) {
     rmSync(dest, { recursive: true, force: true });
     throw error;
