@@ -179,16 +179,64 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     await verdict(taskId, 1, 'fail', [{
       criterion_id: 'SC1', probe_cmd: 'grep -q "/ 100" lib/discount.js', expected: 'a percentage', observed: 'subtracts pct as an amount',
     }]);
-    assert.match(String((await close(taskId, first)).body['error']), /^review_pass_missing: /, 'a FAIL never closes');
-
-    await ok('task_reopen', { agent: 'bro', task_id: String(taskId), reason: 'code-reviewer FAIL on SC1' });
-    assert.equal(status(taskId), 'running');
+    assert.equal(status(taskId), 'running', 'the FAIL reopens the task itself (GH 2866)');
+    assert.match(String((await close(taskId, first)).body['error']), /status is "running"/, 'a FAIL never closes');
 
     const second = await sweCommits(taskId, worktree, { 'lib/discount.js': 'export const applyDiscount = (p, pct) => p - (p * pct) / 100;\n' });
     assert.match(String((await close(taskId, second)).body['error']), /^review_pass_missing: /, 'the first pass of a new commit needs its own handoff');
     await ok('review_handoff', { agent: 'bro', task_id: String(taskId) });
     await verdict(taskId, 2, 'pass');
     await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: second, verification_summary: 'reworked and reviewed' });
+    assert.equal(status(taskId), 'closed');
+  });
+
+  it('F857-1: a disputed FAIL re-hands the unchanged, verified commit to a new code-reviewer after a re_review analysis, then closes on its pass', async () => {
+    const { taskId, worktree } = await provision('feat/discount-dispute');
+    const sha = await sweCommits(taskId, worktree, { 'lib/discount.js': 'export const applyDiscount = (p, pct) => p - (p * pct) / 100;\n' });
+    const report = db.get<{ completion_report: string }>('SELECT completion_report FROM tasks WHERE id = ?', [taskId])!.completion_report;
+    await ok('review_handoff', { agent: 'bro', task_id: String(taskId) });
+    await verdict(taskId, 1, 'fail', [{
+      criterion_id: 'SC1', probe_cmd: 'grep -q "Math.round" lib/discount.js', expected: 'rounded cents', observed: 'no rounding', class: 'spec-overreach',
+    }]);
+    assert.equal(status(taskId), 'running');
+    const failId = db.get<{ id: number }>(`SELECT id FROM validation_attempts WHERE task_id = ? AND verdict = 'fail'`, [taskId])!.id;
+    const findingId = db.get<{ id: string }>('SELECT id FROM review_findings WHERE task_id = ?', [taskId])!.id;
+    const handoff = () => call('review_handoff', { agent: 'bro', task_id: String(taskId), session_id: SESSION });
+
+    const live = await handoff();
+    assert.ok(live.isError);
+    assert.match(String(live.body['error']), /^re_review_refused: .*swe run \d+ of task \d+ is live/);
+    db.run(`UPDATE agent_runs SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE task_id = ? AND completed_at IS NULL`, [taskId]);
+
+    const noAnalysis = await handoff();
+    assert.match(String(noAnalysis.body['error']), /^re_review_refused: .*latest task_rework_analysis \(none\)/);
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await ok('task_rework_analysis', {
+      agent: 'bro', task_id: taskId, fail_validation_ids: [failId], finding_ids: [findingId], root_cause: 'reviewer_disputed', change: 're_review',
+      approach_shared_cause: false, rationale: 'SC1 asks for no rounding; the finding reads a requirement the spec does not state.',
+    });
+    const unwaived = await handoff();
+    assert.match(String(unwaived.body['error']), /^verification_run_missing: /, 'the disputed finding still needs its probe or a wontfix');
+    assert.equal(status(taskId), 'running', 'a refused handoff leaves the task running');
+
+    await ok('task_reopen', {
+      agent: 'bro', task_id: taskId, reason: 'reviewer disputed', effort: 'high',
+      wontfix: [{ finding_id: findingId, reason: 'The Human accepts it: SC1 asks for no rounding and the probe tests a requirement outside the spec.' }],
+    });
+
+    const reReview = await handoff();
+    assert.ok(!reReview.isError, JSON.stringify(reReview.body));
+    assert.equal(reReview.body['re_review_of'], failId);
+    assert.equal(reReview.body['commit_sha'], sha);
+    assert.equal(status(taskId), 'completed', 'the re-review restores the completion the FAIL cleared');
+    assert.equal(db.get<{ completion_report: string }>('SELECT completion_report FROM tasks WHERE id = ?', [taskId])!.completion_report, report);
+
+    const spawn = reReview.body['reviewer_spawn'] as { prompt: string };
+    const allowed = reviewerSpawnGate(spawn.prompt);
+    assert.equal(allowed.stdout, '', `the re-review spawn passes: ${allowed.stdout}`);
+    await verdict(taskId, 2, 'pass');
+    await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: sha, verification_summary: 're-reviewed' });
     assert.equal(status(taskId), 'closed');
   });
 

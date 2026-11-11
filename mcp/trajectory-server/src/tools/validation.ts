@@ -4,12 +4,93 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import type { FindingSeverity, ReviewFinding, ValidationAttempt } from '../types.js';
 import { insertAudit } from './audit.js';
+import type { Effort } from './config.js';
+import { applyReopenInTx, atLeastReworkFloor, insertEffortRaised, type ClearedCompletion, type ReopenTask } from './reopen.js';
 import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
-import { WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
+import { SPAWN_NOTE_MAX_CHARS, WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
+
+/** The statuses a code-reviewer FAIL moves back to running: work handed to review, or closed after it. */
+const AUTO_REOPEN_STATUSES: ReadonlySet<string> = new Set(['completed', 'needs_validation', 'closed']);
+
+interface BlockingFinding {
+  id: string;
+  class: string | null;
+}
+
+type ReviewFailReopen =
+  | {
+      reopened: {
+        task_id: number;
+        from_status: string;
+        status: 'running';
+        effort: Effort;
+        effort_raised: boolean;
+        finding_ids: string[];
+      };
+    }
+  | { reopen_skipped: { reason: string; effort_raised?: boolean } };
+
+function reviewFailSpawnNote(validationId: number, findings: readonly BlockingFinding[]): string {
+  const listed = findings.map((f) => (f.class ? `${f.id} (${f.class})` : f.id)).join(', ');
+  const note = `Reopened by review FAIL (validation ${validationId}); fix ${listed}: task_brief.open_findings has each probe.`;
+  return note.length > SPAWN_NOTE_MAX_CHARS ? `${note.slice(0, SPAWN_NOTE_MAX_CHARS - 1)}…` : note;
+}
+
+/**
+ * What a code-reviewer FAIL does to its task, inside validation_record's
+ * transaction (GH 2866): a completed, needs_validation or closed task of an
+ * open issue is reopened to running at the rework floor effort; a running one
+ * only has its effort raised to the floor; any other status, or a closed
+ * issue, is left as it is. The reopen's task_reopened row keeps the cleared
+ * completion report and stamp, which a re-review of the same commit restores.
+ */
+function reopenAfterReviewFail(
+  db: TrajectoryDB,
+  fail: { taskId: number; validationId: number; findings: readonly BlockingFinding[]; now: string },
+): ReviewFailReopen {
+  const agent = 'code-reviewer';
+  const task = db.get<ReopenTask & ClearedCompletion & { issue_status: string | null }>(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.effort, t.completion_report, t.completed_at, i.status AS issue_status
+       FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
+    [fail.taskId],
+  );
+  if (!task) return { reopen_skipped: { reason: 'task_missing' } };
+  if (task.issue_status === null) return { reopen_skipped: { reason: 'issue_missing' } };
+  if (task.issue_status === 'closed') return { reopen_skipped: { reason: 'issue_closed' } };
+  const effort = atLeastReworkFloor(task.effort);
+  const raise = effort !== task.effort;
+  if (task.status === 'running') {
+    if (raise) {
+      db.run(`UPDATE tasks SET effort = ?, updated_at = ? WHERE id = ?`, [effort, fail.now, task.id]);
+      insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: task.id }, task.effort, effort, agent, fail.now);
+    }
+    return { reopen_skipped: { reason: 'status_running', effort_raised: raise } };
+  }
+  if (!AUTO_REOPEN_STATUSES.has(task.status)) return { reopen_skipped: { reason: `status_${task.status}` } };
+  const findingIds = fail.findings.map((f) => f.id);
+  const raised = applyReopenInTx(db, {
+    task,
+    agent,
+    reason: `code-reviewer FAIL (validation ${fail.validationId}): ${findingIds.join(', ')}`,
+    effort,
+    spawnNote: reviewFailSpawnNote(fail.validationId, fail.findings),
+    now: fail.now,
+    auditContent: {
+      validation_id: fail.validationId,
+      finding_ids: findingIds,
+      auto: true,
+      completion_report: task.completion_report,
+      completed_at: task.completed_at,
+    },
+  });
+  return {
+    reopened: { task_id: task.id, from_status: task.status, status: 'running', effort, effort_raised: raised, finding_ids: findingIds },
+  };
+}
 
 export const WM_FEEDBACK_SCHEMA = {
   type: 'object',
@@ -380,6 +461,7 @@ export function validationTools(db: TrajectoryDB): {
       const findingIds: string[] = [];
       let storedAttempt = attemptN;
       let rowId: number | bigint = 0;
+      let reopen: ReviewFailReopen | undefined;
 
       db.transaction(() => {
         const latest = latestObservation(db, taskId, attemptN);
@@ -467,6 +549,10 @@ export function validationTools(db: TrajectoryDB): {
           findingIds.push(id);
         });
         if (wmFeedback) insertWmFeedback(db, taskExists, agent, wmFeedback, now);
+        if (verdict === 'fail') {
+          const blocking = findings.flatMap((f, i) => (f.severity === 'blocking' ? [{ id: findingIds[i], class: f.class }] : []));
+          reopen = reopenAfterReviewFail(db, { taskId, validationId: Number(rowId), findings: blocking, now });
+        }
       });
 
       const row = db.get<ValidationAttempt>(
@@ -478,6 +564,7 @@ export function validationTools(db: TrajectoryDB): {
       return ok({
         ...row,
         findings: recorded,
+        ...reopen,
         return_line: row ? reviewerReturnLine(row, taskExists.commit_sha, recorded.length) : undefined,
       });
     })),
