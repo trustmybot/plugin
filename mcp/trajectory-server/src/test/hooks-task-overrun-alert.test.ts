@@ -159,7 +159,7 @@ describe('task-overrun-alert', () => {
     assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
     assert.equal(
       out.hookSpecificOutput.additionalContext,
-      'TMB: task 5 has been running 61 min (attempts: 2 swe spawns; blocker: Missing changelog fragment). Decide with the Human whether to continue, redesign the spec or split the task.',
+      'TMB: task 5 has been running 61 min (attempts: 2 swe spawns; blocker: Missing changelog fragment). Decide whether to continue, redesign the spec or split the task, record the decision on the issue, and tell the Human without waiting for a reply.',
     );
     assert.equal(f.alertRows(5), 1);
     assert.deepEqual(gate(broPrompt, f.env), { stdout: '', code: 0 });

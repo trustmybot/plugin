@@ -1333,7 +1333,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"code-reviewer must NOT run with isolation=\\\"worktree\\\". The push gate reviews the FEATURE branch as it would land in origin — from the main checkout, not from SWE's per-task worktree. Bro verifies the worktree branch on SWE return (tmb_planning section 6: the four checks + review_handoff); code-reviewer reviews afterward, on the bare branch ref, and bro_atomic_close follows its pass.\\n\\nFor exceptional override, set TMB_ALLOW_CODE_REVIEWER_WORKTREE=1. Allowed form: the same code-reviewer spawn without isolation (defaults to none) or with a non-worktree isolation\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"code-reviewer must NOT run with isolation=\\\"worktree\\\". The push gate reviews the FEATURE branch as it would land in origin — from the main checkout, not from SWE's per-task worktree. The order on SWE return is review_handoff → code-reviewer → bro_atomic_close: bro hands the task off with review_handoff, code-reviewer reviews the bare branch ref, and bro_atomic_close follows its pass.\\n\\nFor exceptional override, set TMB_ALLOW_CODE_REVIEWER_WORKTREE=1. Allowed form: the same code-reviewer spawn without isolation (defaults to none) or with a non-worktree isolation\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

@@ -212,7 +212,7 @@ function claim(db: string, marks: readonly Mark[], now: Date, env: NodeJS.Proces
 }
 
 export function alertLine(o: Overrun): string {
-  return `TMB: task ${o.taskId} has been running ${o.minutes} min (attempts: ${o.attempts} swe spawns; blocker: ${o.blocker}). Decide with the Human whether to continue, redesign the spec or split the task.`;
+  return `TMB: task ${o.taskId} has been running ${o.minutes} min (attempts: ${o.attempts} swe spawns; blocker: ${o.blocker}). Decide whether to continue, redesign the spec or split the task, record the decision on the issue, and tell the Human without waiting for a reply.`;
 }
 
 export function runAlertLine(r: RunOverrun): string {
