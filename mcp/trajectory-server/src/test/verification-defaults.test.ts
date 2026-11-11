@@ -58,23 +58,28 @@ function setup(defaults: string | null) {
       issue_id: 1, branch_id, decision_body: 'Chosen approach: append the defaults.',
       task: { description: 'd', spec_body: SPEC, files: ['src/mod.ts'], verification, repo: 'app' },
     });
-  const insertFailed = (branch_id: string, verification: string[]): number => {
+  const insertTask = (branch_id: string, verification: string[], status = 'failed'): number => {
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, files, verification, repo, created_at, updated_at)
-       VALUES (1, ?, 'main', 't', 'd', 'failed', ?, ?, ?, 'app', datetime('now'), datetime('now'))`,
-      [branch_id, SPEC, JSON.stringify(['src/mod.ts']), JSON.stringify(verification)],
+       VALUES (1, ?, 'main', 't', 'd', ?, ?, ?, ?, 'app', datetime('now'), datetime('now'))`,
+      [branch_id, status, SPEC, JSON.stringify(['src/mod.ts']), JSON.stringify(verification)],
     );
     return db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = ?`, [branch_id])!.id;
   };
+  const insertFailed = (branch_id: string, verification: string[]): number => insertTask(branch_id, verification);
   const retry = (failed_task_id: number, new_branch_id: string) =>
     call('task_retry', { failed_task_id, new_branch_id, corrected_spec_body: SPEC, retry_rationale: 'retry', description: 'd' });
+  const reopen = (task_id: number, verification_add?: string[]) =>
+    call('task_reopen', { task_id, reason: 'rework', ...(verification_add ? { verification_add } : {}) });
+  const updateSpec = (task_id: number, fields: Record<string, unknown>) =>
+    call('task_update_spec', { task_id, reason: 'amend', ...fields });
   const stored = (taskId: unknown): string[] =>
     JSON.parse(db.get<{ verification: string }>('SELECT verification FROM tasks WHERE id = ?', [Number(taskId)])!.verification);
   const cleanup = () => {
     db.close();
     rmSync(repo.ws, { recursive: true, force: true });
   };
-  return { ...repo, db, provision, insertFailed, retry, stored, cleanup };
+  return { ...repo, db, provision, insertTask, insertFailed, retry, reopen, updateSpec, stored, cleanup };
 }
 
 describe('appendVerificationDefaults', () => {
@@ -211,6 +216,91 @@ describe('verification defaults in task_provision and task_retry (GH 2570)', () 
       assert.equal(existsSync(join(bad.repoRoot, '.claude', 'worktrees', 'failed-v2')), false, 'no worktree');
     } finally {
       bad.cleanup();
+    }
+  });
+});
+
+describe('verification defaults in task_reopen and task_update_spec (GH 2866)', () => {
+  const statusOf = (db: TrajectoryDB, taskId: number) =>
+    db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [taskId])!.status;
+
+  it('task_reopen appends each default missing after verification_add and reports them', async () => {
+    const { reopen, insertFailed, stored, cleanup } = setup(DEFAULTS);
+    try {
+      const taskId = insertFailed('feat/reopen', ['true']);
+      const out = parse(await reopen(taskId, ['bun run lint']));
+      assert.equal(out['status'], 'running', JSON.stringify(out));
+      assert.deepEqual(out['verification_defaults_added'], [LINT]);
+      assert.deepEqual(out['verification'], ['true', 'bun run lint', LINT]);
+      assert.deepEqual(stored(taskId), ['true', 'bun run lint', LINT]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_reopen without the file reports []; a malformed file refuses and leaves the task as it was', async () => {
+    const none = setup(null);
+    try {
+      const taskId = none.insertFailed('feat/reopen', ['true']);
+      const out = parse(await none.reopen(taskId));
+      assert.deepEqual(out['verification_defaults_added'], []);
+      assert.deepEqual(none.stored(taskId), ['true']);
+    } finally {
+      none.cleanup();
+    }
+
+    const bad = setup('{"version":1}');
+    try {
+      const taskId = bad.insertFailed('feat/reopen', ['true']);
+      const refused = await bad.reopen(taskId);
+      assert.equal(refused.isError, true);
+      assert.equal(parse(refused)['error'], 'verification_defaults_invalid');
+      assert.equal(statusOf(bad.db, taskId), 'failed');
+      assert.deepEqual(bad.stored(taskId), ['true']);
+      assert.throws(() => bad.git('rev-parse', '--verify', 'refs/heads/feat/reopen'), 'no branch ref');
+    } finally {
+      bad.cleanup();
+    }
+  });
+
+  it('task_update_spec appends the defaults to the kept or replacement verification[], deduped, and reports them', async () => {
+    const { db, insertTask, updateSpec, stored, cleanup } = setup(DEFAULTS);
+    try {
+      const taskId = insertTask('feat/amend', ['true'], 'running');
+      const specOnly = parse(await updateSpec(taskId, { spec_body: `${SPEC}\n- SC2: more` }));
+      assert.deepEqual(specOnly['verification_defaults_added'], [LINT, 'bun run lint']);
+      assert.deepEqual(specOnly['changed'], ['verification', 'spec_body']);
+      assert.deepEqual(stored(taskId), ['true', LINT, 'bun run lint']);
+
+      const replaced = parse(await updateSpec(taskId, { verification: ['bun run lint', 'true'] }));
+      assert.deepEqual(replaced['verification_defaults_added'], [LINT]);
+      assert.deepEqual(stored(taskId), ['bun run lint', 'true', LINT]);
+
+      const unchanged = parse(await updateSpec(taskId, { spec_body: SPEC }));
+      assert.deepEqual(unchanged['verification_defaults_added'], []);
+      assert.deepEqual(unchanged['changed'], ['spec_body']);
+
+      const amended = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'task_spec_amended' ORDER BY id LIMIT 1`,
+      )!;
+      const { changes } = JSON.parse(amended.content_json) as { changes: Record<string, unknown> };
+      assert.deepEqual(changes['verification'], { added: [LINT, 'bun run lint'], removed: [] });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_update_spec refuses a malformed file and writes nothing', async () => {
+    const { db, insertTask, updateSpec, stored, cleanup } = setup('[]');
+    try {
+      const taskId = insertTask('feat/amend', ['true'], 'running');
+      const refused = await updateSpec(taskId, { verification: ['true', 'bun run lint'] });
+      assert.equal(refused.isError, true);
+      assert.equal(parse(refused)['error'], 'verification_defaults_invalid');
+      assert.deepEqual(stored(taskId), ['true']);
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_spec_amended'`)!.c, 0);
+    } finally {
+      cleanup();
     }
   });
 });

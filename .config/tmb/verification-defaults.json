@@ -1,4 +1,4 @@
 {
   "version": 1,
-  "commands": ["node --test tests/l1-lint/no-*.test.mjs"]
+  "commands": ["node --experimental-strip-types tests/run-all.ts --l1-local"]
 }

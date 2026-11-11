@@ -1,5 +1,6 @@
 // GH 2570: a repo's .config/tmb/verification-defaults.json {"version":1,"commands":["..."]},
-// read at the cut base, appends its commands to every task_provision / task_retry verification[].
+// read at the cut base, appends its commands to every task_provision / task_retry / task_reopen /
+// task_update_spec verification[] (the last two since GH 2866).
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { gitUnanswered, runGit } from '../utils/git-run.js';
 

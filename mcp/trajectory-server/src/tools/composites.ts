@@ -1019,6 +1019,13 @@ function reworkBase(db: TrajectoryDB, repoPath: string, repoValue: string | null
   return readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath);
 }
 
+// The ref a reworked task's verification defaults are read at: the cut ref of
+// its rework base, the same ref task_retry reads them at.
+function reworkDefaultsRef(db: TrajectoryDB, repoPath: string | null, task: { repo: string | null; parent_branch_id: string | null }): string | null {
+  if (!repoPath) return null;
+  return resolveCutBase(repoPath, normalizeBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id)))?.ref ?? null;
+}
+
 function existingBranchRef(repoPath: string, branchId: string): string | null {
   for (const ref of [`refs/heads/${branchId}`, `refs/remotes/origin/${branchId}`]) {
     if (refSha(repoPath, ref)) return ref;
@@ -2118,8 +2125,14 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
 
+        const defaultsRef = reworkDefaultsRef(db, repoPath, task);
+        const defaults = readVerificationDefaults(repoPath, defaultsRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_reopen', defaultsRef, defaults.error);
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
-        const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
+          appendUnique(parseTaskFiles(task.verification), verificationAdd),
+          defaults.commands,
+        );
         const pathRefusal = checkVerificationPaths({
           repoPath,
           ref: repoPath ? taskTipRef(db, repoPath, task) : null,
@@ -2148,6 +2161,7 @@ export function compositeTools(
           const fenceLines = [
             filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
             verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
+            verificationDefaultsAdded.length > 0 ? `verification[] += repo defaults ${verificationDefaultsAdded.join(' ; ')}` : null,
             effort !== task.effort ? `effort: ${task.effort} → ${effort}` : null,
           ].filter((l): l is string => l !== null);
           insertDiscussion(db, {
@@ -2248,6 +2262,7 @@ export function compositeTools(
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           branch_created: branchCreated,
           ...(diagnostic ? { diagnostic } : {}),
+          verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
         });
       }),
@@ -2311,15 +2326,25 @@ export function compositeTools(
           );
         }
 
+        const repoPath = resolveRepoPath(db, task.repo);
+        const defaultsRef = reworkDefaultsRef(db, repoPath, task);
+        const defaults = readVerificationDefaults(repoPath, defaultsRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_update_spec', defaultsRef, defaults.error);
         const oldFiles = parseTaskFiles(task.files);
         const oldVerification = parseTaskFiles(task.verification);
+        const files = newFiles ?? oldFiles;
+        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
+          newVerification ?? oldVerification,
+          defaults.commands,
+        );
+        const verificationChanged = newVerification !== undefined || verificationDefaultsAdded.length > 0;
         const diffSummary = (oldList: string[], newList: string[]) => ({
           added: newList.filter((x) => !oldList.includes(x)),
           removed: oldList.filter((x) => !newList.includes(x)),
         });
         const changes: Record<string, unknown> = {};
         if (newFiles !== undefined) changes['files'] = diffSummary(oldFiles, newFiles);
-        if (newVerification !== undefined) changes['verification'] = diffSummary(oldVerification, newVerification);
+        if (verificationChanged) changes['verification'] = diffSummary(oldVerification, verification);
         if (newSpec !== undefined) {
           changes['spec_body'] = { old_length: (task.spec_body ?? '').length, new_length: (newSpec as string).length };
         }
@@ -2331,10 +2356,7 @@ export function compositeTools(
             : `${field} +${c.added!.length}/-${c.removed!.length}`;
         });
 
-        const files = newFiles ?? oldFiles;
-        const verification = newVerification ?? oldVerification;
-        const repoPath = resolveRepoPath(db, task.repo);
-        if (newFiles !== undefined || newVerification !== undefined) {
+        if (newFiles !== undefined || verificationChanged) {
           const pathRefusal = checkVerificationPaths({
             repoPath,
             ref: repoPath ? taskTipRef(db, repoPath, task) : null,
@@ -2373,6 +2395,7 @@ export function compositeTools(
           changed,
           files,
           verification,
+          verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
         });
       }),
