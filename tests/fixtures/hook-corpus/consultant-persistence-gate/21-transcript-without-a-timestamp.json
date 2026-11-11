@@ -1,0 +1,5 @@
+{
+  "subagent_type": "cto",
+  "agent_transcript_path": "@SANDBOX@/transcripts/no-timestamp.jsonl",
+  "corpus_expect": "empty"
+}
