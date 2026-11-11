@@ -1,17 +1,20 @@
 /**
  * UserPromptSubmit and PostToolUse(trajectory-server) gate (GH 1738), born in
- * TypeScript: tells bro, once per task, that a `running` task passed
- * TMB_TASK_OVERRUN_MIN minutes (default 60) since its created_at. One
- * additionalContext line per task: its id, the minutes elapsed, its attempts
- * (swe spawns) and its current blocker (the first line of its latest FAIL
- * feedback, else its status).
+ * TypeScript: tells bro, once per running stint, that a `running` task passed
+ * TMB_TASK_OVERRUN_MIN minutes (default 60) since the stint began: its newest
+ * `task_reopened` audit row, else its created_at. A task reopened after a
+ * review FAIL or long after its close is timed from the reopen, so the review
+ * wait and the closed time never count. One additionalContext line per task:
+ * its id, the minutes elapsed, its attempts (swe spawns) and its current
+ * blocker (the first line of its latest FAIL feedback, else its status).
  *
  * It also tells bro, once per spawn, that a live swe run of bro's session
  * (an `agent_runs` row with a spawn_id and no completed_at) started past the
  * same threshold while its task is missing or no longer `running` (GH 2190).
  * A run on a `running` task is left to the task line.
  *
- * The once-markers are a `task_overrun_alerted` audit row per task and an
+ * The once-markers are a `task_overrun_alerted` audit row per task and stint
+ * start (`since`) and an
  * `agent_run_overrun_alerted` row per spawn_id, claimed before the line is
  * emitted: an insert guarded on no row for that key, so two hook runs racing
  * alert once. When the claim cannot be written the lines are emitted anyway
@@ -30,6 +33,7 @@ export const OVERRUN_ENV = 'TMB_TASK_OVERRUN_MIN';
 export const DEFAULT_OVERRUN_MIN = 60;
 const EVENT = 'task_overrun_alerted';
 const RUN_EVENT = 'agent_run_overrun_alerted';
+const REOPEN_EVENT = 'task_reopened';
 const FROM_NODE = `hook:${GATE_NAME}`;
 const MS_PER_MIN = 60_000;
 const SYSTEM_ISSUE = '-1';
@@ -38,6 +42,7 @@ export interface Overrun {
   taskId: number;
   issueId: number;
   branchId: string;
+  since: string;
   minutes: number;
   attempts: number;
   blocker: string;
@@ -57,7 +62,7 @@ interface Candidate {
   issue_id: number;
   branch_id: string;
   status: string;
-  created_at: string;
+  since: string;
   attempts: number;
   fail: string | null;
 }
@@ -74,7 +79,7 @@ interface RunCandidate {
 interface Mark {
   key: string;
   event: string;
-  dedupePath: string;
+  dedupePaths: string[];
   issueId: string;
   branchId: string;
   summary: string;
@@ -95,27 +100,34 @@ function overMinutes(at: string | null, now: Date, limitMin: number): number | n
 function overruns(db: string, now: Date, limitMin: number, env: NodeJS.ProcessEnv): Overrun[] | null {
   const out = gateRead(
     db,
-    `SELECT COALESCE(json_group_array(json_object(
-         'id', t.id, 'issue_id', t.issue_id, 'branch_id', t.branch_id, 'status', t.status, 'created_at', t.created_at,
-         'attempts', (SELECT COUNT(*) FROM agent_runs WHERE task_id = t.id AND ${SWE_SPAWN_SQL}),
-         'fail', (SELECT feedback FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'fail' ORDER BY v.id DESC LIMIT 1))), '[]')
-       FROM tasks t
-      WHERE t.status = 'running'
-        AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type = 'task_overrun_alerted' AND json_valid(a.content_json)
-                         AND json_extract(a.content_json, '$.task_id') = t.id);`,
+    `WITH live AS (
+       SELECT t.*, COALESCE((SELECT MAX(r.created_at) FROM audit r
+                              WHERE r.event_type = '${REOPEN_EVENT}' AND json_valid(r.content_json)
+                                AND json_extract(r.content_json, '$.task_id') = t.id), t.created_at) AS since
+         FROM tasks t
+        WHERE t.status = 'running')
+     SELECT COALESCE(json_group_array(json_object(
+         'id', l.id, 'issue_id', l.issue_id, 'branch_id', l.branch_id, 'status', l.status, 'since', l.since,
+         'attempts', (SELECT COUNT(*) FROM agent_runs WHERE task_id = l.id AND ${SWE_SPAWN_SQL}),
+         'fail', (SELECT feedback FROM validation_attempts v WHERE v.task_id = l.id AND v.verdict = 'fail' ORDER BY v.id DESC LIMIT 1))), '[]')
+       FROM live l
+      WHERE NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type = '${EVENT}' AND json_valid(a.content_json)
+                         AND json_extract(a.content_json, '$.task_id') = l.id
+                         AND julianday(a.created_at) >= julianday(l.since));`,
     env,
   );
   if (out === GATE_READ_ERROR || out === '') return null;
   const rows = JSON.parse(out) as Candidate[];
   const found: Overrun[] = [];
   for (const r of rows) {
-    const minutes = overMinutes(r.created_at, now, limitMin);
+    const minutes = overMinutes(r.since, now, limitMin);
     if (minutes === null) continue;
     const firstLine = (r.fail ?? '').split('\n').map((l) => l.trim()).find((l) => l !== '') ?? '';
     found.push({
       taskId: r.id,
       issueId: r.issue_id,
       branchId: r.branch_id,
+      since: r.since,
       minutes,
       attempts: r.attempts,
       blocker: firstLine === '' ? `status ${r.status}` : firstLine,
@@ -162,11 +174,11 @@ function taskMark(o: Overrun): Mark {
   return {
     key: `task:${o.taskId}`,
     event: EVENT,
-    dedupePath: '$.task_id',
+    dedupePaths: ['$.task_id', '$.since'],
     issueId: String(o.issueId),
     branchId: o.branchId,
     summary: `task ${o.taskId} running ${o.minutes} min`,
-    content: jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker }),
+    content: jqCompact({ task_id: o.taskId, since: o.since, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker }),
   };
 }
 
@@ -174,7 +186,7 @@ function runMark(r: RunOverrun, index: number): Mark {
   return {
     key: `run:${index}`,
     event: RUN_EVENT,
-    dedupePath: '$.spawn_id',
+    dedupePaths: ['$.spawn_id'],
     issueId: r.issueId === null ? SYSTEM_ISSUE : String(r.issueId),
     branchId: r.branchId,
     summary: `swe run ${r.spawnId} live ${r.minutes} min on task status ${r.status}`,
@@ -186,7 +198,7 @@ function runMark(r: RunOverrun, index: number): Mark {
 function claim(db: string, marks: readonly Mark[], now: Date, env: NodeJS.ProcessEnv): Set<string> | null {
   const statements: string[] = [];
   for (const m of marks) {
-    const guard = dedupeGuard(m.event, m.content, [m.dedupePath], { caller: GATE_NAME });
+    const guard = dedupeGuard(m.event, m.content, m.dedupePaths, { caller: GATE_NAME });
     const row = auditSql(
       { issueId: m.issueId, branchId: m.branchId, fromNode: FROM_NODE, eventType: m.event, summary: m.summary, contentJson: m.content },
       guard.sql,

@@ -4,7 +4,9 @@
  * task_overrun_alerted audit row; a task under the threshold, a non-bro
  * caller and a second call stay silent. A live swe run of bro's session past
  * the threshold on a task that is not running alerts once per spawn_id,
- * writing one agent_run_overrun_alerted row (GH 2190).
+ * writing one agent_run_overrun_alerted row (GH 2190). A reopened task is
+ * timed from its newest reopen and alerts once per running stint; a completed
+ * task waiting on review stays silent.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,6 +33,7 @@ interface Fixture {
   alertRows(taskId?: number): number;
   liveRun(spawnId: string, taskId: number | null, startedMinAgo: number, opts?: { session?: string; completed?: boolean }): void;
   runAlertRows(spawnId?: string): number;
+  audit(eventType: string, content: Record<string, unknown>, atMinAgo: number): void;
 }
 
 let sandbox: string;
@@ -95,6 +98,14 @@ function fixture(): Fixture {
         opts.session ?? 's',
         minutesAgo(startedMinAgo),
         opts.completed ? minutesAgo(1) : null,
+      ),
+    audit: (eventType, content, atMinAgo) =>
+      exec(
+        "INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 's', ?, ?)",
+        ISSUE_ID,
+        eventType,
+        JSON.stringify(content),
+        minutesAgo(atMinAgo),
       ),
     runAlertRows: (spawnId) => {
       const r = new DatabaseSync(db);
@@ -258,6 +269,38 @@ describe('task-overrun-alert', () => {
     assert.equal(lines.length, 2);
     assert.match(lines[0], /^TMB: task 25 has been running 70 min/);
     assert.match(lines[1], /^TMB: swe run a26 \(task 26, task status closed\) started 200 min ago/);
+  });
+
+  it('times a reopened task from its newest reopen, not its created_at', () => {
+    const f = fixture();
+    f.task(30, 3000);
+    f.audit('task_reopened', { task_id: 30, from_status: 'closed' }, 2000);
+    f.audit('task_reopened', { task_id: 30, from_status: 'completed' }, 10);
+    assert.deepEqual(gate(broPrompt, f.env), { stdout: '', code: 0 }, 'a task reopened 10 min ago has not overrun');
+    assert.equal(f.alertRows(), 0);
+    f.task(31, 3000);
+    f.audit('task_reopened', { task_id: 31, from_status: 'closed' }, 61);
+    assert.match(context(gate(broPrompt, f.env).stdout), /^TMB: task 31 has been running 61 min/);
+  });
+
+  it('alerts once per running stint: a task alerted before its reopen alerts again once', () => {
+    const f = fixture();
+    f.task(32, 3000);
+    f.audit('task_overrun_alerted', { task_id: 32, minutes: 61 }, 2900);
+    f.audit('task_reopened', { task_id: 32, from_status: 'completed' }, 70);
+    assert.match(context(gate(broPrompt, f.env).stdout), /^TMB: task 32 has been running 70 min/);
+    assert.equal(f.alertRows(32), 2);
+    assert.deepEqual(gate(broPrompt, f.env), { stdout: '', code: 0 });
+    assert.equal(f.alertRows(32), 2, 'the second call in the same stint writes no row');
+  });
+
+  it('is silent while a completed task waits on its review, its swe run stopped', () => {
+    const f = fixture();
+    f.task(33, 500, 'completed');
+    f.liveRun('done33', 33, 400, { completed: true });
+    assert.deepEqual(gate(broPrompt, f.env), { stdout: '', code: 0 });
+    assert.equal(f.alertRows(), 0);
+    assert.equal(f.runAlertRows(), 0);
   });
 
   it('is silent with no DB', () => {
