@@ -1,0 +1,2 @@
+### Fixed
+- **Project skill and agent files change only on the Human's approval** (GH 2927): an Edit, Write or MultiEdit of a file under your project's `.claude/skills/` or `.claude/agents/` is now blocked unless bro recorded the Human's AskUserQuestion Yes for that exact path in the last 30 minutes, as a `prompt_write_approved` audit event. An approval scoped `skills-array` lets an edit to an existing agent change only its `skills:` list. swe's task-gated, reviewed writes are not affected, and with no trajectory DB the write is blocked rather than let through.

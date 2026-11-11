@@ -1,6 +1,6 @@
 # Design philosophy
 
-The principles behind how the TMB plugin is shaped — how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, why a replaced design is removed cleanly, and why memory is split into hot and cold.
+The principles behind how the TMB plugin is shaped — how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, why a replaced design is removed cleanly, why memory is split into hot and cold, and why every fact about the codebase lives in exactly one of three layers: docs, world model or code.
 
 ## 1. Two review perspectives
 
@@ -13,7 +13,7 @@ The two perspectives are complementary because of a context asymmetry. bro carri
 
 ## 2. Dev-vs-user-runtime boundary
 
-`docs/` is TMB-internal, alongside the test harness (`tests/`), `research/` and the release and maintenance scripts. `docs/` documents how *this project* is built and operated: the L0–L6 test harness, the `trustmybot/plugin` repository itself, GitHub milestones and labels, the rc and release-gate flow, the contributing guide, and the benchmark campaign. None of it is part of the runtime a user's project uses.
+`docs/` is TMB-internal, alongside the test harness (`tests/`) and the release and maintenance scripts. `docs/` documents how *this project* is built and operated: the L0–L6 test harness, the `trustmybot/plugin` repository itself, GitHub milestones and labels, the rc and release-gate flow, the contributing guide, and the benchmark campaign. None of it is part of the runtime a user's project uses.
 
 The shipped runtime must be about THE USER'S project and fully self-contained:
 
