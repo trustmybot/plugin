@@ -1,0 +1,3 @@
+### Changed
+- **swe fixes a missing changelog fragment or a stale doc reference before it closes, not after review starts** (GH 2866): the changelog and stale-doc checks moved from the code-reviewer spawn to swe's close gate. That gate runs them on the worktree HEAD against its merge base with the PR target, before it reuses a run or runs verification[], and a waiver or the preflight bypass does not skip them. The code-reviewer preflight keeps the commit, passing-run and base-conflict checks. When swe stops with commits but no passing verification run for HEAD, its task is no longer auto-completed: it stays open and bro is told to resume the swe so the work closes through the gate.
+Metric: swe_rework_ratio lower

@@ -21,7 +21,7 @@
  */
 import { open, stat } from 'node:fs/promises';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
-import { prTargetRef } from './code-reviewer-preflight.js';
+import { prTargetRef } from './lib/git-refs.js';
 import { taskLocation } from './lib/agent-context.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote } from './lib/db.js';
 import { capSections, directDownstream, downstreamArm, downstreamLines, recordInjected, symbolLine, symbolsInRanges } from './lib/downstream.js';

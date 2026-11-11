@@ -7,6 +7,9 @@
  * Then the suite-slot lock (GH 2092): concurrent gate runs of full suites
  * serialize outside the budget, a wait past the cap denies unrecorded, a
  * nested test-run shares the gate's slot and a targeted command never waits.
+ * Last the changelog and stale-doc checks (GH 2866) on a linked worktree: one
+ * deny and one allow per check, each deny recording no run, and neither the
+ * reuse of a passing run, the waiver nor the preflight bypass skipping them.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { BYPASS_ENV as PREFLIGHT_BYPASS_ENV } from '../hooks/code-reviewer-preflight.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
 import {
@@ -362,5 +366,345 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     } finally {
       if (held.kind === 'held') held.release();
     }
+  });
+});
+
+describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
+  const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const NOW = '2026-11-10T10:00:00.000Z';
+  const TASK_ID = 3;
+  const SLUG = '3-x';
+  const GIT_ENV = {
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'T',
+    GIT_AUTHOR_EMAIL: 't@example.com',
+    GIT_COMMITTER_NAME: 'T',
+    GIT_COMMITTER_EMAIL: 't@example.com',
+  };
+  const BASE_FILES: Record<string, string> = {
+    'README.md': 'See docs/guide.md.\n',
+    'docs/guide.md': 'Run `scripts/old.sh` first.\n',
+    'scripts/old.sh': 'echo old\n',
+    'skills/s/SKILL.md': 'Call `keep_tool`.\n',
+    'mcp/srv/src/tools/t.ts': "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n  {\n    name: 'old_tool',\n  },\n];\n",
+    'changelog.d/README.md': 'One file per change.\n',
+    'src/a.txt': 'one\ntwo\nthree\n',
+  };
+
+  interface Fixture {
+    checkout: string;
+    worktree: string;
+    db: string;
+    env: NodeJS.ProcessEnv;
+    git(...args: string[]): string;
+    write(path: string, text: string): void;
+    commit(message: string): string;
+  }
+
+  let sandbox: string;
+  let seq = 0;
+  before(() => {
+    sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gate-doc-checks-')));
+  });
+  after(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  /** A checkout on dev holding <files>, the task's linked worktree on feat/3-x, and a running task 3 whose verification[] is `true`. */
+  function fixture(files: Record<string, string> = BASE_FILES): Fixture {
+    seq += 1;
+    const root = join(sandbox, `case-${seq}`);
+    const checkout = join(root, 'project/checkout');
+    const worktree = join(checkout, '.claude/worktrees', SLUG);
+    const db = join(root, 'project/.claude/tmb/trajectory.db');
+    mkdirSync(checkout, { recursive: true });
+    mkdirSync(dirname(db), { recursive: true });
+    for (const d of ['data', 'state', 'cache']) mkdirSync(join(root, 'mise', d), { recursive: true });
+    const env: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      HOME: join(root, 'home'),
+      CLAUDE_PROJECT_DIR: join(root, 'project'),
+      TRAJECTORY_DB_PATH: db,
+      MISE_DATA_DIR: join(root, 'mise/data'),
+      MISE_STATE_DIR: join(root, 'mise/state'),
+      MISE_CACHE_DIR: join(root, 'mise/cache'),
+      ...GIT_ENV,
+    };
+    const gitIn = (dir: string, args: string[]) =>
+      spawnSync('git', ['-C', dir, ...args], { env, encoding: 'utf8' });
+    const git = (...args: string[]) => {
+      const r = gitIn(worktree, args);
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    const write = (path: string, text: string) => {
+      mkdirSync(dirname(join(worktree, path)), { recursive: true });
+      writeFileSync(join(worktree, path), text);
+    };
+    const commit = (message: string) => {
+      git('add', '-A');
+      git('commit', '-qm', message);
+      return git('rev-parse', 'HEAD');
+    };
+    assert.equal(gitIn(checkout, ['init', '-q', '-b', 'dev']).status, 0);
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(checkout, path)), { recursive: true });
+      writeFileSync(join(checkout, path), text);
+    }
+    writeFileSync(join(checkout, '.git/info/exclude'), '.claude/\n');
+    assert.equal(gitIn(checkout, ['add', '-A']).status, 0);
+    assert.equal(gitIn(checkout, ['commit', '-qm', 'base']).status, 0);
+    assert.equal(gitIn(checkout, ['worktree', 'add', '-q', worktree, '-b', `feat/${SLUG}`]).status, 0);
+
+    const d = new DatabaseSync(db);
+    d.exec(SCHEMA);
+    d.prepare("INSERT INTO repos (name, path, target_branch) VALUES ('checkout', ?, 'dev')").run(checkout);
+    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(NOW, NOW);
+    d.prepare(
+      `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, verification, created_at, updated_at)
+       VALUES (?, 9, ?, 'dev', 'd', 'running', 'checkout', '["true"]', ?, ?)`,
+    ).run(TASK_ID, `feat/${SLUG}`, NOW, NOW);
+    d.close();
+    return { checkout, worktree, db, env, git, write, commit };
+  }
+
+  /** A feature commit that changes src/a.txt and adds its changelog fragment. */
+  function featureCommit(f: Fixture): void {
+    f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+    f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+    f.commit('feature');
+  }
+
+  function runCount(f: Fixture): number {
+    const d = new DatabaseSync(f.db, { readOnly: true });
+    try {
+      return (d.prepare('SELECT COUNT(*) AS n FROM verification_runs WHERE task_id = ?').get(TASK_ID) as { n: number }).n;
+    } finally {
+      d.close();
+    }
+  }
+
+  function recordPassingRun(f: Fixture, sha: string): void {
+    const d = new DatabaseSync(f.db);
+    d.prepare(
+      "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (?, ?, 'gate', ?, ?, 0, 600, 0)",
+    ).run(TASK_ID, sha, NOW, NOW);
+    d.close();
+  }
+
+  const close = (f: Fixture, extra: Record<string, unknown> = {}, env: NodeJS.ProcessEnv = f.env) =>
+    sweVerificationGate(
+      JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'completed', ...extra } }),
+      env,
+    );
+
+  /** The typed {check, expected, actual} of a doc deny, after checking it names the retry fix. */
+  async function denial(f: Fixture, extra: Record<string, unknown> = {}, env: NodeJS.ProcessEnv = f.env): Promise<{ check: string; expected: string | null; actual: string | null }> {
+    const r = await close(f, extra, env);
+    assert.equal(r.code, 0);
+    const out = decision(r.stdout);
+    assert.equal(out.permissionDecision, 'deny');
+    const { fix, ...failure } = JSON.parse(out.permissionDecisionReason ?? '') as { check: string; expected: string | null; actual: string | null; fix: { allowed?: string } };
+    assert.match(fix.allowed ?? '', /task_update_status\(status='completed'/);
+    return failure;
+  }
+
+  async function assertAllowed(f: Fixture): Promise<void> {
+    assert.deepEqual(await close(f), ALLOWED);
+  }
+
+  it('allows a feature commit with its fragment and no stale reference, and records the run', async () => {
+    const f = fixture();
+    featureCommit(f);
+    await assertAllowed(f);
+    assert.equal(runCount(f), 1);
+  });
+
+  describe('stale_doc_ref', () => {
+    it('denies a deleted path a docs/ file still names, before verification[] runs', async () => {
+      const f = fixture();
+      featureCommit(f);
+      f.git('rm', '-q', 'scripts/old.sh');
+      f.commit('drop old.sh');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'scripts\/old\.sh'/);
+      assert.equal(runCount(f), 0);
+    });
+
+    it('denies a renamed path whose old name README.md still carries', async () => {
+      const f = fixture();
+      featureCommit(f);
+      f.git('mv', 'docs/guide.md', 'docs/handbook.md');
+      f.commit('rename guide');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.match(d.actual ?? '', /README\.md mentions removed path 'docs\/guide\.md'/);
+    });
+
+    it('denies an MCP tool the diff removes that a skills/*/SKILL.md still mentions', async () => {
+      const files = { ...BASE_FILES, 'skills/s/SKILL.md': 'Call `mcp__plugin_tmb_trajectory-server__old_tool` then `keep_tool`.\n' };
+      const f = fixture(files);
+      featureCommit(f);
+      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
+      f.commit('drop old_tool');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.match(d.actual ?? '', /skills\/s\/SKILL\.md mentions removed MCP tool 'old_tool'/);
+    });
+
+    it('allows a deletion and a tool removal once the docs drop them', async () => {
+      const f = fixture();
+      featureCommit(f);
+      f.git('rm', '-q', 'scripts/old.sh');
+      f.write('docs/guide.md', 'Nothing to run first.\n');
+      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
+      f.commit('drop old.sh and old_tool');
+      await assertAllowed(f);
+    });
+
+    describe('a path untracked as build output (GH 2054)', () => {
+      const BUILT_FILES: Record<string, string> = {
+        ...BASE_FILES,
+        'docs/guide.md': 'Run `scripts/old.sh` first, then `node pkg/dist/out.js`.\n',
+        'pkg/dist/out.js': 'built\n',
+      };
+
+      it('allows a path the diff drops from the index that the commit .gitignore ignores', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist');
+        assert.equal(f.git('ls-files', 'pkg/dist'), '');
+        await assertAllowed(f);
+      });
+
+      it('still denies a plain deletion beside the untracked build output', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.git('rm', '-q', 'scripts/old.sh');
+        f.commit('untrack dist and drop old.sh');
+        const d = await denial(f);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.equal(d.actual, "docs/guide.md mentions removed path 'scripts/old.sh'");
+      });
+
+      it('denies when only the local exclude file, not the commit, ignores the path', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        writeFileSync(join(f.checkout, '.git/info/exclude'), '.claude/\ndist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist without a .gitignore');
+        const d = await denial(f);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
+      });
+
+      it('counts the path as removed when git check-ignore fails (fail-closed)', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist');
+        const bin = join(dirname(dirname(f.checkout)), 'bin');
+        mkdirSync(bin);
+        const wrapper = join(bin, 'git');
+        const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+        writeFileSync(
+          wrapper,
+          [
+            '#!/usr/bin/env node',
+            "const { spawnSync } = require('node:child_process');",
+            "if (process.argv.includes('check-ignore')) process.exit(128);",
+            `const r = spawnSync(${JSON.stringify(realGit)}, process.argv.slice(2), { stdio: 'inherit' });`,
+            'process.exit(r.status ?? 1);',
+            '',
+          ].join('\n'),
+        );
+        chmodSync(wrapper, 0o755);
+        const d = await denial(f, {}, { ...f.env, PATH: `${bin}:${f.env.PATH}` });
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
+      });
+    });
+  });
+
+  describe('missing_changelog', () => {
+    it('denies a diff that adds no file under changelog.d/ and records no run', async () => {
+      const f = fixture();
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature without fragment');
+      const d = await denial(f);
+      assert.equal(d.check, 'missing_changelog');
+      assert.equal(d.actual, 'no file added under changelog.d/');
+      assert.equal(runCount(f), 0);
+    });
+
+    it('allows a repo without changelog.d/ that adds no fragment', async () => {
+      const files = { ...BASE_FILES };
+      delete files['changelog.d/README.md'];
+      const f = fixture(files);
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature');
+      await assertAllowed(f);
+    });
+  });
+
+  describe('no way around the doc checks', () => {
+    function fragmentless(): Fixture {
+      const f = fixture();
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature without fragment');
+      return f;
+    }
+
+    it('runs them before reusing a passing run recorded for HEAD', async () => {
+      const f = fragmentless();
+      recordPassingRun(f, f.git('rev-parse', 'HEAD'));
+      assert.equal((await denial(f)).check, 'missing_changelog');
+      assert.equal(runCount(f), 1);
+    });
+
+    it('runs them under waive_verification_gate_reason, writing no waiver row', async () => {
+      const f = fragmentless();
+      assert.equal((await denial(f, { waive_verification_gate_reason: 'the suite needs a GPU this host lacks' })).check, 'missing_changelog');
+      const d = new DatabaseSync(f.db, { readOnly: true });
+      try {
+        const n = (d.prepare("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'verification_gate_waived'").get() as { n: number }).n;
+        assert.equal(n, 0);
+      } finally {
+        d.close();
+      }
+    });
+
+    it('runs them under the code-reviewer preflight bypass', async () => {
+      const f = fragmentless();
+      assert.equal((await denial(f, {}, { ...f.env, [PREFLIGHT_BYPASS_ENV]: '1' })).check, 'missing_changelog');
+    });
+
+    it('runs them with an empty verification[] too', async () => {
+      const f = fragmentless();
+      const d = new DatabaseSync(f.db);
+      d.prepare("UPDATE tasks SET verification = '[]' WHERE id = ?").run(TASK_ID);
+      d.close();
+      assert.equal((await denial(f)).check, 'missing_changelog');
+    });
+
+    it('denies an unprovable state: a HEAD with no merge base on the PR target', async () => {
+      const f = fixture();
+      f.git('checkout', '-q', '--orphan', 'feat/unrelated');
+      f.git('rm', '-rq', '--cached', '.');
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.git('add', 'changelog.d/3-x.md');
+      f.git('commit', '-qm', 'unrelated root');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.equal(d.actual, 'no merge-base');
+      assert.equal(runCount(f), 0);
+    });
   });
 });
