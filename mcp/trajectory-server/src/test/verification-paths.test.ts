@@ -116,6 +116,27 @@ describe('testPathTokens', () => {
     assert.deepEqual(tokens('node --test a.test.js 2>&1 | tail -5 && node --test b.test.js >/dev/null'), [['', 'a.test.js'], ['', 'b.test.js']]);
   });
 
+  it('reads a heredoc body fed to a bare shell as its own command (GH 2977)', () => {
+    const tokens = (c: string) => testPathTokens(c).map((t) => [t.dir, t.token]);
+    assert.deepEqual(tokens('bash <<EOF\nnode --test src/test/a.test.ts\nEOF'), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('sh <<-EOF\n\tnode --test src/test/a.test.ts\n\tEOF\nnode --test b.test.ts'), [
+      ['', 'src/test/a.test.ts'],
+      ['', 'b.test.ts'],
+    ]);
+    assert.deepEqual(tokens("bash <<'EOF'\nnode --test src/test/a.test.ts\nEOF"), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('cd sub && bash <<EOF\nnode --test src/test/a.test.ts\nEOF'), [['sub', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('cd sub && bash -e <<EOF\ncd deeper\nnode --test a.test.ts\nEOF\nnode --test b.test.ts'), [
+      ['sub/deeper', 'a.test.ts'],
+      ['sub', 'b.test.ts'],
+    ]);
+  });
+
+  it('ignores a heredoc body fed to a non-shell or to a shell running -c (GH 2977)', () => {
+    assert.deepEqual(testPathTokens('cat <<EOF\nnode --test src/test/a.test.ts\nEOF'), []);
+    assert.deepEqual(testPathTokens('gh pr create --body-file - <<EOF\nnode --test src/test/a.test.ts\nEOF'), []);
+    assert.deepEqual(testPathTokens("bash -c 'true' <<EOF\nnode --test src/test/a.test.ts\nEOF"), []);
+  });
+
   it('maps dist js to its src ts and turns globs into anchored regexps', () => {
     assert.equal(srcSourceOf('pkg/dist/test/a.test.js'), 'pkg/src/test/a.test.ts');
     assert.equal(srcSourceOf('pkg/src/test/a.test.ts'), null);

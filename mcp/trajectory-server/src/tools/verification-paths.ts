@@ -48,7 +48,7 @@ export function isTestPath(word: string): boolean {
   return TEST_BASENAMES.some((re) => re.test(base));
 }
 
-type ShellToken = { op: string } | { word: string };
+type ShellToken = { op: string } | { word: string } | { heredoc: string };
 
 const OPERATORS = ['&&', '||', '|&', ';;', '\n', ';', '|', '&', '(', ')'];
 
@@ -67,7 +67,8 @@ function closingParen(command: string, open: number): number {
 // Splits a shell command into words and control operators. Quotes are removed,
 // `$(…)` and backquotes stay inside their word, and redirections (`2>&1`,
 // `> out`, `&>file`) are dropped together with their target word. A heredoc
-// body is data, so the lines after its newline up to the delimiter are skipped.
+// body is data: the lines after its newline up to the delimiter are not split
+// into words but emitted as one heredoc token, before that newline's operator.
 function shellTokens(command: string): ShellToken[] {
   const out: ShellToken[] = [];
   let word = '';
@@ -91,12 +92,16 @@ function shellTokens(command: string): ShellToken[] {
   const skipHeredocBodies = (from: number): number => {
     let pos = from;
     for (const { delimiter, stripTabs } of heredocs.splice(0)) {
+      const body: string[] = [];
       while (pos < command.length) {
         const nl = command.indexOf('\n', pos);
-        const line = command.slice(pos, nl < 0 ? command.length : nl);
+        const raw = command.slice(pos, nl < 0 ? command.length : nl);
         pos = nl < 0 ? command.length : nl + 1;
-        if ((stripTabs ? line.replace(/^\t+/, '') : line) === delimiter) break;
+        const line = stripTabs ? raw.replace(/^\t+/, '') : raw;
+        if (line === delimiter) break;
+        body.push(line);
       }
+      out.push({ heredoc: body.join('\n') });
     }
     return pos;
   };
@@ -161,9 +166,9 @@ function shellTokens(command: string): ShellToken[] {
         endWord();
         dropNext = false;
         heredocNext = null;
-        out.push({ op });
         i += op.length - 1;
         if (op === '\n' && heredocs.length > 0) i = skipHeredocBodies(i + 1) - 1;
+        out.push({ op });
       } else if (/\s/.test(c)) {
         endWord();
       } else {
@@ -342,6 +347,12 @@ function collectTokens(command: string, script: string, startDir: string, out: T
   for (const t of shellTokens(script)) {
     if ('word' in t) {
       words.push(t.word);
+    } else if ('heredoc' in t) {
+      const argv = stripPrefix(words);
+      const prog = argv[0];
+      if (prog !== undefined && SHELLS.has(posix.basename(prog)) && shellScript(argv) === null) {
+        collectTokens(command, t.heredoc, dir, out);
+      }
     } else if (t.op === '(') {
       finish(';');
       subshells.push(dir);
@@ -358,7 +369,8 @@ function collectTokens(command: string, script: string, startDir: string, out: T
 // The test files one verification command hands a test runner (node, bun
 // test, vitest/jest/mocha, pytest), each with the directory it resolves under:
 // a `cd` at any step sets it for the steps after, a `( … )` subshell restores
-// it at its close, and `bash -c '<cmd>'` is read as its own command.
+// it at its close, and `bash -c '<cmd>'` or a heredoc fed to a bare shell is
+// read as its own command.
 export function testPathTokens(command: string): TestPathToken[] {
   const out: TestPathToken[] = [];
   collectTokens(command, command, '', out);
@@ -387,7 +399,7 @@ function firstCommandWords(script: string): string[] {
   };
   for (const t of shellTokens(script)) {
     if ('word' in t) words.push(t.word);
-    else finish();
+    else if ('op' in t) finish();
   }
   finish();
   return out;
