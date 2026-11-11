@@ -66,6 +66,18 @@ const HOOK_ARRAY = /(^|[^A-Za-z0-9_])(chpwd|precmd|preexec|periodic|zshexit|zsha
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 /** A redirect word: its operator, after an optional fd number or `{name}`; a heredoc's `<<` always carries its delimiter (GH 2635). */
 export const REDIRECT_WORD = /^([0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\})?(&>>?|<<<|<<|<>|<&|>&|>>|>\||<|>)/;
+/** A statement's source words past argv0, a redirect and its target dropped. */
+export function operandWords(words: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 1; i < words.length; i++) {
+    const redirect = REDIRECT_WORD.exec(words[i]);
+    if (redirect && redirect[0] === words[i]) i++;
+    else if (!redirect) out.push(words[i]);
+  }
+  return out;
+}
+/** A command word that runs git: `git`, or a path to it (`/usr/bin/git`, `./git`) (GH 2987). */
+export const isGitCommand = (word: string): boolean => /^(.*\/)?git$/.test(word);
 /** Command words whose statement keeps `cut`: git (GH 2634), and the shells, eval and builtins that run a code string the git listing reads or set a variable an operand names (GH 2635). */
 const CUT_KEPT = /^(git|(.*\/)?(bash|sh|zsh|dash|ksh)|eval|trap|alias|mapfile|readarray|compgen|complete|export|declare|typeset|local|readonly|read|printf|getopts)$/;
 /** A PS4 assignment word: bash expands its value before each `set -x` trace line (GH 2635). */

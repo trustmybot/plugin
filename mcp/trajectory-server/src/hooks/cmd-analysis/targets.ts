@@ -92,9 +92,10 @@ function movedPaths(args: readonly string[], valued?: RegExp): string[] {
 /**
  * Tree-writes mode: the dirs one command fills with a whole tree it copies,
  * moves or extracts: a recursive cp's and an rsync's destination, where a
- * mv's sources land, and a tar extract's `-C` dirs, else its own dir. Only
- * these commands' arguments are brace-expanded (braceWords, with <unresolvable>
- * as its stand-in), as bash passes them; no other command's words are.
+ * mv's sources land, a tar extract's `-C` dirs, else its own dir, and an
+ * unzip's `-d` dirs, else its own dir. Only these commands' arguments are
+ * brace-expanded (braceWords, with <unresolvable> as its stand-in), as bash
+ * passes them; no other command's words are.
  */
 function treeTargetWords(w: string[], out: string[], unresolvable: string): void {
   let pre = '';
@@ -103,11 +104,35 @@ function treeTargetWords(w: string[], out: string[], unresolvable: string): void
   if (u.k >= w.length) return;
   const put = (p: string) => out.push(under(pre, p));
   const cmd = basename(w[u.k]);
-  if (cmd !== 'mv' && cmd !== 'rsync' && cmd !== 'cp' && !TAR.test(cmd)) return;
+  if (cmd !== 'mv' && cmd !== 'rsync' && cmd !== 'cp' && cmd !== 'unzip' && !TAR.test(cmd)) return;
   const args = braceWords(w.slice(u.k + 1), unresolvable);
   if (cmd === 'mv') for (const p of movedPaths(args, /^(-S|--suffix)$/)) put(p);
   else if (cmd === 'rsync' || (cmd === 'cp' && cpRecursive(args))) for (const d of copyDestinations(args)) put(d);
+  else if (cmd === 'unzip') for (const d of unzipDirs(args)) put(d);
   else if (TAR.test(cmd) && tarExtracts(args)) for (const d of tarDirs(args, '.')) put(d);
+}
+
+/** unzip's modes that write no file: list (`-l`, `-v`), test (`-t`), print to stdout (`-p`, `-c`), the comment (`-z`) and zipinfo (`-Z`). */
+const UNZIP_NO_WRITE = 'lvtpczZ';
+/** unzip's options besides `-d` that take a value: the password and the archive and file-name charsets. */
+const UNZIP_VALUED = 'PIO';
+
+/** The dirs an unzip extracts into, its options read in any order: each `-d` value, else its own dir; none in a mode that writes no file. */
+function unzipDirs(args: readonly string[]): string[] {
+  const dirs: string[] = [];
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    if (!a.startsWith('-') || a.startsWith('--') || a === '-') continue;
+    for (let i = 1; i < a.length; i++) {
+      const c = a[i];
+      if (UNZIP_NO_WRITE.includes(c)) return [];
+      if (c !== 'd' && !UNZIP_VALUED.includes(c)) continue;
+      const value = i < a.length - 1 ? a.slice(i + 1) : args[++k];
+      if (c === 'd' && value !== undefined) dirs.push(value);
+      break;
+    }
+  }
+  return dirs.length === 0 ? ['.'] : dirs;
 }
 
 /** Each dir tar's `-C` / `--directory` options move it to, composed in order, or [<none>] when there is none and <none> is given. */
