@@ -1,0 +1,2 @@
+### Fixed
+- **Hooks inside a git submodule resolve the submodule's own checkout** (GH 2180): inside a submodule, or a linked worktree of one, the hooks' repo lookup returned the superproject's `.git/modules` folder instead of a checkout, so the push guard, branch guards, merged-branch cleanup and scratch-prose check judged the wrong repo. They now resolve the submodule's main checkout; plain repos, their linked worktrees and the superproject resolve as before.
