@@ -95,6 +95,8 @@ export interface Options {
   env: Host;
   /** Only the dirs a statement fills with a whole tree (targets.ts treeTargetWords, gitRestoredPaths) and its interpreters' targets. */
   treeWrites?: boolean;
+  /** Tree-writes mode: the dir a brace word that may leave its stem stands as (braceWords); `<root>/.claude` by default, a nested run keeping its caller's. */
+  claudeDir?: string;
 }
 
 interface Level {
@@ -277,6 +279,7 @@ class WritePaths {
   private rootc: string | undefined;
   /** The run's environment or any text it runs may set GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR, so a pathspec's repository top cannot be told. */
   private gitLocationSet: boolean;
+  private readonly claudeDir: string;
 
   constructor(
     private readonly parser: Parser,
@@ -284,6 +287,7 @@ class WritePaths {
     private readonly charge: Charge,
   ) {
     this.gitLocationSet = GIT_LOCATION_VARS.some((name) => opts.env[name] !== undefined);
+    this.claudeDir = opts.claudeDir ?? (opts.root === '' ? '.claude' : `${opts.root.replace(/\/+$/, '')}/.claude`);
   }
 
   private print(line: string): void {
@@ -479,7 +483,7 @@ class WritePaths {
 
   /** stmtWritePaths of <stmt> emitted against its dir <d>, and each path it names from a repository's top. */
   private emitStatement(level: Level, d: string, stmt: string, chain: boolean, final: boolean): void {
-    const tree = this.opts.treeWrites ? { gitLocationSet: this.gitLocationSet } : undefined;
+    const tree = this.opts.treeWrites ? { gitLocationSet: this.gitLocationSet, unresolvable: this.claudeDir } : undefined;
     const { paths, tops } = stmtWritePaths(stmt, chain, this.interp, final, tree);
     for (const p of paths) if (p !== '') this.emit(level, d, decPath(p));
     for (const t of tops) this.emit(level, d, this.fromTop(d, t));
@@ -684,7 +688,7 @@ class WritePaths {
       }
       if (!cmd.includes('<<') && stdinInterp(words) !== '') out.push('$(proc)');
     }
-    const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env, treeWrites: this.opts.treeWrites }, this.charge);
+    const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env, treeWrites: this.opts.treeWrites, claudeDir: this.claudeDir }, this.charge);
     nested.run(cmd, '@', 0, '');
     const lines = nested.out.split('\n');
     lines.pop();

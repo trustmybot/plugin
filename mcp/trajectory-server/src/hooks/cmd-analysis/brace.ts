@@ -22,10 +22,11 @@ function braceSpan(word: string, open: number): { close: number; commas: number[
   return null;
 }
 
-/** A `{x..y[..n]}` sequence: its <count> words, the <k>th shown by <at>. */
+/** A `{x..y[..n]}` sequence: its <count> words, the <k>th shown by <at>; <numeric> for one of numbers. */
 interface Sequence {
   count: number;
   at: (k: number) => string;
+  numeric: boolean;
 }
 
 /** The sequence a brace body spells, or undefined when it is none. */
@@ -37,11 +38,11 @@ function sequenceOf(body: string): Sequence | undefined {
   const to = num ? Number(num[2]) : (bounds[2].codePointAt(0) ?? 0);
   const by = (Math.abs(Number(bounds[3] ?? 1)) || 1) * (from <= to ? 1 : -1);
   const count = Math.floor(Math.abs(to - from) / Math.abs(by)) + 1;
-  if (!num) return { count, at: (k) => String.fromCodePoint(from + k * by) };
+  if (!num) return { count, at: (k) => String.fromCodePoint(from + k * by), numeric: false };
   const padded = /^[-+]?0\d/.test(num[1]) || /^[-+]?0\d/.test(num[2]);
   const width = padded ? Math.max(num[1].length, num[2].length) : 0;
   const show = (n: number): string => (n < 0 ? `-${String(-n).padStart(width - 1, '0')}` : String(n).padStart(width, '0'));
-  return { count, at: (k) => show(from + k * by) };
+  return { count, at: (k) => show(from + k * by), numeric: true };
 }
 
 /** The first brace of <word> bash expands: where it sits, and its comma alternatives or its sequence; null when none does. */
@@ -73,16 +74,28 @@ function firstBrace(word: string): { open: number; close: number; alternatives: 
  * seen: a quoted brace expands too.
  */
 export function braceExpand(word: string): string[] | null {
+  return expandWith(word, everyWord);
+}
+
+/** The words a sequence stands for in an expansion, or null when they pass BRACE_LIMIT. */
+type SequenceWords = (sequence: Sequence) => string[] | null;
+
+const everyWord: SequenceWords = (s) => (s.count > BRACE_LIMIT ? null : Array.from({ length: s.count }, (_, k) => s.at(k)));
+
+/** A numeric sequence cut to its first and last number: its numbers hold only digits and a sign, which they change at one end at most. */
+const shapeWords: SequenceWords = (s) => (s.numeric ? [...new Set([s.at(0), s.at(s.count - 1)])] : everyWord(s));
+
+function expandWith(word: string, sequenceWords: SequenceWords): string[] | null {
   const brace = firstBrace(word);
   if (brace === null) return [word];
   const { alternatives } = brace;
-  const list = Array.isArray(alternatives) ? alternatives : alternatives.count > BRACE_LIMIT ? null : Array.from({ length: alternatives.count }, (_, k) => alternatives.at(k));
+  const list = Array.isArray(alternatives) ? alternatives : sequenceWords(alternatives);
   if (list === null) return null;
   const prefix = word.slice(0, brace.open);
   const suffix = word.slice(brace.close + 1);
   const out: string[] = [];
   for (const alternative of list) {
-    const rest = braceExpand(alternative + suffix);
+    const rest = expandWith(alternative + suffix, sequenceWords);
     if (rest === null || out.length + rest.length > BRACE_LIMIT) return null;
     for (const r of rest) out.push(prefix + r);
   }
@@ -98,29 +111,72 @@ export function braceEdge(word: string, last: boolean): string {
   return word.slice(0, brace.open) + braceEdge(pick + word.slice(brace.close + 1), last);
 }
 
-/** The text before <word>'s first `{`, cut after its last `/`, or its option prefix (`-C`, `--name=`) when it has no `/`. */
+const OPTION_PREFIX = /^(--[A-Za-z-]+=|-[A-Za-z])/;
+
+const DOT_DOT_SEGMENT = /(^|\/)\.\.(\/|$)/;
+
+/** The text before <word>'s first `{`. */
+function braceHead(word: string): string {
+  return word.slice(0, Math.max(word.indexOf('{'), 0));
+}
+
+/** The option prefix (`-C`, `--name=`) <word> starts with before its first `{`, or ''. */
+function optionPrefix(word: string): string {
+  return OPTION_PREFIX.exec(braceHead(word))?.[0] ?? '';
+}
+
+/** The text before <word>'s first `{`, cut after its last `/`, or its option prefix when it has no `/`. */
 function stem(word: string): string {
-  const head = word.slice(0, Math.max(word.indexOf('{'), 0));
+  const head = braceHead(word);
   const slash = head.lastIndexOf('/');
-  if (slash >= 0) return head.slice(0, slash + 1);
-  return /^(--[A-Za-z-]+=|-[A-Za-z])/.exec(head)?.[0] ?? '';
+  return slash >= 0 ? head.slice(0, slash + 1) : optionPrefix(word);
+}
+
+/**
+ * Whether a word <word> expands to may lie outside its stem, read on its <shapes> (null when even
+ * they pass BRACE_LIMIT): one with a `..` segment after the stem, one rooted at `/` or `~` where
+ * the stem holds no `/`, or any word when a `$` or backtick follows the stem, since its value is
+ * filled in after brace expansion.
+ */
+function leavesStem(word: string, shapes: readonly string[] | null): boolean {
+  const from = stem(word);
+  if (shapes === null || /[$`]/.test(word.slice(from.length))) return true;
+  const rootable = !from.includes('/');
+  return shapes.some((shape) => {
+    const rest = shape.slice(from.length);
+    return DOT_DOT_SEGMENT.test(rest) || (rootable && /^[/~]/.test(rest));
+  });
+}
+
+/**
+ * The words standing for <word> when it expands past what can be listed. Its first and last word
+ * keep every option value and last operand where bash puts them. Between them stand its shapes
+ * (the words it expands to with each numeric sequence cut to its first and last number: words bash
+ * does pass, holding every dot, slash, letter and option a word between can hold) and the glob
+ * `<stem>.claude*`: a gate matching a source's name against `.claude` fails closed for that word
+ * alone, while one reading it as a plain name sees no `.claude` dir. A word that may lie outside
+ * its stem (leavesStem) stands as its first word, <unresolvable> after its option prefix, and its
+ * last word: <unresolvable> is a path its caller gates for a write anywhere under its root.
+ */
+function braceStandIns(word: string, unresolvable: string): string[] {
+  const first = braceEdge(word, false);
+  const last = braceEdge(word, true);
+  const shapes = expandWith(word, shapeWords);
+  if (leavesStem(word, shapes)) return [first, optionPrefix(word) + unresolvable, last];
+  return [first, `${stem(word)}.claude*`, ...(shapes ?? []).filter((shape) => shape !== first && shape !== last), last];
 }
 
 /**
  * Each of <words> brace-expanded, as bash passes a command its arguments. A
  * word past BRACE_LIMIT words (or past it with the words before) stands as
- * three: its first and last word, which keep every option value and last
- * operand where bash puts them, and between them the glob `<stem>.claude*`,
- * standing for the words between: a gate matching a source's name against
- * `.claude` fails closed for that word alone, while one reading it as a
- * plain name sees no `.claude` dir.
+ * braceStandIns gives it, <unresolvable> for one that may leave its stem.
  */
-export function braceWords(words: readonly string[]): string[] {
+export function braceWords(words: readonly string[], unresolvable: string): string[] {
   const out: string[] = [];
   for (const word of words) {
     const expanded = braceExpand(word);
     if (expanded !== null && out.length + expanded.length <= BRACE_LIMIT) out.push(...expanded);
-    else out.push(braceEdge(word, false), `${stem(word)}.claude*`, braceEdge(word, true));
+    else out.push(...braceStandIns(word, unresolvable));
   }
   return out;
 }

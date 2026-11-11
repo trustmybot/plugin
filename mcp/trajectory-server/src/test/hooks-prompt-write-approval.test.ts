@@ -450,6 +450,55 @@ describe('prompt-write-approval (GH 2927)', () => {
         });
       });
 
+      describe('a brace word past the limit that may leave its stem, and a tee or redirect target (GH 2994)', () => {
+        const reviewer = { agent_type: 'tmb:code-reviewer', agent_id: 'z' };
+
+        it('SC1: denies a tree write whose overflowing word climbs out with .., naming the root .claude dir to approve', async () => {
+          for (const command of ['git checkout -- z/{1..5000}/../../{a,.claude}{,x}', 'cp -r src z/{1..5000}/../../{a,.claude}', 'git checkout -- z/{a,{1..5000},/../..,b}', 'mv {/,a}{1..5000} .']) {
+            const reason = denied(await bash(command, reviewer));
+            assert.ok(reason.includes(`write to ${join(project, '.claude')}.`), `${command}: ${reason}`);
+            assert.ok(reason.includes(JSON.stringify(join(project, '.claude'))), `${command}: ${reason}`);
+          }
+          approve(join(project, '.claude'), 'full');
+          for (const command of ['git checkout -- z/{1..5000}/../../{a,.claude}{,x}', 'cp -r src z/{1..5000}/../../{a,.claude}']) assert.equal(await bash(command, reviewer), null, command);
+        });
+
+        it('SC2: an overflowing word with no .. keeps its stand-in, and a command that writes nothing reads no DB', async () => {
+          for (const command of ['echo {1..5000}', 'mv x/{1..5000} build/', 'cp -r src build/{1..5000}', 'echo x | tee build/{1..5000}.log', 'echo x > build/{1..5000}.log']) {
+            assert.equal(await bash(command, reviewer, noDb()), null, command);
+          }
+        });
+
+        it('SC3: denies a tee or redirect target past the limit that names or climbs into a prompt dir', async () => {
+          for (const command of [
+            'echo x | tee z/{1..5000}/../../.claude/skills/a.md',
+            'echo x > z/{1..5000}/../../.claude/agents/{a,b}.md',
+            'echo x >> z/{1..5000}/../../.claude/skills/a.md',
+            'echo x &> z/{1..5000}/../../.claude/skills/a.md',
+            'echo x >| z/{1..5000}/../../.claude/skills/a.md',
+            'echo x > {.claude/skills/{1..5000},b}/../q',
+            'echo x | tee -a {.claude/skills/{1..5000},b}/../q',
+            'rm -rf {a,.claude,{1..5000}}',
+            'echo x | tee {a,.claude/skills/x,{1..5000}}',
+          ]) {
+            denied(await bash(command, reviewer));
+          }
+        });
+
+        it('SC3: a .. after a brace resolves per expanded word, below the limit too', async () => {
+          for (const command of ['echo x > {.claude/skills/a,b}/../q', 'echo x | tee {.claude/agents/a,b}/../q.md', 'cp a {.claude/skills/a,b}/../q']) {
+            const reason = denied(await bash(command, reviewer));
+            assert.match(reason, /\.claude\/(skills|agents)\/q/, `${command}: ${reason}`);
+          }
+        });
+
+        it('SC4: swe stays exempt', async () => {
+          for (const command of ['git checkout -- z/{1..5000}/../../{a,.claude}{,x}', 'echo x | tee z/{1..5000}/../../.claude/skills/a.md', 'echo x > {.claude/skills/{1..5000},b}/../q']) {
+            assert.equal(await bash(command, { agent_type: 'tmb:swe', agent_id: 'a1' }, noDb()), null, command);
+          }
+        });
+      });
+
       describe('a glob source of a mv into the root (F876-5)', () => {
         it('SC10: a glob does not match a leading dot, so these read no DB', async () => {
           for (const command of ['mv build/* .', 'mv src/*.ts .', 'mv x/?claude .', 'mv x/[.]claude .', 'mv x/[!a]claude .']) assert.equal(await bash(command, {}, noDb()), null, command);
@@ -536,9 +585,23 @@ describe('braceExpand (bash brace expansion)', () => {
   });
 
   it('braceWords stands a word past the limit as its first, a .claude glob under its stem, and its last', () => {
-    assert.deepEqual(braceWords(['-t', 'd', 'x/{a,b}']), ['-t', 'd', 'x/a', 'x/b']);
-    assert.deepEqual(braceWords(['x/{1..9999}', 'build/']), ['x/1', 'x/.claude*', 'x/9999', 'build/']);
-    assert.deepEqual(braceWords(['--directory={1..9999}']), ['--directory=1', '--directory=.claude*', '--directory=9999']);
-    assert.deepEqual(braceWords(['{1..9999}']), ['1', '.claude*', '9999']);
+    assert.deepEqual(braceWords(['-t', 'd', 'x/{a,b}'], '/r/.claude'), ['-t', 'd', 'x/a', 'x/b']);
+    assert.deepEqual(braceWords(['x/{1..9999}', 'build/'], '/r/.claude'), ['x/1', 'x/.claude*', 'x/9999', 'build/']);
+    assert.deepEqual(braceWords(['--directory={1..9999}'], '/r/.claude'), ['--directory=1', '--directory=.claude*', '--directory=9999']);
+    assert.deepEqual(braceWords(['{1..9999}'], '/r/.claude'), ['1', '.claude*', '9999']);
+  });
+
+  it('braceWords keeps the words between a word past the limit holds, each numeric sequence cut to its ends', () => {
+    assert.deepEqual(braceWords(['{a,.claude,{1..5000}}'], '/r/.claude'), ['a', '.claude*', '.claude', '1', '5000']);
+    assert.deepEqual(braceWords(['x/{a..c}{1..5000}'], '/r/.claude'), ['x/a1', 'x/.claude*', 'x/a5000', 'x/b1', 'x/b5000', 'x/c1', 'x/c5000']);
+  });
+
+  it('braceWords stands a word past the limit that may leave its stem as the unresolvable path, after its option prefix (GH 2994)', () => {
+    assert.deepEqual(braceWords(['z/{1..5000}/../../{a,.claude}'], '/r/.claude'), ['z/1/../../a', '/r/.claude', 'z/5000/../../.claude']);
+    assert.deepEqual(braceWords(['z/{a,{1..5000},/../..,b}'], '/r/.claude'), ['z/a', '/r/.claude', 'z/b']);
+    assert.deepEqual(braceWords(['-Cz/{1..9999}/..'], '/r/.claude'), ['-Cz/1/..', '-C/r/.claude', '-Cz/9999/..']);
+    assert.deepEqual(braceWords(['{/,a}{1..5000}'], '/r/.claude'), ['/1', '/r/.claude', 'a5000']);
+    assert.deepEqual(braceWords(['x/{1..9999}$v'], '/r/.claude'), ['x/1$v', '/r/.claude', 'x/9999$v']);
+    assert.deepEqual(braceWords(['x/{1..9999}/..x'], '/r/.claude'), ['x/1/..x', 'x/.claude*', 'x/9999/..x']);
   });
 });
