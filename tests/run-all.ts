@@ -6,6 +6,7 @@
 // Usage:
 //   node --experimental-strip-types tests/run-all.ts            # L1-L4
 //   node --experimental-strip-types tests/run-all.ts --l1-only  # stop after L1 (PR check, GH 2064)
+//   node --experimental-strip-types tests/run-all.ts --l1-local # L1 minus its slow-flagged steps and wm-equivalence (swe close, GH 2866)
 //
 // TMB_L1_SKIP: space-separated lint basenames whose steps print SKIP instead of running.
 // A run started with an empty HOME must end with that HOME holding nothing but .cache/huggingface.
@@ -28,7 +29,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export type Step = [label: string, argv: string[]];
+export type Step = [label: string, argv: string[], slow?: true];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = dirname(HERE);
@@ -46,8 +47,15 @@ function lastSegment(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
 }
 
-export function parseArgs(argv: string[]): { l1Only: boolean } {
-  return { l1Only: argv[0] === '--l1-only' };
+/** --l1-only and --l1-local (first argument) both stop after L1; --l1-local also skips the slow L1 steps. */
+export function parseArgs(argv: string[]): { l1Only: boolean; l1Local: boolean } {
+  const l1Local = argv[0] === '--l1-local';
+  return { l1Only: l1Local || argv[0] === '--l1-only', l1Local };
+}
+
+/** The L1 steps --l1-local runs: the L1 table minus its slow-flagged steps. */
+export function l1LocalSteps(steps: Step[]): Step[] {
+  return steps.filter(([, , slow]) => slow !== true);
 }
 
 /** True when any argv word's last path segment is one of the TMB_L1_SKIP basenames. */
@@ -155,8 +163,14 @@ export function writeStubs(dir: string, sentinel: string): void {
   }
 }
 
+// SLOW marks a step measured above 30 s on a dev machine; --l1-local skips it, --l1-only and CI run it.
+const SLOW = true;
+
 export function l1Steps(here: string): Step[] {
-  const lint = (label: string, file: string): Step => [label, ['node', '--test', join(here, 'l1-lint', file)]];
+  const lint = (label: string, file: string, slow?: true): Step => {
+    const argv = ['node', '--test', join(here, 'l1-lint', file)];
+    return slow ? [label, argv, slow] : [label, argv];
+  };
   return [
     lint('L1 lint: agent template line budget', 'agent-line-budget.test.mjs'),
     lint('L1 lint: agent frontmatter declares experimental.cacheTtl', 'agent-cache-ttl.test.mjs'),
@@ -167,9 +181,8 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: command frontmatter (description + argument-hint)', 'command-frontmatter.test.mjs'),
     lint('L1 lint: frontmatter values hold no unquoted colon-space', 'frontmatter-plain-scalar.test.mjs'),
     lint('L1 lint: manifest shape (plugin/.mcp/hooks)', 'manifest-shape.test.mjs'),
-    ['L1 lint: Codex Scope-4 Agent contract', ['bash', join(here, 'l1-lint', 'codex-scope4-contract.sh')]],
     lint('L1 lint: legacy reviewer name only where allowlisted (GH 1641)', 'legacy-reviewer-name.test.mjs'),
-    lint('L1 lint: version sync (4 manifests agree)', 'version-sync.test.mjs'),
+    lint('L1 lint: version sync (3 manifests agree)', 'version-sync.test.mjs'),
     lint('L1 lint: changelog top section current', 'changelog-current.test.mjs'),
     lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs'),
     lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs'),
@@ -224,7 +237,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: no writes under the home directory', 'no-home-writes.test.mjs'),
     lint('L1 lint: claude CLI config calls pinned to project scope', 'cli-config-scope.test.mjs'),
     lint('L1 lint: no in-session plugin commands prescribed', 'no-in-session-plugin-commands.test.mjs'),
-    lint('L1 lint: no hard-coded /tmp writes', 'no-tmp-writes.test.mjs'),
+    lint('L1 lint: no hard-coded /tmp writes', 'no-tmp-writes.test.mjs', SLOW),
     ['L1 lint: live-db shim survives a plain parent directory', ['node', '--test', join(here, 'lib', 'live-db-shim.test.mjs')]],
     lint("L1 lint: no datetime('now') in scripts", 'no-datetime-now-in-hooks.test.mjs'),
     lint('L1 lint: no secrets in tracked source', 'no-secrets-in-source.test.mjs'),
@@ -237,6 +250,8 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
     lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
     lint('L1 lint: pr-check runs no full sweep', 'pr-check-full-suite.test.mjs'),
+    // node --test expands the glob itself, so the step runs the same files as pr-check's dashboard job.
+    ['L1 dashboard: node:test suite (dashboard/test/*.test.mjs)', ['node', '--test', join(dirname(here), 'dashboard', 'test', '*.test.mjs')]],
   ];
 }
 
@@ -351,12 +366,12 @@ function emptyDir(dir: string): boolean {
 }
 
 export async function main(args: string[]): Promise<number> {
-  const { l1Only } = parseArgs(args);
+  const { l1Only, l1Local } = parseArgs(args);
   const runTmp = mkdtempSync(join(tmpdir(), 'tmb-run-all.'));
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
   try {
-    return await run(l1Only, runTmp);
+    return await run(l1Only, l1Local, runTmp);
   } catch (e) {
     if (!(e instanceof Aborted)) throw e;
     out(`\n→ ABORTED: ${e.signal}, no further steps run\n`);
@@ -368,7 +383,7 @@ export async function main(args: string[]): Promise<number> {
   }
 }
 
-async function run(l1Only: boolean, runTmp: string): Promise<number> {
+async function run(l1Only: boolean, l1Local: boolean, runTmp: string): Promise<number> {
   let fail = false;
   const home = process.env.HOME ?? homedir();
   const homeIsolated = emptyDir(home);
@@ -400,6 +415,7 @@ async function run(l1Only: boolean, runTmp: string): Promise<number> {
       fail = true;
     }
   };
+  const skipLocal = (label: string) => out(`\n=== ${label} ===\n→ SKIP (--l1-local)\n`);
   const liveCliCheck = (step: string) => {
     const calls = readFileSync(sentinel, 'utf8');
     if (calls !== '') {
@@ -415,7 +431,12 @@ async function run(l1Only: boolean, runTmp: string): Promise<number> {
 
   const l1Env = { ...base, PATH: stubPath, TMB_L1_OFFLINE: '1' };
   const steps = l1Steps(HERE);
-  for (const [label, argv] of steps) await runStep(label, argv, l1Env);
+  const runnable = new Set(l1Local ? l1LocalSteps(steps) : steps);
+  for (const step of steps) {
+    const [label, argv] = step;
+    if (runnable.has(step)) await runStep(label, argv, l1Env);
+    else skipLocal(label);
+  }
   await runStep('L1 self-check: every tests/l1-lint/*.sh and *.test.mjs runs here', ['l1_lints_all_wired'], l1Env, () => {
     const missing = unwiredLints(l1LintFiles(join(HERE, 'l1-lint')), steps);
     for (const lint of missing) err(`  ✗ tests/l1-lint/${lint} has no step in tests/run-all.ts\n`);
@@ -424,10 +445,15 @@ async function run(l1Only: boolean, runTmp: string): Promise<number> {
   await runStep('L1 bench: measurement harness selftest', ['node', '--test', join(HERE, 'benchmarks', 'selftest.test.mjs')], l1Env);
   const serverDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server');
   const equivalenceTest = join('dist', 'test', 'wm-equivalence.test.js');
-  await runStep('L1 world model: incremental reindex equals a clean rebuild (wm-equivalence.test.js)', ['wm_equivalence'], l1Env, async () => {
-    if (!(await runArgv(['bun', 'run', 'build'], l1Env, serverDir))) return false;
-    return await runArgv(['node', '--experimental-sqlite', '--test', equivalenceTest], { ...l1Env, ...forbidLive }, serverDir);
-  });
+  const equivalenceLabel = 'L1 world model: incremental reindex equals a clean rebuild (wm-equivalence.test.js)';
+  if (l1Local) {
+    skipLocal(equivalenceLabel);
+  } else {
+    await runStep(equivalenceLabel, ['wm_equivalence'], l1Env, async () => {
+      if (!(await runArgv(['bun', 'run', 'build'], l1Env, serverDir))) return false;
+      return await runArgv(['node', '--experimental-sqlite', '--test', equivalenceTest], { ...l1Env, ...forbidLive }, serverDir);
+    });
+  }
   liveCliCheck('L1');
   if (l1Only) return fail ? 1 : 0;
 

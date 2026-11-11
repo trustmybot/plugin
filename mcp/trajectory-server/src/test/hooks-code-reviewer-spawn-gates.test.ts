@@ -23,7 +23,7 @@ import {
   rubberStampPhrase,
   rubberStampReason,
 } from '../hooks/code-reviewer-spawn-prompt-shape.js';
-import { codeReviewerAfterAtomicClose, notClosedFix, notClosedReason, promptTaskId } from '../hooks/code-reviewer-after-atomic-close.js';
+import { codeReviewerAfterAtomicClose, notHandedOffFix, notHandedOffReason, promptTaskId } from '../hooks/code-reviewer-after-atomic-close.js';
 import { fixedReason } from '../hooks/lib/deny.js';
 import { buildSandbox } from './hooks-reviewer-spawn-parity.suite.js';
 
@@ -65,8 +65,9 @@ describe('code-reviewer-no-worktree', () => {
       assert.equal(denyReason(r.stdout), fixedReason(DENY_REASON, DENY_FIX));
     }
   });
-  it('names tmb_planning section 6, not V1/V2/V3 (GH 2743)', () => {
-    assert.ok(DENY_REASON.includes('(tmb_planning section 6: the four checks + bro_atomic_close)'), DENY_REASON);
+  it('names the review_handoff → code-reviewer → bro_atomic_close order, not the retired section-6 checks (GH 2866)', () => {
+    assert.ok(DENY_REASON.includes('The order on SWE return is review_handoff → code-reviewer → bro_atomic_close'), DENY_REASON);
+    assert.ok(!DENY_REASON.includes('four checks'), DENY_REASON);
     assert.ok(!DENY_REASON.includes('V1/V2/V3'), DENY_REASON);
   });
   it('allows other isolation values, other agents and other tools', () => {
@@ -157,17 +158,22 @@ describe('code-reviewer-after-atomic-close', () => {
     assert.equal(commandOnPath('jq', env()), false);
     assert.equal(commandOnPath('sqlite3', env()), false);
   });
-  it('denies an unclosed task through node:sqlite, where the .sh lets the spawn through without jq or sqlite3', () => {
-    const notClosed = (id: string, status: string): string => fixedReason(notClosedReason(id, status), notClosedFix(id));
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(13)), env()).stdout), notClosed('13', 'running'));
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notClosed('12', 'completed'));
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notClosed('14', 'needs_validation'));
+  it('denies a task not handed off at its current commit through node:sqlite, where the .sh lets the spawn through without jq or sqlite3', () => {
+    const notHandedOff = (id: string, status: string): string => fixedReason(notHandedOffReason(id, status), notHandedOffFix(id));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(13)), env()).stdout), notHandedOff('13', 'running'));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notHandedOff('12', 'completed'));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notHandedOff('14', 'needs_validation'));
   });
-  it('names tmb_planning section 6 and the verify-then-close steps bro runs today (GH 2713)', () => {
-    const reason = notClosedReason('13', 'running');
-    assert.ok(reason.includes('Per tmb_planning section 6 (Verify on SWE return + atomic close):\n'), reason);
-    assert.ok(reason.includes('  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls bro_atomic_close.\n'), reason);
+  it('names tmb_planning section 6 and the verify, hand off, review, close order (GH 2866)', () => {
+    const reason = notHandedOffReason('13', 'running');
+    assert.ok(reason.includes('Per tmb_planning section 6 (Verify on SWE return + review handoff):\n'), reason);
+    assert.ok(reason.includes('  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\n'), reason);
+    assert.ok(reason.includes('bro_atomic_close follows its pass'), reason);
+    assert.ok(fixedReason(reason, notHandedOffFix('13')).includes("Allowed form: review_handoff(agent='bro', task_id=13,"), reason);
     assert.doesNotMatch(reason, /Step 5|V1|V2|V3/);
+  });
+  it('allows a completed task handed off at its current commit', () => {
+    assert.deepEqual(codeReviewerAfterAtomicClose(cr(ANCHORED(15)), env()), ALLOWED);
   });
   it('allows a closed task, a missing row, no task_id and no DB', () => {
     assert.deepEqual(codeReviewerAfterAtomicClose(cr(ANCHORED(11)), env()), ALLOWED);

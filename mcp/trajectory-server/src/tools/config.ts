@@ -165,6 +165,50 @@ export function readReviewerEffortAb(db: Pick<TrajectoryDB, 'get'>): EffortAbCon
   return null;
 }
 
+export const REVIEWER_TIER_SETTINGS_KEY = 'reviewer_tier_settings';
+export const REVIEWER_TIER_REASONS = ['prompt_bearing', 'high_effort_paths', 'docs_tests', 'default'] as const;
+export type ReviewerTierReason = (typeof REVIEWER_TIER_REASONS)[number];
+export const REVIEWER_MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+export type ReviewerModel = (typeof REVIEWER_MODELS)[number];
+
+export interface ReviewerTierSetting {
+  readonly model?: ReviewerModel;
+  readonly effort?: Effort;
+}
+
+export type ReviewerTierSettings = Readonly<Partial<Record<ReviewerTierReason, ReviewerTierSetting>>>;
+
+export function isReviewerModel(value: unknown): value is ReviewerModel {
+  return typeof value === 'string' && (REVIEWER_MODELS as readonly string[]).includes(value);
+}
+
+function isReviewerTierSetting(value: unknown): value is ReviewerTierSetting {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.entries(value).every(
+    ([field, v]) => (field === 'model' && isReviewerModel(v)) || (field === 'effort' && isEffort(v)),
+  );
+}
+
+export function isReviewerTierSettings(value: unknown): value is ReviewerTierSettings {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.entries(value).every(
+    ([reason, setting]) => (REVIEWER_TIER_REASONS as readonly string[]).includes(reason) && isReviewerTierSetting(setting),
+  );
+}
+
+/** The per-tier reviewer model and effort overrides (GH 2932); unset, unparseable or malformed reads as none ({}). */
+export function readReviewerTierSettings(db: Pick<TrajectoryDB, 'get'>): ReviewerTierSettings {
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [REVIEWER_TIER_SETTINGS_KEY]);
+  if (!row) return {};
+  try {
+    const value: unknown = JSON.parse(row.value_json);
+    if (isReviewerTierSettings(value)) return value;
+  } catch {
+    // An unparseable stored value reads as unset.
+  }
+  return {};
+}
+
 export const DOWNSTREAM_CONTEXT_AB_KEY = 'downstream_context_ab';
 
 export interface DownstreamContextAbConfig {
@@ -305,6 +349,11 @@ function validateKnownConfigValue(key: string, value: unknown): void {
   if ((key === SWE_EFFORT_AB_KEY || key === REVIEWER_EFFORT_AB_KEY) && !isEffortAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === REVIEWER_TIER_SETTINGS_KEY && !isReviewerTierSettings(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an object keyed by ${REVIEWER_TIER_REASONS.join(', ')}, each value {"model"?: ${REVIEWER_MODELS.join(' | ')}, "effort"?: ${EFFORT_LEVELS.join(' | ')}}, got ${JSON.stringify(value)}.`,
     );
   }
   if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {

@@ -110,7 +110,7 @@ describe('swe-resume-gate', () => {
     assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
     assert.match(reason, /task FAILs: 2 review FAILs on the task since its last passing review \(limit 2\)/);
     assert.match(reason, /task_rework_analysis/);
-    assert.doesNotMatch(reason, /waive task/);
+    assert.doesNotMatch(reason, /[Ww]aive|Human/);
   });
 
   it('still denies the resume after a newer kind=decision row by bro', () => {
@@ -125,7 +125,7 @@ describe('swe-resume-gate', () => {
     denyReason(run(f).stdout);
   });
 
-  it('allows the resume after a newer Human decision row on the task or on its issue', () => {
+  it("still denies the resume after a newer author 'human' decision row on the task or on its issue (GH 2857)", () => {
     const f = fixture();
     f.fails(2);
     f.exec(
@@ -134,11 +134,8 @@ describe('swe-resume-gate', () => {
       AFTER_LATEST_FAIL,
       TASK_ID,
     );
-    assert.deepEqual(run(f), ALLOWED);
-    const g = fixture();
-    g.fails(2);
-    g.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'decision', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
-    assert.deepEqual(run(g), ALLOWED);
+    f.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'decision', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
+    assert.match(denyReason(run(f).stdout), /task FAILs: 2 review FAILs/);
   });
 
   it('allows a resume at seven or more swe runs with fewer than two FAILs: no run count denies (GH 2830)', () => {

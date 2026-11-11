@@ -184,7 +184,6 @@ describe('extractPurpose — structural fallback for data files', () => {
       'Bug report: Something in TMB is broken',
     );
     expectPurpose('.github/workflows/dev-build.yml', 'name: dev-build\non:\n  push:\n    branches: [dev]\n', 'structural', 'dev-build');
-    expectPurpose('adapters/codex/agents/openai.yaml', 'interface:\n  display_name: "x"\npolicy:\n  allow: true\n', 'structural', 'keys: interface, policy');
   });
 
   it('changelog.d fragments and txt files: <dir role>: <file name>', () => {

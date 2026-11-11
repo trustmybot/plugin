@@ -1,0 +1,2 @@
+### Added
+- **Golden-prompt criteria for prompt authors** (GH 2859): `docs/prompt-engineering/GOLDEN_PROMPTS.md` defines when a TMB prompt counts as golden: it passes 14 yes/no criteria (G1 to G14), each tied to a prompt-engineering rule and its evidence tier, grades A on the enforcement rubric, and has an eval set showing no regression. It adds verbatim excerpts from current prompts, vendor links, constructed before/after examples, and how authors and reviewers use the table in a PR.

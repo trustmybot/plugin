@@ -6,7 +6,12 @@
  * is reviewed and has a passing verification run of its own. swe and
  * code-reviewer never push; a push from .claude/worktrees/, or from a dir the
  * guard cannot tie to one checkout, is denied; so is a git statement whose
- * subcommand is not literal text (an expansion, GH 2634), and a DB read error.
+ * subcommand is not literal text (an expansion, GH 2634), a statement that
+ * runs code the listing cannot read (`opaque`, GH 2635: a non-literal code
+ * string or command word, a PS4 set other than by a literal assignment, a
+ * variable name a builtin takes from an expansion), and a DB read error.
+ * Code a statement runs later (a trap, an alias, a `-C` callback, a PS4 that
+ * `set -x` expands) is listed in `-`, so a push in it is an unresolved target.
  *
  * Deny messages and decisions are the .sh's, with the two exceptions of
  * decision 369: a command naming `push` (or, GH 2634, a git word beside an
@@ -37,6 +42,9 @@ export const GATE_NAME = 'git-push-guard';
 const SOURCE_PATHS = [':(top)', ':(top,exclude,glob)mcp/*/dist/**', ':(top,exclude)dashboard/dist'];
 const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const HEX = /^[0-9a-f]+$/;
+const GIT_WORD = /\bgit\b/;
+/** An `xargs` git may take its subcommand from stdin (GH 2797). */
+const XARGS = /\bxargs\b/;
 
 export const SWE_PUSH_REASON = 'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree.';
 export const SWE_PUSH_FIX: DenyFix = { allowed: "task_update_status(status='completed', commit_sha, report)" };
@@ -51,6 +59,9 @@ export const PARSE_FIX: DenyFix = { allowed: 'the same push split into simpler c
 const subcommandReason = (what: string): string =>
   `${ambiguousSubcommandReason(what, 'pushes')} An option value in double quotes, such as \`git -C "$W" status\`, is allowed.`;
 const SUBCOMMAND_FIX: DenyFix = { allowed: 'git -C <path> push …, or the literal subcommand it runs' };
+const opaqueReason = (what: string): string =>
+  `BLOCKED: ambiguous_git_subcommand: \`${what}\` runs code the guard cannot read (a \`bash -c\` or \`eval\` string built from an expansion, a command word that is an expansion, code a shell reads from stdin, a \`\${…@P}\` prompt expansion, a PS4 set other than by a literal \`PS4=\` assignment, a variable name a builtin takes from an expansion, or code nested too deep), so it cannot tell whether that code pushes. Write the code literally.`;
+const OPAQUE_FIX: DenyFix = { allowed: "the code itself, or bash -c '<literal code>', or PS4='<literal>'" };
 const INTEGRATE_FIX: DenyFix = { allowed: 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>' };
 
 function pushVerb(sub: string): boolean {
@@ -310,11 +321,15 @@ class Guard {
 
 export const gitPushGuard: Gate = async (payload, env) => {
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
-  if (!prefilterPasses(command, (text) => text.includes('push')) && !gitBesideExpansion(command)) return ALLOW;
+  const namesPush = prefilterPasses(command, (text) => text.includes('push'));
+  const xargsGit = !namesPush && prefilterPasses(command, (text) => GIT_WORD.test(text) && XARGS.test(text));
+  if (!namesPush && !xargsGit && !gitBesideExpansion(command)) return ALLOW;
 
   const cwd = payloadCwd(payload, env);
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
+  const opaque = namesPush ? listed.statements.find((statement) => statement.opaque) : undefined;
+  if (opaque) return deny(opaqueReason(opaque.src ?? opaque.stmt), OPAQUE_FIX);
   const subs = listed.statements.map((statement) => gitSubcommandOf(statement));
   const unknown = listed.statements[subs.indexOf(undefined)];
   if (unknown) return deny(subcommandReason(unknown.src ?? unknown.stmt), SUBCOMMAND_FIX);

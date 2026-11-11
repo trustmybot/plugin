@@ -5,7 +5,8 @@
  * analyzer also skips timeout (and its duration), stdbuf and nice, and their
  * Homebrew coreutils names gtimeout, gstdbuf and gnice, which the .sh does not
  * (GH 1692). A `command -v` / `-V` lookup runs nothing, so the TS stops at its
- * option word instead of skipping to the name it looks up (GH 1872).
+ * option word instead of skipping to the name it looks up (GH 1872). The TS
+ * also skips `builtin`, which runs the builtin it names (GH 2635).
  */
 
 interface WrapSpec {
@@ -35,7 +36,7 @@ SPECS.gtimeout = SPECS.timeout;
 SPECS.gstdbuf = SPECS.stdbuf;
 SPECS.gnice = SPECS.nice;
 
-export const WRAPPER = /^(sudo|env|command|nohup|time|exec|g?timeout|g?stdbuf|g?nice)$/;
+export const WRAPPER = /^(sudo|env|command|builtin|nohup|time|exec|g?timeout|g?stdbuf|g?nice)$/;
 export const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /** <b> under dir <a>, as written: an absolute, ~ or $ path stands alone. */

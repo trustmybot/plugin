@@ -7,6 +7,12 @@
  * Then the suite-slot lock (GH 2092): concurrent gate runs of full suites
  * serialize outside the budget, a wait past the cap denies unrecorded, a
  * nested test-run shares the gate's slot and a targeted command never waits.
+ * Last the changelog and stale-doc checks (GH 2866) on a linked worktree: one
+ * deny and one allow per check, each deny recording no run, and neither the
+ * reuse of a passing run, the waiver nor the preflight bypass skipping them.
+ * Their paths come from the project's .config/tmb/doc-checks.json at HEAD: an
+ * invalid file denies, an absent file or key skips with a note, and a temp
+ * project with another layout (decision 3334) gets both checks from its own file.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,6 +22,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { BYPASS_ENV as PREFLIGHT_BYPASS_ENV } from '../hooks/code-reviewer-preflight.js';
+import { DOC_CHECKS_FILE, DOC_CHECKS_SHAPE } from '../hooks/lib/doc-checks.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
 import {
@@ -151,8 +159,12 @@ describe('swe-verification-gate without jq or the sqlite3 CLI (decision 703)', (
     assert.equal(out.permissionDecision, 'deny');
     assert.match(out.permissionDecisionReason ?? '', /^BLOCKED: verification failed\.\nFailing command \(2\/2\): /);
   });
-  it('allows a passing run and records it', async () => {
-    assert.deepEqual(await sweVerificationGate(completion(30), env()), ALLOWED);
+  it('allows a passing run and records it, noting the doc checks a project without doc-checks.json skips', async () => {
+    const r = await sweVerificationGate(completion(30), env());
+    assert.equal(r.code, 0);
+    const out = decision(r.stdout);
+    assert.equal(out.permissionDecision, undefined);
+    assert.match(out.additionalContext ?? '', /^TMB: missing_changelog and stale_doc_ref skipped: no \.config\/tmb\/doc-checks\.json at /);
     const db = new DatabaseSync(join(s, 'project/.claude/tmb/trajectory.db'), { readOnly: true });
     try {
       const run = db.prepare("SELECT exit_code, timed_out FROM verification_runs WHERE task_id = 30 AND source = 'gate'").get() as { exit_code: number; timed_out: number };
@@ -223,6 +235,8 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
       mkdirSync(join(wt, 'tests'), { recursive: true });
       writeFileSync(join(wt, 'tests/run-all.sh'), RUN_ALL);
       writeFileSync(join(wt, 'probe.test.js'), "import test from 'node:test';\ntest('probe', () => {});\n");
+      mkdirSync(dirname(join(wt, DOC_CHECKS_FILE)), { recursive: true });
+      writeFileSync(join(wt, DOC_CHECKS_FILE), readFileSync(join(PLUGIN_ROOT, DOC_CHECKS_FILE)));
       git(wt, ['init', '-q']);
       git(wt, ['add', '.']);
       git(wt, ['commit', '-q', '-m', t.slug]);
@@ -362,5 +376,612 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     } finally {
       if (held.kind === 'held') held.release();
     }
+  });
+});
+
+describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
+  const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const NOW = '2026-11-10T10:00:00.000Z';
+  const TASK_ID = 3;
+  const SLUG = '3-x';
+  const GIT_ENV = {
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'T',
+    GIT_AUTHOR_EMAIL: 't@example.com',
+    GIT_COMMITTER_NAME: 'T',
+    GIT_COMMITTER_EMAIL: 't@example.com',
+  };
+  const BASE_FILES: Record<string, string> = {
+    'README.md': 'See docs/guide.md.\n',
+    'docs/guide.md': 'Run `scripts/old.sh` first.\n',
+    'scripts/old.sh': 'echo old\n',
+    'skills/s/SKILL.md': 'Call `keep_tool`.\n',
+    'mcp/srv/src/tools/t.ts': "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n  {\n    name: 'old_tool',\n  },\n];\n",
+    'changelog.d/README.md': 'One file per change.\n',
+    'src/a.txt': 'one\ntwo\nthree\n',
+    [DOC_CHECKS_FILE]: readFileSync(join(PLUGIN_ROOT, DOC_CHECKS_FILE), 'utf8'),
+  };
+
+  interface Fixture {
+    checkout: string;
+    worktree: string;
+    db: string;
+    env: NodeJS.ProcessEnv;
+    git(...args: string[]): string;
+    write(path: string, text: string): void;
+    commit(message: string): string;
+  }
+
+  let sandbox: string;
+  let seq = 0;
+  before(() => {
+    sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gate-doc-checks-')));
+  });
+  after(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  /** A checkout on dev holding <files>, the task's linked worktree on feat/3-x, and a running task 3 whose verification[] is `true`. */
+  function fixture(files: Record<string, string> = BASE_FILES): Fixture {
+    seq += 1;
+    const root = join(sandbox, `case-${seq}`);
+    const checkout = join(root, 'project/checkout');
+    const worktree = join(checkout, '.claude/worktrees', SLUG);
+    const db = join(root, 'project/.claude/tmb/trajectory.db');
+    mkdirSync(checkout, { recursive: true });
+    mkdirSync(dirname(db), { recursive: true });
+    for (const d of ['data', 'state', 'cache']) mkdirSync(join(root, 'mise', d), { recursive: true });
+    const env: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      HOME: join(root, 'home'),
+      CLAUDE_PROJECT_DIR: join(root, 'project'),
+      TRAJECTORY_DB_PATH: db,
+      MISE_DATA_DIR: join(root, 'mise/data'),
+      MISE_STATE_DIR: join(root, 'mise/state'),
+      MISE_CACHE_DIR: join(root, 'mise/cache'),
+      ...GIT_ENV,
+    };
+    const gitIn = (dir: string, args: string[]) =>
+      spawnSync('git', ['-C', dir, ...args], { env, encoding: 'utf8' });
+    const git = (...args: string[]) => {
+      const r = gitIn(worktree, args);
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    const write = (path: string, text: string) => {
+      mkdirSync(dirname(join(worktree, path)), { recursive: true });
+      writeFileSync(join(worktree, path), text);
+    };
+    const commit = (message: string) => {
+      git('add', '-A');
+      git('commit', '-qm', message);
+      return git('rev-parse', 'HEAD');
+    };
+    assert.equal(gitIn(checkout, ['init', '-q', '-b', 'dev']).status, 0);
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(checkout, path)), { recursive: true });
+      writeFileSync(join(checkout, path), text);
+    }
+    writeFileSync(join(checkout, '.git/info/exclude'), '.claude/\n');
+    assert.equal(gitIn(checkout, ['add', '-A']).status, 0);
+    assert.equal(gitIn(checkout, ['commit', '-qm', 'base']).status, 0);
+    assert.equal(gitIn(checkout, ['worktree', 'add', '-q', worktree, '-b', `feat/${SLUG}`]).status, 0);
+
+    const d = new DatabaseSync(db);
+    d.exec(SCHEMA);
+    d.prepare("INSERT INTO repos (name, path, target_branch) VALUES ('checkout', ?, 'dev')").run(checkout);
+    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(NOW, NOW);
+    d.prepare(
+      `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, verification, created_at, updated_at)
+       VALUES (?, 9, ?, 'dev', 'd', 'running', 'checkout', '["true"]', ?, ?)`,
+    ).run(TASK_ID, `feat/${SLUG}`, NOW, NOW);
+    d.close();
+    return { checkout, worktree, db, env, git, write, commit };
+  }
+
+  /** A feature commit that changes src/a.txt and adds its changelog fragment. */
+  function featureCommit(f: Fixture): void {
+    f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+    f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+    f.commit('feature');
+  }
+
+  function runCount(f: Fixture): number {
+    const d = new DatabaseSync(f.db, { readOnly: true });
+    try {
+      return (d.prepare('SELECT COUNT(*) AS n FROM verification_runs WHERE task_id = ?').get(TASK_ID) as { n: number }).n;
+    } finally {
+      d.close();
+    }
+  }
+
+  function recordPassingRun(f: Fixture, sha: string): void {
+    const d = new DatabaseSync(f.db);
+    d.prepare(
+      "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (?, ?, 'gate', ?, ?, 0, 600, 0)",
+    ).run(TASK_ID, sha, NOW, NOW);
+    d.close();
+  }
+
+  const close = (f: Fixture, extra: Record<string, unknown> = {}, env: NodeJS.ProcessEnv = f.env) =>
+    sweVerificationGate(
+      JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'completed', ...extra } }),
+      env,
+    );
+
+  /** The typed {check, expected, actual} of a doc deny, after checking it names the retry fix. */
+  async function denial(f: Fixture, extra: Record<string, unknown> = {}, env: NodeJS.ProcessEnv = f.env): Promise<{ check: string; expected: string | null; actual: string | null }> {
+    const r = await close(f, extra, env);
+    assert.equal(r.code, 0);
+    const out = decision(r.stdout);
+    assert.equal(out.permissionDecision, 'deny');
+    const { fix, ...failure } = JSON.parse(out.permissionDecisionReason ?? '') as { check: string; expected: string | null; actual: string | null; fix: { allowed?: string } };
+    assert.match(fix.allowed ?? '', /task_update_status\(status='completed'/);
+    return failure;
+  }
+
+  async function assertAllowed(f: Fixture): Promise<void> {
+    assert.deepEqual(await close(f), ALLOWED);
+  }
+
+  it('allows a feature commit with its fragment and no stale reference, and records the run', async () => {
+    const f = fixture();
+    featureCommit(f);
+    await assertAllowed(f);
+    assert.equal(runCount(f), 1);
+  });
+
+  describe('stale_doc_ref', () => {
+    it('denies a deleted path a docs/ file still names, before verification[] runs', async () => {
+      const f = fixture();
+      featureCommit(f);
+      f.git('rm', '-q', 'scripts/old.sh');
+      f.commit('drop old.sh');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'scripts\/old\.sh'/);
+      assert.equal(runCount(f), 0);
+    });
+
+    it('denies a renamed path whose old name README.md still carries', async () => {
+      const f = fixture();
+      featureCommit(f);
+      f.git('mv', 'docs/guide.md', 'docs/handbook.md');
+      f.commit('rename guide');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.match(d.actual ?? '', /README\.md mentions removed path 'docs\/guide\.md'/);
+    });
+
+    it('denies an MCP tool the diff removes that a skills/*/SKILL.md still mentions', async () => {
+      const files = { ...BASE_FILES, 'skills/s/SKILL.md': 'Call `mcp__plugin_tmb_trajectory-server__old_tool` then `keep_tool`.\n' };
+      const f = fixture(files);
+      featureCommit(f);
+      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
+      f.commit('drop old_tool');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.match(d.actual ?? '', /skills\/s\/SKILL\.md mentions removed tool 'old_tool'/);
+    });
+
+    it('allows a deletion and a tool removal once the docs drop them', async () => {
+      const f = fixture();
+      featureCommit(f);
+      f.git('rm', '-q', 'scripts/old.sh');
+      f.write('docs/guide.md', 'Nothing to run first.\n');
+      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
+      f.commit('drop old.sh and old_tool');
+      await assertAllowed(f);
+    });
+
+    describe('a sibling of the doc named by its same-directory spelling (GH 2928)', () => {
+      const siblingFixture = (other: string) =>
+        fixture({ ...BASE_FILES, 'docs/x/README.md': 'Index.\n', 'docs/x/other.md': other });
+
+      const dropReadme = (f: Fixture) => {
+        featureCommit(f);
+        f.git('rm', '-q', 'docs/x/README.md');
+        f.commit('drop docs/x/README.md');
+      };
+
+      for (const prose of ['touched dirs whose README.md is stale\n', 'See ../README.md and sub/README.md.\n', '`README.md` and [README.md] in prose.\n']) {
+        it(`allows the removal when other.md says ${JSON.stringify(prose.trim())}`, async () => {
+          const f = siblingFixture(prose);
+          dropReadme(f);
+          await assertAllowed(f);
+        });
+      }
+
+      for (const link of ['[index](README.md)', '[index](./README.md#top)', '[index](<README.md>)', '[index]: ./README.md', '[index]: README.md', 'see ./README.md', 'see docs/x/README.md']) {
+        it(`denies the removal when other.md holds ${JSON.stringify(link)}`, async () => {
+          const f = siblingFixture(`Start here.\n${link}\n`);
+          dropReadme(f);
+          const d = await denial(f);
+          assert.equal(d.check, 'stale_doc_ref');
+          assert.equal(d.actual, "docs/x/other.md mentions removed path 'docs/x/README.md'");
+        });
+      }
+
+      it('denies when a doc in another directory names the full path', async () => {
+        const f = siblingFixture('No index here.\n');
+        f.write('docs/guide.md', 'Run `scripts/old.sh` first; the index is docs/x/README.md.\n');
+        dropReadme(f);
+        const d = await denial(f);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.equal(d.actual, "docs/guide.md mentions removed path 'docs/x/README.md'");
+      });
+    });
+
+    describe('a path untracked as build output (GH 2054)', () => {
+      const BUILT_FILES: Record<string, string> = {
+        ...BASE_FILES,
+        'docs/guide.md': 'Run `scripts/old.sh` first, then `node pkg/dist/out.js`.\n',
+        'pkg/dist/out.js': 'built\n',
+      };
+
+      it('allows a path the diff drops from the index that the commit .gitignore ignores', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist');
+        assert.equal(f.git('ls-files', 'pkg/dist'), '');
+        await assertAllowed(f);
+      });
+
+      it('still denies a plain deletion beside the untracked build output', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.git('rm', '-q', 'scripts/old.sh');
+        f.commit('untrack dist and drop old.sh');
+        const d = await denial(f);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.equal(d.actual, "docs/guide.md mentions removed path 'scripts/old.sh'");
+      });
+
+      it('denies when only the local exclude file, not the commit, ignores the path', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        writeFileSync(join(f.checkout, '.git/info/exclude'), '.claude/\ndist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist without a .gitignore');
+        const d = await denial(f);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
+      });
+
+      it('counts the path as removed when git check-ignore fails (fail-closed)', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist');
+        const bin = join(dirname(dirname(f.checkout)), 'bin');
+        mkdirSync(bin);
+        const wrapper = join(bin, 'git');
+        const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+        writeFileSync(
+          wrapper,
+          [
+            '#!/usr/bin/env node',
+            "const { spawnSync } = require('node:child_process');",
+            "if (process.argv.includes('check-ignore')) process.exit(128);",
+            `const r = spawnSync(${JSON.stringify(realGit)}, process.argv.slice(2), { stdio: 'inherit' });`,
+            'process.exit(r.status ?? 1);',
+            '',
+          ].join('\n'),
+        );
+        chmodSync(wrapper, 0o755);
+        const d = await denial(f, {}, { ...f.env, PATH: `${bin}:${f.env.PATH}` });
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
+      });
+    });
+  });
+
+  describe('missing_changelog', () => {
+    it('denies a diff that adds no file under changelog.d/ and records no run', async () => {
+      const f = fixture();
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature without fragment');
+      const d = await denial(f);
+      assert.equal(d.check, 'missing_changelog');
+      assert.equal(d.actual, 'no file added under changelog.d/');
+      assert.equal(runCount(f), 0);
+    });
+
+    it('allows a repo without changelog.d/ that adds no fragment', async () => {
+      const files = { ...BASE_FILES };
+      delete files['changelog.d/README.md'];
+      const f = fixture(files);
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature');
+      await assertAllowed(f);
+    });
+  });
+
+  describe('no way around the doc checks', () => {
+    function fragmentless(): Fixture {
+      const f = fixture();
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature without fragment');
+      return f;
+    }
+
+    it('runs them before reusing a passing run recorded for HEAD', async () => {
+      const f = fragmentless();
+      recordPassingRun(f, f.git('rev-parse', 'HEAD'));
+      assert.equal((await denial(f)).check, 'missing_changelog');
+      assert.equal(runCount(f), 1);
+    });
+
+    it('runs them under waive_verification_gate_reason, writing no waiver row', async () => {
+      const f = fragmentless();
+      assert.equal((await denial(f, { waive_verification_gate_reason: 'the suite needs a GPU this host lacks' })).check, 'missing_changelog');
+      const d = new DatabaseSync(f.db, { readOnly: true });
+      try {
+        const n = (d.prepare("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'verification_gate_waived'").get() as { n: number }).n;
+        assert.equal(n, 0);
+      } finally {
+        d.close();
+      }
+    });
+
+    it('runs them under the code-reviewer preflight bypass', async () => {
+      const f = fragmentless();
+      assert.equal((await denial(f, {}, { ...f.env, [PREFLIGHT_BYPASS_ENV]: '1' })).check, 'missing_changelog');
+    });
+
+    it('runs them with an empty verification[] too', async () => {
+      const f = fragmentless();
+      const d = new DatabaseSync(f.db);
+      d.prepare("UPDATE tasks SET verification = '[]' WHERE id = ?").run(TASK_ID);
+      d.close();
+      assert.equal((await denial(f)).check, 'missing_changelog');
+    });
+
+    it('denies an unprovable state: a HEAD with no merge base on the PR target', async () => {
+      const f = fixture();
+      f.git('checkout', '-q', '--orphan', 'feat/unrelated');
+      f.git('rm', '-rq', '--cached', '.');
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.git('add', 'changelog.d/3-x.md');
+      f.git('commit', '-qm', 'unrelated root');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.equal(d.actual, 'no merge-base');
+      assert.equal(runCount(f), 0);
+    });
+  });
+
+  /** The additionalContext of an allow, after checking it is no deny. */
+  async function allowNote(f: Fixture): Promise<string> {
+    const r = await close(f);
+    assert.equal(r.code, 0);
+    const out = decision(r.stdout);
+    assert.equal(out.permissionDecision, undefined, out.permissionDecisionReason);
+    return out.additionalContext ?? '';
+  }
+
+  describe(`the project's ${DOC_CHECKS_FILE}`, () => {
+    const withConfig = (config: string): Record<string, string> => ({ ...BASE_FILES, [DOC_CHECKS_FILE]: config });
+
+    for (const [name, config, actual] of [
+      ['not JSON', '{"version":1,', /not valid JSON/],
+      ['an unknown key', '{"version":1,"doc_path":["docs/**/*.md"]}', /unknown key\(s\) doc_path/],
+      ['another version', '{"version":2}', /version must be 1, got 2/],
+      ['a changelog_dir outside the repo', '{"version":1,"changelog_dir":"../notes"}', /changelog_dir must be a repo-relative directory/],
+      ['an empty doc_paths', '{"version":1,"doc_paths":[]}', /doc_paths must be a non-empty array/],
+      ['a tool_name_pattern with no capture group', '{"version":1,"tool_name_pattern":"name: \\\\w+"}', /exactly one capture group, has 0/],
+      ['a tool_name_pattern that does not compile', '{"version":1,"tool_name_pattern":"(a"}', /not a valid regex/],
+    ] as const) {
+      it(`denies ${name}, naming the file and its shape, and records no run`, async () => {
+        const f = fixture(withConfig(config));
+        featureCommit(f);
+        const d = await denial(f);
+        assert.equal(d.check, 'doc_checks_config');
+        assert.ok(d.expected?.includes(DOC_CHECKS_FILE), d.expected ?? '');
+        assert.ok(d.expected?.includes(DOC_CHECKS_SHAPE), d.expected ?? '');
+        assert.match(d.actual ?? '', actual);
+        assert.equal(runCount(f), 0);
+      });
+    }
+
+    it('skips both checks with a note for each key a version-only file leaves out', async () => {
+      const f = fixture(withConfig('{"version":1}'));
+      f.git('rm', '-q', 'scripts/old.sh');
+      f.commit('drop old.sh with no fragment');
+      const note = await allowNote(f);
+      assert.match(note, /missing_changelog skipped: \.config\/tmb\/doc-checks\.json sets no "changelog_dir"\./);
+      assert.match(note, /stale_doc_ref skipped: \.config\/tmb\/doc-checks\.json sets no "doc_paths"\./);
+      assert.equal(runCount(f), 1);
+    });
+
+    it('skips only the tool-name half when the tool keys are absent', async () => {
+      const files = withConfig('{"version":1,"changelog_dir":"changelog.d","doc_paths":["skills/**/*.md"]}');
+      files['skills/s/SKILL.md'] = 'Call `old_tool`.\n';
+      const f = fixture(files);
+      featureCommit(f);
+      f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
+      f.commit('drop old_tool');
+      const note = await allowNote(f);
+      assert.match(note, /stale_doc_ref's removed-tool-name half skipped: \.config\/tmb\/doc-checks\.json sets no "tool_sources" or "tool_name_pattern"\./);
+      assert.doesNotMatch(note, /missing_changelog/);
+    });
+
+    it('adds the note to the allow that already carries context', async () => {
+      const files = { ...BASE_FILES };
+      delete files[DOC_CHECKS_FILE];
+      const f = fixture(files);
+      featureCommit(f);
+      const d = new DatabaseSync(f.db);
+      d.prepare("UPDATE tasks SET verification = '[]' WHERE id = ?").run(TASK_ID);
+      d.close();
+      const note = await allowNote(f);
+      assert.match(note, /task has no typed verification\[\]/);
+      assert.match(note, /missing_changelog and stale_doc_ref skipped: no \.config\/tmb\/doc-checks\.json at [0-9a-f]{40}/);
+    });
+
+    it('reads the file at HEAD, never from the working tree', async () => {
+      const f = fixture();
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      f.commit('feature without fragment');
+      f.write(DOC_CHECKS_FILE, '{"version":1}');
+      assert.equal((await denial(f)).check, 'missing_changelog');
+    });
+  });
+
+  describe('a project that is not the plugin repo (decision 3334)', () => {
+    const CONFIG = JSON.stringify({
+      version: 1,
+      changelog_dir: 'notes/changes/',
+      doc_paths: ['documentation/**/*.md'],
+      tool_sources: ['tools/*.py'],
+      tool_name_pattern: '^def cmd_([a-z_]+)\\(',
+    });
+    const PROJECT_FILES: Record<string, string> = {
+      'README.md': 'Start with documentation/setup.md, which runs scripts/legacy.sh.\n',
+      'documentation/setup.md': 'Run `scripts/legacy.sh` once.\n',
+      'documentation/commands/list.md': 'Commands: `keep_it`, `old_one`.\n',
+      'scripts/legacy.sh': 'echo legacy\n',
+      'tools/commands.py': 'def cmd_keep_it(args):\n    pass\n\ndef cmd_old_one(args):\n    pass\n',
+      'notes/changes/README.md': 'One note per change.\n',
+      'src/a.txt': 'one\ntwo\nthree\n',
+      [DOC_CHECKS_FILE]: CONFIG,
+    };
+
+    function change(f: Fixture, withNote = true): void {
+      f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+      if (withNote) f.write('notes/changes/3-x.md', '- x\n');
+    }
+
+    it('has no changelog.d/ and no docs/', () => {
+      const f = fixture(PROJECT_FILES);
+      assert.equal(f.git('ls-tree', '-d', '--name-only', 'HEAD', '--', 'changelog.d', 'docs'), '');
+    });
+
+    it('allows a change with its note under notes/changes/', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f);
+      f.commit('feature');
+      await assertAllowed(f);
+      assert.equal(runCount(f), 1);
+    });
+
+    it('denies a change with no file under notes/changes/', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f, false);
+      f.commit('feature without a note');
+      const d = await denial(f);
+      assert.equal(d.check, 'missing_changelog');
+      assert.equal(d.actual, 'no file added under notes/changes/');
+      assert.equal(runCount(f), 0);
+    });
+
+    it('denies a deleted path documentation/ still names, counting no README.md outside doc_paths', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f);
+      f.git('rm', '-q', 'scripts/legacy.sh');
+      f.commit('drop legacy.sh');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.equal(d.actual, "documentation/setup.md mentions removed path 'scripts/legacy.sh'");
+
+      f.write('documentation/setup.md', 'Nothing to run once.\n');
+      f.commit('drop the setup step');
+      await assertAllowed(f);
+    });
+
+    it('denies a command its tool_name_pattern no longer finds that documentation/ still names', async () => {
+      const f = fixture(PROJECT_FILES);
+      change(f);
+      f.write('tools/commands.py', 'def cmd_keep_it(args):\n    pass\n');
+      f.commit('drop old_one');
+      const d = await denial(f);
+      assert.equal(d.check, 'stale_doc_ref');
+      assert.equal(d.actual, "documentation/commands/list.md mentions removed tool 'old_one'");
+    });
+
+    it('with no config file skips both checks with the note, and the close passes', async () => {
+      const files = { ...PROJECT_FILES };
+      delete files[DOC_CHECKS_FILE];
+      const f = fixture(files);
+      change(f, false);
+      f.git('rm', '-q', 'scripts/legacy.sh');
+      f.commit('drop legacy.sh with no note');
+      const note = await allowNote(f);
+      assert.ok(note.includes(`missing_changelog and stale_doc_ref skipped: no ${DOC_CHECKS_FILE} at `), note);
+      assert.ok(note.includes(DOC_CHECKS_SHAPE), note);
+      assert.equal(runCount(f), 1);
+    });
+  });
+
+  describe('leak_scan (GH 2929)', () => {
+    const token = ['ghp', 'aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5'].join('_');
+    const email = ['alice', 'corp.io'].join('@');
+    const home = ['', 'Users', 'alice', 'x'].join('/');
+
+    function leaky(): Fixture {
+      const f = fixture();
+      f.write('src/a.txt', `one\ntwo\nthree\nconst t = "${token}";\n`);
+      f.write('docs/contact.md', `Mail ${email}.\ncd ${home}\n`);
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.commit('leaky feature');
+      return f;
+    }
+
+    it('denies a token, an email and a home path by file, line and rule, never the token, and records no run', async () => {
+      const f = leaky();
+      const d = await denial(f);
+      assert.equal(d.check, 'leak_scan');
+      assert.equal(d.actual, 'docs/contact.md:1 email; docs/contact.md:2 home_path; src/a.txt:4 @secretlint/secretlint-rule-github');
+      assert.ok(!JSON.stringify(d).includes(token.slice(4)));
+      assert.equal(runCount(f), 0);
+    });
+
+    it('runs under waive_verification_gate_reason too', async () => {
+      assert.equal((await denial(leaky(), { waive_verification_gate_reason: 'the suite needs a GPU this host lacks' })).check, 'leak_scan');
+    });
+
+    it('allows noreply@ and example.com addresses', async () => {
+      const f = fixture();
+      f.write('docs/contact.md', 'Co-Authored-By: Claude <noreply@anthropic.com>\nWrite to foo@example.com.\n');
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.commit('feature');
+      await assertAllowed(f);
+      assert.equal(runCount(f), 1);
+    });
+
+    it('admits a hit a reasoned allow entry in .config/tmb/leak-scan.json matches, and denies an entry without a reason', async () => {
+      const f = fixture();
+      f.write('docs/contact.md', `Mail ${email}.\n`);
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.write('.config/tmb/leak-scan.json', JSON.stringify({ version: 1, allow: [{ rule: 'email', pattern: '@corp\\.io$' }] }));
+      f.commit('allow without reason');
+      assert.equal((await denial(f)).check, 'leak_scan_config');
+      f.write('.config/tmb/leak-scan.json', JSON.stringify({ version: 1, allow: [{ rule: 'email', pattern: '@corp\\.io$', reason: 'public team alias' }] }));
+      f.commit('allow with reason');
+      await assertAllowed(f);
+    });
+
+    it('denies through the built dist/hooks.js bundle, which loads secretlint', () => {
+      const f = leaky();
+      const payload = JSON.stringify({
+        tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status',
+        tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'completed' },
+      });
+      const r = spawnSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'swe-verification-gate'], {
+        input: payload,
+        env: f.env,
+        encoding: 'utf8',
+      });
+      assert.equal(r.status, 0, r.stderr);
+      const reason = JSON.parse(decision(r.stdout).permissionDecisionReason ?? '{}') as { check?: string; actual?: string };
+      assert.equal(reason.check, 'leak_scan', r.stdout);
+      assert.match(reason.actual ?? '', /src\/a\.txt:4 @secretlint\/secretlint-rule-github/);
+    });
   });
 });

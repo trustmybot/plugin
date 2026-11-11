@@ -13,7 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { activationRoutine, HALT_TEXT, LocaleGrep } from '../hooks/activation-routine.js';
 import { argsJson, debugTrajectory } from '../hooks/debug-trajectory.js';
 import { jqNumberLiteral } from '../hooks/lib/jq.js';
-import { commandOnPath, personaContext, personaEmit, personaInit } from '../hooks/lib/persona.js';
+import { commandOnPath, personaContext, personaEmit, personaInit, userTimeZoneLine } from '../hooks/lib/persona.js';
 import { setlocaleUtf8 } from '../hooks/lib/project-env.js';
 import { pluginHooksMarker } from '../hooks/plugin-hooks-marker.js';
 import { CONTINUE, logLines, sessionLogCapture } from '../hooks/session-log-capture.js';
@@ -130,6 +130,43 @@ describe('persona raw text', () => {
       const context = personaContext(persona, { CLAUDE_PROJECT_DIR: join(dir, 'project') });
       assert.ok(context?.endsWith('\n\nbro�'));
       assert.equal(personaEmit(persona, 'SessionStart', 'ctx'), 'ctx\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the user time zone line (GH 2338)', () => {
+  const RULE = 'Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.';
+  const january = new Date('2026-01-15T12:00:00Z');
+  const july = new Date('2026-07-15T12:00:00Z');
+
+  it('prints the resolved zone with its offset at now, daylight time included', () => {
+    assert.equal(userTimeZoneLine({}, january, 'America/Los_Angeles'), `User time zone: America/Los_Angeles (UTC-08:00). ${RULE}`);
+    assert.equal(userTimeZoneLine({}, july, 'America/Los_Angeles'), `User time zone: America/Los_Angeles (UTC-07:00). ${RULE}`);
+    assert.equal(userTimeZoneLine({}, january, 'Asia/Kolkata'), `User time zone: Asia/Kolkata (UTC+05:30). ${RULE}`);
+  });
+
+  it('falls back to TZ when the runtime zone is missing or invalid, then to UTC', () => {
+    assert.equal(userTimeZoneLine({ TZ: 'Europe/Berlin' }, july, ''),`User time zone: Europe/Berlin (UTC+02:00). ${RULE}`);
+    assert.equal(userTimeZoneLine({ TZ: 'Europe/Berlin' }, january, 'Not/AZone'), `User time zone: Europe/Berlin (UTC+01:00). ${RULE}`);
+    assert.equal(userTimeZoneLine({}, january, ''),`User time zone: UTC (UTC+00:00). ${RULE}`);
+    assert.equal(userTimeZoneLine({ TZ: 'bogus' }, july, ''), `User time zone: UTC (UTC+00:00). ${RULE}`);
+  });
+
+  it('comes right after the project root line in the persona context', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-persona-tz-')));
+    try {
+      mkdirSync(join(dir, 'plugin/.claude-plugin'), { recursive: true });
+      mkdirSync(join(dir, 'project'));
+      writeFileSync(join(dir, 'plugin/.claude-plugin/plugin.json'), '{"name":"tmb","version":"1.1.0"}');
+      writeFileSync(join(dir, 'plugin/CLAUDE.md'), 'bro\n');
+      const persona = personaInit({ CLAUDE_PLUGIN_ROOT: join(dir, 'plugin'), CLAUDE_PROJECT_DIR: join(dir, 'project'), PATH: '' }, false);
+      assert.ok(persona);
+      const lines = personaContext(persona, { CLAUDE_PROJECT_DIR: join(dir, 'project') }, january)?.split('\n') ?? [];
+      assert.equal(lines[1], `Project root (<project> in TMB prompts): ${join(dir, 'project')}`);
+      assert.equal(lines[2], userTimeZoneLine(process.env, january));
+      assert.equal(lines[3], '');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

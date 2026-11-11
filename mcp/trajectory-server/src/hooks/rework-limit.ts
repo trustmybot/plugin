@@ -1,18 +1,14 @@
 /**
- * PreToolUse(Agent) gate (GH 1738, GH 2148, GH 2830), run by
+ * PreToolUse(Agent) gate (GH 1738, GH 2148, GH 2830, GH 2857), run by
  * agent-spawn-dispatch: a swe spawn for task_id=<N> is judged by bro's typed
- * rework analysis, everything counted since the latest Human waiver (a
- * discussions row with author 'human' and kind 'decision' on the task, or on
- * its issue with task_id NULL: the `waive task <N>` capture; a pr_monitor
- * comment by a login named 'human' is a 'note' and never counts). No swe-run
- * or issue-wide FAIL count denies a spawn; how much rework a task gets is
- * bro's judgement, proven change by change.
+ * rework analysis. No swe-run or issue-wide FAIL count denies a spawn, and no
+ * discussions row lifts a deny; how much rework a task gets is bro's
+ * judgement, proven change by change.
  *
  * Design drift: a `task_rework_analysis` audit row of the task with
- * root_cause design_drift, newer than the latest Human waiver, denies every
- * further swe run whatever the FAIL count. bro asks the Human on the issue with
- * the evidence and options; only the Human lifts it, by typing
- * `waive task <N>`.
+ * root_cause design_drift denies every further swe run of the task whatever
+ * the FAIL count. The drifted task ends there: bro redesigns the work as a
+ * new task, by `task_retry` with a redesigned spec or by a split.
  *
  * Rework limit: from REWORK_FAIL_LIMIT review FAILs on the task since its
  * last passing review, the gate is an allowlist. It admits a spawn only when the
@@ -26,10 +22,12 @@
  *     issue created with the `Area: World Model` label.
  *
  * split, retry, re_review and ask_human never admit a swe run of this task:
- * split and retry start a new task, re_review is no swe run, and ask_human
- * waits on the Human. Each further FAIL needs a fresh analysis.
+ * split and retry start a new task, re_review is no swe run (review_handoff
+ * re-hands the unchanged commit to a new code-reviewer), and ask_human
+ * takes a question to the Human; a run after the answer needs a fresh
+ * analysis naming a proven change. Each further FAIL needs a fresh analysis.
  *
- * No other agent-written row lifts a deny. Rows of one table order by
+ * No other row lifts a deny. Rows of one table order by
  * created_at, then id; a row of one table is newer than a row of another only
  * when its created_at is strictly later. Only swe spawns naming task_id=<N>
  * are judged; a missing task_id is require-task-spec's. No resolvable DB or
@@ -41,6 +39,7 @@ import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
 import {
+  MAX_EFFORT,
   REWORK_FAIL_LIMIT,
   SPAWN_ADMITTING_CHANGES,
   TASK_PROOF_EVENTS,
@@ -60,8 +59,8 @@ export interface ReworkAnalysisRow {
 }
 
 export interface ReworkState {
+  effort: string | null;
   taskFails: number;
-  waivedAt: string | null;
   lastFailAt: string | null;
   analyses: ReworkAnalysisRow[];
   proofAt: Record<string, string | null>;
@@ -89,24 +88,19 @@ const WORLD_MODEL_PROOF_SQL = `(SELECT MAX(at) FROM (
 function readState(db: string, taskId: string, env: NodeJS.ProcessEnv): ReworkState | null | typeof GATE_READ_ERROR {
   const out = gateRead(
     db,
-    `WITH t AS (SELECT id, issue_id FROM tasks WHERE id = ${taskId}),
-          human AS (SELECT MAX(d.created_at) AS at FROM discussions d, t
-                     WHERE (d.task_id = t.id OR (d.task_id IS NULL AND d.issue_id = t.issue_id))
-                       AND d.author = 'human' AND d.kind = 'decision'),
+    `WITH t AS (SELECT id, issue_id, effort FROM tasks WHERE id = ${taskId}),
           since AS (SELECT COALESCE(MAX(v.id), 0) AS pass_id FROM validation_attempts v, t
                      WHERE v.task_id = t.id AND v.verdict = 'pass'),
           analyses AS (SELECT a.id, a.created_at,
                               json_extract(a.content_json, '$.root_cause') AS root_cause,
                               json_extract(a.content_json, '$.change') AS change_kind
-                         FROM audit a, t, human
+                         FROM audit a, t
                         WHERE a.event_type = 'task_rework_analysis' AND a.issue_id = t.issue_id
-                          AND json_extract(a.content_json, '$.task_id') = t.id
-                          AND (human.at IS NULL OR a.created_at > human.at))
+                          AND json_extract(a.content_json, '$.task_id') = t.id)
      SELECT json_object(
-       'task_fails', (SELECT COUNT(*) FROM validation_attempts v, t, since, human
-                       WHERE v.task_id = t.id AND v.verdict = 'fail' AND v.id > since.pass_id
-                         AND (human.at IS NULL OR v.created_at > human.at)),
-       'waived_at', (SELECT at FROM human),
+       'effort', t.effort,
+       'task_fails', (SELECT COUNT(*) FROM validation_attempts v, t, since
+                       WHERE v.task_id = t.id AND v.verdict = 'fail' AND v.id > since.pass_id),
        'last_fail_at', (SELECT v.created_at FROM validation_attempts v, t
                          WHERE v.task_id = t.id AND v.verdict = 'fail' ORDER BY v.id DESC LIMIT 1),
        'analyses', json((SELECT json_group_array(json_object('id', id, 'created_at', created_at,
@@ -121,15 +115,15 @@ function readState(db: string, taskId: string, env: NodeJS.ProcessEnv): ReworkSt
   if (out === GATE_READ_ERROR) return GATE_READ_ERROR;
   if (out === '') return null;
   const row = JSON.parse(out.split('\n')[0]) as {
+    effort: string | null;
     task_fails: number;
-    waived_at: string | null;
     last_fail_at: string | null;
     analyses: ReworkAnalysisRow[];
     proofs: Record<string, string | null>;
   };
   return {
+    effort: row.effort,
     taskFails: row.task_fails,
-    waivedAt: row.waived_at,
     lastFailAt: row.last_fail_at,
     analyses: row.analyses,
     proofAt: row.proofs,
@@ -167,41 +161,51 @@ export interface ReworkDeny {
   fix: DenyFix;
 }
 
-function designDriftDeny(taskId: string, drift: ReworkAnalysisRow, since: string): ReworkDeny {
+function designDriftDeny(taskId: string, drift: ReworkAnalysisRow): ReworkDeny {
   return {
     reason:
-      `BLOCKED: task ${taskId}: analysis #${drift.id} names root_cause design_drift${since}, so the reality has drifted from the design and no swe run of this task goes on. ` +
-      'Ask the Human on the issue, with the evidence (the analysis, the FAILs and their findings) and concrete options: drop the task, ' +
-      'redesign with the change you propose, or keep the design with a named fix. ' +
-      `Only the Human lifts this, by typing \`waive task ${taskId}\`. No agent action lifts it.`,
-    fix: 'policy',
+      `BLOCKED: task ${taskId}: analysis #${drift.id} names root_cause design_drift, so the reality has drifted from the design and no further swe run of this task goes on. ` +
+      'Redesign the work as a new task: `task_retry` this task with a spec redesigned for the reality the analysis found, ' +
+      'or split it into new tasks with `task_create_batch`, each with its own spec and swe runs.',
+    fix: {
+      allowed:
+        `task_update_status(agent='bro', task_id=${taskId}, status='escalated'), then task_retry(agent='bro', failed_task_id=${taskId}, new_branch_id, corrected_spec_body, retry_rationale, description), ` +
+        'or the split tasks through task_create_batch',
+    },
   };
 }
 
-function reworkLimitDeny(taskId: string, holds: string, since: string): ReworkDeny {
+/**
+ * The rework-limit deny. A review FAIL already raises its task to the top
+ * effort (GH 2866), so a task at MAX_EFFORT is offered no effort_raise.
+ */
+function reworkLimitDeny(taskId: string, holds: string, effort: string | null): ReworkDeny {
+  const canRaise = effort !== MAX_EFFORT;
+  const effortChange = canRaise ? 'effort_raise with `task_reopen(effort=...)`, ' : '';
+  const atMaxEffort = canRaise ? '' : `The task already runs at effort "${MAX_EFFORT}", so no effort_raise is left. `;
   return {
     reason:
-      `BLOCKED: task ${taskId} is at the rework limit${since}: ${holds}. ` +
+      `BLOCKED: task ${taskId} is at the rework limit: ${holds}. ` +
       'Debug the root cause before another swe run: check the inputs first (the spec, the world model, the reviewer, the environment), then swe\'s execution. ' +
       'Answer the approach question: do the findings share one cause in the approach itself, each round patching the same mechanism? ' +
-      'Record it with `task_rework_analysis`, then make the change it names: spec_update with `task_update_spec`, effort_raise with `task_reopen(effort=...)`, ' +
+      atMaxEffort +
+      `Record it with \`task_rework_analysis\`, then make the change it names: spec_update with \`task_update_spec\`, ${effortChange}` +
       `world_model_fix with \`scan_run\`, \`${WORLD_MODEL_PROOF_TOOL}\` or an issue labeled \`${WORLD_MODEL_ISSUE_LABEL}\`; the analysis plus that change admits the next swe run. ` +
-      'A shared approach cause takes a redesign: a split or `task_retry`, each starting a new task. ' +
-      'Ask the Human only when the reality drifts from the design (root_cause design_drift, change ask_human).',
+      'A shared approach cause takes a redesign: a split or `task_retry`, each starting a new task, ' +
+      'and so does a reality drifted from the design (root_cause design_drift, change split or retry).',
     fix: {
       allowed:
         `task_rework_analysis(agent='bro', task_id=${taskId}, fail_validation_ids=[<FAIL ids>], finding_ids=['F${taskId}-<n>'], root_cause, change, approach_shared_cause, rationale), ` +
-        `then task_update_spec(task_id=${taskId}, ...), task_reopen(task_id=${taskId}, effort=...) or the world-model fix`,
+        `then task_update_spec(task_id=${taskId}, ...)${canRaise ? `, task_reopen(task_id=${taskId}, effort=...)` : ''} or the world-model fix`,
     },
   };
 }
 
 export function reworkDeny(taskId: string, state: ReworkState): ReworkDeny | null {
-  const since = state.waivedAt === null ? '' : ` since the Human's last waiver at ${state.waivedAt}`;
   const drift = state.analyses.find((a) => a.root_cause === 'design_drift');
-  if (drift !== undefined) return designDriftDeny(taskId, drift, since);
+  if (drift !== undefined) return designDriftDeny(taskId, drift);
   const holds = reworkLimitHolds(state);
-  return holds === null ? null : reworkLimitDeny(taskId, holds, since);
+  return holds === null ? null : reworkLimitDeny(taskId, holds, state.effort);
 }
 
 export const denyPreToolUse: (reason: string, fix: DenyFix) => GateResult = denyResult;
@@ -211,9 +215,9 @@ export function denyUnreadable(gate: string, env: NodeJS.ProcessEnv): GateResult
 }
 
 // The rework-limit verdict on one more swe run of `taskId` (a spawn, or a
-// resume through SendMessage, GH 1742): denied on design drift until a Human
-// waiver, denied at the rework limit without a proven analysis, denied on a
-// DB read failure, else allowed.
+// resume through SendMessage, GH 1742): denied on design drift, denied at the
+// rework limit without a proven analysis, denied on a DB read failure, else
+// allowed.
 export function reworkLimitVerdict(gate: string, db: string, taskId: string, env: NodeJS.ProcessEnv): GateResult {
   const state = readState(db, taskId, env);
   if (state === GATE_READ_ERROR) return denyUnreadable(gate, env);

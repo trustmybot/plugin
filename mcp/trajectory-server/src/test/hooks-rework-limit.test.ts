@@ -1,17 +1,16 @@
 /**
- * The rework-limit gate (GH 1738, GH 2148, GH 2830) on a temp trajectory DB.
- * From two review FAILs on a task since its last passing review, everything counted since
- * the latest Human waiver (an author 'human', kind 'decision' row) on the task
- * or its issue, a swe spawn is admitted only when the task's latest
+ * The rework-limit gate (GH 1738, GH 2148, GH 2830, GH 2857) on a temp
+ * trajectory DB. From two review FAILs on a task since its last passing
+ * review, a swe spawn is admitted only when the task's latest
  * task_rework_analysis is newer than its latest FAIL and its change is proven
  * by a row dated after that FAIL: task_spec_amended for spec_update,
  * task_effort_raised for effort_raise, and a world-model scan, reindex,
  * concept upsert or `Area: World Model` issue for world_model_fix. split,
  * retry, re_review and ask_human never admit. No swe-run or issue-wide FAIL
- * count denies. A design_drift analysis newer than the latest Human waiver
- * denies at any FAIL count and names `waive task <N>`. No bro decision row and
- * no Human note lifts a deny. The agent-spawn-dispatch gate returns the deny
- * before any PREPARE step.
+ * count denies. A design_drift analysis denies at any FAIL count and names
+ * task_retry and a split, never the Human. No discussions row, bro's or
+ * author 'human', counts or lifts a deny. The agent-spawn-dispatch gate
+ * returns the deny before any PREPARE step.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -190,18 +189,21 @@ function assertReworkLimit(reason: string): void {
   assert.ok(reason.includes('task_update_spec') && reason.includes('task_reopen(effort=...)') && reason.includes('world_model_fix'), reason);
   assert.ok(reason.includes('task_retry') && /new task/.test(reason), reason);
   assert.match(reason, /approach_shared_cause/);
-  assert.doesNotMatch(reason, /waive task/);
+  assert.match(reason, /design_drift, change split or retry/);
+  assert.doesNotMatch(reason, /[Ww]aive|Human/);
   assert.doesNotMatch(reason, /discussion_append/);
   assert.doesNotMatch(reason, /decision/i);
 }
 
-/** The design-drift deny: ask the Human with evidence and options; only `waive task <N>` lifts it. */
+/** The design-drift deny: redesign as a new task by task_retry or a split; no Human action, no policy stop. */
 function assertDesignDrift(reason: string, taskId: number): void {
   assert.match(reason, /names root_cause design_drift/);
-  assert.match(reason, /Ask the Human on the issue, with the evidence/);
-  assert.match(reason, /drop the task, redesign with the change you propose, or keep the design with a named fix/);
-  assert.ok(reason.includes(`waive task ${taskId}`), reason);
-  assert.match(reason, /This is policy: stop and report\.$/);
+  assert.match(reason, /no further swe run of this task goes on/);
+  assert.match(reason, /Redesign the work as a new task: `task_retry` this task with a spec redesigned/);
+  assert.match(reason, /split it into new tasks with `task_create_batch`/);
+  assert.ok(reason.includes(`Allowed form: task_update_status(agent='bro', task_id=${taskId}, status='escalated'), then task_retry(agent='bro', failed_task_id=${taskId}, `), reason);
+  assert.doesNotMatch(reason, /policy/);
+  assert.doesNotMatch(reason, /[Ww]aive|Human/);
   assert.doesNotMatch(reason, /discussion_append/);
   assert.doesNotMatch(reason, /decision/i);
 }
@@ -237,37 +239,28 @@ describe('rework-limit', () => {
       assertReworkLimit(reason);
     });
 
-    it('a newer Human row on the task lifts it', () => {
+    it("no author 'human' decision row, on the task, its issue or another task, lifts it or resets the count (GH 2857)", () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       f.discuss({ author: 'human', kind: 'decision' });
-      assert.deepEqual(run(f), ALLOWED);
-    });
-
-    it('a newer issue-level Human row lifts it', () => {
-      const f = fixture();
-      f.verdicts('fail', 'fail');
       f.discuss({ author: 'human', kind: 'decision', taskId: null });
-      assert.deepEqual(run(f), ALLOWED);
-    });
-
-    it('a Human row on another task of the issue does not lift it', () => {
-      const f = fixture();
-      f.verdicts('fail', 'fail');
       f.discuss({ author: 'human', kind: 'decision', taskId: OTHER_TASK_ID });
-      denyReason(run(f).stdout);
+      assertReworkLimit(denyReason(run(f).stdout));
+      f.verdicts('fail');
+      assert.match(denyReason(run(f).stdout), /task FAILs: 3 review FAILs on the task since its last passing review/);
     });
 
-    it('counts the FAILs after the latest Human row afresh', () => {
+    it('offers no effort_raise to a task already at high, which a FAIL raised it to (GH 2866)', () => {
       const f = fixture();
+      const d = new DatabaseSync(f.db);
+      d.prepare("UPDATE tasks SET effort = 'high' WHERE id = ?").run(TASK_ID);
+      d.close();
       f.verdicts('fail', 'fail');
-      f.discuss({ author: 'human', kind: 'decision' });
-      f.verdicts('fail');
-      assert.deepEqual(run(f), ALLOWED);
-      f.verdicts('fail');
       const reason = denyReason(run(f).stdout);
-      assert.match(reason, /task FAILs: 2 review FAILs/);
-      assert.match(reason, /since the Human's last waiver at 2026-10-25T10:03:00\.000Z/);
+      assert.match(reason, /task 3 is at the rework limit/);
+      assert.match(reason, /already runs at effort "high", so no effort_raise is left/);
+      assert.ok(reason.includes('spec_update with `task_update_spec`') && reason.includes('world_model_fix with `scan_run`'), reason);
+      assert.doesNotMatch(reason, /effort_raise with|task_reopen\(task_id=3, effort=/);
     });
 
     it('counts only the FAILs after the latest pass', () => {
@@ -530,25 +523,27 @@ describe('rework-limit', () => {
       f.analysis({ change: 'spec_update' });
       f.proof('task_spec_amended');
       assert.deepEqual(sweResumeGate(resume, f.env), ALLOWED);
-      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      f.analysis({ rootCause: 'design_drift', change: 'retry' });
       assertDesignDrift(denyReason((sweResumeGate(resume, f.env) as { stdout: string }).stdout), TASK_ID);
     });
   });
 
-  describe('design drift (GH 2830)', () => {
-    it('denies at zero FAILs, asking the Human with options and naming `waive task <N>`', () => {
-      const f = fixture();
-      const id = f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
-      const reason = denyReason(run(f).stdout);
-      assert.ok(reason.includes(`analysis #${id} names root_cause design_drift`), reason);
-      assertDesignDrift(reason, TASK_ID);
-      assert.doesNotMatch(reason, /task FAILs:/);
-    });
+  describe('design drift (GH 2830, GH 2857)', () => {
+    for (const change of ['retry', 'split']) {
+      it(`denies at zero FAILs with change ${change}, naming task_retry and a split, never the Human`, () => {
+        const f = fixture();
+        const id = f.analysis({ rootCause: 'design_drift', change });
+        const reason = denyReason(run(f).stdout);
+        assert.ok(reason.includes(`analysis #${id} names root_cause design_drift`), reason);
+        assertDesignDrift(reason, TASK_ID);
+        assert.doesNotMatch(reason, /task FAILs:/);
+      });
+    }
 
     it('denies at one FAIL and past a later analysis with a proven change', () => {
       const f = fixture();
       f.verdicts('fail');
-      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      f.analysis({ rootCause: 'design_drift', change: 'retry' });
       assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
       f.verdicts('fail');
       f.analysis({ change: 'spec_update' });
@@ -556,30 +551,28 @@ describe('rework-limit', () => {
       assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
     });
 
-    it('a newer Human decision row on the task or the issue lifts it; a later drift denies again', () => {
+    it('a later passing review does not lift it', () => {
       const f = fixture();
-      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
-      f.discuss({ author: 'human', kind: 'decision' });
-      assert.deepEqual(run(f), ALLOWED);
-      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      f.analysis({ rootCause: 'design_drift', change: 'split' });
+      f.verdicts('pass');
       assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
-      f.discuss({ author: 'human', kind: 'decision', taskId: null });
-      assert.deepEqual(run(f), ALLOWED);
     });
 
-    it('a bro decision row, a Human note, or a Human row on another task does not lift it', () => {
+    it("no discussions row lifts it: a bro decision, a Human note, or an author 'human' decision on the task, its issue or another task", () => {
       const f = fixture();
-      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      f.analysis({ rootCause: 'design_drift', change: 'retry' });
       f.discuss({ kind: 'decision' });
       f.discuss({ kind: 'decision', taskId: null });
       f.discuss({ author: 'human', kind: 'note' });
+      f.discuss({ author: 'human', kind: 'decision' });
+      f.discuss({ author: 'human', kind: 'decision', taskId: null });
       f.discuss({ author: 'human', kind: 'decision', taskId: OTHER_TASK_ID });
       assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
     });
 
     it("another task's design drift does not block this task", () => {
       const f = fixture();
-      f.analysis({ rootCause: 'design_drift', change: 'ask_human', taskId: OTHER_TASK_ID });
+      f.analysis({ rootCause: 'design_drift', change: 'retry', taskId: OTHER_TASK_ID });
       assert.deepEqual(run(f), ALLOWED);
       assertDesignDrift(denyReason(spawnOf(f, OTHER_TASK_ID).stdout), OTHER_TASK_ID);
     });
@@ -599,22 +592,21 @@ describe('rework-limit', () => {
       f.discuss({ kind: 'decision' });
       assert.match(denyReason(run(f).stdout), /no task_rework_analysis newer than the latest FAIL/);
       const g = fixture();
-      g.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      g.analysis({ rootCause: 'design_drift', change: 'split' });
       g.discuss({ kind: 'decision' });
       g.discuss({ kind: 'decision', taskId: null });
       assertDesignDrift(denyReason(run(g).stdout), TASK_ID);
     });
 
-    it("a newer author 'human' kind 'note' row (pr_monitor's shape for a login named human) resets nothing", () => {
+    it("a newer author 'human' row of any kind (pr_monitor's note for a login named human included) resets nothing", () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       f.discuss({ author: 'human', kind: 'note' });
       f.discuss({ author: 'human', kind: 'note', taskId: null });
+      f.discuss({ author: 'human', kind: 'decision' });
       const reason = denyReason(run(f).stdout);
       assert.match(reason, /task FAILs: 2 /);
-      assert.doesNotMatch(reason, /since the Human's last waiver/);
-      f.discuss({ author: 'human', kind: 'decision' });
-      assert.deepEqual(run(f), ALLOWED);
+      assertReworkLimit(reason);
     });
   });
 
@@ -680,10 +672,10 @@ describe('rework-limit', () => {
       ['scripts/hooks/README.md', 'a decision naming the change of approach'],
       ['mcp/trajectory-server/src/hooks/rework-limit.ts', 'needs a newer decision'],
     ]) {
-      it(`${doc} names the Human's \`waive task\` and no decision-row escape or fixed cap`, () => {
+      it(`${doc} names no Human waiver, decision-row escape or fixed cap`, () => {
         const text = readFileSync(join(PLUGIN_ROOT, doc), 'utf8');
         assert.equal(text.includes(stale), false, `${doc} still says "${stale}"`);
-        assert.ok(text.includes('waive task'), `${doc} names \`waive task <N>\``);
+        assert.doesNotMatch(text, /waive\s+task|Human waiver|Human's (last|latest) waiver/i, `${doc} still names a Human waiver`);
         for (const cap of ['SWE_RUN_LIMIT', 'ISSUE_FAIL_LIMIT', 'outer ceiling']) {
           assert.equal(text.includes(cap), false, `${doc} still names ${cap}`);
         }

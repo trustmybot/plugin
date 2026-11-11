@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
 const KIND_REGEX = /audit_append[^)]*kind\s*=/;
-const TARGETS = ['docs', 'skills', 'agents', 'commands', 'templates/agents', 'CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md'];
+const TARGETS = ['docs', 'skills', 'agents', 'commands', 'templates/agents', 'CLAUDE.md'];
 
 function walk(abs, out) {
   if (!existsSync(abs)) return;

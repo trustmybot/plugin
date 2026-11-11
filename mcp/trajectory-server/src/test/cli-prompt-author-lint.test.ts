@@ -40,8 +40,11 @@ describe('cli.js prompt-author-lint', () => {
   after(() => rmSync(dir, { recursive: true, force: true }));
 
   const classes: [string, string, string[]][] = [
-    ['pink-elephant', "Don't skip it.\nNever stop.\nDo not wait.\nDon'tstop.\n  Never indented.", ["Don't skip it.", 'Never stop.', 'Do not wait.']],
-    ['pink-elephant-mid', 'Agents MUST NOT push.\nYou do not need it.\nIt never ends.\nNever-ending.\nDo nothing.', ['Agents MUST NOT push.', 'You do not need it.', 'It never ends.']],
+    [
+      'bare-negation',
+      "Don't skip it.\nNever stop.\nDo not wait.\nYou do not need it.\nIt never ends.\nWe don't know.\nDon'tstop.\n  Never indented.\nNever-ending.\nDo nothing.",
+      ["Don't skip it.", 'Never stop.', 'Do not wait.', 'You do not need it.', 'It never ends.', "We don't know."],
+    ],
     ['issue-number', 'See #123 here.\nSee (#GH12) too.\nAsk [bro #4].\nNot #abc or #123456.', ['See #123 here.', 'See (#GH12) too.', 'Ask [bro #4].']],
     ['memory-path', 'Read feedback_no_force-push.md.\nOr ~/.claude/projects/x.\nNot feedback_X.md.', ['Read feedback_no_force-push.md.', 'Or ~/.claude/projects/x.']],
     ['origin-attribution', 'Caught In review.\nA prior incident.\nA REGRESSION DURING tests.\nFailed 2× during runs.\nFailed 2X during runs.\nCaught on time.', ['Caught In review.', 'A prior incident.', 'A REGRESSION DURING tests.', 'Failed 2× during runs.', 'Failed 2X during runs.']],
@@ -64,8 +67,8 @@ describe('cli.js prompt-author-lint', () => {
     assert.equal(
       r.stdout,
       [
-        "[pink-elephant] 7:Don't go.",
-        '[pink-elephant-mid] 6:We never stop.',
+        '[bare-negation] 6:We never stop.',
+        "[bare-negation] 7:Don't go.",
         '[issue-number] 5:Ref #9.',
         '[memory-path] 4:feedback_a.md',
         '[origin-attribution] 3:Caught in CI.',
@@ -79,28 +82,49 @@ describe('cli.js prompt-author-lint', () => {
 
   it('flags one line under every class it matches', () => {
     const r = lint('multi.md', draft('Never do not on 2026-01-01.'));
-    assert.equal(r.stdout, "[pink-elephant] 1:Never do not on 2026-01-01.\n[pink-elephant-mid] 1:Never do not on 2026-01-01.\n[date] 1:Never do not on 2026-01-01.\n");
+    assert.equal(r.stdout, '[bare-negation] 1:Never do not on 2026-01-01.\n[date] 1:Never do not on 2026-01-01.\n');
     assert.equal(r.code, 0);
   });
 
-  it('exempts comment lines from the mid-sentence check only', () => {
-    const r = lint('comments.md', draft('# never here', '  // do not here', '\t-- MUST NOT here', 'x # never here', '#123 never'));
-    assert.equal(r.stdout, '[pink-elephant-mid] 4:x # never here\n[issue-number] 5:#123 never\n');
-    assert.equal(r.code, 0);
-  });
-
-  it('exempts LOAD-BEARING-SAFETY lines from the mid-sentence check only', () => {
-    const r = lint('safety.md', draft('Never bypass; you never do. <!-- LOAD-BEARING-SAFETY -->', 'you never bypass <!-- load-bearing-safety -->'));
-    assert.equal(
-      r.stdout,
-      '[pink-elephant] 1:Never bypass; you never do. <!-- LOAD-BEARING-SAFETY -->\n[pink-elephant-mid] 2:you never bypass <!-- load-bearing-safety -->\n',
+  it('skips a negation paired with an alternative', () => {
+    const r = lint(
+      'paired.md',
+      draft(
+        "Don't guess; ask instead.",
+        "Short and action-first — trim filler, but don't clip so hard you drop context.",
+        'Never edit main unless the Human asks.',
+        'Do not retry INSTEAD of reporting.',
+        'Never write prose rather than code.',
+        'Never push, but open a PR.',
+        'Do not merge only when red.',
+        'Do not deploy only if asked.',
+        'Never commit secrets except in tests.',
+        'Never stop exceptionally.',
+        'Never stop.',
+      ),
     );
+    assert.equal(r.stdout, '[bare-negation] 10:Never stop exceptionally.\n[bare-negation] 11:Never stop.\n');
+    assert.equal(r.code, 0);
+  });
+
+  it('skips a hard-limit line', () => {
+    const r = lint(
+      'hard-limit.md',
+      draft('Agents MUST NOT push.', 'NEVER force-push.', 'You NEVER push and never merge.', 'Never bypass, you never do. <!-- LOAD-BEARING-SAFETY -->', 'you never bypass <!-- load-bearing-safety -->'),
+    );
+    assert.equal(r.stdout, '[bare-negation] 5:you never bypass <!-- load-bearing-safety -->\n');
+    assert.equal(r.code, 0);
+  });
+
+  it('skips comment lines for bare negations only', () => {
+    const r = lint('comments.md', draft('# never here', '  // do not here', "\t-- don't here", 'x # never here', '#123 never'));
+    assert.equal(r.stdout, '[bare-negation] 4:x # never here\n[issue-number] 5:#123 never\n');
     assert.equal(r.code, 0);
   });
 
   it('numbers lines from the first body line after the frontmatter', () => {
     const r = lint('numbering.md', ['Never before.', '---', 'name: x', '---', '', 'ok', 'Never after.', '---', 'Never later.', ''].join('\n'));
-    assert.equal(r.stdout, '[pink-elephant] 3:Never after.\n[pink-elephant] 5:Never later.\n');
+    assert.equal(r.stdout, '[bare-negation] 3:Never after.\n[bare-negation] 5:Never later.\n');
     assert.equal(r.code, 0);
   });
 

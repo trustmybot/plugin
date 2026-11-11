@@ -46,7 +46,7 @@ export interface Declined {
   at: string;
 }
 
-interface RepoEnvRow {
+export interface RepoEnvRow {
   id: number;
   repo: string;
   package_path: string;
@@ -270,7 +270,7 @@ function profileValues(repo: string, p: unknown, i: number, stored: (pkg: string
   ];
 }
 
-function effectiveCommands(commandsJson: string, overridesJson: string | null): Commands {
+export function effectiveCommands(commandsJson: string, overridesJson: string | null): Commands {
   const base = parseJson<Partial<Commands>>(commandsJson, {});
   const over = parseJson<Overrides>(overridesJson, {});
   const out = {} as Commands;

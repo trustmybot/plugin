@@ -47,7 +47,7 @@ export const GATE_NAME = 'no-source-edit-from-main';
 const JUDGED_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']);
 
 const BASH_REASON =
-  'BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.';
+  'BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.';
 const SURFACE_REASON =
   "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
 function sourceReason(env: NodeJS.ProcessEnv): string {
@@ -175,7 +175,7 @@ function projectRelative(p: string, roots: readonly string[]): string {
 }
 
 /** `${word#UNRESOLVED:*:}`, or null for a never-judged marker. */
-function judgedPath(word: string): string | null {
+export function judgedPath(word: string): string | null {
   if (!word.startsWith('UNRESOLVED:')) return word;
   const rest = word.slice('UNRESOLVED:'.length);
   const colon = rest.indexOf(':');

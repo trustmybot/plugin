@@ -12,8 +12,27 @@
 /** The agent_runs predicate of a swe spawn (columns unqualified). */
 export const SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <> 'swept_orphan'";
 
-/** FAIL verdicts on a task since its last passing review and Human waiver from which a further swe run needs a proven rework analysis. */
+/** FAIL verdicts on a task since its last passing review from which a further swe run needs a proven rework analysis. */
 export const REWORK_FAIL_LIMIT = 2;
+
+/** The highest task effort: a task at it has no effort_raise left. */
+export const MAX_EFFORT = 'high';
+
+/** The effort a swe rework runs at while its task has a review FAIL since its last passing review (GH 2866). */
+export const REWORK_FLOOR_EFFORT = MAX_EFFORT;
+
+/**
+ * A scalar subquery: the review FAILs on task <taskIdSql> since its last
+ * passing review, counted by the same rule as the rework-limit gate's `since`
+ * CTE (validation_attempts ids after the newest pass). <taskIdSql> is a bound
+ * parameter or a sanitized integer literal.
+ */
+export function failsSinceLastPassSql(taskIdSql: string): string {
+  return `(SELECT COUNT(*) FROM validation_attempts f
+            WHERE f.task_id = ${taskIdSql} AND f.verdict = 'fail'
+              AND f.id > (SELECT COALESCE(MAX(p.id), 0) FROM validation_attempts p
+                           WHERE p.task_id = ${taskIdSql} AND p.verdict = 'pass'))`;
+}
 
 /** Why a task kept failing review, the inputs first (spec, world model, reviewer, environment), then swe's execution; design_drift when the reality drifts from the design. */
 export const REWORK_ROOT_CAUSES = [
@@ -52,16 +71,17 @@ export const SPAWN_ADMITTING_CHANGES: readonly ReworkChange[] = ['spec_update', 
 /** The changes left when the findings share one cause in the approach itself: a redesign, not another patch. */
 export const APPROACH_CHANGES: readonly ReworkChange[] = ['split', 'retry'];
 
-const ONLY_CHANGE_FOR: Partial<Record<ReworkRootCause, ReworkChange>> = { world_model: 'world_model_fix', design_drift: 'ask_human' };
-const ONLY_ROOT_CAUSE_FOR: Partial<Record<ReworkChange, ReworkRootCause>> = { ask_human: 'design_drift' };
+/** A drifted design takes a new task with a redesigned spec, never another run of the drifted one. */
+const ONLY_CHANGES_FOR: Partial<Record<ReworkRootCause, readonly ReworkChange[]>> = {
+  world_model: ['world_model_fix'],
+  design_drift: APPROACH_CHANGES,
+};
 
 /** Why <change> cannot answer <rootCause> given <approachSharedCause>, or null when the pairing stands. */
 export function reworkPairingError(rootCause: ReworkRootCause, change: ReworkChange, approachSharedCause: boolean): string | null {
-  const onlyChange = ONLY_CHANGE_FOR[rootCause];
-  if (onlyChange !== undefined && change !== onlyChange) return `root_cause ${rootCause} takes only change ${onlyChange} (got ${change})`;
-  const onlyRootCause = ONLY_ROOT_CAUSE_FOR[change];
-  if (onlyRootCause !== undefined && rootCause !== onlyRootCause) {
-    return `change ${change} answers only root_cause ${onlyRootCause} (got ${rootCause})`;
+  const onlyChanges = ONLY_CHANGES_FOR[rootCause];
+  if (onlyChanges !== undefined && !onlyChanges.includes(change)) {
+    return `root_cause ${rootCause} takes only change ${onlyChanges.join(' or ')} (got ${change})`;
   }
   if (approachSharedCause && !APPROACH_CHANGES.includes(change)) {
     return `approach_shared_cause true takes only change ${APPROACH_CHANGES.join(' or ')} (got ${change}): the fix is a redesign, not another patch`;

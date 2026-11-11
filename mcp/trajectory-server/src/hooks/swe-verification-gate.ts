@@ -5,12 +5,27 @@
  * the task worktree, and denies on a failing
  * command or a spent budget.
  *
- * A non-swe caller, another status, no task id or no resolvable DB allows. A
- * waive_verification_gate_reason of at least 10 characters allows and writes
- * one verification_gate_waived audit row per (task, commit). An empty
- * verification[] with no finding allows with a warning; an unlocatable
- * worktree denies. A passing run of the same commands on the worktree HEAD
- * from the last hour is reused (GH 1672); otherwise the run is recorded in
+ * A non-swe caller, another status, no task id or no resolvable DB allows; an
+ * unlocatable worktree denies. Before anything else runs, the changelog and
+ * stale-doc checks (lib/doc-checks.ts, GH 2866) judge the worktree HEAD against
+ * its merge base with the task's PR target and deny with the JSON reason
+ * {check, expected, actual}; an unprovable state (a git failure, no PR target
+ * ref, no merge base, an invalid .config/tmb/doc-checks.json at HEAD) denies
+ * too. That project file names the changelog directory and doc and tool
+ * globs; with no file or no key a check is skipped, and the allow's
+ * additionalContext names the file and key to add. Then the leak scan
+ * (lib/leak-scan.ts, GH 2929) checks the lines that diff adds for secrets
+ * (secretlint's recommended preset), email addresses and home paths, and
+ * denies as leak_scan naming each hit's file, line and rule, never the
+ * matched text; the optional .config/tmb/leak-scan.json at HEAD adds allow
+ * entries and turns rules off, each with a reason, and an invalid one denies
+ * as leak_scan_config. A doc-check or leak-scan deny records no verification
+ * run, so a passing verification_runs row for HEAD means all of them passed, which
+ * swe-atomic-close and code-reviewer-preflight rely on. No waiver or bypass
+ * skips them. Then a waive_verification_gate_reason of at least 10 characters
+ * allows and writes one verification_gate_waived audit row per (task, commit),
+ * and an empty verification[] with no finding allows with a warning. A passing
+ * run of the same commands on the worktree HEAD from the last hour is reused (GH 1672); otherwise the run is recorded in
  * verification_runs under a per-(task, HEAD) mkdir lock, commands the task's
  * last passing ancestor run carries forward are recorded, not run (GH 1950),
  * and the rest run through `bash -c` with the user's toolchain PATH.
@@ -46,9 +61,12 @@ import { constants as osConstants, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { auditAppend, dbWrite, nowIso, type WriteResult } from './lib/audit.js';
-import { type DenyFix, denyJson } from './lib/deny.js';
+import { type DenyFix, denyJson, structuredDenyResult } from './lib/deny.js';
 import { branchSlug, DB_RETRY_FIX, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
+import { docChecks, type DocCheckFailure, gitText, revParse } from './lib/doc-checks.js';
 import { gitRun, isDir } from './lib/git.js';
+import { leakScan } from './lib/leak-scan.js';
+import { prTargetRef } from './lib/git-refs.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
 import { commandSubstitution, jqRawText, posixDirname } from './lib/project-env.js';
@@ -636,7 +654,69 @@ function waive(db: string, taskId: string, reason: string, field: (key: string) 
   return { stdout: `${r.stdout}${WAIVER_UNRECORDED_DENY}`, code: 0 };
 }
 
+/**
+ * <result> with the doc checks' skip <notes> added to an allow's additionalContext; a deny,
+ * or stdout that is not one hook JSON object, stays as is.
+ */
+function withDocNotes(result: GateResult, notes: readonly string[]): GateResult {
+  if (notes.length === 0) return result;
+  const note = `TMB: ${notes.join(' ')}`;
+  const out = result.stdout.trim();
+  if (out === '') return { ...result, stdout: context(note) };
+  let parsed: { hookSpecificOutput?: { permissionDecision?: unknown; additionalContext?: unknown } };
+  try {
+    parsed = JSON.parse(out) as typeof parsed;
+  } catch {
+    return result;
+  }
+  const output = parsed.hookSpecificOutput;
+  if (output === undefined || output.permissionDecision !== undefined) return result;
+  const prior = typeof output.additionalContext === 'string' && output.additionalContext !== '' ? `${output.additionalContext}\n\n` : '';
+  return { ...result, stdout: context(`${prior}${note}`) };
+}
+
+/**
+ * The changelog and stale-doc checks and the leak scan of the worktree HEAD against its merge base
+ * with the task's PR target: the deny when one fails or cannot be proven, else null with each
+ * skipped check's note pushed onto <notes>.
+ */
+async function docGate(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv, notes: string[]): Promise<GateResult | null> {
+  const row = gateRead(
+    db,
+    `SELECT 'row|' || COALESCE(t.parent_branch_id, '') || '|' || COALESCE((SELECT r.target_branch FROM repos r
+              WHERE r.name = t.repo OR (COALESCE(t.repo, '') = '' AND (SELECT COUNT(*) FROM repos) = 1) LIMIT 1), '')
+       FROM tasks t WHERE t.id = ${taskId} LIMIT 1;`,
+    env,
+  );
+  if (row === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
+  const [, parentBranch = '', targetBranch = ''] = row.split('|');
+  const unproven = (expected: string, actual: string): GateResult =>
+    structuredDenyResult({ check: 'stale_doc_ref', expected, actual } satisfies DocCheckFailure, RETRY_FIXED);
+
+  const head = await revParse(worktree, 'HEAD', env);
+  if (head === null) return unproven('the worktree HEAD resolves to a commit', `git rev-parse HEAD failed in ${worktree}`);
+  const targetRef = await prTargetRef(worktree, targetBranch, parentBranch, env);
+  const targetTip = targetRef === null ? null : await revParse(worktree, targetRef, env);
+  if (targetRef === null || targetTip === null) {
+    return unproven(`${head} has a merge base with the PR target`, `no PR target ref resolves in ${worktree}`);
+  }
+  const mergeBase = (await gitText(worktree, ['merge-base', targetTip, head], env)).stdout.trim();
+  if (mergeBase === '') return unproven(`${head} shares history with ${targetRef} (${targetTip})`, 'no merge-base');
+
+  const result = await docChecks(worktree, mergeBase, head, env);
+  if (result.failure !== null) return structuredDenyResult(result.failure, RETRY_FIXED);
+  const leak = await leakScan(worktree, mergeBase, head, env);
+  if (leak !== null) return structuredDenyResult(leak, RETRY_FIXED);
+  notes.push(...result.notes);
+  return null;
+}
+
 export const sweVerificationGate: Gate = async (payload, env): Promise<GateResult> => {
+  const docNotes: string[] = [];
+  return withDocNotes(await verifyCompletion(payload, env, docNotes), docNotes);
+};
+
+async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNotes: string[]): Promise<GateResult> {
   const input = `${commandSubstitution(payload)}\n`;
   const field = (key: string): string => commandSubstitution(rawOrEmpty(input, ['tool_input', key]));
   if (normalizeRole(field('agent')) !== 'swe') return ALLOW;
@@ -648,9 +728,6 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
   if (db === null || !haveSqlite(env)) return ALLOW;
   const genv: NodeJS.ProcessEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10200' };
 
-  const waiver = field('waive_verification_gate_reason');
-  if (waiver !== '' && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field, genv);
-
   const verificationJson = sqliteRo(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   const branchId = gateRead(db, `SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   if (branchId === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
@@ -660,9 +737,9 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
   const findingsJson = reviewFindingsActive(db, taskId, genv);
   if (findingsJson === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
   const findings = parseFindings(findingsJson);
-
   const block = commandSubstitution(jqRawElements(verificationJson));
-  if (block === '' && findings.length === 0) return { stdout: NO_VERIFICATION_CONTEXT, code: 0 };
+  const waiver = field('waive_verification_gate_reason');
+  const waived = waiver !== '' && shellLength(waiver, genv) >= 10;
 
   const slug = branchSlug(branchId);
   const wsRoot = posixDirname(posixDirname(posixDirname(db)));
@@ -671,14 +748,18 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
   const worktree = `${repoRoot}/.claude/worktrees/${slug}`;
   if (repoRoot === '' || !isDir(worktree)) {
     const missingAt = `${repoRoot || wsRoot || '?'}/.claude/worktrees/${slug}`;
-    return {
-      stdout: deny(
-        `BLOCKED: verification gate could not locate the task worktree at ${missingAt} — refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task's repo maps to the correct repos.path, or set waive_verification_gate_reason.`,
-        'policy',
-      ),
-      code: 0,
-    };
+    const reason =
+      waived || (block === '' && findings.length === 0)
+        ? `BLOCKED: verification gate could not locate the task worktree at ${missingAt}, so it cannot run the changelog and doc checks on its HEAD. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>) and verify the task's repo maps to the correct repos.path.`
+        : `BLOCKED: verification gate could not locate the task worktree at ${missingAt} — refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task's repo maps to the correct repos.path, or set waive_verification_gate_reason.`;
+    return { stdout: deny(reason, 'policy'), code: 0 };
   }
+
+  const docDeny = await docGate(db, taskId, worktree, genv, docNotes);
+  if (docDeny !== null) return docDeny;
+
+  if (waived) return waive(db, taskId, waiver, field, genv);
+  if (block === '' && findings.length === 0) return { stdout: NO_VERIFICATION_CONTEXT, code: 0 };
 
   const toolchainPath = joinToolchainPath(toolchainDirs(genv, worktree), genv.PATH ?? '');
   const budget = parseBudget(
@@ -791,4 +872,4 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
     if (lock !== '') removeQuietly(lock);
     removeQuietly(scratch);
   }
-};
+}

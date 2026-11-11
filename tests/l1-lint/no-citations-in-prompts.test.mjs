@@ -1,4 +1,4 @@
-// L1 lint: no parenthetical issue/MR/PR citation — (#NNNN), (GL #NNNN), (MR !NNNN), (PR !NNNN) — in a prompt file, since prompts load every turn and the citation is noise. Scans the *.md files directly in agents/, commands/ and templates/agents/, every skills/**/SKILL.md, and the top-level CLAUDE.md, CODEX.md, CURSOR.md and GEMINI.md. Every run also checks that fixtures/citations-in-prompts/has-citations.md is caught.
+// L1 lint: no parenthetical issue/MR/PR citation — (#NNNN), (GL #NNNN), (MR !NNNN), (PR !NNNN) — in a prompt file, since prompts load every turn and the citation is noise. Scans the *.md files directly in agents/, commands/ and templates/agents/, every skills/**/SKILL.md, and the top-level CLAUDE.md. Every run also checks that fixtures/citations-in-prompts/has-citations.md is caught.
 import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIXTURE = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'citations-in-prompts', 'has-citations.md');
 const CITATION = /\((#|GL #|MR !|PR !)[0-9]+\)/;
-const TOP_LEVEL = ['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md'];
+const TOP_LEVEL = ['CLAUDE.md'];
 
 const isFile = (abs) => existsSync(abs) && statSync(abs).isFile();
 
@@ -65,7 +65,7 @@ test('citations in each scanned prompt location are caught, other files are not 
     writeFileSync(join(dir, 'templates', 'agents', 'cto.md'), '(GL #7) and (PR !8)\n');
     writeFileSync(join(dir, 'skills', 'a', 'b', 'SKILL.md'), 'x\ny\n(#9)\n');
     writeFileSync(join(dir, 'skills', 'a', 'notes.md'), '(#10)\n');
-    writeFileSync(join(dir, 'CODEX.md'), '(#11)\n');
+    writeFileSync(join(dir, 'CLAUDE.md'), '(#11)\n');
     writeFileSync(join(dir, 'README.md'), '(#12)\n');
     writeFileSync(join(dir, 'docs', 'x.md'), '(#13) #14 (GH 15)\n');
     assert.deepEqual(citationProblems(dir), [
@@ -73,7 +73,7 @@ test('citations in each scanned prompt location are caught, other files are not 
       'commands/go.md:1: citation in prompt',
       'templates/agents/cto.md:1: citation in prompt',
       'skills/a/b/SKILL.md:3: citation in prompt',
-      'CODEX.md:1: citation in prompt',
+      'CLAUDE.md:1: citation in prompt',
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });

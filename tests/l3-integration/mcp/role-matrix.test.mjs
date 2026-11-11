@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, seedReviewerObservation } from './harness.mjs';
+import { startClient, call, seedReviewerObservation, REVIEW_PROBES } from './harness.mjs';
 
 // Role matrix coverage for tools that wrap handlers with `requireRoles`. Every
 // registered tool, gated or not, rejects a missing or invalid `agent`.
@@ -201,7 +201,7 @@ test('task_create_batch — bro only; architect/swe/code-reviewer all forbidden'
 });
 
 test('task_update_status — bro and swe allowed; architect/code-reviewer forbidden', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd', labels: ['Feature', 'Priority: Medium'] });
@@ -233,6 +233,16 @@ test('task_update_status — bro and swe allowed; architect/code-reviewer forbid
   assert.equal(directClose.ok, false, `direct close must be rejected; got ${JSON.stringify(directClose)}`);
   assert.match(directClose.error?.error ?? '', /bro_atomic_close/, `rejection should name bro_atomic_close; got ${JSON.stringify(directClose)}`);
 
+  // bro_atomic_close needs a code-reviewer pass recorded after review_handoff (GH 2939).
+  const handoff = await call(client, 'review_handoff', { agent: 'bro', task_id: taskId });
+  assert.equal(handoff.ok, true, `bro hands the commit to code-reviewer; got ${JSON.stringify(handoff)}`);
+  seedReviewerObservation(dbPath, taskId, 1, { agentId: 'role-matrix-reviewer', sessionId: 'role-matrix-main' });
+  const pass = await call(client, 'validation_record', {
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES, feedback: 'lgtm',
+    subagent_session_id: 'role-matrix-test-session',
+  });
+  assert.equal(pass.ok, true, `code-reviewer records the pass; got ${JSON.stringify(pass)}`);
+
   // Bro is the closer, but only through the composite (bro-only role).
   const broClose = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId, commit_sha: 'abc1234',
@@ -242,10 +252,10 @@ test('task_update_status — bro and swe allowed; architect/code-reviewer forbid
   assert.equal(broClose.ok, true, `bro should close verified work via bro_atomic_close; got ${JSON.stringify(broClose)}`);
   assert.equal(broClose.data.base_moved, false, `the close result carries base_moved; got ${JSON.stringify(broClose)}`);
 
-  // task_brief carries the latest close's scope record for code-reviewer.
+  // task_brief carries the handoff's and the latest close's scope records for code-reviewer.
   const brief = await call(client, 'task_brief', { agent: 'code-reviewer', task_id: taskId });
   assert.equal(brief.ok, true, `code-reviewer reads task_brief; got ${JSON.stringify(brief)}`);
-  assert.deepEqual(brief.data.scope, { files: [], extras_accepted: [], base_moved: false });
+  assert.deepEqual(brief.data.scope, { files: [], extras: [], extras_accepted: [], base_moved: false });
 });
 
 test('validation_record — code-reviewer only; architect/bro/swe all forbidden', async (t) => {
@@ -274,7 +284,7 @@ test('validation_record — code-reviewer only; architect/bro/swe all forbidden'
   }
 
   const unobserved = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
   assert.equal(unobserved.ok, false, 'code-reviewer without an observed identity must be refused');
@@ -282,7 +292,7 @@ test('validation_record — code-reviewer only; architect/bro/swe all forbidden'
 
   seedReviewerObservation(dbPath, taskId, 1, { agentId: 'role-matrix-reviewer', sessionId: 'role-matrix-main' });
   const ok = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
   assert.equal(ok.ok, true, `code-reviewer should record after an observed row; got ${JSON.stringify(ok)}`);

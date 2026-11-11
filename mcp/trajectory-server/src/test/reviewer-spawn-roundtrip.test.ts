@@ -1,10 +1,10 @@
 /**
- * bro_atomic_close's reviewer_spawn round trip (GH 2582): a close with
- * session_id returns {prompt, effort, subagent_type}, and that payload passed
- * as is to the Agent tool clears code-reviewer-spawn-prompt-shape,
- * code-reviewer-spawn-note and require-spawn-effort, run as the shipped
- * bundle against the same DB file. Without session_id the result names
- * reviewer_spawn_unavailable instead.
+ * review_handoff's reviewer_spawn round trip (GH 2582, GH 2866): a handoff
+ * with session_id returns {prompt, effort, subagent_type}, and that payload
+ * passed as is to the Agent tool clears code-reviewer-after-atomic-close,
+ * code-reviewer-spawn-prompt-shape, code-reviewer-spawn-note and
+ * require-spawn-effort, run as the shipped bundle against the same DB file.
+ * Without session_id the result names reviewer_spawn_unavailable instead.
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -23,7 +23,7 @@ interface ReviewerSpawn {
   effort: string;
   subagent_type: string;
 }
-interface CloseResult {
+interface HandoffResult {
   reviewer_effort: string;
   reviewer_spawn?: ReviewerSpawn;
   reviewer_spawn_unavailable?: string;
@@ -31,9 +31,9 @@ interface CloseResult {
 
 const NOW = '2026-11-08T12:00:00.000Z';
 const SESSION = 'session-2582-roundtrip';
-const GATES = ['code-reviewer-spawn-prompt-shape', 'code-reviewer-spawn-note', 'require-spawn-effort'];
+const GATES = ['code-reviewer-after-atomic-close', 'code-reviewer-spawn-prompt-shape', 'code-reviewer-spawn-note', 'require-spawn-effort'];
 
-describe('bro_atomic_close reviewer_spawn round trip (GH 2582)', () => {
+describe('review_handoff reviewer_spawn round trip (GH 2582, GH 2866)', () => {
   let sb: Sandbox;
   let repoRoot: string;
   let dbPath: string;
@@ -67,12 +67,12 @@ describe('bro_atomic_close reviewer_spawn round trip (GH 2582)', () => {
     sb.remove();
   });
 
-  const close = async (
+  const handoff = async (
     id: number,
     worktreePath: string | null,
     sessionId?: string,
     priorValidators: string[] = [],
-  ): Promise<{ result: CloseResult; sha: string }> => {
+  ): Promise<{ result: HandoffResult; sha: string }> => {
     const branch = `feat/t${id}`;
     git('checkout', '-q', '-b', branch, baseSha);
     writeFileSync(join(repoRoot, `t${id}.ts`), `${id}\n`);
@@ -87,10 +87,10 @@ describe('bro_atomic_close reviewer_spawn round trip (GH 2582)', () => {
     priorValidators.forEach((agent, i) => {
       db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, ?, 'fail', 1, ?)`, [id, i + 1, agent, NOW]);
     });
-    const args: Record<string, unknown> = { agent: 'bro', task_id: String(id), commit_sha: sha, verification_summary: 'ok' };
+    const args: Record<string, unknown> = { agent: 'bro', task_id: String(id) };
     if (sessionId !== undefined) args['session_id'] = sessionId;
-    const r = (await composites.handlers.bro_atomic_close!(args)) as RawResult;
-    const result = JSON.parse(r.content[0]!.text) as CloseResult;
+    const r = (await composites.handlers.review_handoff!(args)) as RawResult;
+    const result = JSON.parse(r.content[0]!.text) as HandoffResult;
     assert.ok(!r.isError, JSON.stringify(result));
     return { result, sha };
   };
@@ -110,7 +110,7 @@ describe('bro_atomic_close reviewer_spawn round trip (GH 2582)', () => {
     });
 
   it('returns a reviewer_spawn every spawn gate allows as is', async () => {
-    const { result, sha } = await close(1, repoRoot, SESSION);
+    const { result, sha } = await handoff(1, repoRoot, SESSION);
     const spawn = result.reviewer_spawn;
     assert.ok(spawn, JSON.stringify(result));
     assert.ok(spawn.prompt.length > 0, 'non-empty prompt');
@@ -129,28 +129,28 @@ describe('bro_atomic_close reviewer_spawn round trip (GH 2582)', () => {
   });
 
   it('the gates still deny a payload with the effort changed, so the round trip is live', async () => {
-    const { result } = await close(3, repoRoot, SESSION);
+    const { result } = await handoff(3, repoRoot, SESSION);
     const runs = runGates(agentPayload({ ...result.reviewer_spawn!, effort: 'low' }));
     const effort = runs.find((r) => r.gate === 'require-spawn-effort')!;
     assert.ok(effort.stdout.includes('"permissionDecision":"deny"'), effort.stdout);
   });
 
   it('names the task worktree as repo_path and counts prior code-reviewer rows into attempt_n', async () => {
-    const { result } = await close(5, null, SESSION, ['code-reviewer', 'tmb:code-reviewer', 'swe']);
+    const { result } = await handoff(5, null, SESSION, ['code-reviewer', 'tmb:code-reviewer', 'swe']);
     const prompt = result.reviewer_spawn!.prompt;
     assert.ok(prompt.includes(`repo_path='${taskWorktreePath(repoRoot, 'feat/t5')}'`), prompt);
     assert.ok(prompt.includes('attempt_n=3 '), prompt);
   });
 
   it('without session_id omits reviewer_spawn and names the missing input', async () => {
-    const { result } = await close(7, repoRoot);
+    const { result } = await handoff(7, repoRoot);
     assert.equal(result.reviewer_spawn, undefined);
     assert.equal(result.reviewer_spawn_unavailable, 'session_id');
     assert.equal(result.reviewer_effort, 'high');
   });
 
   it('refuses an invalid session_id', async () => {
-    const r = (await composites.handlers.bro_atomic_close!({ agent: 'bro', task_id: '9', commit_sha: baseSha, verification_summary: 'ok', session_id: 'bad id!' })) as RawResult;
+    const r = (await composites.handlers.review_handoff!({ agent: 'bro', task_id: '9', session_id: 'bad id!' })) as RawResult;
     assert.ok(r.isError, r.content[0]!.text);
   });
 });

@@ -177,6 +177,7 @@ describe('swe-verification-gate l3', () => {
 
   it('Two waiver invocations for the same (task, sha) write one verification_gate_waived row', () => {
     addTask(w.db, 50, 'waive-twice', ['exit 1'], { status: 'running', commitSha: 'aaa1111' });
+    mkdirSync(join(w.wtRoot, 'waive-twice'), { recursive: true });
     const waiveInput = (sha: string) =>
       makeInput('swe', 'completed', 50, sha, { waive_verification_gate_reason: 'doc-only change, nothing to run' });
     const waivedRows = (sha: string) =>
@@ -192,6 +193,15 @@ describe('swe-verification-gate l3', () => {
     hasNot(out34, DENY, 'waiver with an explicit commit_sha allows');
     assert.equal(waivedRows('bbb2222'), '1', 'same (task, tool_input commit_sha) twice → one row');
     assert.equal(waivedRows('aaa1111'), '1', "the earlier commit's row is untouched");
+  });
+
+  it('a waiver on a task whose worktree is missing denies: the doc checks cannot run (GH 2866)', () => {
+    addTask(w.db, 51, 'waive-no-worktree', ['exit 1']);
+    const auditBefore = q(w.db, "SELECT COUNT(*) FROM audit WHERE event_type='verification_gate_waived';");
+    const out = hook(w, waive('51', 'doc-only change, nothing to run'), { cwd: w.ws });
+    has(out, DENY, 'missing worktree denies despite the waiver');
+    has(out, 'changelog and doc checks', 'the deny names the doc checks');
+    assert.equal(q(w.db, "SELECT COUNT(*) FROM audit WHERE event_type='verification_gate_waived';"), auditBefore, 'no waiver row');
   });
 
   it('multi-command typed verification[]: all pass → allowed', () => {

@@ -1,4 +1,4 @@
-// Atomic plugin-version bump. Updates the five files that must stay in sync,
+// Atomic plugin-version bump. Updates the four files that must stay in sync,
 // assembles changelog.d/ fragments into the release's CHANGELOG section, or
 // fails leaving every file unchanged. Idempotent — re-running with the same
 // version and no fragments is a no-op.
@@ -17,19 +17,18 @@
 //                   A fragment with no such commit is skipped with a warning; an
 //                   unknown change reads "not enough data"; a missing CLI or any
 //                   other CLI failure changes nothing. Ignored with --version-only.
-//   --version-only  update files 1-5 only; CHANGELOG.md and changelog.d/ are left
+//   --version-only  update files 1-4 only; CHANGELOG.md and changelog.d/ are left
 //                   alone, fragments are not validated (CI dev builds)
 //
 // Operates on the checkout holding this script, whatever the cwd.
 //
 // Touches:
 //   1. .claude-plugin/plugin.json                         "version"
-//   2. .codex-plugin/plugin.json                          "version"
-//   3. package.json                                       "version"
-//   4. mcp/trajectory-server/package.json                 "version"
-//   5. bun.lock                                           workspace "version"
-//   6. CHANGELOG.md   `## Unreleased` (if any) + changelog.d/*.md → `## v<new-version> — <date>`
-//   7. changelog.d/*.md (except README.md)                deleted once assembled
+//   2. package.json                                       "version"
+//   3. mcp/trajectory-server/package.json                 "version"
+//   4. bun.lock                                           workspace "version"
+//   5. CHANGELOG.md   `## Unreleased` (if any) + changelog.d/*.md → `## v<new-version> — <date>`
+//   6. changelog.d/*.md (except README.md)                deleted once assembled
 //
 // Section order is Added, Changed, Fixed, Removed, Security, then any other
 // heading the Unreleased block carries. Within a section the Unreleased entries
@@ -52,7 +51,7 @@ const SPACE = '[ \\t\\n\\v\\f\\r]';
 const UNRELEASED = new RegExp(`^## Unreleased${SPACE}*$`);
 const VERSION_LINE = new RegExp(`"version"${SPACE}*:${SPACE}*"`);
 const CURRENT_VERSION = new RegExp(`.*"version"${SPACE}*:${SPACE}*"([^"]+)".*`, 's');
-const FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json', 'bun.lock'];
+const FILES = ['.claude-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json', 'bun.lock'];
 const USAGE = `Usage: ${process.argv[1] ?? 'bump-version.ts'} [--dry-run] [--date YYYY-MM-DD] [--impact-db <path>] [--version-only] <new-version>`;
 const IMPACT_CLI = 'mcp/trajectory-server/dist/change-impact/cli.js';
 const PR_SUBJECT = /\(#(\d+)\)\s*$/;
@@ -303,7 +302,7 @@ function main(argv: string[]): void {
   if (current !== o.version) {
     const bumped = FILES.map((f) => [f, bumpJson(f, current, o.version)] as const);
     for (const [f, text] of bumped) writeFileSync(f, text);
-    process.stdout.write(`Bumped ${current} → ${o.version} across 5 files.\n`);
+    process.stdout.write(`Bumped ${current} → ${o.version} across ${FILES.length} files.\n`);
   }
   if (block !== '') {
     writeFileSync('CHANGELOG.md', newChangelog);

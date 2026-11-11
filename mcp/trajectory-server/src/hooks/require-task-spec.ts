@@ -1,8 +1,9 @@
 /**
  * The require-task-spec gate (GH 1692): a swe
  * spawn needs task_id=<N> in its prompt naming a tasks row that is pending, or
- * running with no live swe agent_runs row, with a spec_body. A pending task
- * also needs its branch in a linked worktree of its repo, and a task touching
+ * running with no live swe agent_runs row, with a spec_body. Either also
+ * needs its branch in a linked worktree of its repo (a running task reopened
+ * by a review FAIL may have lost it, GH 2866), and a task touching
  * schema, migrations or db.ts, or whose spec adds a column, field, tool or
  * table, needs a Writer: + Populated: pair or a Nullable: line unless a
  * spec_shape_gate_waived audit row names it. No resolvable DB allows; a DB
@@ -80,7 +81,7 @@ async function worktreeState(repo: string, branch: string, env: NodeJS.ProcessEn
   return linked ? 'linked' : main ? 'main' : 'none';
 }
 
-async function worktreeDeny(db: string, taskId: string, safeId: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
+async function worktreeDeny(db: string, taskId: string, status: string, safeId: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
   const wt = gateRead(
     db,
     `SELECT json_object('branch', COALESCE(t.branch_id, ''),
@@ -108,7 +109,7 @@ async function worktreeDeny(db: string, taskId: string, safeId: string, env: Nod
       ? ` The main checkout currently has ${branch} checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere).`
       : '';
   return deny(
-    `BLOCKED: task_id=${taskId} is pending and branch ${branch} has no linked worktree (expected ${expected}).${sw}`,
+    `BLOCKED: task_id=${taskId} is ${status} and branch ${branch} has no linked worktree (expected ${expected}).${sw}`,
     { allowed: `task_reopen(task_id=${taskId}, reason="<why>") to create the worktree, then the same swe spawn` },
   );
 }
@@ -226,9 +227,7 @@ export const requireTaskSpec: Gate = async (payload, env) => {
       { allowed: `task_update_spec(task_id=${taskId}, ...) with the spec body, then the same spawn` },
     );
   }
-  if (status === 'pending') {
-    const blocked = await worktreeDeny(db, taskId, safeId, env);
-    if (blocked !== null) return blocked;
-  }
+  const blocked = await worktreeDeny(db, taskId, status, safeId, env);
+  if (blocked !== null) return blocked;
   return specShapeVerdict(db, taskId, safeId, env);
 };

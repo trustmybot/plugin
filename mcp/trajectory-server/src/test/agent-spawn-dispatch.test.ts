@@ -86,7 +86,8 @@ describe('agent-spawn-dispatch end to end', () => {
   describe('a clean swe spawn, then the rework limit', () => {
     let work: string;
     let db: string;
-    const spawn = () => dispatch(work, agent({ subagent_type: 'swe', effort: 'medium', prompt: 'task_id=1 worktree=/some/path You are SWE.' }), db);
+    let effort = 'medium';
+    const spawn = () => dispatch(work, agent({ subagent_type: 'swe', effort, prompt: 'task_id=1 worktree=/some/path You are SWE.' }), db);
 
     before(() => {
       work = join(sb.dir, 'clean');
@@ -114,13 +115,15 @@ describe('agent-spawn-dispatch end to end', () => {
       assert.equal(spawn(), '', 'silent pass: no deny, no context');
     });
 
-    it('after two review FAILs the spawn is denied until an analysis plus its proven change, or a Human waiver', () => {
+    it('after two review FAILs the spawn is denied until an analysis plus its proven change; no Human row lifts it', () => {
       exec(db, "INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (1, 'fail', '2026-10-25T10:01:00.000Z'), (1, 'fail', '2026-10-25T10:02:00.000Z');");
+      exec(db, "UPDATE tasks SET effort = 'high' WHERE id = 1;");
+      effort = 'high';
       let out = spawn();
       assert.ok(out.includes(DENY), 'deny decision emitted');
       assert.ok(out.includes('task FAILs: 2 review FAILs on the task since its last passing review'),'rework-limit names the task-FAILs limit');
       assert.ok(out.includes('task_rework_analysis'), 'rework-limit names the analysis step');
-      assert.ok(!out.includes('waive task'), 'the inner limit asks for no Human waiver');
+      assert.ok(!/[Ww]aive|Human/.test(out), 'the rework limit asks nothing of the Human');
       exec(db, "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'bro', 'decision', '2026-10-25T11:00:00.000Z');");
       out = spawn();
       assert.ok(out.includes(DENY), 'a newer bro decision keeps the spawn denied');
@@ -139,11 +142,11 @@ describe('agent-spawn-dispatch end to end', () => {
       assert.ok(out.includes(DENY), 'a third FAIL needs a fresh analysis');
       exec(db, "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'human', 'decision', '2026-10-25T12:00:00.000Z');");
       out = spawn();
-      assert.ok(!out.includes(DENY), 'a newer Human decision lets the spawn through');
+      assert.ok(out.includes(DENY), "a newer author 'human' decision keeps the spawn denied");
     });
   });
 
-  it('a tmb:code-reviewer spawn for a closed, verified task passes every Agent-spawn gate silently (GH 1641)', () => {
+  it('a tmb:code-reviewer spawn for a verified task handed off at its commit passes every Agent-spawn gate silently (GH 1641)', () => {
     const work = join(sb.dir, 'review');
     const r = join(work, 'repo');
     repo(r, 'fix/5-pr');
@@ -169,12 +172,13 @@ describe('agent-spawn-dispatch end to end', () => {
        INSERT INTO issues (id) VALUES (1);`,
     );
     exec(db, "INSERT INTO repos (name, path, target_branch) VALUES ('plugin', ?, 'dev')", r);
-    exec(db, "INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'closed', 'plugin', 'dev', ?)", sha);
+    exec(db, "INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'completed', 'plugin', 'dev', ?)", sha);
     exec(db, 'INSERT INTO verification_runs (task_id, commit_sha, exit_code) VALUES (5, ?, 0)', sha);
+    exec(db, "INSERT INTO audit (event_type, content_json) VALUES ('review_handoff', json_object('task_id', 5, 'commit_sha', ?))", sha);
     const prompt = `task_id=5 commit_sha=${sha} branch_id=fix/5-pr repo=plugin repo_path=${r} attempt_n=1 subagent_session_id=sess-xyz`;
     const input = agent({ subagent_type: 'tmb:code-reviewer', effort: 'medium', prompt });
     assert.equal(dispatch(r, input, db), '', 'no deny, no rewrite, no context for the canonical reviewer name');
     exec(db, "UPDATE tasks SET status = 'running' WHERE id = 5;");
-    assert.ok(dispatch(r, input, db).includes('status=closed'), 'control: the same fixture with an open task is denied');
+    assert.ok(dispatch(r, input, db).includes('has no review_handoff'), 'control: the same fixture with an open task is denied');
   });
 });

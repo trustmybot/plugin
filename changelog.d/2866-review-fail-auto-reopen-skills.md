@@ -1,0 +1,2 @@
+### Changed
+- **Bro's skills match the reviewer FAIL that reopens a task on its own** (GH 2866): the push-gate and planning skills no longer ask the Human whether to fix a failed review or tell bro to reopen and raise the task first; a FAIL already moves the task back to running at high effort with a spawn note, so bro surfaces it, holds the push and spawns swe at high, calling `task_reopen` only to widen the fences, add to the spawn note or recreate a missing worktree.

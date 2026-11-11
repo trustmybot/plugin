@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context, wm-read-before-provision and ref-move-reindex have no hook-corpus
+ * liveness-alert, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge and prompt-write-approval have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -14,7 +14,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { projectSlug } from '../hooks/orphan-scan.js';
-import { buildTemplate as agentSpawnTemplate, caseEnv as agentSpawnEnv } from './hooks-agent-spawn-parity.suite.js';
+import { addCaseWorktrees, buildTemplate as agentSpawnTemplate, caseEnv as agentSpawnEnv } from './hooks-agent-spawn-parity.suite.js';
 import { buildSandbox as healthSandbox, caseEnv as healthEnv, materialize as healthCase } from './hooks-health-parity.suite.js';
 import { buildSandbox as mergeSandbox, caseEnv as mergeEnv, materialize as mergeCase } from './hooks-merge-lifecycle-parity.suite.js';
 import { buildSandbox as readmeSandbox, caseEnv as readmeEnv, materialize as readmeCase, resetDb as readmeReset } from './hooks-readme-staleness-parity.suite.js';
@@ -61,6 +61,7 @@ export const ROUTER_CORPUS_GATES = [
   'no-prose-in-scratch',
   'worktree-adopt-guard',
   'wm-read-before-provision',
+  'prompt-write-approval',
   'swe-scope-fence',
   'naming-lint',
   'code-quality-lint',
@@ -78,6 +79,7 @@ export const ROUTER_CORPUS_GATES = [
   'liveness-alert',
   'bash-output-trim',
   'swe-downstream-context',
+  'test-run-nudge',
   'reviewer-downstream-context',
   'attribution-footer',
   'clean-merged-branch',
@@ -99,7 +101,6 @@ export const ROUTER_CORPUS_GATES = [
   'substrate-preflight',
   'orphan-scan',
   'user-prompt-persona',
-  'rework-waiver-capture',
   'activation-routine',
   'session-log-capture',
   'prompt-intent-hints',
@@ -475,6 +476,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
         reset: () => {
           rmSync(dir, { recursive: true, force: true });
           cpSync(template, dir, { recursive: true });
+          addCaseWorktrees(dir, c.worktrees);
         },
       });
     }
@@ -484,10 +486,12 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('no-prose-in-scratch')) cases.push(...noProseCases(join(root, 'no-prose'), emptyProject));
   if (want('bash-output-trim')) cases.push(...bashOutputTrimCases(join(root, 'bash-output-trim'), emptyProject));
   if (want('swe-downstream-context')) cases.push(...sweDownstreamCases(join(root, 'swe-downstream-context'), emptyProject));
+  if (want('test-run-nudge')) cases.push(...testRunNudgeCases(join(root, 'test-run-nudge'), emptyProject));
   if (want('reviewer-downstream-context')) cases.push(...reviewerDownstreamCases(join(root, 'reviewer-downstream-context'), emptyProject));
   if (want('worktree-adopt-guard')) cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
   if (want('wm-read-before-provision')) cases.push(...wmReadCases(join(root, 'wm-read'), emptyProject));
   if (want('ref-move-reindex')) cases.push(...refMoveCases(join(root, 'ref-move')));
+  if (want('prompt-write-approval')) cases.push(...promptWriteApprovalCases(join(root, 'prompt-write-approval')));
 
   // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
   const noInstall = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
@@ -561,8 +565,6 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
       });
     }
   }
-
-  if (want('rework-waiver-capture')) cases.push(...reworkWaiverCases(join(root, 'rework-waiver-capture'), emptyProject));
 
   return {
     cases,
@@ -667,37 +669,6 @@ function livenessCases(dir: string, cwd: string): RouterCase[] {
   }));
 }
 
-/** rework-waiver-capture's cases, on a DB holding task 3 of issue 9, rebuilt per case. */
-function reworkWaiverCases(dir: string, cwd: string): RouterCase[] {
-  const db = join(dir, 'trajectory.db');
-  mkdirSync(dir, { recursive: true });
-  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
-  const build = (): void => {
-    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
-    const d = new DatabaseSync(db);
-    d.exec(schema);
-    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
-    d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (3, 9, 'feat/3-x', 'd', 'closed', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
-    d.close();
-  };
-  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
-  const scenarios: readonly (readonly [string, string])[] = [
-    ['waives-a-task', 'waive task 3'],
-    ['waives-with-hash', 'please Waive task #3, it is fine'],
-    ['waives-an-unknown-task', 'waive task 999'],
-    ['other-wording', 'skip the rework on task 3'],
-  ];
-  return scenarios.map(([file, prompt]) => ({
-    gate: 'rework-waiver-capture',
-    file,
-    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's', prompt }),
-    env,
-    cwd,
-    fakeUid: false,
-    reset: build,
-  }));
-}
-
 const SWE_RESUME_T0 = '2026-10-25T09:00:00.000Z';
 
 /** swe-resume-gate's cases, on a DB holding one swe and one code-reviewer of task 3, rebuilt per case. */
@@ -758,6 +729,58 @@ function noProseCases(dir: string, cwd: string): RouterCase[] {
   return scenarios.map(([file, input]) => ({ gate: 'no-prose-in-scratch', file, input, env, cwd, fakeUid: false }));
 }
 
+const PROMPT_WRITE_AGENT = '---\nname: a\ndescription: d\nskills:\n  - one\n---\nBody.\n';
+
+/**
+ * prompt-write-approval's cases over a project whose DB holds a fresh full approval of one skill,
+ * a stale one of another and a fresh skills-array approval of an existing agent, rebuilt per case;
+ * its Bash cases write through the shell.
+ */
+function promptWriteApprovalCases(dir: string): RouterCase[] {
+  const project = join(dir, 'project');
+  const db = join(project, '.claude/tmb/trajectory.db');
+  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const skill = (name: string): string => join(project, '.claude/skills', name, 'SKILL.md');
+  const agent = join(project, '.claude/agents/a.md');
+  const build = (): void => {
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dirname(db), { recursive: true });
+    mkdirSync(dirname(agent), { recursive: true });
+    writeFileSync(agent, PROMPT_WRITE_AGENT);
+    const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+    const d = new DatabaseSync(db);
+    try {
+      d.exec(schema);
+      d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(ago(0), ago(0));
+      const approve = d.prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (9, 'bro', 'prompt_write_approved', 'approved', ?, ?)");
+      approve.run(JSON.stringify({ path: skill('fresh'), scope: 'full' }), ago(5));
+      approve.run(JSON.stringify({ path: skill('stale'), scope: 'full' }), ago(45));
+      approve.run(JSON.stringify({ path: agent, scope: 'skills-array' }), ago(5));
+    } finally {
+      d.close();
+    }
+  };
+  build();
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE });
+  const call = (tool: string, toolInput: object, extra: object = {}): string => JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: tool, tool_input: toolInput, ...extra });
+  const write = (path: string, extra: object = {}): string => call('Write', { file_path: path, content: '---\nname: x\n---\nx\n' }, extra);
+  const scenarios: readonly (readonly [string, string, NodeJS.ProcessEnv])[] = [
+    ['write-skill-no-approval', write(skill('new')), env],
+    ['write-skill-approved', write(skill('fresh')), env],
+    ['write-skill-stale-approval', write(skill('stale')), env],
+    ['edit-agent-skills-append', call('Edit', { file_path: agent, old_string: '  - one\n', new_string: '  - one\n  - two\n' }), env],
+    ['edit-agent-body', call('Edit', { file_path: agent, old_string: 'Body.', new_string: 'Other body.' }), env],
+    ['swe-writes-skill', write(skill('new'), { agent_type: 'tmb:swe', agent_id: 'a1' }), env],
+    ['write-outside-prompt-dirs', write(join(project, 'docs/x.md')), env],
+    ['missing-db', write(skill('fresh')), { ...env, TRAJECTORY_DB_PATH: join(dir, 'nowhere/trajectory.db') }],
+    ['bash-redirect-skill-no-approval', call('Bash', { command: 'echo x > .claude/skills/new/SKILL.md' }), env],
+    ['bash-redirect-skill-approved', call('Bash', { command: 'echo x > .claude/skills/fresh/SKILL.md' }), env],
+    ['bash-agent-skills-array-only', call('Bash', { command: `echo x >> ${agent}` }), env],
+    ['bash-write-elsewhere-no-db', call('Bash', { command: 'echo x > docs/x.md' }), { ...env, TRAJECTORY_DB_PATH: join(dir, 'nowhere/trajectory.db') }],
+  ];
+  return scenarios.map(([file, input, caseEnv]) => ({ gate: 'prompt-write-approval', file, input, env: caseEnv, cwd: project, fakeUid: false, reset: build }));
+}
+
 /** bash-output-trim's cases: each allowlisted read with long output, and the calls it must pass unchanged. */
 function bashOutputTrimCases(dir: string, cwd: string): RouterCase[] {
   mkdirSync(dir, { recursive: true });
@@ -797,6 +820,25 @@ function sweDownstreamCases(dir: string, cwd: string): RouterCase[] {
     ['no-agent-id', pre('Edit', { file_path: join(cwd, 'src/a.ts') }, { agent_type: 'tmb:swe' })],
   ];
   return scenarios.map(([file, input]) => ({ gate: 'swe-downstream-context', file, input, env, cwd, fakeUid: false }));
+}
+
+/** test-run-nudge's cases: swe's raw test runs it nudges, and the calls it stays silent on. */
+function testRunNudgeCases(dir: string, cwd: string): RouterCase[] {
+  mkdirSync(dir, { recursive: true });
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE });
+  const pre = (command: string, extra: object = { agent_id: 'a1', agent_type: 'tmb:swe' }): string =>
+    JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', cwd, tool_name: 'Bash', tool_input: { command }, tool_use_id: 't', ...extra });
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['node-test', pre('cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/x.test.js </dev/null')],
+    ['npm-test', pre('npm test')],
+    ['pytest', pre('pytest -q tests/')],
+    ['shell-test', pre('bash tests/l1-lint/run.sh')],
+    ['wrapped', pre(`node "${PLUGIN_ROOT}/mcp/trajectory-server/dist/test-run.js" -- npm test`)],
+    ['builtin-test', pre('test -f x && echo y')],
+    ['git-test-path', pre('git add tests/x.test.sh')],
+    ['bro', pre('npm test', {})],
+  ];
+  return scenarios.map(([file, input]) => ({ gate: 'test-run-nudge', file, input, env, cwd, fakeUid: false }));
 }
 
 /** reviewer-downstream-context's cases: a code-reviewer start with and without a task, and the starts it stays silent on, with no trajectory DB. */

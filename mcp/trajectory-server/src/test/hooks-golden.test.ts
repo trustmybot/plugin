@@ -1,7 +1,7 @@
 /**
  * The golden-master recordings (GH 1692): every gate and corpus payload has an
  * entry, every parity suite reads its bash side through goldenBash, the default
- * mode never runs the live side, a recording depends on no checkout or temp
+ * mode never runs the live side, record mode only fills missing entries, a recording depends on no checkout or temp
  * path, and a changed recording fails a TypeScript result that matched.
  */
 import { after, before, describe, it } from 'node:test';
@@ -25,6 +25,7 @@ import {
   tokenizeRoots,
 } from './golden.js';
 import { gateNames } from '../hooks/registry.js';
+import { requireRecordSelection } from './hooks-parity.suite.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -38,16 +39,17 @@ const TS_BORN_GATES: ReadonlySet<string> = new Set([
   'liveness-alert',
   'liveness-sentinel',
   'no-prose-in-scratch',
+  'prompt-write-approval',
   'record-reviewer-spawn',
   'ref-move-reindex',
   'reviewer-downstream-context',
   'rework-limit',
-  'rework-waiver-capture',
   'session-handoff',
   'swe-downstream-context',
   'swe-resume-gate',
   'swe-stop-cause',
   'task-overrun-alert',
+  'test-run-nudge',
   'tool-output-size',
   'wm-read-before-provision',
   'worktree-adopt-guard',
@@ -346,14 +348,35 @@ describe('hook golden recordings', () => {
       assert.deepEqual(Object.keys((JSON.parse(one as string) as Record<string, object>)['a.json']).sort(), ['C', 'UTF-8,en_US.UTF-8']);
     });
 
-    it('re-recording a locale moves it out of the group it shared', () => {
+    it('record mode fills a missing case or locale from live, and leaves a stored recording byte-identical without calling live', () => {
       const store = goldenStore(dir);
+      let calls = 0;
+      const live = (stdout: string) => (): { stdout: string } => {
+        calls++;
+        return { stdout };
+      };
       withRecord(() => {
-        for (const locale of ['C', 'UTF-8']) store('moved', 'a.json', locale, {}, () => ({ stdout: 'same' }));
-        store('moved', 'a.json', 'C', {}, () => ({ stdout: 'changed' }));
+        assert.deepEqual(store('kept', 'a.json', 'C', {}, live('bash-era')), { stdout: 'bash-era' });
       });
-      assert.deepEqual(withDefaultMode(() => store('moved', 'a.json', 'C', {}, noLive)), { stdout: 'changed' });
-      assert.deepEqual(withDefaultMode(() => store('moved', 'a.json', 'UTF-8', {}, noLive)), { stdout: 'same' });
+      assert.equal(calls, 1, 'a missing entry is recorded from live');
+      const stored = readFileSync(join(dir, 'kept.json'));
+      withRecord(() => {
+        assert.deepEqual(store('kept', 'a.json', 'C', {}, noLive), { stdout: 'bash-era' });
+      });
+      assert.ok(readFileSync(join(dir, 'kept.json')).equals(stored), 'an existing recording stays byte-identical');
+      withRecord(() => {
+        assert.deepEqual(store('kept', 'a.json', 'UTF-8', {}, live('ts')), { stdout: 'ts' });
+        assert.deepEqual(store('kept', 'b.json', 'C', {}, live('ts')), { stdout: 'ts' });
+      });
+      assert.equal(calls, 3, 'a missing locale and a missing case are each recorded from live');
+      assert.deepEqual(withDefaultMode(() => store('kept', 'a.json', 'C', {}, noLive)), { stdout: 'bash-era' });
+      assert.deepEqual(withDefaultMode(() => store('kept', 'a.json', 'UTF-8', {}, noLive)), { stdout: 'ts' });
+    });
+
+    it('record mode with no gate selected fails instead of recording nothing', () => {
+      assert.throws(() => requireRecordSelection([], true), /TMB_HOOK_GOLDEN=record selected no gate/);
+      assert.deepEqual(requireRecordSelection([], false), []);
+      assert.deepEqual(requireRecordSelection(['git-guards'], true), ['git-guards']);
     });
 
     it('a settled tree hides only the hashes a run left alone', () => {

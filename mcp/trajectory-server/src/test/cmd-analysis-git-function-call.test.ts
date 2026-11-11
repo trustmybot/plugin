@@ -153,7 +153,7 @@ describe('git statement listing judges a function body at its call dirs (GH 2630
         `cd ${dir}; command_not_found_handler() { git push origin dev; }; cd ${wt}; zzz`,
         `cd ${dir}; chpwd() { git push origin dev; }; cd ${wt}`,
       ]) {
-        assert.match(await run(command), /ambiguous_git_target|push from \.claude\/worktrees\/ is forbidden/, command);
+        assert.match(await run(command), /ambiguous_git_(target|subcommand)|push from \.claude\/worktrees\/ is forbidden/, command);
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -19,7 +19,7 @@ const MAX_BODY_BYTES = 65_536;
 const HUMAN_AUTHOR = 'human';
 
 export const HUMAN_AUTHOR_REFUSED =
-  "author_forbidden: discussion_append never writes author='human'. Human rows come only from the rework-waiver-capture hook, which records the Human's own prompt. Write the row under your own name and quote the Human verbatim.";
+  "author_forbidden: discussion_append never writes author='human'. Write the row under your own name and quote the Human verbatim.";
 
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };

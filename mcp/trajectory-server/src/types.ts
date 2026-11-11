@@ -81,7 +81,7 @@ export interface Task {
   effort: string;
   /** GH 1744: swe's typed completion report (JSON), stored with the move to completed. */
   completion_report: string | null;
-  /** GH 1744: ≤300 chars of context for the next spawn, set by bro_atomic_close / task_reopen. */
+  /** GH 1744: ≤300 chars of context for the next spawn, set by review_handoff / task_reopen. */
   spawn_note: string | null;
   /** GH 1905: swe's checkpoint handback (JSON {done, left, files, commit_sha?, at}), set with status running. */
   checkpoint: string | null;
@@ -200,6 +200,7 @@ export interface ValidationAttempt {
   reviewed_sha?: string | null;
   created_at: string;
   repo?: string | null;
+  probes_json?: string | null;
 }
 
 /** A review_findings row (schema v47, GH 1737). */

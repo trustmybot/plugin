@@ -334,3 +334,29 @@ describe("cmdStatements keeps an empty quoted git -C '' value (GH 2549)", () => 
     assert.equal(stmt.stmt, 'git commit -m');
   });
 });
+
+describe('cmdStatements leaves a heredoc body $((W=0)) out of the statement and kills W only when it expands (GH 2876)', () => {
+  let root: string;
+  before(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gh2876-')));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+  const listed = async (cmd: string): Promise<string[]> => {
+    const res = await cmdStatements(cmd, root, {});
+    assert.ok(res.ok, cmd);
+    return res.statements.map((s) => `${s.dir === root ? '@' : s.dir}#${s.stmt}`);
+  };
+
+  for (const [form, body] of [
+    ['<<EOM', '$((W=0))\nEOM'],
+    ['<<-EOM', '\t$((W=0))\n\tEOM'],
+  ] as const)
+    it(`an unquoted ${form} body lists cat ${form} alone and makes W unknown`, async () => {
+      assert.deepEqual(await listed(`W=/w/r; cat ${form}\n${body}\ngit -C $W status`), ['@#cat <<EOM', '-#git -C $W status']);
+    });
+
+  for (const form of ["<<'EOM'", '<<"EOM"', '<<\\EOM'])
+    it(`a quoted ${form} data body lists cat <<EOM alone and leaves W alive`, async () => {
+      assert.deepEqual(await listed(`W=/w/r; cat ${form}\n$((W=0))\nEOM\ngit -C $W status`), ['@#cat <<EOM', '/w/r#git -C $W status']);
+    });
+});

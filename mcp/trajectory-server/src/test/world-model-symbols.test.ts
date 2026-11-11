@@ -144,7 +144,7 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
     assert.deepEqual(symbolRows(db, repo), before);
   });
 
-  it('the inline task_reopen handler in composites.ts is a tool:task_reopen symbol calling ensureTaskWorktree (GH 1970)', () => {
+  it('the inline task_reopen handler in composites.ts is a tool:task_reopen symbol calling runEnvGate (GH 1970)', () => {
     const row = db.get<{ id: number; path: string; kind: string }>(
       `SELECT id, path, kind FROM wm_symbols WHERE repo = ? AND qualified_name = 'tool:task_reopen'`,
       [repo],
@@ -153,10 +153,10 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
     assert.equal(row.path, 'mcp/trajectory-server/src/tools/composites.ts');
     assert.equal(row.kind, 'function');
     const n = db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'ensureTaskWorktree'`,
+      `SELECT COUNT(*) AS n FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'runEnvGate'`,
       [row.id],
     )!.n;
-    assert.ok(n >= 1, 'tool:task_reopen calls ensureTaskWorktree');
+    assert.ok(n >= 1, 'tool:task_reopen calls runEnvGate');
     const caller = db.get<{ qualified_name: string }>(
       `SELECT s.qualified_name FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
         WHERE e.dst_id = ? AND e.kind = 'calls'`,
@@ -1051,7 +1051,7 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     const x = extractHooks(read('hooks/hooks.json'), table);
     const names = x.symbols.filter((s) => s.kind === 'hook').map((s) => s.qualified_name);
     assert.deepEqual(names.filter((n) => n.startsWith('SessionStart#')), ['SessionStart#1:ensure-gitignore', 'SessionStart#2:session-start-persona', 'SessionStart#3:session-start-prescan']);
-    assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:rework-waiver-capture', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
+    assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:activation-routine', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
     assert.deepEqual(names.filter((n) => n.startsWith('WorktreeCreate#')), ['WorktreeCreate#1:worktree-create']);
     assert.deepEqual(names.filter((n) => n.startsWith('SubagentStart#')), ['SubagentStart#1:reviewer-downstream-context']);
     assert.deepEqual(names.filter((n) => n.endsWith(':swe-downstream-context')), ['PreToolUse#2:swe-downstream-context']);

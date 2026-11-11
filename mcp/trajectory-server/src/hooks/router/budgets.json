@@ -5,12 +5,12 @@
   "groups": {
     "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
       "max_budget_ms": 8090,
-      "p99_sum_ms": 18630.2,
+      "p99_sum_ms": 18636.2,
       "group_budget_ms": 8090
     },
     "PreToolUse:Bash": {
       "max_budget_ms": 16000,
-      "p99_sum_ms": 22023,
+      "p99_sum_ms": 22029.2,
       "group_budget_ms": 16000
     },
     "PreToolUse:Agent": {
@@ -90,7 +90,7 @@
     },
     "UserPromptSubmit:": {
       "max_budget_ms": 6000,
-      "p99_sum_ms": 2210.3,
+      "p99_sum_ms": 2205.6,
       "group_budget_ms": 6000
     },
     "UserPromptSubmit::persona": {
@@ -348,6 +348,22 @@
       "budget_ms": 7280,
       "date": "2026-10-31"
     },
+    "test-run-nudge": {
+      "kind": "advisory",
+      "bench_p50": 0,
+      "bench_p95": 0.1,
+      "bench_p99": 0.2,
+      "bench_runs": 640,
+      "bench_load_avg": 322.74,
+      "transcript_p99": null,
+      "reason": "born in TypeScript (GH 1907): no test-run-nudge PreToolUse hook attachment in any transcript yet, benched alone with the router-p99 worker (4 workers x 20 rounds)",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 4000,
+      "budget_ms": 4000,
+      "date": "2026-11-09"
+    },
     "no-remote-auth-guard": {
       "kind": "enforcement",
       "bench_p50": 353.5,
@@ -474,6 +490,22 @@
       "budget_ms": 6000,
       "date": "2026-10-31"
     },
+    "prompt-write-approval": {
+      "kind": "enforcement",
+      "bench_p50": 1.4,
+      "bench_p95": 3.4,
+      "bench_p99": 6,
+      "bench_runs": 200,
+      "bench_load_avg": 11.67,
+      "transcript_p99": null,
+      "reason": "born in TypeScript (GH 2927): no prompt-write-approval PreToolUse hook attachment in any transcript yet",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-10"
+    },
     "worktree-adopt-guard": {
       "kind": "enforcement",
       "bench_p50": 751.4,
@@ -491,7 +523,7 @@
       "date": "2026-11-02"
     },
     "wm-read-before-provision": {
-      "kind": "advisory",
+      "kind": "enforcement",
       "bench_p50": 2.6,
       "bench_p95": 10.1,
       "bench_p99": 12.5,
@@ -947,22 +979,6 @@
       "bench_load_avg": 11.25,
       "transcript_p99": null,
       "reason": "no user-prompt-persona UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
-      "transcript_samples": 0,
-      "transcript_timed_out": 0,
-      "window_days": 14,
-      "floor_ms": 6000,
-      "budget_ms": 6000,
-      "date": "2026-11-01"
-    },
-    "rework-waiver-capture": {
-      "kind": "advisory",
-      "bench_p50": 1.5,
-      "bench_p95": 2.8,
-      "bench_p99": 4.7,
-      "bench_runs": 320,
-      "bench_load_avg": 11.25,
-      "transcript_p99": null,
-      "reason": "no rework-waiver-capture UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
       "transcript_samples": 0,
       "transcript_timed_out": 0,
       "window_days": 14,

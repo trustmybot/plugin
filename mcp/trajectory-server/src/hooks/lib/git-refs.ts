@@ -40,3 +40,13 @@ export async function resolveRepoDefaultBranch(repoPath: string, env: NodeJS.Pro
   }
   return await gitOutput(repoPath, ['symbolic-ref', '--short', 'HEAD'], env) ?? 'main';
 }
+
+/** The ref of a task's PR target, as bro_atomic_close resolves it: repos.target_branch, parent_branch_id, the repo default. */
+export async function prTargetRef(repoPath: string, targetBranch: string, parentBranch: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  for (const candidate of [targetBranch, parentBranch]) {
+    if (candidate === '') continue;
+    const ref = await resolveBaseRef(repoPath, candidate, env);
+    if (ref) return ref;
+  }
+  return await resolveBaseRef(repoPath, await resolveRepoDefaultBranch(repoPath, env), env);
+}

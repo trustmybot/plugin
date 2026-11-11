@@ -22,6 +22,7 @@ function parseBatch(result: RawResult): Array<Record<string, unknown>> {
 }
 
 const FINDING = { criterion_id: 'SC1', probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1: 2 failing' };
+const PROBES = [{ target: 'validation_record callers', probe_cmd: 'npm test', observed: 'exit 0: 60 passing' }];
 
 async function call(
   handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
@@ -64,6 +65,93 @@ async function createTask(db: TrajectoryDB, issueId: number): Promise<number> {
   return parseBatch(result)[0]!.id as number;
 }
 
+describe('validation_record probes (GH 2866)', () => {
+  let db: TrajectoryDB;
+  let taskId: number;
+
+  before(async () => {
+    db = tempDB();
+    taskId = await createTask(db, await createIssue(db));
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  function record(attemptN: number, args: Record<string, unknown>): Promise<RawResult> {
+    seedReviewerObservation(db, taskId, attemptN, { agentId: `probe-agent-${String(attemptN).padStart(4, '0')}` });
+    return call(validationTools(db).handlers, 'validation_record', {
+      agent: 'code-reviewer', task_id: taskId, attempt_n: attemptN, feedback: '# Review', mcp_available: true, ...args,
+    });
+  }
+
+  const rowCount = (): number => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ?', [taskId])!.n;
+  const probe = PROBES[0];
+  type AttemptResult = { error?: string; probes?: unknown };
+  const attemptOf = (r: RawResult): AttemptResult => parseResult(r) as AttemptResult;
+  const historyOf = async (args: Record<string, unknown>): Promise<AttemptResult> => {
+    const rows = parseResult(await call(validationTools(db).handlers, 'validation_history', { agent: 'bro', task_id: taskId, ...args })) as AttemptResult[];
+    return rows[rows.length - 1];
+  };
+
+  for (const [n, label, probes, code] of [
+    [201, 'absent', undefined, 'probes_required'],
+    [202, 'an empty array', [], 'probes_required'],
+    [203, 'not an array', { ...probe }, 'probes_invalid'],
+    [204, 'a non-object entry', ['npm test'], 'probes_invalid'],
+    [205, 'a missing target', [{ probe_cmd: probe.probe_cmd, observed: probe.observed }], 'probes_invalid'],
+    [206, 'a missing probe_cmd', [{ target: probe.target, observed: probe.observed }], 'probes_invalid'],
+    [207, 'a missing observed', [{ target: probe.target, probe_cmd: probe.probe_cmd }], 'probes_invalid'],
+    [208, 'a blank target', [{ ...probe, target: '  ' }], 'probes_invalid'],
+    [209, 'a blank probe_cmd', [{ ...probe, probe_cmd: '' }], 'probes_invalid'],
+    [210, 'a blank observed', [{ ...probe, observed: '\t' }], 'probes_invalid'],
+    [211, 'a non-string field', [{ ...probe, observed: 0 }], 'probes_invalid'],
+    [212, 'an unknown key', [{ ...probe, expected: 'exit 0' }], 'probes_invalid'],
+  ] as const) {
+    it(`a pass with probes ${label} is refused with ${code} and writes no row`, async () => {
+      const before_ = rowCount();
+      const result = await record(n, { verdict: 'pass', ...(probes === undefined ? {} : { probes }) });
+      assert.ok(result.isError, JSON.stringify(parseResult(result)));
+      const error = attemptOf(result).error ?? '';
+      assert.ok(error.startsWith(`${code}:`), error);
+      assert.equal(rowCount(), before_, 'no validation_attempts row');
+    });
+  }
+
+  it('a pass with probes stores them trimmed in probes_json and validation_history returns them', async () => {
+    const result = await record(1, { verdict: 'pass', probes: [{ ...probe, target: `  ${probe.target}  ` }, { target: 't2', probe_cmd: 'git diff --stat', observed: '3 files' }] });
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    const expected = [probe, { target: 't2', probe_cmd: 'git diff --stat', observed: '3 files' }];
+    assert.deepEqual(attemptOf(result).probes, expected, 'validation_record returns the stored probes');
+    assert.ok(!('probes_json' in attemptOf(result)), 'the raw column is not returned');
+    const stored = db.get<{ probes_json: string | null }>('SELECT probes_json FROM validation_attempts WHERE task_id = ? AND attempt_n = 1', [taskId])!;
+    assert.notEqual(stored.probes_json, null);
+    assert.deepEqual(JSON.parse(stored.probes_json!), expected);
+
+    const latest = await historyOf({});
+    assert.deepEqual(latest.probes, expected);
+    assert.ok(!('probes_json' in latest));
+    const projected = await historyOf({ fields: ['attempt_n', 'probes'] });
+    assert.deepEqual(Object.keys(projected), ['attempt_n', 'probes']);
+    assert.deepEqual(projected.probes, expected);
+  });
+
+  it('fail and escalate accept probes without requiring them; none stores NULL and reads back null', async () => {
+    const fail = await record(2, { verdict: 'fail', findings: [FINDING] });
+    assert.ok(!fail.isError, JSON.stringify(parseResult(fail)));
+    assert.equal(attemptOf(fail).probes, null);
+    const escalate = await record(3, { verdict: 'escalate', findings: [FINDING], probes: PROBES });
+    assert.ok(!escalate.isError, JSON.stringify(parseResult(escalate)));
+    assert.deepEqual(attemptOf(escalate).probes, PROBES);
+    const bad = await record(4, { verdict: 'fail', findings: [FINDING], probes: [{ ...probe, extra: 'x' }] });
+    assert.ok((attemptOf(bad).error ?? '').startsWith('probes_invalid:'), 'a malformed list is refused on any verdict');
+    assert.equal(
+      db.get<{ p: string | null }>('SELECT probes_json AS p FROM validation_attempts WHERE task_id = ? AND attempt_n = 2', [taskId])!.p,
+      null,
+    );
+  });
+});
+
 describe('validation_record review findings (GH 1737)', () => {
   let db: TrajectoryDB;
   let taskId: number;
@@ -85,6 +173,7 @@ describe('validation_record review findings (GH 1737)', () => {
       attempt_n: attemptN,
       feedback: '# Review',
       mcp_available: true,
+      probes: PROBES,
       ...extra,
     });
   }
@@ -235,6 +324,7 @@ describe('validation_record finding severity and class (GH 1955)', () => {
       attempt_n: attemptN,
       feedback: '# Review',
       mcp_available: true,
+      probes: PROBES,
       ...extra,
     });
   }
@@ -376,6 +466,7 @@ describe('validation_record reviewer identity', () => {
       verdict: 'pass',
       feedback: '# LGTM',
       mcp_available: true,
+      probes: PROBES,
       ...extra,
     });
   }
@@ -607,7 +698,7 @@ describe('validation_record supersedes older unconsumed observations', () => {
 
   function record(attemptN: number, extra: Record<string, unknown> = {}): Promise<RawResult> {
     return call(validationTools(db).handlers, 'validation_record', {
-      agent: 'code-reviewer', task_id: taskId, attempt_n: attemptN, verdict: 'pass', feedback: '# LGTM', mcp_available: true, ...extra,
+      agent: 'code-reviewer', task_id: taskId, attempt_n: attemptN, verdict: 'pass', feedback: '# LGTM', mcp_available: true, probes: PROBES, ...extra,
     });
   }
 
@@ -776,6 +867,7 @@ describe('validation_record return_line (GH 1959)', () => {
       attempt_n: attemptN,
       feedback: '# Review',
       mcp_available: true,
+      probes: PROBES,
       ...extra,
     });
   }
@@ -852,6 +944,7 @@ describe('validation_record wm_feedback (GH 2417)', () => {
       verdict: 'pass',
       feedback: '# Review',
       mcp_available: true,
+      probes: PROBES,
       ...extra,
     });
   }

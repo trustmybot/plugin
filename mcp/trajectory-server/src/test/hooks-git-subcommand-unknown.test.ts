@@ -208,11 +208,15 @@ describe('git guards deny a git subcommand they cannot read literally (GH 2641)'
       }
     });
 
-    it('admits its literal forms for an swe, and the unknown shapes for any other role', async () => {
+    it("admits its literal forms for an swe, denies the unknown shapes in a code-reviewer's Bash, and admits them with no role", async () => {
       for (const command of ['git status', 'git -C "$wt" status', 'git commit -m x']) assert.equal(await run(sweBoundary, command, main, noDb(), 'swe'), '', command);
-      for (const [command] of unknown) {
+      for (const [command, what] of unknown) {
         assert.equal(await run(sweBoundary, command, main, noDb()), '', command);
-        assert.equal(await run(sweBoundary, command, main, noDb(), 'code-reviewer'), '', command);
+        assert.equal(
+          await run(sweBoundary, command, main, noDb(), 'code-reviewer'),
+          `${ambiguousSubcommandReason(what, 'writes the git stash')} Allowed form: ${fix}`,
+          command,
+        );
       }
     });
   });

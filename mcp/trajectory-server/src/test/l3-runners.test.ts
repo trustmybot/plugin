@@ -2,7 +2,8 @@
  * The L3 MCP runner (tests/l3-integration/mcp/run.mjs) in node:test (GH 1692),
  * spawned unchanged on planted test files: the summary names each failing file
  * with its last lines, the TMPDIR footprint assertion fires on a file a test
- * leaves behind, another session's /tmp entries are only a warning, and the
+ * leaves behind, another session's entries in the footprint root
+ * (TMB_TMP_FOOTPRINT_ROOT, here under the sandbox) are only a warning, and the
  * sqlite3 shim refuses the real project's .claude/tmb/, failing the run.
  */
 import assert from 'node:assert/strict';
@@ -17,7 +18,6 @@ import { has } from './git-push-guard-l3.js';
 const MCP_RUNNER = join(PLUGIN_ROOT, 'tests/l3-integration/mcp/run.mjs');
 const CHECKOUT = realpathSync(PLUGIN_ROOT);
 const PID = process.pid;
-const FOREIGN = `/tmp/tmb-foreign-${PID}`;
 
 interface RunnerRun {
   out: string;
@@ -34,15 +34,17 @@ function summaryOf(text: string): string {
   return start === -1 ? '' : lines.slice(start).join('\n');
 }
 
-function cleanupForeign(): void {
-  rmSync(FOREIGN, { recursive: true, force: true });
-}
-
 describe('l3 runners', () => {
   let sb: Sandbox;
   let work: string;
   let env: NodeJS.ProcessEnv;
   let shimDir: string;
+  let footprintRoot: string;
+  let foreign: string;
+
+  function cleanupForeign(): void {
+    if (foreign) rmSync(foreign, { recursive: true, force: true });
+  }
 
   /** <dir> holding each named file with its body. */
   function plant(name: string, files: Record<string, string>): string {
@@ -58,7 +60,7 @@ describe('l3 runners', () => {
     return { out: out(r.stdout, r.stderr), rc: r.status };
   }
 
-  /** Runs <runner> in the background, plants a foreign /tmp entry a second in, and waits for it. */
+  /** Runs <runner> in the background, plants a foreign entry in the footprint root a second in, and waits for it. */
   async function runWithForeign(runner: string, extra: NodeJS.ProcessEnv): Promise<RunnerRun> {
     const child = spawn('node', [runner], { env: { ...env, ...extra }, cwd: PLUGIN_ROOT });
     let stdout = '';
@@ -67,7 +69,7 @@ describe('l3 runners', () => {
     child.stderr.on('data', (d) => (stderr += d));
     const done = new Promise<number | null>((resolve) => child.on('close', resolve));
     await sleep(1000);
-    mkdirSync(FOREIGN);
+    mkdirSync(foreign);
     const rc = await done;
     cleanupForeign();
     return { out: out(stdout, stderr), rc };
@@ -78,6 +80,10 @@ describe('l3 runners', () => {
     work = join(sb.dir, 'work');
     env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE_|TMB_|NODE_TEST_CONTEXT$)/.test(k)));
     env.TMPDIR = sb.tmp;
+    footprintRoot = join(sb.dir, 'footprint-root');
+    mkdirSync(footprintRoot);
+    env.TMB_TMP_FOOTPRINT_ROOT = footprintRoot;
+    foreign = join(footprintRoot, `tmb-foreign-${PID}`);
     shimDir = plant('live-db', {
       'probe.test.sh': `sqlite3 :memory: 'select 41 + 1'\nsqlite3 -readonly "${CHECKOUT}/.claude/tmb/shim-probe.db" 'select 1' || echo "probe refused"\n`,
     });
@@ -116,8 +122,9 @@ describe('l3 runners', () => {
     const r = await runWithForeign(MCP_RUNNER, { L3_MCP_TEST_FILES: mcp('slow.test.mjs'), L3_MCP_TEST_SCRIPTS: mcp('leak.test.sh') });
     assert.equal(r.rc, 1, 'the TMPDIR leak still fails the run');
     has(r.out, 'FAIL footprint: the L3 MCP suite left files in TMPDIR:', 'TMPDIR leak reported');
-    has(r.out, 'warning: /tmp gained entries not named for this run', 'foreign growth is a warning');
-    has(r.out, 'footprint: /tmp gained no entries from this run', 'no own /tmp leak');
+    has(r.out, `warning: ${footprintRoot} gained entries not named for this run`, 'foreign growth is a warning');
+    has(r.out, `${foreign}\n`, 'the planted foreign entry is named');
+    has(r.out, `footprint: ${footprintRoot} gained no entries from this run`, 'no own footprint-root leak');
   });
 
   it('mcp runner: the sqlite3 shim refuses the real project DB dir and fails the run', () => {

@@ -7,11 +7,7 @@ import {
   openSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import {
-  assertSafeProjectWritePath,
-  resolveClaudeLogDir,
-  UnsafeProjectWritePathError,
-} from './platform.js';
+import { resolveClaudeLogDir } from './platform.js';
 
 export type ProjectLog = (entry: Record<string, unknown>) => void;
 
@@ -25,8 +21,6 @@ export interface ProjectLogger {
 export interface ProjectLoggerOptions {
   readonly logDir: string;
   readonly sqlEnabled?: boolean;
-  /** Canonical project root for Codex-bound loggers. */
-  readonly trustedProjectRoot?: string;
 }
 
 type AppendLogLine = (path: string, line: string) => void;
@@ -41,44 +35,10 @@ type EnsureLogDir = () => void;
  * and refuses any leaf already identified as a symlink or non-file.
  */
 export function createProjectLogger(opts: ProjectLoggerOptions): ProjectLogger {
-  const root = opts.trustedProjectRoot;
-  if (root === undefined) {
-    return createLogger(
-      opts,
-      () => mkdirSync(opts.logDir, { recursive: true }),
-      appendSecureLogLine,
-    );
-  }
-  assertSafeProjectWritePath(root, opts.logDir, 'Project log directory', 'directory');
-  for (const leaf of ['mcp-server.log', 'sql.log']) {
-    const path = join(opts.logDir, leaf);
-    assertSafeProjectWritePath(root, path, 'Project log file', 'file');
-    try {
-      if (!lstatSync(path).isFile()) {
-        throw new UnsafeProjectWritePathError(
-          'Project log file must be a regular file',
-        );
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-  }
   return createLogger(
     opts,
-    () => {
-      assertSafeProjectWritePath(root, opts.logDir, 'Project log directory', 'directory');
-      mkdirSync(opts.logDir, { recursive: true });
-      if (!lstatSync(opts.logDir).isDirectory()) {
-        throw new UnsafeProjectWritePathError(
-          'Project log directory must be a directory',
-        );
-      }
-      assertSafeProjectWritePath(root, opts.logDir, 'Project log directory', 'directory');
-    },
-    (path, line) => {
-      assertSafeProjectWritePath(root, path, 'Project log file', 'file');
-      appendSecureLogLine(path, line);
-    },
+    () => mkdirSync(opts.logDir, { recursive: true }),
+    appendSecureLogLine,
   );
 }
 
@@ -174,9 +134,9 @@ function getDefaultLogger(): ProjectLogger {
 
 /**
  * Backward-compatible Claude singleton exports. The singleton is lazy so a
- * Codex caller that supplies explicit logger dependencies can import the DB
- * module without reading Claude metadata or creating ~/.claude state. It also
- * keeps Claude's historical append semantics; no-follow writes are limited to
+ * caller that supplies explicit logger dependencies can import the DB module
+ * without reading Claude metadata or creating ~/.claude state. It also keeps
+ * Claude's historical append semantics; no-follow writes are limited to
  * explicitly bound project loggers.
  */
 export function serverLog(entry: Record<string, unknown>): void {

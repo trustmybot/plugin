@@ -158,7 +158,7 @@ describe("git-push-guard: GH 2549 an empty quoted git -C '' value still names th
   });
   after(() => rmSync(root, { recursive: true, force: true }));
 
-  for (const command of ["git -C '' push origin dev", 'git -C "" push origin dev'])
+  for (const command of ["git -C '' push origin dev", 'git -C "" push origin dev', '/usr/bin/git push origin dev', './git push origin dev'])
     it(`${command}: swe gets the SWE push deny`, async () => {
       const input = JSON.stringify({ tool_name: 'Bash', cwd: repo, agent_type: 'tmb:swe', tool_input: { command } });
       assert.equal(reason((await gitPushGuard(input, env)).stdout), fixedReason(SWE_PUSH_REASON, SWE_PUSH_FIX));
@@ -286,10 +286,15 @@ describe('git-push-guard: GH 2646 / GH 2640 a push behind a line continuation or
 
   const gate = async (command: string) => gitPushGuard(payload(command, wt), env);
 
-  for (const command of ['git \\\npush origin dev', 'git pu\\\nsh origin dev', 'git "pu\\\nsh" origin dev', 'git pu\\\n\\\nsh origin dev'])
+  for (const command of ['git \\\npush origin dev', 'git pu\\\nsh origin dev', 'git "pu\\\nsh" origin dev', 'git pu\\\n\\\nsh origin dev', '/usr/bin/git push origin dev'])
     it(`${JSON.stringify(command)} gets the worktree deny`, async () => {
       assert.match(reason((await gate(command)).stdout), /^BLOCKED: push from \.claude\/worktrees\/ is forbidden/);
     });
+
+  it('a path-qualified git is git, its -C followed to the dir it pushes from (GH 2987)', async () => {
+    const why = reason((await gitPushGuard(payload('/usr/bin/git -C .claude/worktrees/t push origin dev', dirname(dirname(dirname(wt)))), env)).stdout);
+    assert.match(why, /^BLOCKED: push from \.claude\/worktrees\/ is forbidden/);
+  });
 
   for (const command of ["git $'\\x70ush' origin dev", "git $'\\160ush' origin dev", "git $'push' origin dev", "git $'\\u0070ush' origin dev", "git $'p\\U00000075sh' origin dev"])
     it(`${command} gets the worktree deny`, async () => {

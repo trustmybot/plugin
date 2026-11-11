@@ -28,14 +28,6 @@ Either way you still don't push to `dev` or `main` directly — branch protectio
 - Run the L6 release-gate — it needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (forks can't read repo secrets), and it fires only on rc tags plus manual `workflow_dispatch` from `rc` or `main`.
 - Tag a release, publish to a marketplace channel, or cut a GitHub release.
 
-## Platform adapters
-
-Adapters for other agent platforms (Codex, Cursor, OpenCode, Gemini CLI) are welcome — the shared core is deliberately host-neutral so an adapter is edge work, not a fork.
-
-[`docs/adapters/ADAPTER_CONTRACT.md`](docs/adapters/ADAPTER_CONTRACT.md) is the binding standard for that work: read it before writing any adapter code, and walk its conformance checklist in your PR description.
-
-Two things trip up first-time adapter PRs: the full Claude Code suite must stay green on every adapter change (a red reference suite means the adapter reached into shared code), and adapter-doctrine PRs — the contract itself, parity matrices, capability declarations — are merged by a maintainer, never auto-merged.
-
 ## TL;DR
 
 1. Open or find a **GitHub** issue. `github.com/trustmybot/plugin` is canonical (a GitLab mirror exists as backup).
@@ -136,7 +128,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 ## Release
 
-`node --experimental-strip-types scripts/maintenance/bump-version.ts <version>` keeps the version in sync across the Claude manifest, Codex manifest, workspace package, MCP package, and lockfile.
+`node --experimental-strip-types scripts/maintenance/bump-version.ts <version>` keeps the version in sync across the Claude manifest, workspace package, MCP package, and lockfile.
 
 **Phase A — candidate**
 1. Land everything intended for the release on `dev` via the normal PR flow (auto-merge policy applies). A contributor's feature PR never sets a `-rc.N` or other prerelease suffix in a version bump; release identity is the maintainer's call.
@@ -191,11 +183,11 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 3. **Two-layer agents.** bro is a CLAUDE.md persona; `swe` / `code-reviewer` ship globally in `agents/`; consultants are templates instantiated per project. A local `.claude/agents/<name>.md` overrides the global.
 4. **Lego layering.** Agent file = identity (immutable); the `skills:` array = capabilities (extend via `tmb_skill-creator`); spawn prompt = per-call context. Add behavior through skills, not by editing the template body.
 5. **Server-enforced chain.** `requireRoles` in the MCP server rejects out-of-role calls — doctrine is wire-enforced, not prompt discipline.
-6. **Dev rules stay in dev docs.** Rules about developing TMB itself (release flow, L0–L6 harness, milestones, contributor workflow) live in `CONTRIBUTING.md`, `docs/`, the test-level READMEs and the tests themselves. Shipped surfaces (`CLAUDE.md`, `agents/`, `skills/`, `commands/`, `hooks/`, `templates/`) carry only what a user's project needs; TMB's own developers use TMB like any other user. See [`PHILOSOPHY.md` §3](docs/architecture/PHILOSOPHY.md#3-dev-vs-user-runtime-boundary).
+6. **Dev rules stay in dev docs.** Rules about developing TMB itself (release flow, L0–L6 harness, milestones, contributor workflow) live in `CONTRIBUTING.md`, `docs/`, the test-level READMEs and the tests themselves. Shipped surfaces (`CLAUDE.md`, `agents/`, `skills/`, `commands/`, `hooks/`, `templates/`) carry only what a user's project needs; TMB's own developers use TMB like any other user. See [`PHILOSOPHY.md` §2](docs/architecture/PHILOSOPHY.md#2-dev-vs-user-runtime-boundary).
 
 ## Scope
 
-Enterprise features (SSO, RBAC, SOC2, multi-tenant) are deferred until real paying-customer demand; focus stays on the solo/small-team workflow. Only `.claude-plugin/` is implemented today — other platform manifests are placeholders (see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md)).
+Enterprise features (SSO, RBAC, SOC2, multi-tenant) are deferred until real paying-customer demand; focus stays on the solo/small-team workflow. Only `.claude-plugin/` is implemented today.
 
 ## Security
 

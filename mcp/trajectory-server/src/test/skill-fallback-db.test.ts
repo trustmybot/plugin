@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { CLI_JS, childEnv, migratedDb, runNode, sandboxDir, sqlExec, sqlRows } from './db-test-fixtures.js';
 
 const RUN_ID = 'skill-fallback-db';
+const PROBES = '[{"target":"the changed writer","probe_cmd":"npm test","observed":"exit 0"}]';
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_PROJECT_DIR (GH 1553)', () => {
@@ -83,7 +84,7 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
 
     it(`validation-record-fallback from ${where} writes the project's DB`, () => {
       attempt += 1;
-      const out = validation(cwdOf(), '7', String(attempt), 'pass', 'ok', `sess-${attempt}`);
+      const out = validation(cwdOf(), '7', String(attempt), 'pass', 'ok', `sess-${attempt}`, '', PROBES);
       assert.ok(out.includes('"ok":true'), 'insert reported');
       assert.equal(q(`SELECT COUNT(*) FROM validation_attempts WHERE attempt_n = ${attempt} AND mcp_available = 0;`), '1', "row landed in the project's DB");
       assert.equal(sqlRows(decoyDb, 'SELECT COUNT(*) FROM validation_attempts;'), '0', 'decoy DB untouched');
@@ -136,7 +137,7 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
       'pass with a finding refused',
     );
     assert.equal(rows(), before_, 'nothing written');
-    const out = validation('/', '7', '62', 'pass', 'fine', 'sess-62', '[]');
+    const out = validation('/', '7', '62', 'pass', 'fine', 'sess-62', '[]', PROBES);
     assert.ok(out.includes('"ok":true'), 'pass with [] recorded');
     assert.ok(out.includes('"findings":[]'), 'no finding ids');
     assert.equal(
@@ -176,7 +177,7 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
       'F7-1:50:open F7-2:70:open F7-3:70:open F7-4:70:fixed F7-5:71:open',
       'every earlier finding kept; the new one attaches to attempt 71',
     );
-    const pass = validation('/', '7', '70', 'pass', 'fixed now', 'sess-70c', '[]');
+    const pass = validation('/', '7', '70', 'pass', 'fixed now', 'sess-70c', '[]', PROBES);
     assert.ok(pass.includes('"attempt_n":72,'), `stored attempt reported: ${pass}`);
     assert.equal(q('SELECT id, verdict, feedback, created_at, subagent_session_id, COALESCE(reviewer_agent_id, \'<null>\') FROM validation_attempts WHERE attempt_n = 70;'), failRow, 'the FAIL row is unchanged');
     assert.equal(
@@ -237,6 +238,7 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
       'ok with notes',
       'sess-93',
       '[{"probe_cmd":"false","expected":"e","observed":"o","severity":"nit","class":" style "},{"probe_cmd":"false","expected":"e","observed":"o","severity":"pre_existing"}]',
+      PROBES,
     );
     assert.ok(pass.includes('"ok":true'), `pass with a nit and a pre_existing finding recorded: ${pass}`);
     const fail = validation(
@@ -254,6 +256,34 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
       '93|nit|style|open\n93|pre_existing|<null>|open\n94|blocking|<null>|open\n94|nit|naming|open',
       'severity defaults to blocking, class trimmed or NULL',
     );
+  });
+
+  it('GH 2866: a pass needs probes; a refused pass writes nothing, an accepted one stores probes_json', () => {
+    const before_ = rows();
+    for (const [probes, code] of [
+      [undefined, 'probes_required'],
+      ['[]', 'probes_required'],
+      ['not json', 'probes_invalid'],
+      ['[{"target":"t","probe_cmd":"npm test"}]', 'probes_invalid'],
+      ['[{"target":"t","probe_cmd":" ","observed":"o"}]', 'probes_invalid'],
+      ['[{"target":"t","probe_cmd":"npm test","observed":"o","expected":"e"}]', 'probes_invalid'],
+    ] as const) {
+      const args = probes === undefined ? ['[]'] : ['[]', probes];
+      const out = validation('/', '7', '95', 'pass', 'ok', 'sess-95', ...args);
+      assert.ok(out.includes(`"error":"${code}"`), `pass with probes ${probes ?? '<absent>'} refused as ${code}: ${out}`);
+    }
+    assert.equal(rows(), before_, 'nothing written by a refused pass');
+
+    const out = validation('/', '7', '96', 'pass', 'ok', 'sess-96', '[]', '[{"target":" t ","probe_cmd":"npm test","observed":"exit 0"}]');
+    assert.ok(out.includes('"ok":true'), `pass with probes recorded: ${out}`);
+    assert.equal(
+      q('SELECT probes_json FROM validation_attempts WHERE attempt_n = 96;'),
+      '[{"target":"t","probe_cmd":"npm test","observed":"exit 0"}]',
+      'probes stored trimmed',
+    );
+    const fail = validation('/', '7', '97', 'fail', 'broken', 'sess-97', '[{"probe_cmd":"false","expected":"e","observed":"o"}]');
+    assert.ok(fail.includes('"ok":true'), `fail without probes recorded: ${fail}`);
+    assert.equal(q("SELECT COALESCE(probes_json, '<null>') FROM validation_attempts WHERE attempt_n = 97;"), '<null>', 'a fail without probes stores NULL');
   });
 
   it('no .claude dir appears in either cwd', () => {

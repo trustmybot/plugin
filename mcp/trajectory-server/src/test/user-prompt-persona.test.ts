@@ -18,6 +18,7 @@ const GATE = 'user-prompt-persona';
 const HEADER = "[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]";
 const NOTICE =
   "TMB could not read the plugin CLAUDE.md that carries bro's persona, so this session runs without it. Start a new Claude Code session to load it.";
+const TZ_LINE = 'User time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.';
 
 const payload = (sid: string) => JSON.stringify({ session_id: sid, hook_event_name: 'UserPromptSubmit', prompt: 'hello' });
 const systemMessage = (stdout: string) => (jsonValues(stdout)[0] as { systemMessage?: string } | undefined)?.systemMessage;
@@ -48,7 +49,7 @@ describe('user-prompt-persona: the persona once per session when SessionStart di
   const marker = (sid: string) => join(project, `.claude/tmb/sessions/${sid}.persona`);
 
   function exec(dir: string, input: string, pluginRoot: string, extra: NodeJS.ProcessEnv = {}, gate = GATE) {
-    return runGate(gate, { cwd: dir, input, env: { ...sb.env, CLAUDE_PLUGIN_ROOT: pluginRoot, CLAUDE_PROJECT_DIR: dir, ...extra } });
+    return runGate(gate, { cwd: dir, input, env: { ...sb.env, CLAUDE_PLUGIN_ROOT: pluginRoot, CLAUDE_PROJECT_DIR: dir, TZ: 'UTC', ...extra } });
   }
   const run = (dir: string, input: string, pluginRoot: string, extra: NodeJS.ProcessEnv = {}) => exec(dir, input, pluginRoot, extra).stdout;
 
@@ -60,6 +61,7 @@ describe('user-prompt-persona: the persona once per session when SessionStart di
     assert.equal(lineAt(ctx, 1), HEADER, 'header line');
     assert.ok(ctx.includes('# You are bro'), 'persona body');
     assert.equal(lineAt(ctx, 2), `Project root (<project> in TMB prompts): ${project}`, 'project root line');
+    assert.equal(lineAt(ctx, 3), TZ_LINE, 'time zone line');
     assert.ok(existsSync(marker('s-mid')), 'persona marker written');
     assert.equal(run(project, payload('s-mid'), plugin), '', 'second prompt silent');
     assert.equal(checksum(projectMd), 'absent', 'no CLAUDE.md created');

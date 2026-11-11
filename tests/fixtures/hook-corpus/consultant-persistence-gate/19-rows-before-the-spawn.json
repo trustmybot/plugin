@@ -1,0 +1,5 @@
+{
+  "subagent_type": "cto",
+  "agent_transcript_path": "@SANDBOX@/transcripts/spawned-after-the-rows.jsonl",
+  "corpus_expect": "discussion_append(agent='cto', issue_id=2, author='cto'"
+}

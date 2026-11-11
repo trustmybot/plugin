@@ -1,4 +1,4 @@
-// L1 lint: every relative markdown link `[text](path)` in the checkout's .md files resolves to an existing file or directory. Skipped: http(s), mailto:, data: and tel: links, anchor-only refs, and links inside code spans or fenced blocks; a foo.md#section link only needs foo.md. node_modules/, .git/ and nested dist/ dirs are not scanned.
+// L1 lint: every relative markdown link `[text](path)` in the checkout's .md files resolves to an existing file or directory. Skipped: http(s), mailto:, data: and tel: links, anchor-only refs, and links inside code spans or fenced blocks; a foo.md#section link only needs foo.md. node_modules/, .git/ and nested dist/ dirs are not scanned, nor the root CHANGELOG.md, whose released sections are immutable history that may name since-deleted paths (changelog.d/ fragments are scanned).
 import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SKIP_SCHEME = /^(https?:\/\/|mailto:|data:|tel:|#)/;
 
 function skipped(rel) {
-  return rel.startsWith('node_modules/') || rel.includes('/node_modules/') || rel.startsWith('.git/') || /^.+\/dist\//.test(rel);
+  return rel === 'CHANGELOG.md' || rel.startsWith('node_modules/') || rel.includes('/node_modules/') || rel.startsWith('.git/') || /^.+\/dist\//.test(rel);
 }
 
 function markdownFiles(root, rel, out) {
@@ -81,6 +81,25 @@ test('broken relative links are caught; URLs, anchors, code and skipped dirs are
     const { broken, total } = linkProblems(dir);
     assert.deepEqual(broken, [`  ✗ ./docs/guide.md → missing.md (resolved: ${join(dir, 'docs', 'missing.md')}) [missing]`]);
     assert.equal(total, 4);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the root CHANGELOG.md is skipped; a nested CHANGELOG.md and changelog.d/ fragments are checked', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-link-check-'));
+  try {
+    mkdirSync(join(dir, 'changelog.d'), { recursive: true });
+    mkdirSync(join(dir, 'pkg'), { recursive: true });
+    writeFileSync(join(dir, 'CHANGELOG.md'), '[old](docs/deleted.md)\n');
+    writeFileSync(join(dir, 'changelog.d', '1-x.md'), '[gone](../docs/deleted.md)\n');
+    writeFileSync(join(dir, 'pkg', 'CHANGELOG.md'), '[gone](deleted.md)\n');
+    const { broken, total } = linkProblems(dir);
+    assert.deepEqual(broken, [
+      `  ✗ ./changelog.d/1-x.md → ../docs/deleted.md (resolved: ${join(dir, 'docs', 'deleted.md')}) [missing]`,
+      `  ✗ ./pkg/CHANGELOG.md → deleted.md (resolved: ${join(dir, 'pkg', 'deleted.md')}) [missing]`,
+    ]);
+    assert.equal(total, 2);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

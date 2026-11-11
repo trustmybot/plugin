@@ -13,7 +13,7 @@ import {
 import { registerTools, toolHandlers } from '../tools/index.js';
 import { GraphHolder } from '../graph.js';
 import type { TrajectoryDB } from '../db.js';
-import { seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
 import type { Issue } from '../types.js';
 import type { ValidationAttempt } from '../middleware/agent-scope.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -337,7 +337,7 @@ describe('registered tools: consultants on read tools, missing agent everywhere'
         agent,
         task_id: taskId,
         attempt_n: attemptN,
-        verdict: 'pass',
+        verdict: 'pass', probes: TEST_PROBES,
         feedback: '# LGTM',
         mcp_available: true,
       });

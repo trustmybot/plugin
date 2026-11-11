@@ -17,8 +17,8 @@ export const BYPASS_ENV = 'TMB_ALLOW_CODE_REVIEWER_WORKTREE';
 
 export const DENY_REASON =
   'code-reviewer must NOT run with isolation="worktree". The push gate reviews the FEATURE branch as it would land in origin — ' +
-  "from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate " +
-  '(tmb_planning section 6: the four checks + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.\n\n' +
+  "from the main checkout, not from SWE's per-task worktree. The order on SWE return is review_handoff → code-reviewer → bro_atomic_close: " +
+  'bro hands the task off with review_handoff, code-reviewer reviews the bare branch ref, and bro_atomic_close follows its pass.\n\n' +
   `For exceptional override, set ${BYPASS_ENV}=1.`;
 export const DENY_FIX: DenyFix = { allowed: 'the same code-reviewer spawn without isolation (defaults to none) or with a non-worktree isolation' };
 

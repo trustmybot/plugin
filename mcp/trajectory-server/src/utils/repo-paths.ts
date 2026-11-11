@@ -1,6 +1,7 @@
 import { dirname, isAbsolute, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { projectRootFromDbPath } from '../tools/containment.js';
+import { normalizeBase, resolveRepoDefaultBranch } from './git-refs.js';
 
 // A repos.path as an absolute directory: a relative path resolves against the
 // project root (the directory holding .claude/<plugin>/trajectory.db). A DB
@@ -68,4 +69,24 @@ export function resolveSoleRepo(
     `SELECT name, path FROM repos`,
   );
   return repos.length === 1 ? { name: repos[0].name, path: repoRowPath(db, repos[0].path) } : undefined;
+}
+
+// Read a repo's target_branch (pr_target) from the repos table — the sole
+// source of truth (#980). Falls back to the sole registered repo when repoValue
+// is empty. Returns null when no row or a NULL/empty column.
+export function readRepoTargetBranch(db: TrajectoryDB, repoValue: string | null): string | null {
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
+  if (!name) return null;
+  const row = db.get<{ target_branch: string | null }>(
+    `SELECT target_branch FROM repos WHERE name = ?`,
+    [name],
+  );
+  const v = row?.target_branch;
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+// The base branch a new task is cut from: an explicit base, else the repo's
+// target branch, else its default branch.
+export function repoTargetBase(db: TrajectoryDB, repoPath: string, repoValue: string | null, explicitBase?: string): string {
+  return normalizeBase(repoPath, explicitBase ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath));
 }

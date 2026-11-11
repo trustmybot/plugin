@@ -1,6 +1,7 @@
 /**
- * PostToolUse hook on task_update_status and validation_record (GH 1692): once a task is
- * closed (bro's task_update_status to closed, or a passing validation_record
+ * PostToolUse hook on task_update_status, validation_record and bro_atomic_close
+ * (GH 1692): once a task is closed (bro's task_update_status to closed,
+ * bro_atomic_close after code-reviewer's pass, or a passing validation_record
  * on a closed task whose pass is anchored to its commit), the task's linked
  * worktree under `<repo>/.claude/worktrees/<slug>` is removed and pruned, and
  * the main checkout is moved to the repo's PR target unless
@@ -24,7 +25,7 @@ import { statSync } from 'node:fs';
 export const GATE_NAME = 'cleanup-worktree-on-task-close';
 export const BYPASS_ENV = 'TMB_KEEP_CLOSED_WORKTREES';
 export const KEEP_HEAD_ENV = 'TMB_KEEP_HEAD_ON_CLOSE';
-const TOOL = /^mcp__[\s\S]*trajectory-server__(?:task_update_status|validation_record)$/;
+const TOOL = /^mcp__[\s\S]*trajectory-server__(?:task_update_status|validation_record|bro_atomic_close)$/;
 const DEFAULT_PR_TARGET = 'dev';
 const WORKTREE_LINE = 'worktree ';
 
@@ -83,10 +84,10 @@ export async function cleanupWorktree(payload: string, env: NodeJS.ProcessEnv, s
   if (!TOOL.test(tool)) return ALLOW;
   if ((env[BYPASS_ENV] ?? '0') === '1') return ALLOW;
   const taskId = jqCapture(input, ['tool_input', 'task_id']);
-  const isValidation = tool.endsWith('validation_record');
-  if (isValidation) {
+  const closesAfterPass = tool.endsWith('validation_record') || tool.endsWith('bro_atomic_close');
+  if (tool.endsWith('validation_record')) {
     if (jqCapture(input, ['tool_input', 'verdict']) !== 'pass') return ALLOW;
-  } else {
+  } else if (tool.endsWith('task_update_status')) {
     if (jqCapture(input, ['tool_input', 'agent']) !== 'bro') return ALLOW;
     if (jqCapture(input, ['tool_input', 'status']) !== 'closed') return ALLOW;
   }
@@ -94,7 +95,7 @@ export async function cleanupWorktree(payload: string, env: NodeJS.ProcessEnv, s
   if (safeId === '') return ALLOW;
   const db = dbPath(env);
   if (db === null || db === '' || !isFile(db) || !haveSqlite(env)) return ALLOW;
-  if (isValidation) {
+  if (closesAfterPass) {
     const passed = sqliteRo(db, `SELECT 1 FROM tasks t WHERE t.id=${safeId} AND t.status='closed' AND ${HAS_PASS_SQL};`, env);
     if (passed !== '1') return ALLOW;
   }

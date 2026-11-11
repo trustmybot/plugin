@@ -23,7 +23,7 @@ export type ListerMode = 'loop' | 'exec';
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SURFACES = ['agents', 'skills', 'commands', 'templates', 'rules', '.claude/agents', 'CLAUDE.md'];
-const PROMPT_FILES = ['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md'];
+const PROMPT_FILES = ['CLAUDE.md'];
 const EXEC_REDIRECT = /^(>|>>|>\||<|<<<|&>|&>>|[0-9]>|[0-9]>>|[0-9]<)$/;
 const EXEC_REDIRECT_WORD = /^(>|<|&>|[0-9]>|[0-9]<)/;
 const RG_VALUE = /^(-t|--type|-T|--type-not|--type-add|-j|--threads|-d|--max-depth|--max-filesize|--ignore-file|--sort|--sortr|-E|--encoding)$/;
@@ -217,7 +217,8 @@ function findModel(mode: ListerMode, args: string[], raw: string[], acts: string
           run.push(x);
           prev = x;
         }
-        if (run.length > 0) acts.push('x' + run.join(' '));
+        // `e`: the run starts in each found path's own dir, not find's.
+        if (run.length > 0) acts.push((w === '-execdir' || w === '-okdir' ? 'e' : 'x') + run.join(' '));
         break;
       }
       case '-delete':

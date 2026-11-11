@@ -50,7 +50,6 @@ Adding, renaming or removing a label is a doctrine change: edit `labels.json` in
 | **Area: Install** | Deps installer, plugin payload, marketplace channels, OS compatibility |
 | **Area: Agents** | agents/, skills/, commands/, CLAUDE.md and the bro/swe/code-reviewer workflow |
 | **Area: Cheatcode** | Cheatcode search, vet, install and ranking |
-| **Area: Adapters** | Codex, Cursor and Gemini adapters |
 | **Area: Release** | CI workflows, dev-build, release-gate, cli.js integrate, versioning |
 
 ### Theme — optional
@@ -97,7 +96,7 @@ Use `gh issue list --state open --search 'updated:<2026-01-01'` (or similar) to 
 - **2026-04-25 (v0.4.1, PR GH 98)**: First migration — invented `area:install`, `p:high`, `stale`, etc. (8 invented labels) → adopted K8s convention (`area/install`, `priority/critical-urgent`).
 - **2026-04-25 (v0.4.1, PR for GH 101)**: Second migration — K8s prefixes proved opaque; pivoted to a flat style. `area/install` → `Install`, `priority/high` → `Priority: High`. Dropped `lifecycle/stale` and 6 unused GH defaults. Added `Improvement` and `Docs`.
 - **2026-10-25 (GH 1770)**: Third migration — one type, one priority and one area per issue, sourced from `labels.json`.
-  - Renamed: Hooks → Area: Hooks, MCP → Area: Trajectory Server, Install → Area: Install, Multi-platform → Area: Adapters, Workflow → Area: Agents, Discussion → Research.
+  - Renamed: Hooks → Area: Hooks, MCP → Area: Trajectory Server, Install → Area: Install, Workflow → Area: Agents, Discussion → Research.
   - Merged, then deleted: Tests → Test, Performance → token-burn, enforcement → Area: Hooks, Doctrine → Area: Agents.
   - Deleted: design, architecture, campaign, Roundtable, javascript, dependencies.
   - Added: Area: World Model, Area: Dashboard, Area: Cheatcode, Area: Release, needs-triage.

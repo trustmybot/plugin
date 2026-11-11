@@ -23,7 +23,7 @@ The project root is the directory holding the resolved DB (`<root>` in `<root>/.
 
 ## Who opens and migrates it
 
-Only the trajectory-server migrates the DB. Its two entries (`src/index.ts` for Claude Code, the Codex runtime behind `src/codex.ts`) open it with `new TrajectoryDB(path, deps, { migrate: true })`. Every other opener — maintenance scripts, smoke scripts, tests — opens without `migrate`, and on a DB whose `plugin_meta.schema_version` is older than the code's it throws `TrajectoryDB: schema v<stored> is older than this code's v<target>; only the trajectory-server migrates the DB. …` before it takes a backup or runs any DDL. A fresh DB and a current-version DB open normally. SQLite has no access control, so the opener enforces this, not the MCP role checks.
+Only the trajectory-server migrates the DB. Its entry, `src/index.ts`, opens it with `new TrajectoryDB(path, deps, { migrate: true })`. Every other opener — maintenance scripts, smoke scripts, tests — opens without `migrate`, and on a DB whose `plugin_meta.schema_version` is older than the code's it throws `TrajectoryDB: schema v<stored> is older than this code's v<target>; only the trajectory-server migrates the DB. …` before it takes a backup or runs any DDL. A fresh DB and a current-version DB open normally. SQLite has no access control, so the opener enforces this, not the MCP role checks.
 
 Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs` and `mcp/trajectory-server/scripts/smoke-world-model.mjs` require `TRAJECTORY_DB_PATH` and exit 2 without it; the trajectory server's startup catch-up, which launches `run-scan.mjs`, passes the DB it resolved explicitly. To run one by hand against a project's data, point `TRAJECTORY_DB_PATH` at a copy.
 

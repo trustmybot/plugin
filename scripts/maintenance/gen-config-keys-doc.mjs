@@ -30,13 +30,13 @@ export const KEYS = [
   {
     name: 'issue_classification_labels',
     type: 'string[]',
-    setBy: 'bro via `config_set`; Codex `planning_label_taxonomy_set`',
+    setBy: 'bro via `config_set`',
     effect: '`issue_create` requires at least one of these labels; unset or malformed falls back to the generic default.',
   },
   {
     name: 'issue_priority_labels',
     type: 'string[]',
-    setBy: 'bro via `config_set`; Codex `planning_label_taxonomy_set`',
+    setBy: 'bro via `config_set`',
     effect: '`issue_create` requires at least one of these labels; unset or malformed falls back to the generic default.',
   },
   {
@@ -44,7 +44,7 @@ export const KEYS = [
     type: 'string[]',
     defaultText: 'unset (no area required)',
     setBy: 'bro via `config_set` (anything but an array of non-empty strings is refused)',
-    effect: 'When non-empty, `issue_create`, `issue_update` (when labels are passed), `intent_start` and Codex `planning_issue_create` require exactly one of these labels; zero is `missing_required_labels`, two or more is `multiple_area_labels`. Unset or `[]` changes nothing.',
+    effect: 'When non-empty, `issue_create`, `issue_update` (when labels are passed), and `intent_start` require exactly one of these labels; zero is `missing_required_labels`, two or more is `multiple_area_labels`. Unset or `[]` changes nothing.',
   },
   {
     name: 'issue_area_paths',
@@ -120,7 +120,7 @@ export const KEYS = [
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `medium`)',
     setBy: 'bro via `config_set` (any other value is refused)',
-    effect: 'The `tasks.effort` a task gets when `task_create_batch` / `task_provision` name none. `require-spawn-effort` denies a swe spawn whose Agent `effort` differs from the task\'s; `swe-atomic-close` copies the task\'s effort onto the swe `agent_runs` row.',
+    effect: 'The `tasks.effort` a task gets when `task_create_batch` / `task_provision` name none. `require-spawn-effort` denies a swe spawn whose Agent `effort` differs from the task\'s, or is not `high` while the task has a review FAIL since its last pass (GH 2866: the FAIL reopens the task at `high`, and `task_reopen` refuses a lower effort then); `swe-atomic-close` copies the task\'s effort onto the swe `agent_runs` row.',
   },
   {
     name: 'high_effort_paths',
@@ -155,21 +155,28 @@ export const KEYS = [
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `medium`)',
     setBy: 'bro via `config_set` (any other value is refused)',
-    effect: 'The fixed code-reviewer effort: what `bro_atomic_close` assigns a task\'s review (in its `reviewer_effort_assigned` row, returned as `reviewer_effort`) unless `reviewer_effort_tiers` or the `tiered` arm of `reviewer_effort_ab` assigns the risk tier, and the effort for a review with no assignment (no `task_id=<N>` in the prompt, or a task closed by `task_recover`). `require-spawn-effort` denies a code-reviewer spawn whose Agent `effort` differs from the expected one; `swe-atomic-close` records the same effort on the code-reviewer `agent_runs` row.',
+    effect: 'The fixed code-reviewer effort: what `review_handoff` assigns a task\'s review (in its `reviewer_effort_assigned` row, returned as `reviewer_effort`) unless `reviewer_effort_tiers` or the `tiered` arm of `reviewer_effort_ab` assigns the risk tier, and the effort for a review with no assignment (no `task_id=<N>` in the prompt, or a task never handed off, such as one closed by `task_recover`). `require-spawn-effort` denies a code-reviewer spawn whose Agent `effort` differs from the expected one, or whose `model` differs from the one `reviewer_tier_settings` assigned (none unless assigned); `swe-atomic-close` records the same effort on the code-reviewer `agent_runs` row.',
   },
   {
     name: 'reviewer_effort_tiers',
     type: 'boolean',
     defaultText: 'unset (off)',
     setBy: 'bro via `config_set` (anything but a boolean is refused)',
-    effect: 'The opt-in reviewer effort by risk tier (GH 1955): `true` makes every `bro_atomic_close` assign the review the tier of the close-time scope diff: `high` for a prompt-bearing task or a changed path overlapping a `high_effort_paths` prefix, `low` when every changed path is docs (`*.md`, under `docs/`) or tests (a `test` / `tests` / `__tests__` segment, `.test.` / `.spec.` in the name), else `medium`. A task enrolled in `reviewer_effort_ab` follows its arm instead. Unset or `false` assigns `reviewer_effort`.',
+    effect: 'The opt-in reviewer effort by risk tier (GH 1955): `true` makes every `review_handoff` assign the review the tier of the handoff-time scope diff: `high` for a prompt-bearing task or a changed path overlapping a `high_effort_paths` prefix, `low` when every changed path is docs (`*.md`, under `docs/`) or tests (a `test` / `tests` / `__tests__` segment, `.test.` / `.spec.` in the name), else `medium`. A task enrolled in `reviewer_effort_ab` follows its arm instead. Unset or `false` assigns `reviewer_effort`.',
   },
   {
     name: 'reviewer_effort_ab',
     type: 'object: `{label: string, target: positive integer}`',
     defaultText: 'unset (off)',
     setBy: 'bro via `config_set` (any other shape is refused)',
-    effect: 'The opt-in reviewer effort A/B (GH 1955): a task is enrolled at its first `bro_atomic_close` while fewer than `target` tasks carry a `reviewer_effort_assigned` row with `label`; even ids get arm `tiered` (the risk tier), odd ids `fixed` (`reviewer_effort`), and an enrolled task keeps its arm on every later close. A task not enrolled follows `reviewer_effort_tiers`. Unset or malformed is off.',
+    effect: 'The opt-in reviewer effort A/B (GH 1955): a task is enrolled at its first `review_handoff` while fewer than `target` tasks carry a `reviewer_effort_assigned` row with `label`; even ids get arm `tiered` (the risk tier), odd ids `fixed` (`reviewer_effort`), and an enrolled task keeps its arm on every later handoff. A task not enrolled follows `reviewer_effort_tiers`. Unset or malformed is off.',
+  },
+  {
+    name: 'reviewer_tier_settings',
+    type: 'object: `{"<tier reason>": {model?: "opus" \\| "sonnet" \\| "haiku" \\| "fable", effort?: "low" \\| "medium" \\| "high"}}`, tier reason one of `prompt_bearing`, `high_effort_paths`, `docs_tests`, `default`',
+    defaultText: 'unset (no overrides)',
+    setBy: 'bro via `config_set` (an unknown reason, model, effort or field is refused)',
+    effect: 'The model and effort a risk-tier review runs at (GH 2932): when `reviewer_effort_tiers` or the `tiered` arm of `reviewer_effort_ab` assigns the tier, `review_handoff` takes the entry for the tier\'s reason, its `effort` replacing the tier effort and its `model` recorded as `model` in the `reviewer_effort_assigned` row and returned in `reviewer_spawn` (for example `{"docs_tests": {"model": "sonnet", "effort": "high"}}`). A reason with no entry, or with no `model`, keeps the tier effort and the code-reviewer\'s own model; the fixed `reviewer_effort` path never gets a model. `require-spawn-effort` admits a code-reviewer spawn only with the assigned model, or with no model when none is assigned. Unset or malformed applies no overrides.',
   },
   {
     name: 'workflow_mode',

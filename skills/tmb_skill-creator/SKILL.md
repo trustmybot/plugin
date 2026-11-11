@@ -14,7 +14,7 @@ Ask three questions in one AskUserQuestion batch: (1) what to call the skill —
 
 ## Draft
 
-Author at `<project>/.claude/skills/<name>/SKILL.md` using this frontmatter template:
+Author the draft at `<project>/.claude/tmb/prompt-drafts/<name>/SKILL.md` (the prompt-write-approval gate denies writes under `<project>/.claude/skills/` before approval) using this frontmatter template:
 
 ```markdown
 ---
@@ -30,18 +30,20 @@ allowed-tools: <optional, comma-separated — restricts tools the skill can invo
 
 **Skill structure**: keep everything in one flat SKILL.md. Inline lookup tables and AUQ shapes; bundle scripts only when truly executable.
 
-Then run `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" prompt-author-lint <draft-path>`, surface findings via AUQ (user picks accept/decline per finding), and present the full drafted file in a fenced code block. Ask:
+Then run `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" prompt-author-lint <project>/.claude/tmb/prompt-drafts/<name>/SKILL.md`, surface findings via AUQ (user picks accept/decline per finding), and present the full drafted file in a fenced code block. Ask:
 > Do you want me to (a) write this skill at `<project>/.claude/skills/<name>/SKILL.md`, AND (b) extend the `skills:` frontmatter array of <agent-list> to include `<name>`? (yes / revise / no)
 
 ## Write on approval
 
-`skill_register` the name, then write the skill file, append the new name to each attach-list agent's `skills:` array (and only that array). If there's no open issue (free-floating skill creation — common), `issue_create` one scoping it. Record an audit event noting the skill and its carrying agents, and tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
+After the Human's Yes, in this order:
+
+1. If there's no open issue (free-floating skill creation — common), `issue_create` one scoping it.
+2. `skill_register` the name. If it refuses a name already registered, ask the Human for another name, or whether to edit the existing skill instead.
+3. Before any write, record the Human's approval once per file, keyed by its absolute canonical path (symlinks resolved, spelled as you will write it): `audit_append(agent='bro', from_node='bro', issue_id=<issue>, event_type='prompt_write_approved', summary=<what the Human approved>, content_json='{"path":"<path>","scope":"<scope>"}')`, with scope `full` for the skill file and `skills-array` for each attach-list agent file. An approval holds for 30 minutes.
+4. Write the approved content to `<project>/.claude/skills/<name>/SKILL.md` (for example by copying the draft with Write, since a Bash copy into `<project>/.claude/skills/` is denied; the draft may then be removed), and append the new name to each attach-list agent's `skills:` array.
+
+Record an audit event noting the skill and its carrying agents, and tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
 
 ## Hard rules
 
-<!-- LOAD-BEARING-SAFETY: agent body is identity — only skills: array edits are allowed; body edits are a hard violation -->
-- **Agent body is off-limits.** The only allowed edit is appending to its `skills:` array.
-<!-- LOAD-BEARING-SAFETY: existing project skills must not be silently overwritten — Human resolves name collisions -->
-- **Existing project skills require name collision resolution.** Name collision = Human resolves.
-- **Approval is non-negotiable.** Write nothing without an explicit Yes.
 - **Stay focused.** A skill should encode one cohesive concern. If the body grows past ~80 lines, propose trimming or splitting.

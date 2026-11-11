@@ -19,6 +19,10 @@ export function tempDB(opts: { seedScan?: boolean; path?: string } = {}): Trajec
   return db;
 }
 
+// TEST_PROBES is a well-formed probes[] for a validation_record pass, which
+// refuses a pass without one (GH 2866).
+export const TEST_PROBES = [{ target: 'the changed behavior', probe_cmd: 'npm test', observed: 'exit 0: all passing' }];
+
 // seedReviewerObservation writes the row the reviewer-identity-observe hook
 // writes when a code-reviewer subagent calls validation_record, so a test's
 // validation_record call finds a reviewer identity to stamp.
@@ -44,6 +48,22 @@ export function seedReviewerObservation(
     [issueId, content],
   );
   return Number(res.lastInsertRowid);
+}
+
+// seedReviewedCommit writes bro's review_handoff of the commit followed by a
+// code-reviewer pass: the review evidence bro_atomic_close requires before it
+// closes the task.
+export function seedReviewedCommit(db: TrajectoryDB, issueId: number | string, taskId: number | string, sha: string): void {
+  const earlier = new Date(Date.now() - 60_000).toISOString();
+  const later = new Date(Date.now() - 30_000).toISOString();
+  db.run(
+    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_handoff', 'handoff', ?, ?)`,
+    [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: sha }), earlier],
+  );
+  db.run(
+    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'code-reviewer', 'pass', 1, ?)`,
+    [taskId, later],
+  );
 }
 
 export interface ScanEnvPin {

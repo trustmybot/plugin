@@ -1,4 +1,4 @@
-// L1 lint: regression guard against the SQLite `directories` table, dropped in schema v8. The world model now lives in the wm_ tables of the trajectory DB (v42). Any new CREATE TABLE directories / INSERT INTO directories / FROM directories in a *.ts, *.js, *.sh, *.mjs, *.md, *.json or *.sql file anywhere under the plugin root (the top-level .claude/ excepted) is drift back toward the v7 design. Allowed exceptions (historical migration and this guard): mcp/trajectory-server/src/db.ts (migrateV7toV8 DROP TABLE), its compiled mcp/trajectory-server/dist/db.js, the bundles inlining the same shared DB (mcp/trajectory-server/dist/index.js, codex.js, run-scan.js, cli.js, dashboard/dist/server.mjs), docs/architecture/WORLD_MODEL.md ('What was replaced' context), CHANGELOG.md (accurate history) and this file. scan(root) checks the tree at root; the cases below plant trees through it.
+// L1 lint: regression guard against the SQLite `directories` table, dropped in schema v8. The world model now lives in the wm_ tables of the trajectory DB (v42). Any new CREATE TABLE directories / INSERT INTO directories / FROM directories in a *.ts, *.js, *.sh, *.mjs, *.md, *.json or *.sql file anywhere under the plugin root (the top-level .claude/ excepted) is drift back toward the v7 design. Allowed exceptions (historical migration and this guard): mcp/trajectory-server/src/db.ts (migrateV7toV8 DROP TABLE), its compiled mcp/trajectory-server/dist/db.js, the bundles inlining the same shared DB (mcp/trajectory-server/dist/index.js, run-scan.js, cli.js, dashboard/dist/server.mjs and the dist-dev/server.mjs that dashboard/test/dev.test.mjs leaves behind), docs/architecture/WORLD_MODEL.md ('What was replaced' context), CHANGELOG.md (accurate history) and this file. scan(root) checks the tree at root; the cases below plant trees through it.
 import { strict as assert } from 'node:assert';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,10 +16,10 @@ const EXEMPT = new Set([
   'mcp/trajectory-server/src/db.ts',
   'mcp/trajectory-server/dist/db.js',
   'mcp/trajectory-server/dist/index.js',
-  'mcp/trajectory-server/dist/codex.js',
   'mcp/trajectory-server/dist/run-scan.js',
   'mcp/trajectory-server/dist/cli.js',
   'dashboard/dist/server.mjs',
+  'dashboard/dist-dev/server.mjs',
   'docs/architecture/WORLD_MODEL.md',
   'CHANGELOG.md',
   'tests/l1-lint/no-directories-table-refs.test.mjs',
@@ -87,8 +87,8 @@ describe('planted trees', () => {
     assert.ok(r.ok, r.out);
   });
 
-  test('passes on the two exactly listed bundles', () => {
-    const r = scan(fixture('listed', 'dashboard/dist/server.mjs', 'mcp/trajectory-server/dist/run-scan.js'));
+  test('passes on the exactly listed bundles', () => {
+    const r = scan(fixture('listed', 'dashboard/dist/server.mjs', 'dashboard/dist-dev/server.mjs', 'mcp/trajectory-server/dist/run-scan.js'));
     assert.ok(r.ok, r.out);
   });
 
