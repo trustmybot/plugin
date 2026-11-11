@@ -1,11 +1,23 @@
 // linkWorktreeNodeModules and its use by task_provision (GH 1853): a task
-// worktree gets the main checkout's node_modules linked beside each tracked
-// package.json, existing destinations are left alone, and a reused worktree is
-// repaired on the next provision.
+// worktree gets the main checkout's node_modules linked entry by entry beside
+// each tracked package.json (GH 2872), existing destinations are left alone, and
+// a reused worktree is repaired on the next provision.
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+  existsSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,12 +49,31 @@ function makeRepo(): { ws: string; repoRoot: string; git: (cwd: string, ...a: st
   mkdirSync(join(repoRoot, 'node_modules'));
   mkdirSync(join(repoRoot, 'pkg', 'node_modules'));
   writeFileSync(join(repoRoot, 'node_modules', 'marker'), 'root-dep\n');
+  writeFileSync(join(repoRoot, 'node_modules', '.package-lock.json'), '{}\n');
+  mkdirSync(join(repoRoot, 'node_modules', '.bin'));
+  writeFileSync(join(repoRoot, 'node_modules', '.bin', 'tool'), '#!/bin/sh\n');
+  mkdirSync(join(repoRoot, 'node_modules', 'left-pad'));
+  writeFileSync(join(repoRoot, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1;\n');
+  mkdirSync(join(repoRoot, 'node_modules', '@scope', 'pkg'), { recursive: true });
+  writeFileSync(join(repoRoot, 'node_modules', '@scope', 'pkg', 'index.js'), 'module.exports = 2;\n');
   writeFileSync(join(repoRoot, 'pkg', 'node_modules', 'marker'), 'pkg-dep\n');
   return { ws, repoRoot, git };
 }
 
+const ROOT_ENTRIES = ['.bin', '.package-lock.json', '@scope', 'left-pad', 'marker'];
+
 function isLinkTo(path: string, target: string): boolean {
   return lstatSync(path).isSymbolicLink() && readlinkSync(path) === target;
+}
+
+function isPerEntryLinkTo(dest: string, src: string): boolean {
+  const stat = lstatSync(dest);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+  const names = readdirSync(src).sort();
+  return (
+    JSON.stringify(readdirSync(dest).sort()) === JSON.stringify(names) &&
+    names.every((name) => isLinkTo(join(dest, name), join(src, name)))
+  );
 }
 
 async function provision(repoRoot: string, ws: string, branchId: string): Promise<Record<string, unknown>> {
@@ -73,8 +104,9 @@ describe('task_provision links node_modules (GH 1853)', () => {
       const out = await provision(repoRoot, ws, 'feat/deps');
       const wt = out['worktree_path'] as string;
       assert.equal(out['git_setup'], 'created');
-      assert.ok(isLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
-      assert.ok(isLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+      assert.deepEqual(readdirSync(join(wt, 'node_modules')).sort(), ROOT_ENTRIES);
       assert.equal(existsSync(join(wt, 'other', 'node_modules')), false);
     } finally {
       rmSync(ws, { recursive: true, force: true });
@@ -89,8 +121,8 @@ describe('task_provision links node_modules (GH 1853)', () => {
       assert.equal(existsSync(join(wt, 'node_modules')), false);
       const out = await provision(repoRoot, ws, 'feat/reused');
       assert.equal(out['worktree_path'], wt);
-      assert.ok(isLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
-      assert.ok(isLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -128,11 +160,14 @@ describe('linkWorktreeNodeModules', () => {
       assert.deepEqual(r.linked, []);
       assert.deepEqual(r.skipped.map((s) => s.dir).sort(), ['.', 'other', 'pkg']);
       assert.equal(lstatSync(join(wt, 'node_modules')).isDirectory(), true);
+      assert.deepEqual(readdirSync(join(wt, 'node_modules')), ['own']);
       assert.equal(readlinkSync(join(wt, 'pkg', 'node_modules')), dangling);
 
       unlinkSync(join(wt, 'pkg', 'node_modules'));
       symlinkSync(join(repoRoot, 'node_modules'), join(wt, 'pkg', 'node_modules'));
-      linkWorktreeNodeModules(repoRoot, wt);
+      const foreign = linkWorktreeNodeModules(repoRoot, wt);
+      assert.deepEqual(foreign.linked, []);
+      assert.ok(foreign.skipped.some((s) => s.dir === 'pkg'));
       assert.equal(readlinkSync(join(wt, 'pkg', 'node_modules')), join(repoRoot, 'node_modules'));
     });
   });
@@ -144,7 +179,50 @@ describe('linkWorktreeNodeModules', () => {
       const second = linkWorktreeNodeModules(repoRoot, wt);
       assert.deepEqual(second.linked, []);
       assert.deepEqual(second.skipped.map((s) => s.dir).sort(), ['.', 'other', 'pkg']);
-      assert.ok(isLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+    });
+  });
+
+  it('removing the worktree install the way npm ci does leaves the main install intact (GH 2872)', () => {
+    withWorktree((repoRoot, wt) => {
+      linkWorktreeNodeModules(repoRoot, wt);
+      rmSync(join(wt, 'node_modules'), { recursive: true, force: true });
+      rmSync(join(wt, 'pkg', 'node_modules'), { recursive: true, force: true });
+      assert.deepEqual(readdirSync(join(repoRoot, 'node_modules')).sort(), ROOT_ENTRIES);
+      for (const file of ['marker', '.package-lock.json', '.bin/tool', 'left-pad/index.js', '@scope/pkg/index.js']) {
+        assert.ok(existsSync(join(repoRoot, 'node_modules', file)), `main install lost ${file}`);
+      }
+      assert.ok(existsSync(join(repoRoot, 'pkg', 'node_modules', 'marker')));
+    });
+  });
+
+  it('migrates a whole-dir link to the main install into per-entry links and reports it linked', () => {
+    withWorktree((repoRoot, wt) => {
+      symlinkSync(join(repoRoot, 'node_modules'), join(wt, 'node_modules'));
+      symlinkSync(join(repoRoot, 'pkg', 'node_modules'), join(wt, 'pkg', 'node_modules'));
+      const r = linkWorktreeNodeModules(repoRoot, wt);
+      assert.deepEqual(r.linked.sort(), ['.', 'pkg']);
+      assert.deepEqual(r.skipped.map((s) => s.dir), ['other']);
+      assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+      assert.deepEqual(readdirSync(join(repoRoot, 'node_modules')).sort(), ROOT_ENTRIES);
+    });
+  });
+
+  it('reports a dir skipped and leaves no partial install when its entries cannot be listed', {
+    skip: process.getuid?.() === 0 ? 'root reads any dir' : false,
+  }, () => {
+    withWorktree((repoRoot, wt) => {
+      const pkgSrc = join(repoRoot, 'pkg', 'node_modules');
+      chmodSync(pkgSrc, 0o311);
+      try {
+        const r = linkWorktreeNodeModules(repoRoot, wt);
+        assert.deepEqual(r.linked, ['.']);
+        assert.match(r.skipped.find((s) => s.dir === 'pkg')?.reason ?? '', /could not link/);
+        assert.equal(existsSync(join(wt, 'pkg', 'node_modules')), false);
+      } finally {
+        chmodSync(pkgSrc, 0o755);
+      }
     });
   });
 
@@ -163,7 +241,7 @@ describe('linkWorktreeNodeModules', () => {
     withWorktree((repoRoot, wt) => {
       const cli = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'utils', 'worktree-deps.js');
       execFileSync(process.execPath, [cli, repoRoot, wt], { stdio: ['ignore', 'pipe', 'pipe'] });
-      assert.ok(isLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
       execFileSync(process.execPath, [cli], { stdio: ['ignore', 'pipe', 'pipe'] });
     });
   });
@@ -176,8 +254,8 @@ describe('linkWorktreeNodeModules', () => {
       execFileSync(process.execPath, [join(linkedUtils, 'worktree-deps.js'), repoRoot, wt], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-      assert.ok(isLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
-      assert.ok(isLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+      assert.ok(isPerEntryLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
     });
   });
 
