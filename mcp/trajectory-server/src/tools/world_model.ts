@@ -246,9 +246,11 @@ export interface CheckoutLag {
   upstream: string;
 }
 
-// The world model indexes the repo's checkout, which trails origin/<target> as
-// lanes merge (GH 1966). Counts against the last fetch, never fetches; null when
-// the target has no origin ref, the checkout is current, or git fails.
+// The world model is built from git objects at indexed_commit, but the main
+// checkout trails origin/<target> as lanes merge (GH 1966). Counts against the
+// last fetch (reads and the startup catch-up run fetchTargetIfDue, at most every
+// 10 minutes); this never fetches. Null when the target has no origin ref, the
+// checkout is current, or git fails.
 export function checkoutLag(db: TrajectoryDB, repo: string): CheckoutLag | null {
   if (!repo) return null;
   const repoRow = db.get<{ path: string; target_branch: string | null }>(

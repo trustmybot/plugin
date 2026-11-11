@@ -4,5 +4,5 @@
     "CLAUDE_PROJECT_DIR": "@SANDBOX@/bare"
   },
   "corpus_cwd": "bare",
-  "corpus_expect": "@SANDBOX@/bare"
+  "corpus_expect": "Project root (<project> in TMB prompts): @SANDBOX@/bare\\nUser time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.\\n\\n"
 }

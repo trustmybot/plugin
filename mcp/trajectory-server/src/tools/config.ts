@@ -101,14 +101,17 @@ export function readHighEffortPaths(db: TrajectoryDB): string[] {
   return [];
 }
 
-function stripTrailingSlash(path: string): string {
-  return path.endsWith('/') ? path.slice(0, -1) : path;
+function pathSegments(path: string): string[] {
+  return path.split('/').filter((s) => s !== '' && s !== '.');
 }
 
+/** Equal paths, or one a path-segment prefix of the other; empty and `.` segments are dropped, so `.` (the repo root) overlaps every path. */
 export function pathsOverlap(file: string, prefix: string): boolean {
-  const a = stripTrailingSlash(file);
-  const b = stripTrailingSlash(prefix);
-  return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
+  const a = pathSegments(file);
+  const b = pathSegments(prefix);
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 export const SWE_EFFORT_AB_KEY = 'swe_effort_ab';
@@ -160,6 +163,50 @@ export function readReviewerEffortAb(db: Pick<TrajectoryDB, 'get'>): EffortAbCon
     // An unparseable stored value reads as unset.
   }
   return null;
+}
+
+export const REVIEWER_TIER_SETTINGS_KEY = 'reviewer_tier_settings';
+export const REVIEWER_TIER_REASONS = ['prompt_bearing', 'high_effort_paths', 'docs_tests', 'default'] as const;
+export type ReviewerTierReason = (typeof REVIEWER_TIER_REASONS)[number];
+export const REVIEWER_MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+export type ReviewerModel = (typeof REVIEWER_MODELS)[number];
+
+export interface ReviewerTierSetting {
+  readonly model?: ReviewerModel;
+  readonly effort?: Effort;
+}
+
+export type ReviewerTierSettings = Readonly<Partial<Record<ReviewerTierReason, ReviewerTierSetting>>>;
+
+export function isReviewerModel(value: unknown): value is ReviewerModel {
+  return typeof value === 'string' && (REVIEWER_MODELS as readonly string[]).includes(value);
+}
+
+function isReviewerTierSetting(value: unknown): value is ReviewerTierSetting {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.entries(value).every(
+    ([field, v]) => (field === 'model' && isReviewerModel(v)) || (field === 'effort' && isEffort(v)),
+  );
+}
+
+export function isReviewerTierSettings(value: unknown): value is ReviewerTierSettings {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.entries(value).every(
+    ([reason, setting]) => (REVIEWER_TIER_REASONS as readonly string[]).includes(reason) && isReviewerTierSetting(setting),
+  );
+}
+
+/** The per-tier reviewer model and effort overrides (GH 2932); unset, unparseable or malformed reads as none ({}). */
+export function readReviewerTierSettings(db: Pick<TrajectoryDB, 'get'>): ReviewerTierSettings {
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [REVIEWER_TIER_SETTINGS_KEY]);
+  if (!row) return {};
+  try {
+    const value: unknown = JSON.parse(row.value_json);
+    if (isReviewerTierSettings(value)) return value;
+  } catch {
+    // An unparseable stored value reads as unset.
+  }
+  return {};
 }
 
 export const DOWNSTREAM_CONTEXT_AB_KEY = 'downstream_context_ab';
@@ -230,6 +277,33 @@ export function computeEffort(
   return { effort: base, reason: 'default' };
 }
 
+export const WORKFLOW_MODE_KEY = 'workflow_mode';
+export const WORKFLOW_MODES = ['truest', 'agile'] as const;
+export type WorkflowMode = (typeof WORKFLOW_MODES)[number];
+
+export function isWorkflowMode(value: unknown): value is WorkflowMode {
+  return typeof value === 'string' && (WORKFLOW_MODES as readonly string[]).includes(value);
+}
+
+/**
+ * The project's workflow mode (GH 2225). Unset reads as truest; so does a
+ * stored value that is unparseable or not a known mode.
+ */
+export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [WORKFLOW_MODE_KEY]);
+  if (!row) return 'truest';
+  try {
+    const value: unknown = JSON.parse(row.value_json);
+    if (isWorkflowMode(value)) return value;
+  } catch {
+    // An unparseable stored value reads as the default.
+  }
+  return 'truest';
+}
+
+/** Keys config_set refuses: only the Human sets them, through /onboard. */
+const HUMAN_ONLY_CONFIG_KEYS: ReadonlySet<string> = new Set([WORKFLOW_MODE_KEY]);
+
 export const ISSUE_AREA_LABELS_KEY = 'issue_area_labels';
 export const ISSUE_AREA_PATHS_KEY = 'issue_area_paths';
 
@@ -277,9 +351,19 @@ function validateKnownConfigValue(key: string, value: unknown): void {
       `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`,
     );
   }
+  if (key === REVIEWER_TIER_SETTINGS_KEY && !isReviewerTierSettings(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an object keyed by ${REVIEWER_TIER_REASONS.join(', ')}, each value {"model"?: ${REVIEWER_MODELS.join(' | ')}, "effort"?: ${EFFORT_LEVELS.join(' | ')}}, got ${JSON.stringify(value)}.`,
+    );
+  }
   if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be {} (off) or an object {"label": non-empty string, "target": positive integer, "tools_shipped_at": ISO timestamp}, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === WORKFLOW_MODE_KEY && !isWorkflowMode(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${WORKFLOW_MODES.join(', ')}, got ${JSON.stringify(value)}.`,
     );
   }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
@@ -461,6 +545,11 @@ export function configTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     config_set: requireRoles('config_set', ['bro'], wrapHandler(async (args) => {
       const key = args['key'];
+      if (typeof key === 'string' && HUMAN_ONLY_CONFIG_KEYS.has(key)) {
+        return err(
+          `human_only_config_key: config key ${JSON.stringify(key)} is set by the Human through /onboard, not config_set.`,
+        );
+      }
       setConfigValues(db, [{ key: key as string, value: args['value'] }], normalizeAgent(args['agent']));
       return ok({ key });
     })),

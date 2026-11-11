@@ -8,7 +8,12 @@
  * when its body is data to the shell, else by HD_EXP (GH 1911). With `marks`
  * (the write-path analyzer, GH 1912), a substitution whose body is one mktemp
  * call `mktempCall` admits is framed by QO … QC quoted or not, its body led by
- * MKTEMP_MARK, and each `$` bash keeps literal is DOLLAR (GH 2443).
+ * MKTEMP_MARK, and each `$` bash keeps literal is DOLLAR (GH 2443). With
+ * `heredocCode` (the git listing, GH 2635), the code of each $( ) or
+ * backtick in an unquoted-delimiter heredoc body (bodyCodes: a $( ) from the
+ * parse tree, a backtick from the text) is encoded on its own and framed by
+ * QO … QC, each after a blank, right after the heredoc's delimiter; the
+ * command is not ok when one does not parse.
  */
 import type { Node, Parser } from 'web-tree-sitter';
 import { MKTEMP_MARK, mktempCall } from './mktemp.js';
@@ -32,6 +37,122 @@ export const QM = '\x17';
 const QM_LITERAL = '$' + ENC[8] + ENC[9];
 /** With `marks` (GH 2443): a `$` bash keeps literal, inside `'…'` or `$'…'` or after a backslash, unquoted or in `"…"`; `decode` turns it back into `$`. */
 export const DOLLAR = '\x19';
+/** An empty unquoted substitution: text the analyzers cannot know, so a word holding it reads as computed (GH 2640). */
+const COMPUTED = '$()';
+/** With `shownControls`, a control char a `$'…'` escape decodes to, which the skeleton cannot carry: U+FFFD, text the commit-message reader lints rather than skips. */
+export const CONTROL_SHOWN = '�';
+
+const ANSI_C_SIMPLE: ReadonlyMap<string, string> = new Map([
+  ['a', '\x07'],
+  ['b', '\b'],
+  ['e', '\x1b'],
+  ['E', '\x1b'],
+  ['f', '\f'],
+  ['n', '\n'],
+  ['r', '\r'],
+  ['t', '\t'],
+  ['v', '\v'],
+  ['\\', '\\'],
+  ["'", "'"],
+  ['"', '"'],
+  ['?', '?'],
+]);
+
+const ANSI_C_DIGITS: ReadonlyMap<string, { re: RegExp; radix: number }> = new Map([
+  ['x', { re: /^[0-9A-Fa-f]{1,2}/, radix: 16 }],
+  ['u', { re: /^[0-9A-Fa-f]{1,4}/, radix: 16 }],
+  ['U', { re: /^[0-9A-Fa-f]{1,8}/, radix: 16 }],
+]);
+
+/** A code point bash writes as one char in every version and locale: not NUL (it ends the word), a surrogate, or past U+10FFFF. */
+const ansiCPoint = (n: number): string | null => (n === 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff) ? null : String.fromCodePoint(n));
+
+/** A `\xHH` or `\NNN` byte: past 0x7F bash writes a raw byte that is no single char (F753-2). */
+const ansiCByte = (n: number): string | null => (n > 0x7f ? null : ansiCPoint(n));
+
+const UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/** The `\NNN` or `\xHH` escape at `body[i]` (a backslash) when it is one byte, with its source length. */
+function byteEscape(body: string, i: number): { n: number; len: number } | null {
+  const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+  const hex = octal || body[i + 1] !== 'x' ? null : /^[0-9A-Fa-f]{1,2}/.exec(body.slice(i + 2));
+  const b = octal ? { n: parseInt(octal[0], 8), len: 1 + octal[0].length } : hex ? { n: parseInt(hex[0], 16), len: 2 + hex[0].length } : null;
+  return b && b.n <= 0xff ? b : null;
+}
+
+/** The maximal run of byte escapes at `body[i]` decoded as UTF-8 (GH 2765), each char as `ansiCPoint` gives it; null when `body[i]` starts no byte escape, and its bytes as `ansiCByte` gives them when the run is all ASCII (GH 2793) or not valid UTF-8. */
+export function utf8Run(body: string, i: number): { chars: Array<string | null>; end: number } | null {
+  const bytes: number[] = [];
+  let end = i;
+  while (body[end] === '\\') {
+    const b = byteEscape(body, end);
+    if (b === null) break;
+    bytes.push(b.n);
+    end += b.len;
+  }
+  if (bytes.length === 0) return null;
+  if (!bytes.some((n) => n > 0x7f)) return { chars: bytes.map(ansiCByte), end };
+  try {
+    return { chars: [...UTF8.decode(Uint8Array.from(bytes))].map((ch) => ansiCPoint(ch.codePointAt(0)!)), end };
+  } catch {
+    return { chars: bytes.map(ansiCByte), end };
+  }
+}
+
+/**
+ * A `$'…'` body's chars as bash decodes them, null for an escape whose result
+ * is unknown: `\x` / `\u` / `\U` with no hex digit, a `\x` or `\NNN` byte past
+ * 0x7F, a NUL, an invalid code point, `\c` with no letter after it or with `\`
+ * or `?` (bash versions differ), a lone trailing backslash. An escape bash
+ * does not know keeps its backslash. With `utf8`, a run of adjacent byte
+ * escapes that is valid UTF-8 gives its chars, as bash in a UTF-8 locale
+ * writes them (GH 2765).
+ */
+export function ansiCChars(body: string, utf8 = false): Array<string | null> {
+  const out: Array<string | null> = [];
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c !== '\\') {
+      out.push(c);
+      continue;
+    }
+    const run = utf8 ? utf8Run(body, i) : null;
+    if (run) {
+      out.push(...run.chars);
+      i = run.end - 1;
+      continue;
+    }
+    const e = body[i + 1];
+    if (e === undefined) {
+      out.push(null);
+      continue;
+    }
+    const simple = ANSI_C_SIMPLE.get(e);
+    const digits = ANSI_C_DIGITS.get(e);
+    const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+    if (simple !== undefined) {
+      out.push(simple);
+      i++;
+    } else if (octal) {
+      const n = parseInt(octal[0], 8);
+      out.push(ansiCByte(n));
+      i += octal[0].length;
+    } else if (digits) {
+      const hex = digits.re.exec(body.slice(i + 2));
+      const point = e === 'x' ? ansiCByte : ansiCPoint;
+      out.push(hex ? point(parseInt(hex[0], digits.radix)) : null);
+      i += 1 + (hex ? hex[0].length : 0);
+    } else if (e === 'c') {
+      const x = body[i + 2];
+      out.push(x === undefined || x === '\\' || x === '?' || x.charCodeAt(0) > 0x7f ? null : ansiCPoint(x.toUpperCase().charCodeAt(0) & 0x1f));
+      i += x === undefined ? 1 : 2;
+    } else {
+      out.push('\\', e);
+      i++;
+    }
+  }
+  return out;
+}
 
 /** Every `$` in `text` is a plain `$NAME` not followed by `[`, or exactly `${NAME}`. */
 export function plainDollars(text: string): boolean {
@@ -114,6 +235,119 @@ function specials(node: Node, out: Span[], charge: Charge, marks: boolean): Span
   return out;
 }
 
+/** What the git listing reads heredoc code with: the parser, and the encoded skeleton of a substitution's code, or null when it does not parse. */
+export interface HeredocCode {
+  readonly parser: Parser;
+  readonly code: (code: string) => string | null;
+}
+
+/** A HeredocCode that encodes with <parser>, heredocs in the code read the same way. */
+export function heredocEncoder(parser: Parser, charge: Charge = NO_CHARGE): HeredocCode {
+  return {
+    parser,
+    code: (code) => {
+      const encoded = encode(parser, code, charge, false, false, true);
+      return encoded.ok ? encoded.text : null;
+    },
+  };
+}
+
+/** The outermost command substitutions under <node>, `$(( ))` arithmetic searched through. */
+function outerSubstitutions(node: Node, out: Node[] = []): Node[] {
+  for (const child of node.children) {
+    if (child?.type === 'command_substitution') out.push(child);
+    else if (child) outerSubstitutions(child, out);
+  }
+  return out;
+}
+
+/**
+ * Whether the heredoc-body command_substitution <sub> is a `$(( ))` bash
+ * reads as arithmetic that runs no command (GH 2876). tree-sitter-bash parses
+ * a body's `$((W=0))` as $( ) around the subshell `(W=0)`; bash reads it as
+ * arithmetic when one paren group closes right before the final `)`, so
+ * `$((a);(b))` and `$((a) )` stay command substitutions. Only text made of
+ * arithmetic characters counts: zsh ignores quoted parens when matching
+ * `$(( ))`, so it runs `$((echo ")";cmd))` as a command (F823-1), and any
+ * quote, `;`, `&`, `|`, newline, `$` or backtick keeps the code listed.
+ */
+const ARITHMETIC_ONLY = /^[A-Za-z0-9_ \t+\-*/%=<>!~^?:,()[\]]*$/;
+
+function commandFreeArithmetic(src: string, sub: Node): boolean {
+  const [open, inner, close, ...more] = sub.children;
+  if (!open || !inner || !close || more.length > 0) return false;
+  if (inner.type !== 'subshell' || inner.startIndex !== open.endIndex || inner.endIndex !== close.startIndex) return false;
+  return ARITHMETIC_ONLY.test(src.slice(inner.startIndex, inner.endIndex));
+}
+
+/**
+ * The code of each outermost $( ) and backtick of an unquoted-delimiter
+ * heredoc body, <body> its heredoc_body node in the tree of <src> and
+ * [from, to) its text (GH 2635). A $( ) is the parse tree's
+ * command_substitution, so it ends where bash's parser ends it (a comment's
+ * `)` closes nothing). tree-sitter-bash reads no backtick in a body, so a
+ * backtick is read from the text outside those nodes: up to the next
+ * unescaped backtick, as bash reads it, a backslash dropped before a
+ * backtick, `$` or backslash. Null at an unclosed backtick or a $( ) that a
+ * backtick's end cuts.
+ */
+export function bodyCodes(src: string, body: Node, from: number, to: number): string[] | null {
+  const subs = outerSubstitutions(body).filter((sub) => src[sub.startIndex] !== '`');
+  const out: string[] = [];
+  let next = 0;
+  for (let i = from; i < to; i++) {
+    while (next < subs.length && subs[next].endIndex <= i) next++;
+    const sub = subs[next];
+    if (sub && sub.startIndex <= i) {
+      const open = sub.firstChild;
+      const close = sub.lastChild;
+      if (!open || !close || close.type !== ')') return null;
+      if (!commandFreeArithmetic(src, sub)) out.push(src.slice(open.endIndex, close.startIndex));
+      i = sub.endIndex - 1;
+      continue;
+    }
+    const c = src[i];
+    if (c === '\\') i++;
+    else if (c === '`') {
+      let code = '';
+      let j = i + 1;
+      for (; j < to && src[j] !== '`'; j++) {
+        if (src[j] === '\\' && /[`$\\]/.test(src[j + 1] ?? '')) j++;
+        code += src[j];
+      }
+      if (j >= to) return null;
+      for (; next < subs.length && subs[next].startIndex < j; next++) if (subs[next].endIndex > j) return null;
+      out.push(code);
+      i = j;
+    }
+  }
+  return out;
+}
+
+/**
+ * The code of an unquoted-delimiter heredoc's body (bodyCodes), its
+ * heredoc_body <body> in <src> up to its end delimiter's line at <endLine>.
+ * A `<<-` body is read again with its leading tabs stripped, as bash strips
+ * them before it expands the body, since tree-sitter-bash parses no
+ * substitution in it; null where that does not parse.
+ */
+function heredocCodes(parser: Parser, src: string, body: Node, endLine: number, delim: string, tabs: boolean): string[] | null {
+  if (!tabs) return bodyCodes(src, body, body.startIndex, endLine);
+  const lineStart = src.lastIndexOf('\n', body.startIndex - 1) + 1;
+  const text = src.slice(lineStart, endLine).replace(/^\t+/gm, '');
+  const again = `: <<${delim}\n${text}${delim}\n`;
+  const tree = parser.parse(again);
+  if (!tree) return null;
+  try {
+    const root = tree.rootNode;
+    if (root.hasError || broken(root)) return null;
+    const node = root.descendantsOfType('heredoc_body')[0];
+    return node ? bodyCodes(again, node, node.startIndex, again.length - delim.length - 1) : [];
+  } finally {
+    tree.delete();
+  }
+}
+
 function substitutions(node: Node, out: Node[], charge: Charge): Node[] {
   charge(1);
   for (const child of node.children) {
@@ -129,14 +363,19 @@ export class Encoder {
     private readonly src: string,
     private readonly charge: Charge,
     private readonly marks = false,
+    private readonly shownControls = false,
+    private readonly heredocCode: HeredocCode | null = null,
   ) {}
+
+  /** Whether a heredoc substitution's code did not parse or a body's substitution is unclosed. */
+  failed = false;
 
   /** One char of quoted or escaped text; with `marks`, a `$` bash keeps literal is DOLLAR. */
   private literal(c: string | undefined, dollar: boolean): string {
     return dollar && this.marks && c === '$' ? DOLLAR : neutral(c, this.marks);
   }
 
-  /** Unquoted text: a backslash escapes the next char. */
+  /** Unquoted text: a backslash escapes the next char; a backslash-newline is dropped, as bash joins the lines (GH 2646). */
   private plain(from: number, to: number): string {
     const { src } = this;
     let out = '';
@@ -147,13 +386,13 @@ export class Encoder {
         continue;
       }
       const next = i + 1 < to ? src[i + 1] : undefined;
-      out += QM + this.literal(next, true);
-      if (next !== undefined && next !== '\n') i++;
+      if (next !== '\n') out += QM + this.literal(next, true);
+      if (next !== undefined) i++;
     }
     return out;
   }
 
-  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes; `literal` keeps every `$` literal, else only an escaped one. */
+  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes, and a backslash-newline whole; `literal` keeps every `$` literal, else only an escaped one. */
   private quoted(from: number, to: number, escapes: boolean, literal: boolean): string {
     const { src } = this;
     let out = '';
@@ -162,9 +401,21 @@ export class Encoder {
       if (c === '\n') out += JOINER;
       else if (escapes && c === '\\') {
         const next = i + 1 < to ? src[i + 1] : undefined;
-        out += this.literal(next, true);
-        if (next !== undefined && next !== '\n') i++;
+        if (next !== '\n') out += this.literal(next, true);
+        if (next !== undefined) i++;
       } else out += this.literal(c, literal);
+    }
+    return out;
+  }
+
+  /** A `$'…'` body as bash decodes it (GH 2640): a newline the joiner, a tab neutral, an undecodable escape COMPUTED, any other control char COMPUTED or with `shownControls` CONTROL_SHOWN; with `shownControls` a valid UTF-8 run of byte escapes is its chars (GH 2765). */
+  private ansiC(from: number, to: number): string {
+    let out = '';
+    for (const c of ansiCChars(this.src.slice(from, to), this.shownControls)) {
+      if (c === null) out += COMPUTED;
+      else if (c === '\n') out += JOINER;
+      else if (c !== '\t' && /[\x00-\x1f\x7f]/.test(c)) out += this.shownControls ? CONTROL_SHOWN : COMPUTED;
+      else out += this.literal(c, true);
     }
     return out;
   }
@@ -212,7 +463,18 @@ export class Encoder {
     const dropFrom = body?.startIndex ?? end?.startIndex ?? node.endIndex;
     let dropTo = end?.endIndex ?? node.endIndex;
     if (end && this.src[dropTo] === '\n') dropTo++;
-    return { text: '<<' + (delim === '' ? '' : data ? HD_DATA : HD_EXP) + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
+    let code = '';
+    if (this.heredocCode && body && end && !/['"\\]/.test(word)) {
+      const endLine = this.src.lastIndexOf('\n', end.startIndex - 1) + 1;
+      const subs = heredocCodes(this.heredocCode.parser, this.src, body, endLine, delim, kids.some((c) => c.type === '<<-'));
+      for (const sub of subs ?? []) {
+        const text = this.heredocCode.code(sub);
+        if (text === null) this.failed = true;
+        else code += ` ${QO}${text}${QC}`;
+      }
+      if (subs === null) this.failed = true;
+    }
+    return { text: '<<' + (delim === '' ? '' : data ? HD_DATA : HD_EXP) + delim + code, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
   }
 
   /** One word node, encoded as `range` encodes it inside its command. */
@@ -271,7 +533,7 @@ export class Encoder {
           out += QM + this.quoted(span.start + 1, span.end - 1, false, true);
           break;
         case 'ansi_c_string':
-          out += QM + this.quoted(span.start + 2, span.end - 1, true, true);
+          out += QM + this.ansiC(span.start + 2, span.end - 1);
           break;
         case 'command_substitution':
           out += this.frame(node, span.start);
@@ -308,13 +570,41 @@ export function heldKey(word: string): string {
   return decode(word).replaceAll(QM, '').replace(/\x07/g, '$(').replace(/\x08/g, ')');
 }
 
-function heldWords(encoder: Encoder, root: Node): Set<string> {
+/** One shell word: its tree-sitter-bash nodes, more than one where a backslash-newline joins them (GH 1978), and whether a redirect holds part of it. */
+type ShellWord = { nodes: Node[]; redirect: boolean; joined: boolean };
+
+/** Each word of the `parents` nodes under `root` as bash reads it, a node a backslash-newline joins to the one before it being part of that word. */
+function shellWords(src: string, root: Node, parents: string[]): ShellWord[] {
+  const units = root.descendantsOfType(parents).flatMap((parent) =>
+    parent ? parent.namedChildren.flatMap((node) => (node && !/^(file|herestring)_redirect$/.test(node.type) ? [{ node, redirect: parent.type !== 'command' }] : [])) : [],
+  );
+  const at = new Map<number, (typeof units)[number]>();
+  for (const unit of units) if (!at.has(unit.node.startIndex)) at.set(unit.node.startIndex, unit);
+  const next = (unit: (typeof units)[number]): (typeof units)[number] | undefined => {
+    let pos = unit.node.endIndex;
+    while (src.startsWith('\\\n', pos)) pos += 2;
+    return pos > unit.node.endIndex ? at.get(pos) : undefined;
+  };
+  const tails = new Set(units.map(next));
+  return units
+    .filter((unit) => !tails.has(unit))
+    .map((head) => {
+      const chain = [head];
+      for (let n = next(head); n && !chain.includes(n); n = next(n)) chain.push(n);
+      const nodes = chain.map((u) => u.node);
+      return { nodes, redirect: chain.some((u) => u.redirect), joined: src.slice(nodes[0].startIndex, nodes.at(-1)!.endIndex).includes('\\\n') };
+    });
+}
+
+const wordKey = (encoder: Encoder, word: ShellWord): string => heldKey(word.nodes.map((node) => encoder.word(node)).join(''));
+
+/** A word held as `Encoded.held` says, or one a backslash-newline runs through that holds a `$` or backtick, or one holding a `$'…'` escape left COMPUTED. */
+function heldWords(encoder: Encoder, src: string, root: Node): Set<string> {
   const held = new Set<string>();
-  for (const node of root.descendantsOfType(['command', 'herestring_redirect'])) {
-    if (!node) continue;
-    for (const word of node.namedChildren) {
-      if (word && word.type !== 'file_redirect' && word.type !== 'herestring_redirect' && expands(word)) held.add(heldKey(encoder.word(word)));
-    }
+  for (const word of shellWords(src, root, ['command', 'herestring_redirect'])) {
+    const text = word.nodes.map((node) => encoder.word(node)).join('');
+    const key = heldKey(text);
+    if (word.nodes.some(expands) || text.includes(COMPUTED) || (word.joined && /[$`]/.test(key))) held.add(key);
   }
   return held;
 }
@@ -322,21 +612,16 @@ function heldWords(encoder: Encoder, root: Node): Set<string> {
 const PLAIN_EXPANSIONS = ['simple_expansion', 'expansion'];
 const CODE_EXPANSIONS = ['command_substitution', 'arithmetic_expansion', 'process_substitution'];
 
-function splicedWords(encoder: Encoder, root: Node): Set<string> {
+function splicedWords(encoder: Encoder, src: string, root: Node): Set<string> {
   const plain = new Set<string>();
   const opaque = new Set<string>();
-  const classify = (word: Node, redirect: boolean): void => {
-    const key = heldKey(encoder.word(word));
+  for (const word of shellWords(src, root, ['command', 'file_redirect', 'herestring_redirect'])) {
+    const key = wordKey(encoder, word);
     const dollars = key.split('$').length - 1;
-    if (dollars === 0 && !key.includes('`')) return;
-    const spliced =
-      !redirect && !key.includes('`') && word.descendantsOfType(CODE_EXPANSIONS).length === 0 && word.descendantsOfType(PLAIN_EXPANSIONS).length === dollars;
+    if (dollars === 0 && !key.includes('`')) continue;
+    const count = (types: string[]): number => word.nodes.reduce((n, node) => n + node.descendantsOfType(types).length, 0);
+    const spliced = !word.redirect && !word.joined && !key.includes('`') && count(CODE_EXPANSIONS) === 0 && count(PLAIN_EXPANSIONS) === dollars;
     (spliced ? plain : opaque).add(key);
-  };
-  for (const node of root.descendantsOfType(['command', 'file_redirect', 'herestring_redirect'])) {
-    if (!node) continue;
-    const redirect = node.type !== 'command';
-    for (const word of node.namedChildren) if (word && !/^(file|herestring)_redirect$/.test(word.type)) classify(word, redirect);
   }
   for (const key of opaque) plain.delete(key);
   return plain;
@@ -372,17 +657,39 @@ function heredocs(src: string, root: Node): Heredoc[] {
   });
 }
 
-/** The source line holding `at`, without its newline. */
-function lineAt(src: string, at: number): string {
-  const end = src.indexOf('\n', at);
-  return src.slice(src.lastIndexOf('\n', at - 1) + 1, end < 0 ? src.length : end);
+/**
+ * Where bash ends a heredoc whose body starts at `at`: the [start, stop) of
+ * the first line that is exactly `delim` once read as bash reads it, an
+ * unquoted delimiter's body lines joined across each backslash-newline the
+ * backslash is not itself escaped in, then leading tabs stripped for <<-
+ * (F753-1); null when no line is.
+ */
+function bashHeredocEnd(src: string, at: number, delim: string, joins: boolean, tabs: boolean): { start: number; stop: number } | null {
+  let start = at;
+  let text = '';
+  for (;;) {
+    const nl = src.indexOf('\n', at);
+    const stop = nl < 0 ? src.length : nl;
+    const physical = src.slice(at, stop);
+    if (joins && nl >= 0 && /\\*$/.exec(physical)![0].length % 2 === 1) {
+      text += physical.slice(0, -1);
+      at = nl + 1;
+      continue;
+    }
+    text += physical;
+    if ((tabs ? text.replace(/^\t+/, '') : text) === delim) return { start, stop };
+    if (nl < 0) return null;
+    at = start = nl + 1;
+    text = '';
+  }
 }
 
 /**
  * GH 1927: bash ends a heredoc at the first line that is exactly its
  * delimiter (the start word with quotes and backslashes removed, leading tabs
- * stripped for <<-). A heredoc tree-sitter-bash ends on another line, or past
- * a body line bash would end it on, has misread where the command resumes.
+ * stripped for <<-, an unquoted delimiter's body read across backslash-newline
+ * joins). A heredoc tree-sitter-bash ends on another line, or past a body line
+ * bash would end it on, has misread where the command resumes.
  */
 function heredocMisread(src: string, root: Node): boolean {
   return root.descendantsOfType('heredoc_redirect').some((node) => {
@@ -391,28 +698,29 @@ function heredocMisread(src: string, root: Node): boolean {
     const start = kids.find((c) => c.type === 'heredoc_start');
     const end = kids.find((c) => c.type === 'heredoc_end');
     if (!start || !end) return true;
-    const delim = src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, '');
+    const word = src.slice(start.startIndex, start.endIndex);
+    const delim = word.replace(/['"\\]/g, '');
     const tabs = kids.some((c) => c.type === '<<-');
-    const line = (text: string): string => (tabs ? text.replace(/^\t+/, '') : text);
-    if (line(lineAt(src, end.startIndex)) !== delim) return true;
     const from = kids.find((c) => c.type === 'heredoc_body')?.startIndex ?? end.startIndex;
-    const bodyStart = src.lastIndexOf('\n', from - 1) + 1;
+    const bash = bashHeredocEnd(src, src.lastIndexOf('\n', from - 1) + 1, delim, !/['"\\]/.test(word), tabs);
     const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
-    return endStart > bodyStart && src.slice(bodyStart, endStart - 1).split('\n').some((l) => line(l) === delim);
+    const endStop = src.indexOf('\n', end.startIndex);
+    return bash === null || bash.start !== endStart || bash.stop !== (endStop < 0 ? src.length : endStop);
   });
 }
 
-/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912). */
-export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false): Encoded {
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912); `shownControls` gives a `$'…'` control char as CONTROL_SHOWN and a valid UTF-8 run of its byte escapes as its chars (GH 2765); `heredocCode` lists heredoc substitutions (GH 2635). */
+export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false, shownControls = false, heredocCode = false): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
     if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
-    const encoder = new Encoder(command, charge, marks);
+    const encoder = new Encoder(command, charge, marks, shownControls, heredocCode ? heredocEncoder(parser, charge) : null);
     const text = encoder.range(root, 0, command.length);
-    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
+    if (encoder.failed) return { ok: false };
+    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, command, root), spliced: splicedWords(encoder, command, root) };
   } finally {
     tree.delete();
   }

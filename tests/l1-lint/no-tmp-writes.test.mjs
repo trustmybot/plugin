@@ -1,4 +1,4 @@
-// L1 lint: TMB writes nothing to a hard-coded /tmp or /var/tmp path. Scratch files go under $TMPDIR (mktemp, `${TMPDIR:-/tmp}`, os.tmpdir()) or the project's <project>/.claude/<plugin>/ state dir. Scans scripts/, skills/, agents/, commands/ (shell, JS/TS, Python, Markdown code) and mcp/trajectory-server/src/ (TypeScript). A line is a violation when it writes and its target is a literal /tmp, /private/tmp or /var/tmp path — directly or through a variable assigned one in the same file. Shell writes: > / >> redirects (target), mkdir, tee, touch (any arg), mktemp (template or -p/--tmpdir dir), cp, mv, ln, install, rsync (last arg), TMPDIR=/tmp. JS/TS/Py writes: writeFileSync, mkdirSync, mkdtempSync, appendFileSync, cpSync, copyFileSync, renameSync, symlinkSync, createWriteStream, writeFile, mkdir, mkdtemp, appendFile, open(..., 'w'|'a'|'x'). Reads of /tmp paths and `${TMPDIR:-/tmp}` fallbacks are fine; comment lines are skipped. Allowlist: tests/l1-lint/no-tmp-writes.allowlist — repo-relative paths. Every run also checks fixtures/no-tmp-writes/, then runs every tests/l1-lint/*.sh and every other tests/l1-lint/*.test.mjs (node --test) with HOME at an empty temp dir, gh/glab/claude stubbed on PATH and TMB_L1_OFFLINE=1, and fails when the loop wrote under that HOME (the embedding model cache, ~/.cache/huggingface, excepted).
+// L1 lint: TMB writes nothing to a hard-coded /tmp or /var/tmp path. Scratch files go under $TMPDIR (mktemp, `${TMPDIR:-/tmp}`, os.tmpdir()) or the project's <project>/.claude/<plugin>/ state dir. Scans scripts/, skills/, agents/, commands/ (JS/TS, Python, Markdown code) and mcp/trajectory-server/src/ (TypeScript). A line is a violation when it writes and its target is a literal /tmp, /private/tmp or /var/tmp path — directly or through a variable assigned one in the same file. Shell-command writes in Markdown: > / >> redirects (target), mkdir, tee, touch (any arg), mktemp (template or -p/--tmpdir dir), cp, mv, ln, install, rsync (last arg), TMPDIR=/tmp. JS/TS/Py writes: writeFileSync, mkdirSync, mkdtempSync, appendFileSync, cpSync, copyFileSync, renameSync, symlinkSync, createWriteStream, writeFile, mkdir, mkdtemp, appendFile, open(..., 'w'|'a'|'x'). Reads of /tmp paths and `${TMPDIR:-/tmp}` fallbacks are fine; comment lines are skipped. Allowlist: tests/l1-lint/no-tmp-writes.allowlist — repo-relative paths. Every run also checks fixtures/no-tmp-writes/, then runs every tests/l1-lint/*.sh and every other tests/l1-lint/*.test.mjs (node --test) with HOME at an empty temp dir, gh/glab/claude stubbed on PATH and TMB_L1_OFFLINE=1, and fails when the loop wrote under that HOME (the embedding model cache, ~/.cache/huggingface, excepted).
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -160,14 +160,14 @@ function l1LoopFootprint() {
   }
 }
 
-test('fixtures bad.sh and bad.ts: every VIOLATION line is reported', () => {
-  const bad = scan([`${FIXTURES}/bad.sh`, `${FIXTURES}/bad.ts`]);
-  const expected = countViolations(`${FIXTURES}/bad.sh`) + countViolations(`${FIXTURES}/bad.ts`);
+test('fixtures bad.md and bad.ts: every VIOLATION line is reported', () => {
+  const bad = scan([`${FIXTURES}/bad.md`, `${FIXTURES}/bad.ts`]);
+  const expected = countViolations(`${FIXTURES}/bad.md`) + countViolations(`${FIXTURES}/bad.ts`);
   assert.equal(bad.length, expected, `no-tmp-writes self-test: expected ${expected} violations in bad fixtures, got ${bad.length}\n${bad.join('\n')}`);
 });
 
-test('fixtures good.sh and good.ts: no violations', () => {
-  const good = scan([`${FIXTURES}/good.sh`, `${FIXTURES}/good.ts`]);
+test('fixtures good.md and good.ts: no violations', () => {
+  const good = scan([`${FIXTURES}/good.md`, `${FIXTURES}/good.ts`]);
   assert.deepEqual(good, [], `no-tmp-writes self-test: false positives in good fixtures:\n${good.join('\n')}`);
 });
 
@@ -182,7 +182,7 @@ test('no hard-coded /tmp writes', () => {
       ? readFileSync(join(ROOT, ALLOWLIST), 'utf8').split('\n').filter((l) => !/^\s*#/.test(l))
       : [],
   );
-  const ext = /\.(?:sh|bash|js|mjs|cjs|ts|py|md)$/;
+  const ext = /\.(?:js|mjs|cjs|ts|py|md)$/;
   const files = [
     ...['scripts', 'skills', 'agents', 'commands'].flatMap((d) => find(d, (rel) => ext.test(rel), [])).sort(),
     ...find('mcp/trajectory-server/src', (rel) => rel.endsWith('.ts'), []).sort(),

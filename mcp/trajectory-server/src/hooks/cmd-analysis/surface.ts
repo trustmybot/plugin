@@ -20,14 +20,17 @@ export const WRITE_SHAPES: readonly string[] = [
   'find -exec / -execdir / -ok / -delete / -fprint', 'fd -x / -X', 'xargs fed by find or fd',
 ];
 
-const PROMPT_FILES = new Set(['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md']);
+const PROMPT_FILES = new Set(['CLAUDE.md']);
 
 /** tmb_cmd_write_shapes: the write shapes the Bash rules judge, comma-joined. */
 export function writeShapes(): string {
   return WRITE_SHAPES.join(', ');
 }
 
-/** _tmb_surface_root <abs>: the enclosing .claude/worktrees/<name>, else the main git root of the nearest existing ancestor. */
+/**
+ * _tmb_surface_root <abs>: the enclosing .claude/worktrees/<name>, else the
+ * main git root of the nearest existing ancestor.
+ */
 export async function surfaceRoot(abs: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   if (abs.includes('/.claude/worktrees/')) return worktreeRootForTarget(abs);
   const parent = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
@@ -38,13 +41,19 @@ export async function surfaceRoot(abs: string, env: NodeJS.ProcessEnv = process.
 }
 
 /**
- * tmb_is_prompt_surface_path <path> [<root>]: a CLAUDE/CODEX/CURSOR/GEMINI.md
- * anywhere, or a .md under agents/, skills/, commands/, templates/ or rules/
- * (or .claude/agents|skills|commands|rules/) of <root>, the path's own repo
- * root when none is given.
+ * tmb_is_prompt_surface_path <path> [<root>]: a CLAUDE.md anywhere, or a .md
+ * under agents/, skills/, commands/, templates/ or rules/ (or
+ * .claude/agents|skills|commands|rules/) of <root>, the path's own repo root
+ * when none is given.
  */
-export async function isPromptSurfacePath(p: string, root = '', env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
-  if (root !== '' || !p.startsWith('/') || PROMPT_FILES.has(p.slice(p.lastIndexOf('/') + 1))) return isPromptSurfaceUnder(p, root);
+export async function isPromptSurfacePath(
+  p: string,
+  root = '',
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<boolean> {
+  if (root !== '' || !p.startsWith('/') || PROMPT_FILES.has(p.slice(p.lastIndexOf('/') + 1))) {
+    return isPromptSurfaceUnder(p, root);
+  }
   return isPromptSurfaceUnder(p, await surfaceRoot(stripTrailingNewlines(pathCanonical(p)), env));
 }
 
@@ -65,5 +74,8 @@ export function isPromptSurfaceUnder(p: string, root: string): boolean {
     if (!p.endsWith('.md')) return false;
     return /\/(agents|skills|commands|templates|rules)\//.test(`/${p.startsWith('/') ? p.slice(1) : p}`);
   }
-  return /^(agents|skills|commands|templates|rules)\/[^]*\.md$/.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/[^]*\.md$/.test(rel);
+  return (
+    /^(agents|skills|commands|templates|rules)\/[^]*\.md$/.test(rel) ||
+    /^\.claude\/(agents|skills|commands|rules)\/[^]*\.md$/.test(rel)
+  );
 }

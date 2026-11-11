@@ -1,4 +1,4 @@
-// L1 lint: importing a trajectory-server module writes nothing to disk. A filesystem write that runs when the module is evaluated — a statement at module scope, inside a top-level try/if/for block, or in a top-level const/let initializer — fires for every script or test that merely imports the module, wherever it runs. Writes belong inside functions (memoized getters, first-write guards) or at server start in the entry points. Scans mcp/trajectory-server/src/**/*.ts, excluding src/test/ and the server entry points (src/index.ts, src/codex.ts), whose module scope IS server start. Write calls: mkdirSync, writeFileSync, appendFileSync, rmSync, renameSync, copyFileSync, and openSync with a 'w' flag. A call is module-scope when no enclosing scope is a function body, arrow function, method, or class body (literal callbacks such as setTimeout(() => ...) count as functions). Every run also checks fixtures/no-module-load-writes/.
+// L1 lint: importing a trajectory-server module writes nothing to disk. A filesystem write that runs when the module is evaluated — a statement at module scope, inside a top-level try/if/for block, or in a top-level const/let initializer — fires for every script or test that merely imports the module, wherever it runs. Writes belong inside functions (memoized getters, first-write guards) or at server start in the entry points. Scans mcp/trajectory-server/src/**/*.ts, excluding src/test/ and the server entry point src/index.ts, whose module scope IS server start. Write calls: mkdirSync, writeFileSync, appendFileSync, rmSync, renameSync, copyFileSync, and openSync with a 'w' flag. A call is module-scope when no enclosing scope is a function body, arrow function, method, or class body (literal callbacks such as setTimeout(() => ...) count as functions). Every run also checks fixtures/no-module-load-writes/.
 import { strict as assert } from 'node:assert';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIXTURES = 'tests/l1-lint/fixtures/no-module-load-writes';
-const ENTRY_POINTS = ['mcp/trajectory-server/src/index.ts', 'mcp/trajectory-server/src/codex.ts'];
+const ENTRY_POINTS = ['mcp/trajectory-server/src/index.ts'];
 const WRITES = /^(?:mkdirSync|writeFileSync|appendFileSync|rmSync|renameSync|copyFileSync|openSync)$/;
 const REGEX_PREV = /^(?:[(,=:[!&|?{};]|return)$/;
 const TOKEN = /(?:(\n)|(=>)|(\w+)|([{}()[\];,])|([^\n\w{}()[\];,]))/y;

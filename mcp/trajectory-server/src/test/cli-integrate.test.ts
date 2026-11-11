@@ -734,6 +734,131 @@ describe('cli.js integrate', () => {
     });
   });
 
+  // GH 2198: a stale local base was taken as given, so integrate printed
+  // "nothing to rebase" while origin had moved past the task's base.
+  describe('base resolution against a remote', () => {
+    let remoteDir = '';
+
+    afterEach(() => {
+      if (remoteDir !== '') rmSync(remoteDir, { recursive: true, force: true });
+      remoteDir = '';
+    });
+
+    function gitIn(dir: string, ...args: string[]): string {
+      const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: GIT_ENV });
+      assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+      return r.stdout.replace(/\n+$/, '');
+    }
+
+    // repo's main tracks origin/main (a bare repo), both at base0.
+    function setupRemote(): { bare: string } {
+      setup('none');
+      remoteDir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-integrate-remote-')));
+      const bare = join(remoteDir, 'origin.git');
+      spawnSync('git', ['init', '-q', '--bare', '-b', 'main', bare], { env: GIT_ENV });
+      git('remote', 'add', 'origin', bare);
+      git('push', '-q', '-u', 'origin', 'main');
+      return { bare };
+    }
+
+    // Another clone pushes m.txt to origin/main; repo does not fetch it.
+    function moveRemote(bare: string): string {
+      const other = join(remoteDir, 'other');
+      gitIn(remoteDir, 'clone', '-q', bare, other);
+      gitIn(other, 'config', 'user.email', 'test@example.com');
+      gitIn(other, 'config', 'user.name', 'Test');
+      writeFileSync(join(other, 'm.txt'), 'moved\n');
+      gitIn(other, 'add', 'm.txt');
+      gitIn(other, 'commit', '-qm', 'feat: m.txt');
+      gitIn(other, 'push', '-q', 'origin', 'main');
+      return gitIn(other, 'rev-parse', 'HEAD');
+    }
+
+    it('stale local main: fetches its upstream and rebases onto it', () => {
+      const { bare } = setupRemote();
+      const remoteTip = moveRemote(bare);
+      assert.equal(rev('main'), base0, 'local main is stale');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.doesNotMatch(r.err, /nothing to rebase/);
+      assert.notEqual(r.out, commit, 'the printed SHA is the original commit');
+      assert.equal(rev(`${r.out}^`), remoteTip, "the rebased commit's parent is the fetched origin/main");
+      assert.equal(rev('refs/heads/feat/x-1'), r.out, 'feat/x-1 tip');
+      assert.match(r.err, /refs\/heads\/main .*refs\/remotes\/origin\/main/, 'one line names both refs');
+      assert.match(r.err, /onto origin\/main \([0-9a-f]{40}\)/, 'stderr names the upstream it rebased onto');
+      assert.equal(rev('main'), base0, 'local main is not moved');
+    });
+
+    it('local main a fast-forward ahead of its upstream: rebases onto the local ref', () => {
+      setupRemote();
+      commitFile('m.txt', 'local');
+      const localTip = rev('main');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(rev(`${r.out}^`), localTip, "the rebased commit's parent is local main");
+      assert.notEqual(rev('refs/remotes/origin/main'), localTip, 'the upstream is behind');
+      assert.doesNotMatch(r.err, /refs\/remotes\/origin\/main/, 'no upstream line');
+    });
+
+    it('origin/main as the base: fetched before it is resolved', () => {
+      const { bare } = setupRemote();
+      const remoteTip = moveRemote(bare);
+      assert.equal(rev('origin/main'), base0, 'origin/main is stale before the run');
+      const r = integrate('origin/main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(rev(`${r.out}^`), remoteTip, "the rebased commit's parent is the remote's new tip");
+    });
+
+    it('unreachable upstream: exit 4, branch and verification_runs unchanged', () => {
+      setupRemote();
+      git('remote', 'set-url', 'origin', join(remoteDir, 'missing.git'));
+      const runs = q('SELECT COUNT(*) FROM verification_runs');
+      const r = integrate('main');
+      assert.equal(r.code, 4, r.err);
+      assert.match(r.err, /fetch of base 'main'/, 'stderr names the base');
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), runs, 'verification_runs count');
+      assertNotIntegrated();
+      assertNoTempWorktree();
+    });
+
+    it('a hung fetch times out: exit 4, branch and DB unchanged (GH 2632)', () => {
+      setupRemote();
+      git('remote', 'set-url', 'origin', 'ssh://hang.invalid/origin.git');
+      const r = integrate('main', { GIT_SSH_COMMAND: 'sleep 60;:', GIT_SSH_VARIANT: 'simple', TMB_INTEGRATE_FETCH_TIMEOUT_MS: '1000' });
+      assert.equal(r.code, 4, r.err);
+      assert.match(r.err, /fetch of base 'main' \(origin main\) timed out after 1000 ms/, 'stderr names the timeout');
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assertNotIntegrated();
+      assertNoTempWorktree();
+    });
+  });
+
+  // GH 2356: the task renames r.txt to b.txt while main renames it to c.txt, as a
+  // dist regen renames a content-hashed chunk. With rename detection the rebase
+  // stops on a rename/rename conflict; without it the rebase applies, and the
+  // every-path patch-ids then see the dropped delete of r.txt as drift.
+  it('both sides rename the same file: no rename/rename conflict (GH 2356)', () => {
+    setup('none', '["test -f b.txt"]');
+    git('branch', '-q', '-D', 'feat/x-1');
+    commitFile('r.txt', ['one', 'two', 'three', 'four', 'five'].join('\n'), 'chore: r.txt');
+    git('checkout', '-q', '-b', 'feat/x-1');
+    git('mv', 'r.txt', 'b.txt');
+    git('commit', '-qm', 'feat: r.txt -> b.txt');
+    commit = rev('HEAD');
+    git('checkout', '-q', 'main');
+    git('mv', 'r.txt', 'c.txt');
+    git('commit', '-qm', 'chore: r.txt -> c.txt');
+    pointTaskAt(commit);
+    const r = integrate('main');
+    assert.equal(r.code, 2, r.err);
+    assert.doesNotMatch(r.err, /conflicted|CONFLICT/, 'the rebase did not stop on a rename/rename conflict');
+    assert.match(r.err, /source patches/, 'the patch-id check judged the rebased commit');
+    assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+    assertNotIntegrated();
+    assertNoTempWorktree();
+  });
+
   // git-guards denies a rebase in the main checkout; the temporary worktree
   // integrate rebases in is a linked worktree, where rebase is allowed, and
   // bro's own command is a cli.js call git-guards does not judge as a rebase.

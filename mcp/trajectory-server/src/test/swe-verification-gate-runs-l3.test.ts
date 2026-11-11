@@ -2,7 +2,8 @@
  * The swe-verification-gate l3 bash suite in node:test (GH 1692), part 2: the
  * run lock (one run per task and worktree HEAD), the lock-less path, the
  * verification_runs record, reuse within the hour, the budget sources, the
- * timeout and failure denies, an unresolvable HEAD, and the trajectory-gates
+ * timeout and failure denies, an unresolvable HEAD (denied before any command,
+ * GH 2866), and the trajectory-gates
  * chain (a call agent-arg-matches-caller denies never runs verification).
  */
 import assert from 'node:assert/strict';
@@ -25,6 +26,7 @@ import {
   reasonOf,
   runHook,
   runsOf,
+  unbornWorktree,
   type Ws,
 } from './swe-verification-gate-l3.js';
 
@@ -277,35 +279,27 @@ describe('swe-verification-gate runs l3', () => {
     );
   });
 
-  describe('HEAD unresolvable: verification runs, nothing is recorded or reused', () => {
+  describe('HEAD unresolvable: the doc checks cannot be proven, so the close denies before verification[] (GH 2866)', () => {
     let nohead: string;
     before(() => {
       nohead = join(w.sb.dir, 'nohead.log');
       addTask(w.db, 90, 'no-head', [`echo ran >> ${nohead}`]);
-      addTask(w.db, 94, 'no-head-fail', ['echo nope; exit 5']);
-      mkdirSync(join(w.wtRoot, 'no-head'), { recursive: true });
-      mkdirSync(join(w.wtRoot, 'no-head-fail'), { recursive: true });
+      unbornWorktree(w, 'no-head');
     });
 
-    it('HEAD unresolvable: verification[] runs, no run row, the allow says not recorded', () => {
-      const out = hook(w, done(90));
-      hasNot(out, DENY, 'passing verification allows');
-      has(out, 'not recorded: worktree HEAD unresolvable', 'allow context says the run is not recorded');
-      assert.equal(lineCount(nohead), 1, 'verification[] ran');
+    it('HEAD unresolvable: denies naming the unresolvable HEAD, verification[] never runs, no run row', () => {
+      const reason = reasonOf(runHook(w, done(90)).stdout);
+      has(reason, '"check":"stale_doc_ref"', 'deny carries the doc check');
+      has(reason, 'git rev-parse HEAD failed', 'deny says HEAD does not resolve');
+      assert.equal(lineCount(nohead), 0, 'verification[] did not run');
       assert.equal(runsOf(w, 90), '0', 'no run row');
     });
 
-    it('HEAD unresolvable: a second close runs verification[] again (nothing to reuse)', () => {
-      hasNot(hook(w, done(90)), 'verification reused', 'nothing is reused');
-      assert.equal(lineCount(nohead), 2, 'verification[] ran again');
-    });
-
-    it('HEAD unresolvable: a failing command denies and says not recorded', () => {
-      const reason = reasonOf(runHook(w, done(94)).stdout);
-      has(reason, 'Exit 5 after', "deny names the failing command's exit");
-      has(reason, '(not recorded: worktree HEAD unresolvable)', 'deny says the run is not recorded');
-      assert.equal(runsOf(w, 94), '0', 'no run row');
-      assert.equal(q(w.db, "SELECT COUNT(*) FROM verification_runs WHERE commit_sha = 'nohead';"), '0', 'no nohead row anywhere');
+    it('HEAD unresolvable: a waiver does not skip the doc checks', () => {
+      const waived = makeInput('swe', 'completed', 90, '', { waive_verification_gate_reason: 'slow environment, waived for this close' });
+      const reason = reasonOf(runHook(w, waived).stdout);
+      has(reason, '"check":"stale_doc_ref"', 'the waiver still denies on the doc checks');
+      assert.equal(lineCount(nohead), 0, 'verification[] did not run');
     });
   });
 

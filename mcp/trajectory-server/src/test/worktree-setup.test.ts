@@ -1,13 +1,13 @@
 /**
  * Opt-in per-repo worktree setup (GH 2054): the runWorktreeSetup util, and
- * its fail-soft (task_provision), fail-with-error (pr_monitor_worktree) and
- * fail-closed (swe-verification-gate) callers. cli.js integrate's case lives
+ * its environment-gate (task_provision, GH 2866), fail-with-error
+ * (pr_monitor_worktree) and fail-closed (swe-verification-gate) callers. cli.js integrate's case lives
  * in cli-integrate.test.ts.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 import { compositeTools } from '../tools/composites.js';
 import { sweVerificationGate } from '../hooks/swe-verification-gate.js';
+import { DOC_CHECKS_FILE } from '../hooks/lib/doc-checks.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
@@ -51,6 +52,10 @@ function tempDir(prefix: string): string {
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 const parse = (r: unknown): Record<string, unknown> => JSON.parse((r as RawResult).content[0]!.text) as Record<string, unknown>;
+const reviewDirs = (repoRoot: string, sha: string): string[] => {
+  const dir = join(repoRoot, '.claude', 'worktrees');
+  return existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith(`pr-review-${sha}`)) : [];
+};
 
 describe('runWorktreeSetup', () => {
   let dir: string;
@@ -174,7 +179,7 @@ function makeRepo(setup: unknown): { ws: string; repoRoot: string } {
   return { ws, repoRoot };
 }
 
-describe('task_provision runs worktree setup fail-soft', () => {
+describe('task_provision runs worktree setup as an environment gate stage', () => {
   const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
   const provision = async (repoRoot: string, ws: string, branch: string): Promise<{ r: RawResult; db: ReturnType<typeof tempDB> }> => {
     const db = tempDB();
@@ -191,19 +196,18 @@ describe('task_provision runs worktree setup fail-soft', () => {
     return { r, db };
   };
 
-  it('a failing setup still provisions and reports the failing command', async () => {
+  it('a failing setup refuses at stage setup, writes no task row and removes the branch and worktree', async () => {
     const { ws, repoRoot } = makeRepo({ version: 1, commands: ['echo provision-setup-broke; exit 6'] });
     try {
       const { r, db } = await provision(repoRoot, ws, 'feat/setup-fails');
-      assert.ok(!r.isError, JSON.stringify(parse(r)));
-      const out = parse(r);
-      assert.equal(typeof out['task_id'], 'number');
-      assert.equal(out['git_setup'], 'created');
-      assert.ok(existsSync(join(repoRoot, '.claude/worktrees/setup-fails/a.txt')), 'worktree created');
-      const setup = out['worktree_setup'] as { ran: boolean; error: string; output_tail: string; commands: { exit_code: number }[] };
-      assert.equal(setup.ran, true);
-      assert.match(setup.error, /exited 6: echo provision-setup-broke; exit 6/);
-      assert.match(setup.output_tail, /provision-setup-broke/);
+      assert.equal(r.isError, true, JSON.stringify(parse(r)));
+      const failed = parse(r)['env_gate_failed'] as { stage: string; detail: string; output_tail: string };
+      assert.equal(failed.stage, 'setup');
+      assert.match(failed.detail, /exited 6: echo provision-setup-broke; exit 6/);
+      assert.match(failed.output_tail, /provision-setup-broke/);
+      assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM tasks')!.n, 0);
+      assert.equal(existsSync(join(repoRoot, '.claude/worktrees/setup-fails')), false, 'worktree removed');
+      assert.equal(git(repoRoot, 'branch', '--list', 'feat/setup-fails'), '', 'branch removed');
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
@@ -259,7 +263,7 @@ describe('pr_monitor_worktree runs worktree setup before its command', () => {
       assert.match(error, /worktree setup failed/);
       assert.match(error, /exited 4: echo review-setup-broke; exit 4/);
       assert.match(error, /Output \(last 20 lines\):\nreview-setup-broke/);
-      assert.equal(existsSync(join(repoRoot, '.claude/worktrees', `pr-review-${sha}`)), false, 'worktree removed');
+      assert.deepEqual(reviewDirs(repoRoot, sha), [], 'worktree removed');
       assert.equal(existsSync(join(repoRoot, '.claude/command-ran')), false, 'command not run');
       assert.ok(!git(repoRoot, 'worktree', 'list', '--porcelain').includes('pr-review-'), 'worktree unregistered');
     } finally {
@@ -273,7 +277,119 @@ describe('pr_monitor_worktree runs worktree setup before its command', () => {
       const { r, sha } = await monitor(repoRoot, 'test -f setup-ran && test -f node_modules/marker');
       assert.ok(!r.isError, JSON.stringify(parse(r)));
       assert.equal(parse(r)['passed'], true);
-      assert.equal(existsSync(join(repoRoot, '.claude/worktrees', `pr-review-${sha}`)), false);
+      assert.equal(parse(r)['timed_out'], false);
+      assert.deepEqual(reviewDirs(repoRoot, sha), []);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('pr_monitor_worktree runs its command under the verification budget (GH 2687)', () => {
+  let savedBudget: string | undefined;
+  before(() => {
+    savedBudget = process.env['TMB_VERIFICATION_TIMEOUT_S'];
+  });
+  after(() => {
+    if (savedBudget === undefined) delete process.env['TMB_VERIFICATION_TIMEOUT_S'];
+    else process.env['TMB_VERIFICATION_TIMEOUT_S'] = savedBudget;
+  });
+
+  const monitor = async (repoRoot: string, command: string, budgetConfig?: number): Promise<{ r: RawResult; sha: string; ms: number }> => {
+    const sha = git(repoRoot, 'rev-parse', 'HEAD');
+    const db = tempDB();
+    try {
+      if (budgetConfig !== undefined) {
+        db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('verification_timeout_s', ?)`, [JSON.stringify(budgetConfig)]);
+      }
+      const composites = compositeTools(db, join(repoRoot, '.claude', 'tmb', 'trajectory.db'));
+      const start = Date.now();
+      const r = (await composites.handlers['pr_monitor_worktree']!({ agent: 'code-reviewer', commit_sha: sha, repo_path: repoRoot, command })) as RawResult;
+      return { r, sha, ms: Date.now() - start };
+    } finally {
+      db.close();
+    }
+  };
+
+  const assertRemoved = (repoRoot: string, sha: string): void => {
+    assert.deepEqual(reviewDirs(repoRoot, sha), [], 'worktree removed');
+    assert.ok(!git(repoRoot, 'worktree', 'list', '--porcelain').includes('pr-review-'), 'worktree unregistered');
+  };
+
+  it('an over-budget command is killed: passed false, timed_out true, worktree removed and unregistered', async () => {
+    process.env['TMB_VERIFICATION_TIMEOUT_S'] = '1';
+    const { ws, repoRoot } = makeRepo(undefined);
+    try {
+      const { r, sha, ms } = await monitor(repoRoot, 'sleep 5');
+      const body = parse(r);
+      assert.equal(r.isError, true);
+      assert.equal(body['passed'], false);
+      assert.equal(body['timed_out'], true);
+      assert.ok(ms < 4000, `killed at the 1s budget, took ${ms}ms`);
+      assertRemoved(repoRoot, sha);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('kills the whole process group, so a backgrounded grandchild holding the pipes does not stall the call', async () => {
+    process.env['TMB_VERIFICATION_TIMEOUT_S'] = '1';
+    const { ws, repoRoot } = makeRepo(undefined);
+    try {
+      const marker = join(ws, 'orphan-ran');
+      const { r, sha, ms } = await monitor(repoRoot, `(sleep 2; touch '${marker}') & sleep 6; wait`);
+      assert.equal(parse(r)['timed_out'], true);
+      assert.ok(ms < 5000, `took ${ms}ms`);
+      assertRemoved(repoRoot, sha);
+      await new Promise((r) => setTimeout(r, 2500));
+      assert.equal(existsSync(marker), false, 'the backgrounded grandchild was killed with the group');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('reads plugin_config.verification_timeout_s when the env var is unset', async () => {
+    delete process.env['TMB_VERIFICATION_TIMEOUT_S'];
+    const { ws, repoRoot } = makeRepo(undefined);
+    try {
+      const { r, sha } = await monitor(repoRoot, 'sleep 5', 1);
+      assert.equal(parse(r)['timed_out'], true);
+      assertRemoved(repoRoot, sha);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('with no env var or config the default budget applies and a passing command reports timed_out false', async () => {
+    delete process.env['TMB_VERIFICATION_TIMEOUT_S'];
+    const { ws, repoRoot } = makeRepo(undefined);
+    try {
+      const { r } = await monitor(repoRoot, 'sleep 2; echo done');
+      const body = parse(r);
+      assert.equal(body['passed'], true, JSON.stringify(body));
+      assert.equal(body['timed_out'], false);
+      assert.equal(body['stdout'], 'done\n');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('runs the command asynchronously: a timer set after the call fires before the call resolves', async () => {
+    delete process.env['TMB_VERIFICATION_TIMEOUT_S'];
+    const { ws, repoRoot } = makeRepo(undefined);
+    try {
+      let timerFiredWhileRunning = false;
+      let settled = false;
+      const pending = monitor(repoRoot, 'sleep 1.5').then((v) => {
+        settled = true;
+        return v;
+      });
+      setTimeout(() => {
+        timerFiredWhileRunning = !settled;
+      }, 500);
+      const { r } = await pending;
+      assert.equal(timerFiredWhileRunning, true, 'event loop ran while the command was running');
+      assert.equal(parse(r)['passed'], true);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -303,6 +419,7 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
       mkdirSync(wt, { recursive: true });
       writeSetup(wt, { version: 1, commands: t.setup });
       writeFileSync(join(wt, '.gitignore'), 'setup-ran\n');
+      writeFileSync(join(wt, DOC_CHECKS_FILE), readFileSync(join(PLUGIN_ROOT, DOC_CHECKS_FILE)));
       git(wt, 'init', '-q');
       git(wt, 'add', '.');
       git(wt, 'commit', '-q', '-m', t.slug);

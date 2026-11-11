@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
+import { envTools } from '../tools/env.js';
+import { readVerificationDefaults, VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
 import { tempDB } from './helpers.js';
 import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 import {
@@ -35,6 +37,23 @@ function call(
 function parse(result: unknown): Record<string, unknown> {
   const r = result as { content: Array<{ text: string }>; isError?: boolean };
   return JSON.parse(r.content[0].text) as Record<string, unknown>;
+}
+
+interface ProjectSettings {
+  model?: string;
+  env?: Record<string, string>;
+  hooks?: { PreToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string; _tmb_project?: string }> }> };
+  sandbox?: {
+    enabled?: boolean;
+    enableWeakerNetworkIsolation?: boolean;
+    excludedCommands?: string[];
+    filesystem?: { allowWrite?: string[] };
+    network?: { allowedDomains?: string[]; allowLocalBinding?: boolean };
+  };
+}
+
+function readSettings(path: string): ProjectSettings {
+  return JSON.parse(readFileSync(path, 'utf8')) as ProjectSettings;
 }
 
 const GIT_ISOLATED_ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
@@ -1086,13 +1105,13 @@ describe('onboard tools', () => {
       const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
       const applied = data.applied as Record<string, unknown>;
       assert.equal(applied.sandbox_enforcement, 'yes');
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      const written = readSettings(settings);
       assert.equal(written.model, 'x', 'other keys kept');
-      assert.equal(written.sandbox.enabled, true);
-      assert.equal(written.sandbox.filesystem.allowWrite[0], '/user/own', 'the user entry is kept first');
-      assert.ok(written.sandbox.filesystem.allowWrite.includes(proj), 'the project is writable');
-      assert.equal(written.sandbox.filesystem.allowWrite.length, 3, 'project + model cache added');
-      assert.equal(written.sandbox.enableWeakerNetworkIsolation, true, 'macOS: gh can reach the TLS trust service');
+      assert.equal(written.sandbox?.enabled, true);
+      assert.equal(written.sandbox?.filesystem?.allowWrite?.[0], '/user/own', 'the user entry is kept first');
+      assert.ok(written.sandbox?.filesystem?.allowWrite?.includes(proj), 'the project is writable');
+      assert.equal(written.sandbox?.filesystem?.allowWrite?.length, 3, 'project + model cache added');
+      assert.equal(written.sandbox?.enableWeakerNetworkIsolation, true, 'macOS: gh can reach the TLS trust service');
       assert.deepEqual(written.env, {
         npm_config_cache: join(proj, '.claude', 'tmb', 'cache', 'npm'),
         BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun'),
@@ -1103,7 +1122,7 @@ describe('onboard tools', () => {
       const sandboxResult = applied.sandbox as Record<string, unknown>;
       assert.deepEqual(sandboxResult.env, written.env);
       assert.equal(sandboxResult.weaker_network_isolation, true);
-      assert.equal(written.sandbox.network.allowLocalBinding, true, '/dashboard can listen on loopback');
+      assert.equal(written.sandbox?.network?.allowLocalBinding, true, '/dashboard can listen on loopback');
       assert.equal(sandboxResult.allow_local_binding, true);
 
       await call(tools.handlers, 'onboard_apply', { shape: 'local' });
@@ -1126,7 +1145,8 @@ describe('onboard tools', () => {
       const { base, proj, dbPath, settings } = project();
       const tools = onboardTools(db, dbPath, { platform: 'linux' });
       await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      const written = readSettings(settings);
+      assert.ok(written.sandbox);
       assert.equal(written.sandbox.enableWeakerNetworkIsolation, undefined);
       assert.deepEqual(written.env, sandboxToolEnv(join(proj, '.claude', 'tmb', 'cache')));
       await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'no' });
@@ -1146,11 +1166,11 @@ describe('onboard tools', () => {
       writeFileSync(settings, JSON.stringify(user));
       const tools = onboardTools(db, dbPath, { platform: 'darwin' });
       await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
-      assert.equal(written.env.npm_config_cache, '/user/npm-cache', "the user's npm cache is kept");
-      assert.equal(written.env.FOO, 'bar');
-      assert.equal(written.env.BUN_INSTALL_CACHE_DIR, join(proj, '.claude', 'tmb', 'cache', 'bun'));
-      assert.equal(written.sandbox.enableWeakerNetworkIsolation, false, "the user's explicit false is kept");
+      const written = readSettings(settings);
+      assert.equal(written.env?.npm_config_cache, '/user/npm-cache', "the user's npm cache is kept");
+      assert.equal(written.env?.FOO, 'bar');
+      assert.equal(written.env?.BUN_INSTALL_CACHE_DIR, join(proj, '.claude', 'tmb', 'cache', 'bun'));
+      assert.equal(written.sandbox?.enableWeakerNetworkIsolation, false, "the user's explicit false is kept");
       const record = sandboxRecord(db);
       assert.deepEqual(record.env, { BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun') });
       assert.equal(record.weaker_network_isolation_set, false);
@@ -1228,9 +1248,9 @@ describe('onboard tools', () => {
         }),
       );
       assert.equal(data.ok, true);
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
-      assert.deepEqual(written.sandbox.excludedCommands, ['docker'], 'the user excludedCommands is kept');
-      assert.deepEqual(written.sandbox.network.allowedDomains, [
+      const written = readSettings(settings);
+      assert.deepEqual(written.sandbox?.excludedCommands, ['docker'], 'the user excludedCommands is kept');
+      assert.deepEqual(written.sandbox?.network?.allowedDomains, [
         'example.org',
         'github.com',
         'api.github.com',
@@ -1262,9 +1282,10 @@ describe('onboard tools', () => {
       const db = tempDB();
       const { base, dbPath, settings } = project();
       await call(onboardTools(db, dbPath).handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'Yes (Recommended)' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      const written = readSettings(settings);
+      assert.ok(written.sandbox);
       assert.equal(written.sandbox.excludedCommands, undefined);
-      assert.deepEqual(written.sandbox.network.allowedDomains, [...TMB_ALLOWED_DOMAINS]);
+      assert.deepEqual(written.sandbox.network?.allowedDomains, [...TMB_ALLOWED_DOMAINS]);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -1371,7 +1392,7 @@ describe('onboard tools', () => {
       assert.match(String(parse(result).error), /unknown round 'headless'/);
       const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
       const roundSchema = (def?.inputSchema.properties as Record<string, { enum: string[] }>)['round'];
-      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report']);
+      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults']);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -1387,7 +1408,7 @@ describe('onboard tools', () => {
       assert.equal((applied.headless_shim as Record<string, unknown>).written, true);
       const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
       assert.equal((state.current as Record<string, unknown>).headless_enforcement, 'yes');
-      const entries = JSON.parse(readFileSync(settings, 'utf8')).hooks.PreToolUse.flatMap((g: { hooks: unknown[] }) => g.hooks);
+      const entries = readSettings(settings).hooks?.PreToolUse?.flatMap((g) => g.hooks) ?? [];
       assert.equal(entries.length, 2);
       rmSync(base, { recursive: true, force: true });
       db.close();
@@ -1447,8 +1468,7 @@ describe('onboard tools', () => {
       const { base, pluginRoot, project, dbPath, settings } = sandbox();
       const tools = onboardTools(db, dbPath, { pluginRoot });
       await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'yes' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
-      const entries = written.hooks.PreToolUse.flatMap((g: { hooks: unknown[] }) => g.hooks) as Array<{ command: string; _tmb_project: string }>;
+      const entries = readSettings(settings).hooks?.PreToolUse?.flatMap((g) => g.hooks) ?? [];
       assert.equal(entries.length, 2);
       for (const e of entries) {
         assert.equal(e._tmb_project, project);
@@ -1480,8 +1500,7 @@ describe('onboard tools', () => {
       const tools = onboardTools(db, dbPath, { pluginRoot });
       seedLegacyShim(project, settings);
       await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'yes' });
-      const commands = (JSON.parse(readFileSync(settings, 'utf8')).hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>)
-        .flatMap((g) => g.hooks.map((h) => h.command));
+      const commands = (readSettings(settings).hooks?.PreToolUse ?? []).flatMap((g) => g.hooks.map((h) => h.command));
       assert.equal(commands.length, 2);
       assert.ok(commands.every((c) => c.startsWith(`node ${join(project, '.claude', 'tmb', 'resolve-hook.mjs')} `)), commands.join('\n'));
       assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.mjs')));
@@ -2483,6 +2502,212 @@ describe('bug_report_consent (GH 2034)', () => {
     } finally {
       db.close();
       rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('verification defaults from the env profile (GH 2866)', () => {
+  type Option = { label: string; description: string; wire: string };
+  type Question = { header: string; multiSelect: boolean; options: Option[]; evidence: string[] };
+
+  const candidate = (command: string, source: string) => ({
+    command,
+    source,
+    confidence: 0.9,
+    probe: null,
+    provenance: { kind: 'existing_repo' },
+  });
+
+  // A committed Python + Makefile repo on main, with origin/main at the same commit.
+  function pythonRepo(extra: Record<string, string> = {}): { dir: string; git: (...a: string[]) => string } {
+    const dir = mkdtempSync(join(tmpdir(), 'onboard-defaults-'));
+    remoteRepoDirs.push(dir);
+    const git = (...a: string[]): string => {
+      const r = spawnSync('git', ['-c', 'user.email=t@t.t', '-c', 'user.name=t', ...a], { cwd: dir, encoding: 'utf8', env: GIT_ISOLATED_ENV });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    const files: Record<string, string> = {
+      Makefile: 'lint:\n\truff check .\ntest:\n\tpytest\n',
+      'pyproject.toml': '[project]\nname = "app"\n',
+      'src/app.py': 'x = 1\n',
+      ...extra,
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(dir, dirname(p)), { recursive: true });
+      writeFileSync(join(dir, p), body);
+    }
+    git('init', '-q', '-b', 'main');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'));
+    return { dir, git };
+  }
+
+  async function recordProfile(db: TrajectoryDB, repo: string, commands: Record<string, unknown[]>): Promise<void> {
+    const r = (await envTools(db).handlers['env_record']({
+      agent: 'bro',
+      repo,
+      profiles: [
+        { package_path: '.', ecosystem: 'python', package_manager: 'pip', commands, globs: ['**/*.py'], status: 'detected', evidence_hash: 'h1' },
+      ],
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    assert.notEqual(r.isError, true, r.content[0].text);
+  }
+
+  const MAKE_PROFILE = {
+    install: [candidate('pip install -e .', 'pyproject.toml:1')],
+    lint: [candidate('make lint', 'Makefile:1')],
+    typecheck: [candidate('python -m mypy src', 'pyproject.toml:1')],
+    test: [candidate('make test', 'Makefile:3')],
+  };
+
+  function setup(extra: Record<string, string> = {}) {
+    const repo = pythonRepo(extra);
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES (?, 'pyapp')`, [repo.dir]);
+    const tools = onboardTools(db);
+    const questions = async (args: Record<string, unknown> = {}) =>
+      parse(await call(tools.handlers, 'onboard_get_questions', { round: 'verification_defaults', ...args }));
+    const apply = async (args: Record<string, unknown>) => (await call(tools.handlers, 'onboard_apply', args)) as { isError?: boolean };
+    return { ...repo, db, tools, questions, apply };
+  }
+
+  it('asks one multiSelect question over lint, typecheck and test when the PR target has no defaults file', async () => {
+    const { db, questions } = setup();
+    try {
+      await recordProfile(db, 'pyapp', MAKE_PROFILE);
+      const data = await questions();
+      const qs = data.questions as Question[];
+      assert.equal(qs.length, 1, JSON.stringify(data));
+      assert.equal(qs[0].multiSelect, true);
+      assert.deepEqual(
+        qs[0].options.map((o) => [o.wire, o.description]),
+        [
+          ['make lint', 'lint, from Makefile:1'],
+          ['python -m mypy src', 'typecheck, from pyproject.toml:1'],
+          ['make test', 'test, from Makefile:3'],
+        ],
+      );
+      assert.match(qs[0].evidence[0], /has no \.config\/tmb\/verification-defaults\.json on origin\/main/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('with no recorded profile omits the question and notes env_detect and env_record', async () => {
+    const { db, questions } = setup();
+    try {
+      const data = await questions();
+      assert.deepEqual(data.questions, []);
+      assert.equal(data.reason, 'no_env_profile');
+      assert.match(String((data.notes as string[])[0]), /env_detect.*env_record/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('omits the question when the PR target already has the file', async () => {
+    const { db, questions } = setup({ [VERIFICATION_DEFAULTS_FILE]: JSON.stringify({ version: 1, commands: ['make test'] }) });
+    try {
+      await recordProfile(db, 'pyapp', MAKE_PROFILE);
+      const data = await questions();
+      assert.deepEqual(data.questions, []);
+      assert.match(String((data.notes as string[])[0]), /already has/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps every question within 2-4 options: one candidate gets None, five split 3 + 2', async () => {
+    const one = setup();
+    try {
+      await recordProfile(one.db, 'pyapp', { test: [candidate('make test', 'Makefile:3')] });
+      const qs = (await one.questions()).questions as Question[];
+      assert.deepEqual(qs.map((q) => q.options.map((o) => o.wire)), [['make test', '__none__']]);
+    } finally {
+      one.db.close();
+    }
+    const five = setup();
+    try {
+      await recordProfile(five.db, 'pyapp', {
+        lint: [candidate('make lint', 'Makefile:1'), candidate('ruff check .', 'Makefile:2')],
+        typecheck: [candidate('python -m mypy src', 'pyproject.toml:1')],
+        test: [candidate('make test', 'Makefile:3'), candidate('pytest', 'Makefile:4')],
+      });
+      const qs = (await five.questions()).questions as Question[];
+      assert.deepEqual(qs.map((q) => q.options.length), [3, 2]);
+      assert.deepEqual(qs.map((q) => q.header), ['Checks 1/2', 'Checks 2/2']);
+    } finally {
+      five.db.close();
+    }
+  });
+
+  it('onboard_apply writes a file parseDefaults accepts, in the working tree only, and says to commit it', async () => {
+    const { db, dir, git, apply } = setup();
+    try {
+      const head = git('rev-parse', 'HEAD');
+      const result = await apply({ verification_defaults: ['make lint', 'make test', 'make lint', '__none__'] });
+      const body = parse(result);
+      assert.notEqual(result.isError, true, JSON.stringify(body));
+      const written = body.verification_defaults as Record<string, unknown>;
+      assert.ok(written, 'verification_defaults key is non-null');
+      assert.equal(written.path, join(dir, VERIFICATION_DEFAULTS_FILE));
+      assert.deepEqual(written.commands, ['make lint', 'make test']);
+      assert.equal(written.written, true);
+      assert.equal(written.commit_needed, true);
+      assert.match(String(written.message), /committed to the PR target \(origin\/main\)/);
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, VERIFICATION_DEFAULTS_FILE), 'utf8')), { version: 1, commands: ['make lint', 'make test'] });
+      assert.equal(git('rev-parse', 'HEAD'), head, 'nothing committed');
+
+      git('add', VERIFICATION_DEFAULTS_FILE);
+      git('commit', '-q', '-m', 'defaults');
+      assert.deepEqual(readVerificationDefaults(dir, 'main'), { commands: ['make lint', 'make test'] });
+
+      const again = parse(await apply({ verification_defaults: ['make lint', 'make test'] })).verification_defaults as Record<string, unknown>;
+      assert.deepEqual(
+        { written: again.written, refused: again.refused, commit_needed: again.commit_needed },
+        { written: false, refused: false, commit_needed: false },
+        'same content is left as is; local main, ahead of origin/main, is the cut base and has it',
+      );
+      assert.match(String(again.message), /already committed on main/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('onboard_apply refuses to overwrite a different file and the rest of the apply still lands', async () => {
+    const { db, dir, apply } = setup();
+    try {
+      const path = join(dir, VERIFICATION_DEFAULTS_FILE);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, '{"version":1,"commands":["make check"]}\n');
+      const body = parse(await apply({ shape: 'local', bug_report_consent: 'yes', verification_defaults: ['make test'] }));
+      const refused = body.verification_defaults as Record<string, unknown>;
+      assert.equal(refused.refused, true);
+      assert.equal(refused.written, false);
+      assert.match(String(refused.message), /already exists with other content/);
+      assert.equal(readFileSync(path, 'utf8'), '{"version":1,"commands":["make check"]}\n');
+      assert.equal((body.applied as Record<string, unknown>).bug_report_consent, 'yes');
+      assert.equal((body.applied as Record<string, unknown>).onboarded, true);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('onboard_apply alone refuses other answers, and an unknown or ambiguous repo', async () => {
+    const { db, apply } = setup();
+    try {
+      const mixed = await apply({ verification_defaults: ['make test'], issue_sync: 'off' });
+      assert.equal(mixed.isError, true);
+      assert.match(String(parse(mixed).error), /applied alone — drop issue_sync/);
+      const unknown = await apply({ verification_defaults: ['make test'], repo: 'nope' });
+      assert.match(String(parse(unknown).error), /unknown repo 'nope'/);
+      db.run(`INSERT INTO repos (path, name) VALUES ('/tmp/other', 'other')`);
+      const ambiguous = await apply({ verification_defaults: ['make test'] });
+      assert.match(String(parse(ambiguous).error), /needs repo/);
+    } finally {
+      db.close();
     }
   });
 });

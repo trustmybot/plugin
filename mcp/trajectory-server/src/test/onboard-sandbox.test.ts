@@ -26,6 +26,10 @@ process.env['GIT_CEILING_DIRECTORIES'] = realpathSync(tmpdir());
 
 const ENTRY = '.claude/settings.local.json';
 
+interface LocalSettings {
+  sandbox?: { enabled?: boolean; network?: { allowedDomains?: string[]; allowLocalBinding?: boolean } };
+}
+
 describe('settings.local.json is gitignored when TMB creates it', () => {
   let project: string;
 
@@ -111,7 +115,7 @@ describe('sandbox.network.allowLocalBinding is owned like enableWeakerNetworkIso
     mkdirSync(join(project, '.claude'), { recursive: true });
     writeFileSync(settingsPath(), JSON.stringify(settings));
   };
-  const read = () => JSON.parse(readFileSync(settingsPath(), 'utf8'));
+  const read = () => JSON.parse(readFileSync(settingsPath(), 'utf8')) as LocalSettings;
   const write = (previous: SandboxRecord | null = null) =>
     writeProjectSandbox({ projectRoot: project, cacheDir: join(project, 'model-cache'), platform: 'linux', previous });
 
@@ -129,16 +133,16 @@ describe('sandbox.network.allowLocalBinding is owned like enableWeakerNetworkIso
     assert.equal(res.written, true);
     assert.equal(res.allow_local_binding, true);
     assert.equal(res.record?.allow_local_binding_set, true);
-    const network = read().sandbox.network;
-    assert.equal(network.allowLocalBinding, true);
-    assert.equal(network.allowedDomains[0], 'example.com', 'the existing domain is kept first');
-    assert.equal(network.allowedDomains.filter((d: string) => d === 'github.com').length, 1);
+    const network = read().sandbox?.network;
+    assert.equal(network?.allowLocalBinding, true);
+    assert.equal(network?.allowedDomains?.[0], 'example.com', 'the existing domain is kept first');
+    assert.equal(network?.allowedDomains?.filter((d) => d === 'github.com').length, 1);
   });
 
   it('with no settings file at all, it creates the network object with allowLocalBinding', () => {
     const res = write();
     assert.equal(res.record?.allow_local_binding_set, true);
-    assert.equal(read().sandbox.network.allowLocalBinding, true);
+    assert.equal(read().sandbox?.network?.allowLocalBinding, true);
   });
 
   for (const human of [true, false]) {
@@ -147,11 +151,11 @@ describe('sandbox.network.allowLocalBinding is owned like enableWeakerNetworkIso
       const res = write();
       assert.equal(res.allow_local_binding, human);
       assert.equal(res.record?.allow_local_binding_set, false);
-      assert.equal(read().sandbox.network.allowLocalBinding, human);
+      assert.equal(read().sandbox?.network?.allowLocalBinding, human);
 
       const again = write(res.record);
       assert.equal(again.record?.allow_local_binding_set, false, 'a re-apply still leaves it the Human\'s');
-      assert.equal(read().sandbox.network.allowLocalBinding, human);
+      assert.equal(read().sandbox?.network?.allowLocalBinding, human);
 
       assert.equal(removeProjectSandbox({ projectRoot: project, record: again.record ?? null }).removed, true);
       assert.deepEqual(read(), { sandbox: { network: { allowLocalBinding: human } } });
@@ -171,7 +175,7 @@ describe('sandbox.network.allowLocalBinding is owned like enableWeakerNetworkIso
     const legacy: SandboxRecord = { enabled_set: true, allow_write: [], allowed_domains: [] };
     const res = write(legacy);
     assert.equal(res.record?.allow_local_binding_set, false, 'a value present before the write stays the Human\'s');
-    assert.equal(read().sandbox.network.allowLocalBinding, true);
+    assert.equal(read().sandbox?.network?.allowLocalBinding, true);
 
     seed({ sandbox: { enabled: true, network: { allowLocalBinding: true } } });
     assert.equal(removeProjectSandbox({ projectRoot: project, record: legacy }).removed, true);

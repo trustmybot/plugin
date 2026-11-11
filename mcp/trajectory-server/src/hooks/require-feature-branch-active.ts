@@ -38,7 +38,7 @@ function resolveRepo(db: string, taskId: string, repo: string, env: NodeJS.Proce
   if (isDir(`${abs}/.git`)) return abs;
   return denyPreToolUse(
     `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo IS NULL and no single registered repo could be resolved. A multi-repo workspace needs the task's repo set so it maps to a repos row.`,
-    { allowed: `task_create with repo=<name> for task ${taskId}'s work, then the same spawn` },
+    { allowed: 'bro: task_provision with repo=<name> for this work, then spawn swe with the new task_id' },
   );
 }
 

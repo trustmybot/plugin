@@ -1,4 +1,4 @@
-// L1 lint: the MCP server source type-checks with tsc --noEmit, isolating type errors from the emitting build.
+// L1 lint: the MCP server and dashboard sources type-check with tsc --noEmit, isolating type errors from the emitting build.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { makeFixtureDir } from './eslint-fixture-dir.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SERVER = join(ROOT, 'mcp', 'trajectory-server');
+const DASHBOARD = join(ROOT, 'dashboard');
 
 function resolveTsc() {
   const local = join(SERVER, 'node_modules', '.bin', 'tsc');
@@ -32,6 +34,9 @@ export function typeCheck(tsc, project) {
 
 const TSC = resolveTsc();
 const skip = TSC ? false : "tsc not found locally or on PATH — run 'bun install' first";
+const DASHBOARD_SKIP = existsSync(join(DASHBOARD, 'node_modules'))
+  ? false
+  : "dashboard deps missing — run 'bun install' in dashboard/ first";
 
 test('a type error fails the check', { skip }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'tsc-noemit-'));
@@ -49,4 +54,21 @@ test('a type error fails the check', { skip }, () => {
 test('MCP server type-checks clean', { skip, timeout: 300000 }, () => {
   const result = typeCheck(TSC, SERVER);
   assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — fix type errors above`);
+});
+
+test('MCP server type-check skips eslint fixture dirs', { skip, timeout: 300000 }, () => {
+  const dir = makeFixtureDir();
+  try {
+    assert.ok(existsSync(join(dir, 'tsconfig.json')), 'fixture dir needs its own tsconfig.json for a concurrent eslint run');
+    writeFileSync(join(dir, 'bad.ts'), 'const n: number = "not a number";\nexport { n };\n');
+    const result = typeCheck(TSC, SERVER);
+    assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — the server tsconfig must exclude src/eslint-fixture-*`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dashboard type-checks clean', { skip: skip || DASHBOARD_SKIP, timeout: 300000 }, () => {
+  const result = typeCheck(TSC, DASHBOARD);
+  assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — fix dashboard type errors above`);
 });

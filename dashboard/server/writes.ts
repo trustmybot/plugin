@@ -2,13 +2,14 @@ import type { DatabaseSync } from 'node:sqlite';
 import { TARGET_SCHEMA_VERSION, TrajectoryDB, nowISO } from '../../mcp/trajectory-server/src/db.ts';
 import { issueTools } from '../../mcp/trajectory-server/src/tools/issues.ts';
 import { discussionTools } from '../../mcp/trajectory-server/src/tools/discussions.ts';
+import type { AuditEventType } from '../../mcp/trajectory-server/src/audit-events.ts';
 import { insertAudit } from '../../mcp/trajectory-server/src/tools/audit.ts';
 import * as q from './queries.ts';
 
 // The Human writes through the trajectory server's own handlers, so role rules,
 // validation, label checks and close refusals match bro's. The handlers gate on
 // `agent`; Human attribution rides on the comment author and the audit row.
-const GATE_AGENT = 'bro';
+export const GATE_AGENT = 'bro';
 
 export const WRITE_ACTIONS = ['edit', 'comment', 'close'] as const;
 export type WriteAction = (typeof WRITE_ACTIONS)[number];
@@ -22,8 +23,8 @@ export interface WriteResult {
   body: Record<string, unknown>;
 }
 
-type Handler = ReturnType<typeof issueTools>['handlers'][string];
-type Body = Record<string, unknown>;
+export type Handler = ReturnType<typeof issueTools>['handlers'][string];
+export type Body = Record<string, unknown>;
 
 interface Writable {
   db: TrajectoryDB;
@@ -36,12 +37,47 @@ const ALLOWED_KEYS: Record<WriteAction, readonly string[]> = {
   close: ['updated_at'],
 };
 
-const fail = (status: number, error: string, message: string, extra: Body = {}): WriteResult => ({
+export const fail = (status: number, error: string, message: string, extra: Body = {}): WriteResult => ({
   status,
   body: { error, message, ...extra },
 });
 
-function parseHandlerResult(result: Awaited<ReturnType<Handler>>): { ok: boolean; data: Body } {
+export function openWriteDb(dbPath: string): TrajectoryDB {
+  const noop = (): void => {};
+  return new TrajectoryDB(dbPath, { pluginVersion: null, serverLog: noop, sqlLog: noop });
+}
+
+export function schemaMismatch(readDb: DatabaseSync): WriteResult | null {
+  const dbVersion = q.schemaVersion(readDb);
+  if (dbVersion === TARGET_SCHEMA_VERSION) return null;
+  return fail(
+    409,
+    'schema_version_mismatch',
+    `The DB is at schema version ${dbVersion ?? 'unknown'} and this dashboard writes version ${TARGET_SCHEMA_VERSION}. ` +
+      'Open a Claude Code session with the current plugin, then restart the dashboard.',
+    { db_version: dbVersion, dashboard_version: TARGET_SCHEMA_VERSION },
+  );
+}
+
+export interface HumanAudit {
+  issue_id: number;
+  event_type: AuditEventType;
+  summary: string;
+  content: Body;
+}
+
+export function humanAudit(db: TrajectoryDB, entry: HumanAudit): void {
+  insertAudit(db, {
+    issue_id: entry.issue_id,
+    from_node: 'dashboard',
+    event_type: entry.event_type,
+    summary: entry.summary,
+    content_json: JSON.stringify({ actor: 'human', source: 'dashboard', ...entry.content }),
+    created_at: nowISO(),
+  });
+}
+
+export function parseHandlerResult(result: Awaited<ReturnType<Handler>>): { ok: boolean; data: Body } {
   const first = result.content[0];
   const text = first && first.type === 'text' ? first.text : '{}';
   let data: Body;
@@ -53,7 +89,7 @@ function parseHandlerResult(result: Awaited<ReturnType<Handler>>): { ok: boolean
   return { ok: result.isError !== true, data };
 }
 
-function handlerError(tool: string, data: Body, applied: string[] = []): WriteResult {
+export function handlerError(tool: string, data: Body, applied: string[] = []): WriteResult {
   const code = typeof data['error'] === 'string' ? data['error'] : 'handler_error';
   const message = typeof data['message'] === 'string' ? data['message'] : code;
   return fail(422, code, message, { ...data, error: code, message, tool, applied });
@@ -106,11 +142,7 @@ export class IssueWriter {
 
   private open(): Writable {
     if (this.writable) return this.writable;
-    const noop = (): void => {};
-    const db = new TrajectoryDB(
-      this.dbPath,
-      { pluginVersion: null, serverLog: noop, sqlLog: noop },
-    );
+    const db = openWriteDb(this.dbPath);
     this.writable = {
       db,
       handlers: { ...issueTools(db, this.dbPath).handlers, ...discussionTools(db).handlers },
@@ -129,16 +161,8 @@ export class IssueWriter {
       return fail(400, 'unknown_fields', `${action} does not take: ${unknown.join(', ')}`);
     }
 
-    const dbVersion = q.schemaVersion(this.readDb);
-    if (dbVersion !== TARGET_SCHEMA_VERSION) {
-      return fail(
-        409,
-        'schema_version_mismatch',
-        `The DB is at schema version ${dbVersion ?? 'unknown'} and this dashboard writes version ${TARGET_SCHEMA_VERSION}. ` +
-          'Open a Claude Code session with the current plugin, then restart the dashboard.',
-        { db_version: dbVersion, dashboard_version: TARGET_SCHEMA_VERSION },
-      );
-    }
+    const mismatch = schemaMismatch(this.readDb);
+    if (mismatch) return mismatch;
 
     if (q.issueUpdatedAt(this.readDb, issueId) === null) return fail(404, 'not_found', `issue ${issueId} not found`);
 
@@ -183,13 +207,11 @@ export class IssueWriter {
   }
 
   private audit(issueId: number, tool: string, fields: string[], extra: Body = {}): void {
-    insertAudit(this.open().db, {
+    humanAudit(this.open().db, {
       issue_id: issueId,
-      from_node: 'dashboard',
       event_type: 'issue_updated',
       summary: `the Human ran ${tool} on issue ${issueId} from the dashboard (${fields.join(', ')})`,
-      content_json: JSON.stringify({ actor: 'human', source: 'dashboard', tool, issue_id: issueId, fields, ...extra }),
-      created_at: nowISO(),
+      content: { tool, issue_id: issueId, fields, ...extra },
     });
   }
 

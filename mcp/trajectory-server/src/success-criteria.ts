@@ -6,7 +6,7 @@
  * Populated: lines) carry none. task_provision, task_update_spec and
  * task_create_batch refuse a spec_body without them (specCriteriaProblem);
  * task_update_status(status='completed') needs a report covering each id
- * exactly once (parseCompletionReport), and bro_atomic_close refuses a close
+ * exactly once (parseCompletionReport), and review_handoff refuses a handoff
  * whose stored report misses one (reportMissingIds). A spec written before
  * the ids (no SC-prefixed bullet) is legacy: specCriterionIds returns [] and
  * no report is required.
@@ -14,7 +14,7 @@
  * The same three tools refuse a spec whose `## Commit` subject commit-msg-lint
  * would deny (specCommitProblem, GH 2667).
  *
- * A report may also carry `concepts` (GH 1680, ADR 0002): up to five L2
+ * A report may also carry `concepts` (GH 1680): up to five L2
  * concept proposals, checked here for shape only. scan_run applies a closed,
  * reviewed task's proposals once their anchors are in the index
  * (applyConceptProposals).
@@ -37,7 +37,7 @@ export const MAX_CONCEPT_PROPOSALS = 5;
 export const CRITERION_STATUSES = ['met', 'not_met', 'not_applicable'] as const;
 export type CriterionStatus = (typeof CRITERION_STATUSES)[number];
 
-/** The longest spawn_note bro_atomic_close / task_reopen store, and the reviewer-prompt prose cap. */
+/** The longest spawn_note review_handoff / task_reopen store, and the reviewer-prompt prose cap. */
 export const SPAWN_NOTE_MAX_CHARS = 300;
 
 export interface CompletionReport {

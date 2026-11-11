@@ -1,7 +1,7 @@
-// L1 lint: validate the shape of the Claude and Codex package manifests — typos, missing required fields and structural drift in .claude-plugin/plugin.json, .mcp.json, hooks/hooks.json, .codex-plugin/plugin.json, adapters/codex/.mcp.json, hooks/codex/hooks.json and .agents/plugins/marketplace.json. When the claude CLI is on PATH and neither TMB_FORBID_LIVE_SYNC nor TMB_L1_OFFLINE is set, it also runs `claude plugin validate --strict` on the plugin root and fails on any warning or error outside STRICT_ACCEPTED. run-all.ts runs L1 with TMB_L1_OFFLINE=1, so the hermetic suite skips it.
+// L1 lint: validate the shape of the Claude package manifests — typos, missing required fields and structural drift in .claude-plugin/plugin.json, .mcp.json and hooks/hooks.json. When the claude CLI is on PATH and neither TMB_FORBID_LIVE_SYNC nor TMB_L1_OFFLINE is set, it also runs `claude plugin validate --strict` on a `git archive HEAD` export of the plugin root and fails on any warning or error outside STRICT_ACCEPTED. run-all.ts runs L1 with TMB_L1_OFFLINE=1, so the hermetic suite skips it.
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -9,18 +9,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PLUGIN_MANIFEST = '.claude-plugin/plugin.json';
-const CODEX_MANIFEST = '.codex-plugin/plugin.json';
-const CODEX_MCP = 'adapters/codex/.mcp.json';
-const CODEX_HOOKS = 'hooks/codex/hooks.json';
-const CODEX_SKILLS = 'adapters/codex/skills';
-const MARKETPLACE = '.agents/plugins/marketplace.json';
 const MCP_MANIFEST = '.mcp.json';
 const HOOKS_MANIFEST = 'hooks/hooks.json';
 
 // Findings awaiting a Human-owned or prompt-surface change, one "<path relative to the plugin root>|<message prefix>" each.
 const STRICT_ACCEPTED = [
   'CLAUDE.md|root: CLAUDE.md at the plugin root is not loaded as project context.',
-  'agents/README.md|frontmatter: No frontmatter block found.',
   'commands/README.md|frontmatter: No frontmatter block found.',
 ];
 
@@ -59,79 +53,6 @@ export function pluginManifestFailures(root) {
 
 test(`${PLUGIN_MANIFEST} has all required fields and a valid semver`, (t) => {
   report(t, pluginManifestFailures(ROOT), `${PLUGIN_MANIFEST} has all required fields and a valid semver`);
-});
-
-test('Codex package manifests', (t) => {
-  const failures = [];
-  for (const manifest of [CODEX_MANIFEST, CODEX_MCP, CODEX_HOOKS, MARKETPLACE]) {
-    if (!isFile(manifest)) failures.push(`${manifest} does not exist`);
-    else if (readJson(manifest) === undefined) failures.push(`${manifest} is not valid JSON`);
-  }
-  const codex = readJson(CODEX_MANIFEST);
-  if (codex !== undefined) {
-    const dp = codex.interface?.defaultPrompt;
-    const ok =
-      codex.name === 'tmb' &&
-      typeof codex.version === 'string' &&
-      codex.mcpServers === './adapters/codex/.mcp.json' &&
-      codex.hooks === './hooks/codex/hooks.json' &&
-      Array.isArray(codex.commands) &&
-      codex.commands.length === 0 &&
-      codex.skills === './adapters/codex/skills/' &&
-      Array.isArray(dp) &&
-      dp.length > 0 &&
-      dp.every((p) => typeof p === 'string' && p.includes('$tmb:tmb-') && Buffer.byteLength(p, 'utf8') <= 128);
-    if (!ok) failures.push(`${CODEX_MANIFEST} has invalid identity, component paths, command isolation, or defaultPrompt`);
-  }
-  if (existsSync(join(ROOT, '.codex-plugin/migrated-command-skills')) && statSync(join(ROOT, '.codex-plugin/migrated-command-skills')).isDirectory()) {
-    failures.push('.codex-plugin/migrated-command-skills must be install-time output, never a source surface');
-  }
-  const skillFiles = ['tmb-bro/SKILL.md', 'tmb-bro/agents/openai.yaml', 'tmb-agent-setup/SKILL.md', 'tmb-agent-setup/agents/openai.yaml'];
-  if (!skillFiles.every((f) => isFile(`${CODEX_SKILLS}/${f}`))) {
-    failures.push(`${CODEX_SKILLS} must contain the tmb-bro and tmb-agent-setup Skills with OpenAI metadata`);
-  } else {
-    const names = readdirSync(join(ROOT, CODEX_SKILLS), { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort();
-    const has = (rel, line) => readFileSync(join(ROOT, CODEX_SKILLS, rel), 'utf8').split('\n').includes(line);
-    const todo = (dir) =>
-      readdirSync(dir, { withFileTypes: true }).some((e) =>
-        e.isDirectory() ? todo(join(dir, e.name)) : e.isFile() && readFileSync(join(dir, e.name), 'latin1').includes('[TODO:'),
-      );
-    if (names.join(' ') !== 'tmb-agent-setup tmb-bro') failures.push(`${CODEX_SKILLS} must expose exactly tmb-bro and tmb-agent-setup`);
-    else if (
-      !has('tmb-bro/SKILL.md', 'name: tmb-bro') ||
-      !has('tmb-bro/agents/openai.yaml', '  allow_implicit_invocation: false') ||
-      !has('tmb-bro/agents/openai.yaml', '      value: "trajectory-server"') ||
-      !has('tmb-agent-setup/SKILL.md', 'name: tmb-agent-setup') ||
-      !has('tmb-agent-setup/agents/openai.yaml', '  allow_implicit_invocation: false') ||
-      !has('tmb-agent-setup/agents/openai.yaml', '      value: "trajectory-server"') ||
-      todo(join(ROOT, CODEX_SKILLS))
-    ) {
-      failures.push(`${CODEX_SKILLS} metadata or explicit-invocation policy is invalid`);
-    }
-  }
-  const mcp = readJson(CODEX_MCP);
-  if (mcp !== undefined) {
-    const count = typeof mcp === 'object' ? Object.keys(mcp).length : String(mcp).length;
-    if (count !== 1 || mcp['trajectory-server']?.args?.at?.(-1) !== 'mcp/trajectory-server/dist/codex.js') {
-      failures.push(`${CODEX_MCP} must expose exactly the isolated Codex trajectory server`);
-    }
-  }
-  const hooks = readJson(CODEX_HOOKS);
-  if (hooks !== undefined) {
-    const h = hooks.hooks;
-    if (!(h && typeof h === 'object' && !Array.isArray(h) && Object.keys(h).length === 0)) failures.push(`${CODEX_HOOKS} must remain empty in Codex Scope 4`);
-  }
-  const mkt = readJson(MARKETPLACE);
-  if (mkt !== undefined) {
-    const p = mkt.plugins;
-    if (!(Array.isArray(p) && p.length === 1 && p[0]?.name === 'tmb' && p[0]?.source?.source === 'local' && p[0]?.source?.path === './')) {
-      failures.push(`${MARKETPLACE} must point its sole local entry at the repository root`);
-    }
-  }
-  report(t, failures, 'Codex package disables Claude command migration and exposes only Codex-specific surfaces');
 });
 
 test(`${MCP_MANIFEST} has MCP servers, all with command + args`, (t) => {
@@ -215,12 +136,16 @@ function onPath(cmd) {
 export function strictFindings(output, root) {
   const out = [];
   let f = '';
+  let notes = false;
   for (const line of output.split('\n')) {
     const v = /^Validating [^:]+: (.*)$/.exec(line);
     if (v) {
       f = v[1].startsWith(`${root}/`) ? v[1].slice(root.length + 1) : v[1];
+      notes = false;
       continue;
     }
+    if (/^\s*About these checks:?\s*$/.test(line) || /^\s*These plugin directory checks do not change the result/.test(line)) notes = true;
+    if (notes) continue;
     const m = /^\s*❯ (.*)$/.exec(line);
     if (m) out.push(`${f}|${m[1]}`);
   }
@@ -244,6 +169,19 @@ test('strict-validate parsing keeps accepted findings out and reports the rest',
   assert.deepEqual(strictUnaccepted(findings), ['.claude-plugin/plugin.json|icon: No icon (ICON_MISSING).']);
 });
 
+test('strict-validate parsing skips the CLI notes after the About these checks heading', () => {
+  const out = [
+    'Validating command: /r/commands/x.md',
+    '  ❯ frontmatter: Bad key (FRONTMATTER_KEY).',
+    'Plugin directory checks for /r. The plugin directory is the catalog that plugins are submitted to.',
+    'About these checks:',
+    '  ❯ This folder also holds a marketplace manifest. The plugin directory treats such a folder as a plugin.',
+    'These plugin directory checks do not change the result of this command.',
+    '  ❯ Another informational note.',
+  ].join('\n');
+  assert.deepEqual(strictFindings(out, '/r'), ['commands/x.md|frontmatter: Bad key (FRONTMATTER_KEY).']);
+});
+
 test('claude plugin validate --strict reports no finding outside STRICT_ACCEPTED', (t) => {
   if (!onPath('claude') || process.env.TMB_FORBID_LIVE_SYNC || process.env.TMB_L1_OFFLINE) {
     t.skip('manifest-shape: claude CLI absent or TMB_FORBID_LIVE_SYNC / TMB_L1_OFFLINE set — strict validate skipped');
@@ -251,13 +189,17 @@ test('claude plugin validate --strict reports no finding outside STRICT_ACCEPTED
   }
   // The CLI writes .claude.json under its config dir; a throwaway one keeps the Human's untouched.
   const home = mkdtempSync(join((process.env.TMPDIR || tmpdir()).replace(/\/+$/, ''), 'tmb-manifest-shape.'));
+  const tree = join(home, 'tree');
   let output;
   let rc;
   try {
+    mkdirSync(tree);
+    const exported = spawnSync('bash', ['-c', 'set -o pipefail; git -C "$1" archive HEAD | tar -x -C "$2"', 'export', ROOT, tree], { encoding: 'utf8' });
+    assert.equal(exported.status, 0, `git archive HEAD export failed: ${exported.stderr}`);
     const log = join(home, 'validate.log');
     const fd = openSync(log, 'w');
     try {
-      rc = spawnSync('claude', ['plugin', 'validate', '--strict', ROOT], {
+      rc = spawnSync('claude', ['plugin', 'validate', '--strict', tree], {
         env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: join(home, '.claude') },
         stdio: ['ignore', fd, fd],
       }).status;
@@ -268,7 +210,7 @@ test('claude plugin validate --strict reports no finding outside STRICT_ACCEPTED
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
-  const findings = strictFindings(output, ROOT);
+  const findings = strictFindings(output, tree);
   const unexpected = strictUnaccepted(findings);
   assert.deepEqual(unexpected, [], `Manifest shape: FAIL\n${unexpected.map((f) => `  ✗ strict validate: ${f}`).join('\n')}`);
   assert.ok(

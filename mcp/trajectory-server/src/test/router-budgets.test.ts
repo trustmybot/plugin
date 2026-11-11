@@ -138,7 +138,7 @@ describe('router budgets.json (GH 1861)', () => {
         ['SessionStart', undefined, ['ensure-gitignore', 'mcp-health-check', 'deferred-tools-drift-warn', 'plugin-hooks-marker', 'ensure-mcp-deps-installed', 'substrate-preflight', 'orphan-scan']],
         ['SessionStart', 'persona', ['session-start-persona']],
         ['SessionStart', 'prescan', ['session-start-prescan']],
-        ['UserPromptSubmit', undefined, ['rework-waiver-capture', 'activation-routine', 'session-log-capture', 'prompt-intent-hints', 'task-overrun-alert', 'liveness-alert']],
+        ['UserPromptSubmit', undefined, ['activation-routine', 'session-log-capture', 'prompt-intent-hints', 'task-overrun-alert', 'liveness-alert']],
         ['UserPromptSubmit', 'persona', ['user-prompt-persona']],
         ['UserPromptSubmit', 'roundtable', ['roundtable-slash-detect']],
         ['WorktreeCreate', undefined, ['worktree-create']],
@@ -151,7 +151,7 @@ describe('router budgets.json (GH 1861)', () => {
       assert.deepEqual(namesOf('UserPromptSubmit', 'persona'), ['user-prompt-persona']);
       assert.deepEqual(namesOf('UserPromptSubmit', 'roundtable'), ['roundtable-slash-detect']);
       assert.equal(namesOf('SessionStart').length, 7);
-      assert.equal(namesOf('UserPromptSubmit').length, 6);
+      assert.equal(namesOf('UserPromptSubmit').length, 5);
       assert.deepEqual(namesOf('PreCompact'), ['session-handoff']);
       assert.deepEqual(namesOf('Stop'), ['bro-turn-usage']);
       assert.deepEqual(namesOf('WorktreeCreate'), ['worktree-create']);

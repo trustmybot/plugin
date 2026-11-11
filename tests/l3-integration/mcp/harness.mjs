@@ -14,8 +14,9 @@ const SERVER_DIST = path.resolve(HERE, '../../../mcp/trajectory-server/dist/inde
 export function serverEnv(base = process.env, dbPath = ':memory:') {
   const dir = mkdtempSync(path.join(tmpdir(), 'tmb-l3-server-'));
   return {
-    // Startup cheatcode reconcile shells out to the claude CLI; tests pin the documented bypass (a caller's env can override).
-    env: { TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1', ...base, TRAJECTORY_DB_PATH: dbPath, TMPDIR: dir },
+    // Startup cheatcode reconcile shells out to the claude CLI, and the startup catch-up scan races registerRepo
+    // (GH 2801); tests pin both documented bypasses (a caller's env can override).
+    env: { TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1', TMB_SKIP_AUTO_RESCAN: '1', ...base, TRAJECTORY_DB_PATH: dbPath, TMPDIR: dir },
     cleanup() { rmSync(dir, { recursive: true, force: true }); },
   };
 }
@@ -78,9 +79,9 @@ export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l
        FROM tasks t WHERE t.id = ${id};`]);
 }
 
-// seedHumanRow writes an author='human' discussions row, which only the
-// rework-waiver-capture hook writes (discussion_append refuses author='human',
-// GH 2148), and returns its id. Needs a startClient({ fileDb: true }) dbPath.
+// seedHumanRow writes an author='human' discussions row, which no tool writes
+// (discussion_append refuses author='human', GH 2148), and returns its id.
+// Needs a startClient({ fileDb: true }) dbPath.
 export function seedHumanRow(dbPath, issueId, { kind, body }) {
   const q = (v) => String(v).replace(/'/g, "''");
   const out = execFileSync('sqlite3', ['-cmd', '.timeout 5000', dbPath,
@@ -149,7 +150,8 @@ export function createProjectRepo({ name = 'app', targetBranch = 'dev' } = {}) {
     },
     registerRepo(dbPath) {
       execFileSync('sqlite3', ['-cmd', '.timeout 5000', dbPath,
-        `INSERT INTO repos (name, path, target_branch) VALUES ('${name}', '${repoPath.replace(/'/g, "''")}', '${targetBranch}');`]);
+        `INSERT INTO repos (name, path, target_branch) VALUES ('${name}', '${repoPath.replace(/'/g, "''")}', '${targetBranch}')
+         ON CONFLICT(name) DO UPDATE SET path = excluded.path, target_branch = excluded.target_branch;`]);
     },
     cleanup() { rmSync(dir, { recursive: true, force: true }); },
   };
