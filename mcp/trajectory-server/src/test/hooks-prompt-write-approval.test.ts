@@ -349,21 +349,29 @@ describe('prompt-write-approval (GH 2927)', () => {
             ['git -C sub restore --source HEAD~1 :/', ''],
           ]) {
             mkdirSync(join(project, 'sub'), { recursive: true });
-            denied(await bash(command, { cwd: join(project, cwd), agent_type: 'tmb:code-reviewer', agent_id: 'z' }));
+            for (const runEnv of [env(), noDb()]) denied(await bash(command, { cwd: join(project, cwd), agent_type: 'tmb:code-reviewer', agent_id: 'z' }, runEnv));
           }
         });
       });
 
       describe('a command that does not parse (F876-4)', () => {
-        const UNPARSED = ['git checkout HEAD -- :(top).claude', 'echo "unterminated', 'ls $('];
+        const NAMES_CLAUDE = ['git checkout HEAD -- :(top).claude', 'echo $(( > .Claude/x', 'echo $(( > ".cl"a\\ude/x', "cp -r x $'.CLAUDE' $("];
+        const UNPARSED = [...NAMES_CLAUDE, 'echo "unterminated', 'ls $('];
+        const standAside = (): NodeJS.ProcessEnv[] => [noDb(), env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })];
 
         it('SC9: with a trajectory DB it is denied, since nothing it writes can be told', async () => {
           for (const command of UNPARSED) assert.match(denied(await bash(command)), /cannot be judged: the command could not be parsed/, command);
         });
 
-        it('SC9: with no DB or no sqlite it gets containment-guard\'s decision', async () => {
-          for (const runEnv of [noDb(), env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })]) {
-            for (const command of UNPARSED) {
+        it('SC9: with no DB or no sqlite it is denied when its text names .claude, in any case or quoting', async () => {
+          for (const runEnv of standAside()) {
+            for (const command of NAMES_CLAUDE) assert.match(denied(await bash(command, {}, runEnv)), /trajectory DB is unavailable/, command);
+          }
+        });
+
+        it('SC9: with no DB or no sqlite any other gets containment-guard\'s decision', async () => {
+          for (const runEnv of standAside()) {
+            for (const command of UNPARSED.filter((c) => !NAMES_CLAUDE.includes(c))) {
               const payload = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: 'Bash', tool_input: { command }, agent_type: 'tmb:code-reviewer', agent_id: 'z' });
               const contained = await containmentGuard(payload, runEnv);
               assert.deepEqual(await promptWriteApproval(payload, runEnv), contained, command);

@@ -15,7 +15,8 @@
  * a shell write cannot be held to the skills: list. The analyzer's cap line
  * denies, and so does a command that did not parse wherever containment-guard
  * judges too (a trajectory DB and sqlite resolve), since nothing it writes can
- * be told (GH 2981); its other never-judged targets are containment-guard's.
+ * be told (GH 2981); where it does not, such a command is denied only when its
+ * text names `.claude`. Its other never-judged targets are containment-guard's.
  * A target is judged on each word bash brace-expands it to. A command with no
  * gated target reads no DB.
  *
@@ -312,6 +313,9 @@ const DOTGLOB = /dotglob|GLOBIGNORE|glob_?dots/i;
 /** An analyzer line for a command (or a body it runs) that did not parse, so nothing it writes can be told. */
 const UNPARSED = 'UNRESOLVED:$(parse):';
 
+/** Whether the command text spells `.claude` in any letter case once its quotes and backslashes, which bash drops from a word, are taken out. */
+const namesClaudeDir = (command: string): boolean => /\.claude/i.test(command.replace(/['"\\]/g, ''));
+
 const analyzed = async (command: string, options: WritePathsOptions): Promise<string[]> => (await writePaths(command, options)).join('\n').split('\n');
 
 async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
@@ -323,9 +327,12 @@ async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): P
   const treeLines = await analyzed(command, { cwd, root, env, treeWrites: true });
   if (treeLines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
   const unparsed = lines.find((line) => line.startsWith(UNPARSED));
-  // containment-guard's own state test: where it stands aside (no DB or no sqlite) an unparsed command goes on.
-  if (unparsed !== undefined && dbState(env) !== 'unresolved') {
-    return denyResult(`BLOCKED: write target "${unparsed.slice(UNPARSED.length)}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED['$(parse)']}`, NEVER_JUDGED_FIX['$(parse)']);
+  if (unparsed !== undefined) {
+    // containment-guard's own state test: where it stands aside (no DB or no sqlite) an unparsed command goes on unless it names a prompt root.
+    if (dbState(env) !== 'unresolved') {
+      return denyResult(`BLOCKED: write target "${unparsed.slice(UNPARSED.length)}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED['$(parse)']}`, NEVER_JUDGED_FIX['$(parse)']);
+    }
+    if (namesClaudeDir(command)) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
   }
 
   const base = baseDir(cwd, root);
