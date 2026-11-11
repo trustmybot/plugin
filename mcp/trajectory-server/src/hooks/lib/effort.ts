@@ -29,7 +29,7 @@ export interface ReviewerEffort {
 
 /**
  * The effort task <taskId>'s code-reviewer spawn runs at (GH 1955): the effort
- * of its newest reviewer_effort_assigned row (bro_atomic_close writes it), else
+ * of its newest reviewer_effort_assigned row (review_handoff writes it), else
  * plugin_config.reviewer_effort (medium when unset). A newest row whose effort
  * is not low|medium|high, or no task id, reads as the config; null when the
  * read fails.
