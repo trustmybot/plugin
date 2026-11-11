@@ -3555,7 +3555,7 @@ export function compositeTools(
             commit_sha: commitSha,
             review_pending: true,
             reviewer_effort: reviewerEffort.effort,
-            ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort.effort, sessionId),
+            ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort, sessionId),
             scope: recorded,
           };
         });
