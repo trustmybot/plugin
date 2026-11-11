@@ -1,0 +1,225 @@
+/**
+ * prompt-write-approval (GH 2927): an Edit, Write or MultiEdit of a project
+ * file under .claude/skills/ or .claude/agents/ needs a prompt_write_approved
+ * audit row by bro naming its canonical path from the last 30 minutes; with a
+ * skills-array approval only an existing agent's frontmatter skills: list may
+ * change. A swe, another path and another tool pass; no DB or no sqlite denies.
+ * Each case runs the gate in-process on a fresh project and trajectory DB.
+ */
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { after, beforeEach, describe, it } from 'node:test';
+import { auditEventWriters, isAuditEventType } from '../audit-events.js';
+import { findGate, routerGates } from '../hooks/registry.js';
+import { APPROVAL_WINDOW_MINUTES, EVENT_TYPE, GATE_NAME, promptWriteApproval, withoutSkillsEntry } from '../hooks/prompt-write-approval.js';
+import { PLUGIN_ROOT } from './hook-sandbox.js';
+
+const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+const AGENT = '---\nname: a\ndescription: d\nskills:\n  - one\n---\nBody line.\n';
+const INLINE_AGENT = '---\nname: b\nskills: [one]\n---\nBody line.\n';
+
+type Output = { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+
+const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
+
+describe('prompt-write-approval (GH 2927)', () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-prompt-write-approval-')));
+  let seq = 0;
+  let project: string;
+  let db: string;
+
+  const skill = (name: string): string => join(project, '.claude/skills', name, 'SKILL.md');
+  const agentPath = (name: string): string => join(project, '.claude/agents', `${name}.md`);
+  const env = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: join(base, 'home'), CLAUDE_PROJECT_DIR: project, TRAJECTORY_DB_PATH: db, ...extra });
+  const approve = (path: string, scope: string, at = minutesAgo(1), fromNode = 'bro'): void => {
+    const d = new DatabaseSync(db);
+    try {
+      d.prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (9, ?, 'prompt_write_approved', 'approved', ?, ?)").run(fromNode, JSON.stringify({ path, scope }), at);
+    } finally {
+      d.close();
+    }
+  };
+  const run = (tool: string, toolInput: object, extra: object = {}, runEnv: NodeJS.ProcessEnv = env()): Output | null => {
+    const r = promptWriteApproval(JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: tool, tool_input: toolInput, ...extra }), runEnv);
+    assert.equal(r.code, 0);
+    return r.stdout.trim() === '' ? null : (JSON.parse(r.stdout) as Output);
+  };
+  const denied = (out: Output | null): string => {
+    assert.equal(out?.hookSpecificOutput?.permissionDecision, 'deny', 'denied');
+    return out?.hookSpecificOutput?.permissionDecisionReason ?? '';
+  };
+  const write = (path: string, extra: object = {}, runEnv?: NodeJS.ProcessEnv): Output | null => run('Write', { file_path: path, content: '---\nname: x\n---\nx\n' }, extra, runEnv);
+
+  beforeEach(() => {
+    seq += 1;
+    project = join(base, `p${seq}`);
+    db = join(project, '.claude/tmb/trajectory.db');
+    mkdirSync(dirname(db), { recursive: true });
+    mkdirSync(join(project, '.claude/agents'), { recursive: true });
+    writeFileSync(agentPath('a'), AGENT);
+    writeFileSync(agentPath('b'), INLINE_AGENT);
+    const d = new DatabaseSync(db);
+    try {
+      d.exec(SCHEMA);
+      d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(minutesAgo(0), minutesAgo(0));
+    } finally {
+      d.close();
+    }
+  });
+  after(() => rmSync(base, { recursive: true, force: true }));
+
+  it('registers its audit event for bro and runs for every Write-group tool', () => {
+    assert.ok(isAuditEventType(EVENT_TYPE));
+    assert.deepEqual(auditEventWriters(EVENT_TYPE), ['bro']);
+    assert.ok(findGate(GATE_NAME));
+    for (const tool of ['Write', 'Edit', 'MultiEdit']) assert.ok(routerGates('PreToolUse', tool).some((g) => g.name === GATE_NAME && g.kind === 'enforcement'), tool);
+  });
+
+  it('SC1: denies a bro write of a project skill with no approval, naming audit_append and the event', () => {
+    const reason = denied(write(skill('x')));
+    assert.match(reason, /audit_append/);
+    assert.match(reason, /prompt_write_approved/);
+    assert.ok(reason.includes(skill('x')), reason);
+    denied(run('Edit', { file_path: agentPath('a'), old_string: 'Body', new_string: 'B' }));
+  });
+
+  it('SC2: allows the write with a matching approval under 30 minutes old, denies with only an older one', () => {
+    approve(skill('x'), 'full', minutesAgo(APPROVAL_WINDOW_MINUTES - 5));
+    assert.equal(write(skill('x')), null);
+    approve(skill('y'), 'full', minutesAgo(APPROVAL_WINDOW_MINUTES + 5));
+    denied(write(skill('y')));
+  });
+
+  it('denies an approval of another path, one not written by bro, and takes the newest matching row', () => {
+    approve(skill('other'), 'full');
+    denied(write(skill('x')));
+    approve(skill('x'), 'full', minutesAgo(1), 'hook:x');
+    denied(write(skill('x')));
+    approve(agentPath('a'), 'full', minutesAgo(10));
+    approve(agentPath('a'), 'skills-array', minutesAgo(2));
+    denied(run('Edit', { file_path: agentPath('a'), old_string: 'Body line.', new_string: 'Other.' }));
+  });
+
+  it('compares the target canonically, so a symlinked spelling needs the canonical path approved', () => {
+    const link = join(base, `link${seq}`);
+    symlinkSync(project, link);
+    approve(skill('x'), 'full');
+    assert.equal(write(join(link, '.claude/skills/x/SKILL.md')), null);
+    const reason = denied(write(join(link, '.claude/skills/y/SKILL.md')));
+    assert.ok(reason.includes(skill('y')), reason);
+  });
+
+  it('F837-1: a symlinked prompt dir, inside or outside the project, and its real path are gated', () => {
+    const shared = join(base, `shared${seq}`);
+    mkdirSync(shared);
+    symlinkSync(shared, join(project, '.claude/skills'));
+    const outside = denied(write(skill('x')));
+    assert.ok(outside.includes(join(shared, 'x/SKILL.md')), outside);
+    denied(write(join(shared, 'y/SKILL.md')));
+    approve(join(shared, 'x/SKILL.md'), 'full');
+    assert.equal(write(skill('x')), null);
+
+    const libAgents = join(project, 'lib-agents');
+    mkdirSync(libAgents);
+    writeFileSync(join(libAgents, 'a.md'), AGENT);
+    rmSync(join(project, '.claude/agents'), { recursive: true });
+    symlinkSync(libAgents, join(project, '.claude/agents'));
+    denied(write(agentPath('a')));
+    denied(write(join(libAgents, 'a.md')));
+    approve(join(libAgents, 'a.md'), 'skills-array');
+    assert.equal(run('Edit', { file_path: agentPath('a'), old_string: '  - one\n', new_string: '  - one\n  - two\n' }), null);
+    assert.match(denied(run('Edit', { file_path: agentPath('a'), old_string: 'Body line.', new_string: 'Other.' })), /skills-array/);
+    assert.match(denied(run('Edit', { file_path: join(libAgents, 'a.md'), old_string: 'Body line.', new_string: 'Other.' })), /skills-array/);
+  });
+
+  it('F837-1: a symlinked skill entry is gated through its real path', () => {
+    const vendor = join(project, 'vendor/x');
+    mkdirSync(vendor, { recursive: true });
+    mkdirSync(join(project, '.claude/skills'), { recursive: true });
+    symlinkSync(vendor, join(project, '.claude/skills/x'));
+    denied(write(join(vendor, 'SKILL.md')));
+    assert.equal(write(join(project, 'vendor/other.md')), null);
+  });
+
+  it('F837-1: a letter-case spelling of the prompt dirs or the root is gated', () => {
+    mkdirSync(join(project, '.claude/skills'), { recursive: true });
+    denied(write(join(project, '.Claude/Skills/x/SKILL.md')));
+    denied(run('Edit', { file_path: join(project, '.CLAUDE/AGENTS/a.md'), old_string: 'Body', new_string: 'B' }));
+    denied(write(join(project.toUpperCase(), '.claude/skills/x/SKILL.md')));
+    assert.equal(write(join(project, '.claude/skillset/x.md')), null);
+  });
+
+  it('SC3: a skills-array approval allows an Edit that only appends to skills:, denies one that changes the body', () => {
+    approve(agentPath('a'), 'skills-array');
+    assert.equal(run('Edit', { file_path: agentPath('a'), old_string: '  - one\n', new_string: '  - one\n  - two\n' }), null);
+    const reason = denied(run('Edit', { file_path: agentPath('a'), old_string: 'Body line.', new_string: 'Other.' }));
+    assert.match(reason, /skills-array/);
+    denied(run('Edit', { file_path: agentPath('a'), old_string: 'name: a', new_string: 'name: z' }));
+  });
+
+  it('skills-array: the inline form, Write, MultiEdit and replace_all are judged on the post-edit text', () => {
+    approve(agentPath('a'), 'skills-array');
+    approve(agentPath('b'), 'skills-array');
+    assert.equal(run('Edit', { file_path: agentPath('b'), old_string: 'skills: [one]', new_string: 'skills: [one, two]' }), null);
+    assert.equal(run('Write', { file_path: agentPath('a'), content: AGENT.replace('  - one\n', '  - one\n  - two\n') }), null);
+    denied(run('Write', { file_path: agentPath('a'), content: AGENT.replace('Body line.', 'New.') }));
+    assert.equal(run('MultiEdit', { file_path: agentPath('a'), edits: [{ old_string: '  - one\n', new_string: '  - one\n  - two\n' }, { old_string: '  - two\n', new_string: '  - two\n  - three\n' }] }), null);
+    denied(run('MultiEdit', { file_path: agentPath('a'), edits: [{ old_string: '  - one\n', new_string: '  - one\n  - two\n' }, { old_string: 'Body', new_string: 'Bad' }] }));
+    denied(run('Edit', { file_path: agentPath('a'), old_string: 'e', new_string: 'E', replace_all: true }));
+    assert.equal(run('Edit', { file_path: agentPath('a'), old_string: 'one', new_string: 'uno', replace_all: true }), null);
+  });
+
+  it('skills-array: an Edit whose old_string is absent is left to the tool, and a skill path is not diffed', () => {
+    approve(agentPath('a'), 'skills-array');
+    assert.equal(run('Edit', { file_path: agentPath('a'), old_string: 'not there', new_string: 'x' }), null);
+    approve(skill('x'), 'skills-array');
+    assert.equal(write(skill('x')), null);
+  });
+
+  it('a scope other than full or skills-array is held to the skills list', () => {
+    approve(agentPath('a'), 'everything');
+    denied(run('Edit', { file_path: agentPath('a'), old_string: 'Body line.', new_string: 'Other.' }));
+  });
+
+  it('SC4: a swe, a path outside the prompt dirs and a non-edit tool are allowed', () => {
+    assert.equal(write(skill('x'), { agent_type: 'tmb:swe', agent_id: 'a1' }), null);
+    assert.equal(write(join(project, 'docs/x.md')), null);
+    assert.equal(write(join(project, '.claude/settings.md')), null);
+    assert.equal(write(join(base, 'elsewhere/.claude/skills/x/SKILL.md')), null);
+    assert.equal(run('Read', { file_path: skill('x') }), null);
+    assert.equal(run('NotebookEdit', { notebook_path: skill('x') }), null);
+  });
+
+  it('SC4: a missing DB or no sqlite denies, failing closed', () => {
+    approve(skill('x'), 'full');
+    const reason = denied(write(skill('x'), {}, env({ TRAJECTORY_DB_PATH: join(base, 'nowhere/trajectory.db') })));
+    assert.match(reason, /trajectory DB is unavailable/);
+    denied(write(skill('x'), {}, env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })));
+  });
+
+  it('a relative file_path resolves against the payload cwd, else the project root', () => {
+    denied(write('.claude/skills/x/SKILL.md'));
+    denied(write('.claude/skills/x/SKILL.md', { cwd: undefined }));
+    assert.equal(write('.claude/skills/x/SKILL.md', { cwd: join(base, 'elsewhere') }), null);
+  });
+});
+
+describe('withoutSkillsEntry', () => {
+  it('drops the block form with its items, indented or not', () => {
+    assert.equal(withoutSkillsEntry(AGENT), '---\nname: a\ndescription: d\n---\nBody line.\n');
+    assert.equal(withoutSkillsEntry('---\nskills:\n- a\n- b\nname: n\n---\n'), '---\nname: n\n---\n');
+  });
+
+  it('drops the inline form, one line or wrapped', () => {
+    assert.equal(withoutSkillsEntry(INLINE_AGENT), '---\nname: b\n---\nBody line.\n');
+    assert.equal(withoutSkillsEntry('---\nskills: [a,\n  b]\nname: n\n---\n'), '---\nname: n\n---\n');
+  });
+
+  it('leaves a body skills: line and a file with no frontmatter alone', () => {
+    assert.equal(withoutSkillsEntry('---\nname: n\n---\nskills:\n  - a\n'), '---\nname: n\n---\nskills:\n  - a\n');
+    assert.equal(withoutSkillsEntry('skills: [a]\n'), 'skills: [a]\n');
+  });
+});
