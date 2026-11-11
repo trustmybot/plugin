@@ -69,6 +69,7 @@ Agentic prompts add tool use, autonomy, and multi-turn state:
 - **No citation noise in prompt files.** Issue numbers, PR URLs, and "caught in X" load every turn and earn nothing. Citations belong in commits, PRs, and issues.
 - **One place per rule.** Tables for routing; merge sections that say the same thing. Duplicated rules drift into conflict.
 - **Fix model misbehavior structurally.** A hook, a `requireRoles` gate, or a schema beats another sentence in the prompt.
+- **Core prompts stay minimal; depth is a cheatcode.** Each shipped prompt (`CLAUDE.md`, an agent, a skill) carries one idea: the wiring that makes TMB work. Rubrics, checklists, persona and style guidance, and domain heuristics arrive as cheatcodes ([`CHEATCODES.md`](../architecture/CHEATCODES.md)); a paragraph that teaches a technique instead of wiring a role belongs in one.
 
 ---
 
