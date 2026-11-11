@@ -14,7 +14,18 @@ Every flow follows the memory model in [`MEMORY.md`](MEMORY.md). The brand workf
 
 **Gates.** Every gate is a hook gate run through one router, which decides which gates each hook event runs and in what order. Gate lists below name the gates that matter to the step, not every gate the event runs.
 
-**Layout.** Flows are grouped by when they run: [Install](#part-i--install), [Cold start](#part-ii--cold-start), [Agent task handling](#part-iii--agent-task-handling), [Extending the team](#part-iv--extending-the-team) and [Reporting TMB bugs](#part-v--reporting-tmb-bugs). Grouping never renumbers a flow: flow numbers, letters and step ids stay stable wherever they sit.
+**Layout.** [Quality layers](#quality-layers) sets the two axes every flow is built on. Flows are grouped by when they run: [Install](#part-i--install), [Cold start](#part-ii--cold-start), [Agent task handling](#part-iii--agent-task-handling), [Extending the team](#part-iv--extending-the-team) and [Reporting TMB bugs](#part-v--reporting-tmb-bugs). Grouping never renumbers a flow: flow numbers, letters and step ids stay stable wherever they sit.
+
+## Quality layers
+
+Every flow is built on two axes. The first is a responsibility boundary: each role hands the next a state that is ready for its job, and owns one level of quality. The second is method: swe and code-reviewer work mostly by deterministic means (commands, gates, world-model queries), while bro works by judgment, like an architect. swe closes only when every deterministic check in its scope passes: lint, word and size limits, unit tests, type checks and changelog fragments. Those checks are cheap and certain, so they never reach the reviewer. code-reviewer works like a CI code reviewer run locally before any PR, which saves the cost of a hosted reviewer.
+
+| Role, in handoff order | Owns | Method | Hands over |
+|---|---|---|---|
+| **bro (before)** | the ready-to-work environment: branch, worktree, spec, file list and checks | judgment | an environment ready for swe to work in |
+| **swe** | functionality-level quality: every deterministic check in its scope passes, and the world model shows no downstream caller breaks | deterministic | code ready for review |
+| **code-reviewer** | diff-level quality: does the change break other behavior? It uses the world model to find what depends on the diff | deterministic | a review report ready for bro |
+| **bro (after)** | architecture-level quality: does the change align with the design? | judgment | a change the Human can trust |
 
 ## Quick index
 
