@@ -193,12 +193,41 @@ function holdsOldBlock(claudeMd: string): boolean {
   }
 }
 
+function validZone(zone: string | undefined): string | null {
+  if (zone === undefined || zone === '') return null;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return zone;
+  } catch {
+    return null;
+  }
+}
+
+function zoneOffset(timeZone: string, now: Date): string {
+  const name = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' }).formatToParts(now).find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
+  return name === 'GMT' ? '+00:00' : name.replace(/^GMT/, '');
+}
+
+/**
+ * The user's time zone (GH 2338): the runtime's resolved zone, else env TZ,
+ * else UTC, with its offset at <now>, so bro reports times in local time.
+ */
+export function userTimeZoneLine(
+  env: NodeJS.ProcessEnv = process.env,
+  now: Date = new Date(),
+  resolved: string | undefined = Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string {
+  const zone = validZone(resolved) ?? validZone(env.TZ) ?? 'UTC';
+  return `User time zone: ${zone} (UTC${zoneOffset(zone, now)}). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.`;
+}
+
 /**
  * persona_context: the header line, the old-block note when the project's
- * CLAUDE.md still holds a tmb:persona block, the project root line and the
- * plugin's CLAUDE.md; null when that file cannot be read or is empty.
+ * CLAUDE.md still holds a tmb:persona block, the project root and user time
+ * zone lines and the plugin's CLAUDE.md; null when that file cannot be read or
+ * is empty.
  */
-export function personaContext(p: Persona, env: NodeJS.ProcessEnv = process.env): string | null {
+export function personaContext(p: Persona, env: NodeJS.ProcessEnv = process.env, now: Date = new Date()): string | null {
   if (!readable(p.source)) return null;
   let body: string;
   try {
@@ -209,7 +238,7 @@ export function personaContext(p: Persona, env: NodeJS.ProcessEnv = process.env)
   if (body === '') return null;
   const lines = [`[Persona loaded by the TMB persona hook from the ${p.pluginName} plugin's CLAUDE.md, v${p.pluginVersion || 'unknown'}]`];
   if (holdsOldBlock(`${p.project}/CLAUDE.md`)) lines.push(OLD_BLOCK_NOTE);
-  lines.push(`Project root (<project> in TMB prompts): ${projectRoot(env) || NO_ROOT}`);
+  lines.push(`Project root (<project> in TMB prompts): ${projectRoot(env) || NO_ROOT}`, userTimeZoneLine(env, now));
   return `${lines.join('\n')}\n\n${body}`;
 }
 
