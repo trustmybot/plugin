@@ -3,12 +3,16 @@
  * _tmb_cmd_inplace_files, the sources a mv / git mv removes and
  * _tmb_cmd_git_tree (cmd-analysis.sh).
  */
+import { braceExpandWords } from './brace.js';
 import { decode, QO } from './encode.js';
 import { splitWords, under, unwrap } from './unwrap.js';
 
 const basename = (w: string): string => w.replace(/.*\//, '');
 
 const TAR = /^(tar|gtar|bsdtar)$/;
+
+/** Where a tree write lands when its words expand past what can be listed: every dir, so the write fails closed. */
+const ANYWHERE = '/';
 
 /** Whether <word> is GNU long option --<long>, spelled out or cut to a prefix of at least <min> chars. */
 function longOption(word: string, long: string, min: number): boolean {
@@ -90,8 +94,9 @@ function movedPaths(args: readonly string[], valued?: RegExp): string[] {
 
 /**
  * Tree-writes mode: the dirs one command fills with a whole tree it copies,
- * moves or extracts, as written: a recursive cp's and an rsync's destination,
- * where a mv's sources land, and a tar extract's `-C` dirs, else its own dir.
+ * moves or extracts, its arguments brace-expanded as bash passes them: a
+ * recursive cp's and an rsync's destination, where a mv's sources land, and
+ * a tar extract's `-C` dirs, else its own dir.
  */
 function treeTargetWords(w: string[], out: string[]): void {
   let pre = '';
@@ -100,8 +105,9 @@ function treeTargetWords(w: string[], out: string[]): void {
   if (u.k >= w.length) return;
   const put = (p: string) => out.push(under(pre, p));
   const cmd = basename(w[u.k]);
-  const args = w.slice(u.k + 1);
-  if (cmd === 'mv') for (const p of movedPaths(args, /^(-S|--suffix)$/)) put(p);
+  const args = braceExpandWords(w.slice(u.k + 1));
+  if (args === null) out.push(ANYWHERE);
+  else if (cmd === 'mv') for (const p of movedPaths(args, /^(-S|--suffix)$/)) put(p);
   else if (cmd === 'rsync' || (cmd === 'cp' && cpRecursive(args))) for (const d of copyDestinations(args)) put(d);
   else if (TAR.test(cmd) && tarExtracts(args)) for (const d of tarDirs(args, '.')) put(d);
 }
@@ -619,7 +625,7 @@ function readPathspec(spec: string): { top: boolean; dir: string } {
 
 /**
  * Tree-writes mode: the paths a `git checkout` / `git restore` writes back
- * into its work tree, each operand read as a pathspec (a tree-ish or branch
+ * into its work tree, each operand brace-expanded and read as a pathspec (a tree-ish or branch
  * read so names no dir it writes), `--pathspec-from-file` as the whole tree
  * from the top, and where a `git mv`'s sources land. A `restore --staged`
  * without `--worktree` writes only the index. A pathspec named from the top,
@@ -654,7 +660,11 @@ function gitTreeWrites(chain: boolean, words: string[], locationEnv: boolean): {
   }
   const rel = (p: string) => (chain ? under(cdir, p) : p);
   const sub = at(k);
-  const args = words.slice(k + 1);
+  const args = braceExpandWords(words.slice(k + 1));
+  if (args === null) {
+    out.paths.push(ANYWHERE);
+    return out;
+  }
   if (sub === 'mv') {
     out.paths.push(...movedPaths(args).map(rel));
     return out;

@@ -13,6 +13,8 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, beforeEach, describe, it } from 'node:test';
 import { auditEventWriters, isAuditEventType } from '../audit-events.js';
+import { braceExpand } from '../hooks/cmd-analysis/index.js';
+import { containmentGuard } from '../hooks/containment-guard.js';
 import { findGate, routerGates } from '../hooks/registry.js';
 import { APPROVAL_WINDOW_MINUTES, EVENT_TYPE, GATE_NAME, promptWriteApproval, withoutSkillsEntry } from '../hooks/prompt-write-approval.js';
 import { PLUGIN_ROOT } from './hook-sandbox.js';
@@ -347,12 +349,31 @@ describe('prompt-write-approval (GH 2927)', () => {
             ['git -C sub restore --source HEAD~1 :/', ''],
           ]) {
             mkdirSync(join(project, 'sub'), { recursive: true });
-            denied(await bash(command, { cwd: join(project, cwd), agent_type: 'tmb:code-reviewer', agent_id: 'z' }, noDb()));
+            denied(await bash(command, { cwd: join(project, cwd), agent_type: 'tmb:code-reviewer', agent_id: 'z' }));
+          }
+        });
+      });
+
+      describe('a command that does not parse (F876-4)', () => {
+        const UNPARSED = ['git checkout HEAD -- :(top).claude', 'echo "unterminated', 'ls $('];
+
+        it('SC9: with a trajectory DB it is denied, since nothing it writes can be told', async () => {
+          for (const command of UNPARSED) assert.match(denied(await bash(command)), /cannot be judged: the command could not be parsed/, command);
+        });
+
+        it('SC9: with no DB or no sqlite it gets containment-guard\'s decision', async () => {
+          for (const runEnv of [noDb(), env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })]) {
+            for (const command of UNPARSED) {
+              const payload = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: 'Bash', tool_input: { command }, agent_type: 'tmb:code-reviewer', agent_id: 'z' });
+              const contained = await containmentGuard(payload, runEnv);
+              assert.deepEqual(await promptWriteApproval(payload, runEnv), contained, command);
+              assert.equal(contained.stdout.trim(), '', `containment-guard stands aside: ${command}`);
+            }
           }
         });
 
-        it('denies a command that does not parse, since nothing it writes can be told', async () => {
-          assert.match(denied(await bash('git checkout HEAD -- :(top).claude', {}, noDb())), /cannot be judged: the command could not be parsed/);
+        it('SC4: a swe stays exempt', async () => {
+          for (const command of UNPARSED) assert.equal(await bash(command, { agent_type: 'tmb:swe', agent_id: 'a1' }), null, command);
         });
       });
 
@@ -363,6 +384,56 @@ describe('prompt-write-approval (GH 2927)', () => {
 
         it('SC7: allows any other mv into the root with no DB read', async () => {
           for (const command of ['mv a.txt .', 'mv src/ .', 'mv src/*.ts .', 'git mv a.txt .', 'mv -T src lib']) assert.equal(await bash(command, {}, noDb()), null, command);
+        });
+      });
+
+      describe('a brace source of a mv into the root (F876-3)', () => {
+        it('SC8: denies a mv or git mv whose brace alternatives name .claude, in any case, nested or with a prefix', async () => {
+          for (const command of [
+            'mv x/{.claude,a} .',
+            'mv x/{a,.Claude} .',
+            'mv x/.{claude,b} .',
+            'git mv x/{.claude,a} .',
+            'mv x/{a,{b,.claude}} .',
+            'mv {x/.claude,y} .',
+            'mv x/.{c,d}{l,m}aude .',
+            'mv x/.{a..c}laude .',
+          ]) {
+            denied(await bash(command));
+          }
+          // A mv also removes its source, and an x/.claude dir is gated in its own right; approved, the landing in the root is left.
+          for (const source of ['x/.claude', 'x/.Claude']) approve(join(project, source), 'full');
+          for (const command of ['mv x/{.claude,a} .', 'mv x/{a,.Claude} .', 'mv x/.{claude,b} .', 'git mv x/{.claude,a} .', 'mv x/.{a..c}laude .']) {
+            const reason = denied(await bash(command));
+            assert.ok(reason.toLowerCase().includes(`write to ${join(project, '.claude')}.`.toLowerCase()), `${command}: ${reason}`);
+          }
+        });
+
+        it('SC8: a brace word expanding past what can be listed fails closed', async () => {
+          denied(await bash('mv x/{1..9999} .'));
+        });
+
+        it('SC8: a brace in the destination, a tar -C or a git pathspec expands as bash passes it', async () => {
+          for (const command of ['mv x/skills {.claude,}', 'cp -r x/skills {.claude,}', 'tar -x -f a.tar -C {.claude,b}', 'git checkout HEAD -- {.claude,src}', 'mkdir {.claude,b}']) {
+            denied(await bash(command));
+          }
+        });
+
+        it('SC8: allows a brace mv with no .claude alternative, and a literal brace, with no DB read', async () => {
+          for (const command of ['mv x/{a,b} .', 'git mv x/{a,b} .', 'mv x/{.claude} y/', 'mv x/{a,b .', 'cp -r src/{a,b} lib/', 'mkdir {a,b}']) assert.equal(await bash(command, {}, noDb()), null, command);
+        });
+      });
+
+      describe('a glob source of a mv into the root (F876-5)', () => {
+        it('SC10: a glob does not match a leading dot, so these read no DB', async () => {
+          for (const command of ['mv build/* .', 'mv src/*.ts .', 'mv x/?claude .', 'mv x/[.]claude .', 'mv x/[!a]claude .']) assert.equal(await bash(command, {}, noDb()), null, command);
+        });
+
+        it('SC10: a glob starting with a literal dot, an extglob, or dotglob / GLOB_DOTS named in the command is gated', async () => {
+          for (const command of ['mv x/.c* .', 'mv x/.[cC]laude .', 'mv x/.?laude .', 'mv x/@(.claude) .', 'shopt -s dotglob; mv x/* .', 'GLOBIGNORE=x; mv x/* .', 'setopt globdots; mv x/* .']) {
+            denied(await bash(command));
+          }
+          assert.equal(await bash('mv x/a* .', {}, noDb()), null);
         });
       });
     });
@@ -395,5 +466,37 @@ describe('withoutSkillsEntry', () => {
   it('leaves a body skills: line and a file with no frontmatter alone', () => {
     assert.equal(withoutSkillsEntry('---\nname: n\n---\nskills:\n  - a\n'), '---\nname: n\n---\nskills:\n  - a\n');
     assert.equal(withoutSkillsEntry('skills: [a]\n'), 'skills: [a]\n');
+  });
+});
+
+describe('braceExpand (bash brace expansion)', () => {
+  it('expands comma lists left to right, nested, with prefix and suffix', () => {
+    assert.deepEqual(braceExpand('x/{.claude,a}'), ['x/.claude', 'x/a']);
+    assert.deepEqual(braceExpand('{a,b}{c,d}'), ['ac', 'ad', 'bc', 'bd']);
+    assert.deepEqual(braceExpand('x{a,{b,c}}y'), ['xay', 'xby', 'xcy']);
+    assert.deepEqual(braceExpand('a{,}'), ['a', 'a']);
+  });
+
+  it('expands numeric and character sequences, padded and stepped', () => {
+    assert.deepEqual(braceExpand('{1..3}'), ['1', '2', '3']);
+    assert.deepEqual(braceExpand('{3..1}'), ['3', '2', '1']);
+    assert.deepEqual(braceExpand('{01..3}'), ['01', '02', '03']);
+    assert.deepEqual(braceExpand('{-1..1}'), ['-1', '0', '1']);
+    assert.deepEqual(braceExpand('{a..e..2}'), ['a', 'c', 'e']);
+    assert.deepEqual(braceExpand('{-../}x'), ['-x', '.x', '/x']);
+  });
+
+  it('leaves a brace with no comma or sequence, an unclosed one and a parameter literal', () => {
+    assert.deepEqual(braceExpand('x{a}y{b,c}'), ['x{a}yb', 'x{a}yc']);
+    assert.deepEqual(braceExpand('{a,b'), ['{a,b']);
+    assert.deepEqual(braceExpand('{{a,b}'), ['{a', '{b']);
+    assert.deepEqual(braceExpand('{a,b}}'), ['a}', 'b}']);
+    assert.deepEqual(braceExpand('${a,b}'), ['${a,b}']);
+    assert.deepEqual(braceExpand('{a..5}'), ['{a..5}']);
+  });
+
+  it('gives null past its limit, so a caller fails closed', () => {
+    assert.equal(braceExpand('{1..100000}'), null);
+    assert.equal(braceExpand('{1..20}{1..20}{1..20}'), null);
   });
 });

@@ -12,6 +12,7 @@ export { ANALYSIS_WORK_CAP, CAP_FIX, CAP_REASON, isCapLine } from './write-paths
 
 export { bashParserLoads, programParserLoads } from './parser.js';
 export { pathCanonical, payloadCwd } from './path.js';
+export { braceExpand } from './brace.js';
 export { ghMutation, ghMutationFrom } from './forge.js';
 export { isPromptSurfacePath, surfaceRoot, WRITE_SHAPES, writeShapes } from './surface.js';
 export { stripLiterals } from './strip-literals.js';
