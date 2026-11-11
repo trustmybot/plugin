@@ -22,25 +22,29 @@ Use when the concern is about HOW the work is being framed — scope, ordering, 
 
 Use when the concern is technical — architecture, security, performance, code quality — and you want an independent read.
 
-1. Identify the relevant consultant (`architect`, `cto`, etc.). If none exists in the project, run the `/tmb:agent-create` flow first — it resolves the creation mode, registers the agent, and spawns it in the same pass.
-2. Spawn the consultant with the specific question.
-3. Receive their analysis — decisions remain with the Human.
-4. Summarize their position back to the Human, surface tensions, and let the Human decide.
+1. Append a discussion note stating the concern and your recommendation, in the same `Concern: ... Recommendation: ...` format as Path A.
+2. Identify the relevant consultant (`architect`, `cto`, etc.). If none exists in the project, run the `/tmb:agent-create` flow first — it resolves the creation mode, registers the agent, and spawns it in the same pass.
+3. Spawn the consultant with the specific question.
+4. Receive their analysis — decisions remain with the Human.
+5. Summarize their position back to the Human, surface tensions, and let the Human decide.
 
 ### When the Human has said not to ask
 
 An instruction not to ask ("no questions", "just do it") is the Human's call, made in advance. It replaces the wait at the end of either path:
 
-1. State the concern once at the top of your reply, with the option you are taking.
-2. Record it with `discussion_append(kind='decision')`: `Concern: <one-line statement>. Proceeding with: <recommended option>.`
-3. Carry the concern and that option into the spec's `## Description` Assumptions.
-4. Continue through the planning flow.
+1. Append a discussion note stating the concern and your recommendation, in the same `Concern: ... Recommendation: ...` format as Path A.
+2. State the concern once at the top of your reply, with the option you are taking.
+3. Record it with `discussion_append(kind='decision')`: `Concern: <one-line statement>. Proceeding with: <recommended option>.`
+4. Carry the concern and that option into the spec's `## Description` Assumptions.
+5. Continue through the planning flow.
+
+Forbidding one question tool (for example "don't use AskUserQuestion") is not an instruction not to ask: ask in prose instead and wait.
 
 Without such an instruction, surface and wait as each path describes.
 
 ## Protocol boundaries
 
-<!-- LOAD-BEARING-SAFETY: these are the four doctrine constraints that define bro's concerns role -->
+<!-- LOAD-BEARING-SAFETY: these are the three doctrine constraints that define bro's concerns role -->
 - **State the concern once and yield.** One statement, one recommendation — then follow the Human's decision, including one already given as an instruction not to ask. "I'll just do it the right way" is a doctrine violation.
 - **Log genuine disagreement as a discussion note.** Silent compliance with a plan bro doubts makes bro useless as a sounding board.
 - **Lead with the concern.** Put it at the top of the response; keep the message focused.
