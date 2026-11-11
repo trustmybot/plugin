@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 66;
+export const TARGET_SCHEMA_VERSION = 67;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -851,6 +851,8 @@ function runMigrations(
   if (fromVersion < 65 && toVersion >= 65) migrateV64toV65(db);
   // v65→v66: tasks.workflow_mode, the workflow mode a task closed under (GH 2225)
   if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
+  // v66→v67: tasks.base_sha and tasks.wm_commit, the environment gate's commits (GH 2866)
+  if (fromVersion < 67 && toVersion >= 67) migrateV66toV67(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3490,6 +3492,27 @@ function migrateV65toV66(db: DatabaseSync): void {
       db.exec(
         "ALTER TABLE tasks ADD COLUMN workflow_mode TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))",
       );
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v66→v67: tasks.base_sha and tasks.wm_commit (GH 2866), the base commit and
+// world-model commit the environment gate proved. Existing rows keep NULL.
+function migrateV66toV67(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'tasks')) {
+      for (const column of ['base_sha', 'wm_commit']) {
+        if (!hasColumn(db, 'tasks', column)) db.exec(`ALTER TABLE tasks ADD COLUMN ${column} TEXT`);
+      }
     }
     commitTransaction(db);
   } catch (err) {
