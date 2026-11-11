@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -37,35 +37,6 @@ function tool(name, ...args) {
 }
 
 const fixture = (name) => join(sessions, `${name}.jsonl`);
-
-describe('codex-agent-materialization.mjs', () => {
-  const isolated = join(scratch, 'isolated-benchmark');
-  mkdirSync(isolated, { recursive: true });
-  copyFileSync(join(here, 'codex-agent-materialization.mjs'), join(isolated, 'codex-agent-materialization.mjs'));
-  copyFileSync(
-    join(here, 'codex-agent-materialization.selftest.mjs'),
-    join(isolated, 'codex-agent-materialization.selftest.mjs'),
-  );
-
-  test('materialization benchmark helpers', () => {
-    const state = join(scratch, 'selftest-state');
-    mkdirSync(state, { recursive: true });
-    const result = spawnSync(
-      process.execPath,
-      [join(isolated, 'codex-agent-materialization.selftest.mjs'), state],
-      { encoding: 'utf8' },
-    );
-    assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes('selftest passed'));
-  });
-
-  test('materialization benchmark rejects missing arguments', () => {
-    const result = spawnSync(process.execPath, [join(isolated, 'codex-agent-materialization.mjs')], {
-      encoding: 'utf8',
-    });
-    assert.notEqual(result.status, 0);
-  });
-});
 
 describe('bro-provision-reads.mjs', () => {
   test('bro-provision-reads window counts', () => {

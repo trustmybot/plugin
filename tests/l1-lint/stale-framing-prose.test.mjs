@@ -1,4 +1,4 @@
-// L1 lint: no stale framing prose ("no longer", "was previously", "retired", "deprecated", "formerly", any case, whole words) in documentation (!2898 + !2901). Carve-out: a word inside an inline backtick span is an enum literal and passes; lines inside fenced code blocks (``` or ~~~, optionally indented, with an info string) are skipped. Scans docs/, agents/, commands/, templates/agents/ (*.md), skills/**/SKILL.md and the top-level CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md, README.md, CONTRIBUTING.md, SECURITY.md. Every run also checks fixtures/stale-framing-prose/ (prose caught, enum literal allowed, fences allowed with prose after them caught).
+// L1 lint: no stale framing prose ("no longer", "was previously", "retired", "deprecated", "formerly", any case, whole words) in documentation (!2898 + !2901). Carve-out: a word inside an inline backtick span is an enum literal and passes; lines inside fenced code blocks (``` or ~~~, optionally indented, with an info string) are skipped. Scans docs/, agents/, commands/, templates/agents/ (*.md), skills/**/SKILL.md and the top-level CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md. Every run also checks fixtures/stale-framing-prose/ (prose caught, enum literal allowed, fences allowed with prose after them caught).
 import { strict as assert } from 'node:assert';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -10,7 +10,7 @@ const FIXTURES = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'stale-framing-prose
 const STALE = /\b(no longer|was previously|retired|deprecated|formerly)\b/i;
 const FENCE = /^\s*(```+|~~~+)(.*)$/;
 const SCAN_DIRS = ['docs', 'agents', 'commands', 'templates/agents'];
-const TOP_LEVEL = ['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md', 'README.md', 'CONTRIBUTING.md', 'SECURITY.md'];
+const TOP_LEVEL = ['CLAUDE.md', 'README.md', 'CONTRIBUTING.md', 'SECURITY.md'];
 
 export function checkFile(base, file) {
   const out = [];

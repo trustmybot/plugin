@@ -8,7 +8,6 @@ import {
   serverLog as defaultServerLog,
 } from './logger.js';
 import {
-  assertSafeProjectWritePath,
   resolveClaudeDbPath,
   resolveClaudePluginName,
   resolveClaudePluginVersion,
@@ -69,8 +68,6 @@ export interface TrajectoryDBDependencies {
   readonly pluginVersion: string | null;
   readonly serverLog: TrajectoryLog;
   readonly sqlLog: TrajectoryLog;
-  /** Canonical project root for Codex-bound persistent databases. */
-  readonly trustedProjectRoot?: string;
 }
 
 export interface TrajectoryDBOptions {
@@ -113,17 +110,6 @@ export class TrajectoryDB {
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
     this.migrate = options.migrate === true;
-    if (
-      dbPath !== ':memory:' &&
-      resolvedDependencies.trustedProjectRoot !== undefined
-    ) {
-      assertSafeProjectWritePath(
-        resolvedDependencies.trustedProjectRoot,
-        dbPath,
-        'Trajectory database',
-        'file',
-      );
-    }
     this.db = new DatabaseSync(dbPath);
     try {
       // busy_timeout comes first so every lock taken from here on waits for it.
@@ -461,7 +447,6 @@ function resolveDependencies(
     pluginVersion: dependencies.pluginVersion,
     serverLog: noThrowTrajectoryLog(dependencies.serverLog),
     sqlLog: noThrowTrajectoryLog(dependencies.sqlLog),
-    trustedProjectRoot: dependencies.trustedProjectRoot,
   };
 }
 

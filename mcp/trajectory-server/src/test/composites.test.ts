@@ -4965,11 +4965,11 @@ describe('agent_runs lifecycle — rows open with their run and close with their
   it('task_brief stamps the swe row with the task worktree and host', async () => {
     const db = tempDB();
     const id = seed(db);
-    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null, { host: 'codex', projectRoot: '/tmp' });
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null, { host: 'claude', projectRoot: '/tmp' });
     await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
     const branch = db.get<{ b: string }>('SELECT branch_id AS b FROM tasks WHERE id = ?', [id])!.b;
     assert.deepEqual(stamps(db, id), [
-      { agent_type: 'swe', root_dir: `/tmp/app/.claude/worktrees/${branch.replace(/^[^/]+\//, '')}`, host: 'codex', exit_reason: null },
+      { agent_type: 'swe', root_dir: `/tmp/app/.claude/worktrees/${branch.replace(/^[^/]+\//, '')}`, host: 'claude', exit_reason: null },
     ]);
     db.close();
   });
