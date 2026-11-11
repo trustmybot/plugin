@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, beforeEach, describe, it } from 'node:test';
 import { auditEventWriters, isAuditEventType } from '../audit-events.js';
-import { braceExpand } from '../hooks/cmd-analysis/index.js';
+import { braceEdge, braceExpand, braceWords } from '../hooks/cmd-analysis/index.js';
 import { containmentGuard } from '../hooks/containment-guard.js';
 import { findGate, routerGates } from '../hooks/registry.js';
 import { APPROVAL_WINDOW_MINUTES, EVENT_TYPE, GATE_NAME, promptWriteApproval, withoutSkillsEntry } from '../hooks/prompt-write-approval.js';
@@ -355,15 +355,22 @@ describe('prompt-write-approval (GH 2927)', () => {
       });
 
       describe('a command that does not parse (F876-4)', () => {
-        const NAMES_CLAUDE = ['git checkout HEAD -- :(top).claude', 'echo $(( > .Claude/x', 'echo $(( > ".cl"a\\ude/x', "cp -r x $'.CLAUDE' $("];
-        const UNPARSED = [...NAMES_CLAUDE, 'echo "unterminated', 'ls $('];
+        const TRAILER = '\necho "unterminated';
+        const NAMES_CLAUDE = [
+          'git checkout HEAD -- :(top).claude',
+          'echo $(( > .Claude/x',
+          'echo $(( > ".cl"a\\ude/x',
+          "cp -r x $'.CLAUDE' $(",
+          ...["cp -r x/skills .cl$'a'ude/", "cp -r x/skills $'\\x2e'claude/", "cp -r x/skills $'\\056claude'/", 'cp -r x/skills $"x"/', 'cp -r x/skills .c*/', 'cp -r x/skills .[cC]laude/', 'cp -r x/skills .$X/', 'cp -r x/skills x/.{a,b}/'].map((c) => c + TRAILER),
+        ];
+        const UNPARSED = [...NAMES_CLAUDE, 'echo "unterminated', 'ls $(', `cp -r x/skills build/${TRAILER}`, `cat a.txt b.md > out.log${TRAILER}`];
         const standAside = (): NodeJS.ProcessEnv[] => [noDb(), env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })];
 
         it('SC9: with a trajectory DB it is denied, since nothing it writes can be told', async () => {
           for (const command of UNPARSED) assert.match(denied(await bash(command)), /cannot be judged: the command could not be parsed/, command);
         });
 
-        it('SC9: with no DB or no sqlite it is denied when its text names .claude, in any case or quoting', async () => {
+        it('SC9, F876-7: with no DB or no sqlite it is denied when its text may name .claude: any case or quoting, ANSI-C or locale quoting, or a dot with a glob, brace or $ after it', async () => {
           for (const runEnv of standAside()) {
             for (const command of NAMES_CLAUDE) assert.match(denied(await bash(command, {}, runEnv)), /trajectory DB is unavailable/, command);
           }
@@ -417,8 +424,19 @@ describe('prompt-write-approval (GH 2927)', () => {
           }
         });
 
-        it('SC8: a brace word expanding past what can be listed fails closed', async () => {
-          denied(await bash('mv x/{1..9999} .'));
+        it('SC8, SC11: a mv source expanding past what can be listed fails closed for that source alone', async () => {
+          for (const command of ['mv x/{1..9999} .', 'mv x/{1..9999} .claude/skills/', 'mv a.txt x/{1..9999} .']) denied(await bash(command));
+          assert.ok(denied(await bash('mv x/{1..9999} .')).includes(`write to ${join(project, '.claude*')}.`));
+          for (const command of ['mv x/{1..9999} build/', 'mv -t build/ x/{1..9999}', 'git mv x/{1..9999} build/', 'mv a.txt {1..9999}', 'cp -r src {1..9999}', 'mkdir -p out/{1..9999}', 'git checkout HEAD -- src/{1..9999}']) {
+            assert.equal(await bash(command, {}, noDb()), null, command);
+          }
+        });
+
+        it('SC11, F876-6: a command that writes nothing has no word brace-expanded, so it reads no DB', async () => {
+          const objects = `[${Array(13).fill('{"id":1,"ok":true}').join(',')}]`;
+          for (const command of ['echo {1..5000}', 'printf "%s\\n" {1..5000}', "printf '%s\\n' {a,b}{c,d}", `jq -n '${objects}'`, `curl -d '${objects}' https://api.example.com/items`, 'echo {1..99}{1..99}']) {
+            for (const agent of [{}, { agent_type: 'tmb:code-reviewer', agent_id: 'z' }]) assert.equal(await bash(command, agent, noDb()), null, command);
+          }
         });
 
         it('SC8: a brace in the destination, a tar -C or a git pathspec expands as bash passes it', async () => {
@@ -503,8 +521,24 @@ describe('braceExpand (bash brace expansion)', () => {
     assert.deepEqual(braceExpand('{a..5}'), ['{a..5}']);
   });
 
-  it('gives null past its limit, so a caller fails closed', () => {
+  it('gives null past its limit', () => {
     assert.equal(braceExpand('{1..100000}'), null);
     assert.equal(braceExpand('{1..20}{1..20}{1..20}'), null);
+  });
+
+  it('braceEdge finds the first and last word without listing the rest', () => {
+    assert.equal(braceEdge('x/{1..100000}', false), 'x/1');
+    assert.equal(braceEdge('x/{1..100000}', true), 'x/100000');
+    assert.equal(braceEdge('{01..10..3}', true), '10');
+    assert.equal(braceEdge('{a,{b,c}}{1..9}y', true), 'c9y');
+    assert.equal(braceEdge('{z..a..2}', true), 'b');
+    assert.equal(braceEdge('${a,b}', true), '${a,b}');
+  });
+
+  it('braceWords stands a word past the limit as its first, a .claude glob under its stem, and its last', () => {
+    assert.deepEqual(braceWords(['-t', 'd', 'x/{a,b}']), ['-t', 'd', 'x/a', 'x/b']);
+    assert.deepEqual(braceWords(['x/{1..9999}', 'build/']), ['x/1', 'x/.claude*', 'x/9999', 'build/']);
+    assert.deepEqual(braceWords(['--directory={1..9999}']), ['--directory=1', '--directory=.claude*', '--directory=9999']);
+    assert.deepEqual(braceWords(['{1..9999}']), ['1', '.claude*', '9999']);
   });
 });

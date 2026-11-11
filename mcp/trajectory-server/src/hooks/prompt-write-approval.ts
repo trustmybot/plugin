@@ -16,9 +16,10 @@
  * denies, and so does a command that did not parse wherever containment-guard
  * judges too (a trajectory DB and sqlite resolve), since nothing it writes can
  * be told (GH 2981); where it does not, such a command is denied only when its
- * text names `.claude`. Its other never-judged targets are containment-guard's.
- * A target is judged on each word bash brace-expands it to. A command with no
- * gated target reads no DB.
+ * text may name `.claude` (mayNameClaudeDir). Its other never-judged targets
+ * are containment-guard's. A write target is judged on each word bash
+ * brace-expands it to; a command that writes nothing has no word expanded. A
+ * command with no gated target reads no DB.
  *
  * A write naming only a dir above the prompt dirs (GH 2981) is gated too: a
  * `.claude`, `.claude/skills` or `.claude/agents` dir for any write, and the
@@ -29,12 +30,13 @@
  * `.claude/skills` of its own. A mv lands only its sources' names, so a mv
  * into the root is gated only when one, brace-expanded, is named `.claude` or
  * is a glob that may match it (no glob char matches a leading dot unless the
- * command names dotglob).
+ * command names dotglob); a source whose braces expand past what can be listed
+ * counts as one that may be named `.claude`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { braceExpand, CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
+import { braceEdge, braceExpand, CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
 import { NEVER_JUDGED, NEVER_JUDGED_FIX, UNJUDGED_PHRASE } from './containment-guard.js';
 import { judgedPath } from './no-source-edit-from-main.js';
 import { pathCanonical } from './lib/agent-context.js';
@@ -285,20 +287,16 @@ function holdsPromptDirs(spelled: string, target: string, root: string, dotglob:
 }
 
 /**
- * The canonical targets of <lines> that <isGated> holds for, each brace-expanded as bash expands a
- * word (a redirect target too); one that expands past what can be listed is gated as written.
+ * The canonical targets of <lines> that <isGated> holds for. A write target is judged on each word
+ * bash brace-expands it to (a redirect target too), or past what can be listed on its first and
+ * last; only a line that is a write target gets here, so no other command's words expand.
  */
 function gatedTargets(lines: readonly string[], base: string, isGated: (spelled: string, target: string) => boolean): string[] {
   const out: string[] = [];
   for (const line of lines) {
     const path = judgedPath(line);
     if (path === null || path === '') continue;
-    const alternatives = braceExpand(path);
-    if (alternatives === null) {
-      out.push(pathCanonical(resolve(base, path)));
-      continue;
-    }
-    for (const alternative of alternatives) {
+    for (const alternative of braceExpand(path) ?? [braceEdge(path, false), braceEdge(path, true)]) {
       const spelled = resolve(base, alternative);
       const target = pathCanonical(spelled);
       if (isGated(spelled, target)) out.push(target);
@@ -313,8 +311,15 @@ const DOTGLOB = /dotglob|GLOBIGNORE|glob_?dots/i;
 /** An analyzer line for a command (or a body it runs) that did not parse, so nothing it writes can be told. */
 const UNPARSED = 'UNRESOLVED:$(parse):';
 
-/** Whether the command text spells `.claude` in any letter case once its quotes and backslashes, which bash drops from a word, are taken out. */
-const namesClaudeDir = (command: string): boolean => /\.claude/i.test(command.replace(/['"\\]/g, ''));
+/**
+ * Whether an unparsed command's raw text may name `.claude`, read conservatively since nothing
+ * else of it can be told: `claude` in any letter case once every quote and backslash is taken out,
+ * ANSI-C or locale quoting (`$'…'`, `$"…"`, which can spell any char), or a whitespace-free run
+ * holding a `.` with a glob, brace or `$` after it (`.c*`, `.[cC]laude`, `x/.{a,b}`, `.$X`).
+ */
+function mayNameClaudeDir(command: string): boolean {
+  return /claude/i.test(command.replace(/['"\\]/g, '')) || /\$['"]/.test(command) || /\.\S*[*?[{$]/.test(command);
+}
 
 const analyzed = async (command: string, options: WritePathsOptions): Promise<string[]> => (await writePaths(command, options)).join('\n').split('\n');
 
@@ -328,11 +333,11 @@ async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): P
   if (treeLines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
   const unparsed = lines.find((line) => line.startsWith(UNPARSED));
   if (unparsed !== undefined) {
-    // containment-guard's own state test: where it stands aside (no DB or no sqlite) an unparsed command goes on unless it names a prompt root.
+    // containment-guard's own state test: where it stands aside (no DB or no sqlite) an unparsed command goes on unless it may name a prompt root.
     if (dbState(env) !== 'unresolved') {
       return denyResult(`BLOCKED: write target "${unparsed.slice(UNPARSED.length)}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED['$(parse)']}`, NEVER_JUDGED_FIX['$(parse)']);
     }
-    if (namesClaudeDir(command)) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
+    if (mayNameClaudeDir(command)) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
   }
 
   const base = baseDir(cwd, root);
