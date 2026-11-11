@@ -13,8 +13,14 @@
  * ref, no merge base, an invalid .config/tmb/doc-checks.json at HEAD) denies
  * too. That project file names the changelog directory and doc and tool
  * globs; with no file or no key a check is skipped, and the allow's
- * additionalContext names the file and key to add. A doc-check deny records no verification
- * run, so a passing verification_runs row for HEAD means both passed, which
+ * additionalContext names the file and key to add. Then the leak scan
+ * (lib/leak-scan.ts, GH 2929) checks the lines that diff adds for secrets
+ * (secretlint's recommended preset), email addresses and home paths, and
+ * denies as leak_scan naming each hit's file, line and rule, never the
+ * matched text; the optional .config/tmb/leak-scan.json at HEAD adds allow
+ * entries and turns rules off, each with a reason, and an invalid one denies
+ * as leak_scan_config. A doc-check or leak-scan deny records no verification
+ * run, so a passing verification_runs row for HEAD means all of them passed, which
  * swe-atomic-close and code-reviewer-preflight rely on. No waiver or bypass
  * skips them. Then a waive_verification_gate_reason of at least 10 characters
  * allows and writes one verification_gate_waived audit row per (task, commit),
@@ -59,6 +65,7 @@ import { type DenyFix, denyJson, structuredDenyResult } from './lib/deny.js';
 import { branchSlug, DB_RETRY_FIX, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
 import { docChecks, type DocCheckFailure, gitText, revParse } from './lib/doc-checks.js';
 import { gitRun, isDir } from './lib/git.js';
+import { leakScan } from './lib/leak-scan.js';
 import { prTargetRef } from './lib/git-refs.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
@@ -669,9 +676,9 @@ function withDocNotes(result: GateResult, notes: readonly string[]): GateResult 
 }
 
 /**
- * The changelog and stale-doc checks of the worktree HEAD against its merge base with the task's
- * PR target: the deny when one fails or cannot be proven, else null with each skipped check's
- * note pushed onto <notes>.
+ * The changelog and stale-doc checks and the leak scan of the worktree HEAD against its merge base
+ * with the task's PR target: the deny when one fails or cannot be proven, else null with each
+ * skipped check's note pushed onto <notes>.
  */
 async function docGate(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv, notes: string[]): Promise<GateResult | null> {
   const row = gateRead(
@@ -698,6 +705,8 @@ async function docGate(db: string, taskId: string, worktree: string, env: NodeJS
 
   const result = await docChecks(worktree, mergeBase, head, env);
   if (result.failure !== null) return structuredDenyResult(result.failure, RETRY_FIXED);
+  const leak = await leakScan(worktree, mergeBase, head, env);
+  if (leak !== null) return structuredDenyResult(leak, RETRY_FIXED);
   notes.push(...result.notes);
   return null;
 }

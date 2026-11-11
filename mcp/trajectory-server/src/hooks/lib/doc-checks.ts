@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, matchesGlob } from 'node:path';
 import { gitSpawn } from './git.js';
 
-export type DocCheck = 'stale_doc_ref' | 'missing_changelog' | 'doc_checks_config';
+export type DocCheck = 'stale_doc_ref' | 'missing_changelog' | 'doc_checks_config' | 'leak_scan' | 'leak_scan_config';
 
 export interface DocCheckFailure {
   check: DocCheck;
@@ -204,17 +204,30 @@ async function readDocChecksConfig(
   const invalid = (actual: string) => ({
     failure: { check: 'doc_checks_config' as const, expected: `${DOC_CHECKS_FILE} at ${commit} is absent or matches ${DOC_CHECKS_SHAPE}`, actual },
   });
-  const entry = await gitText(repo, ['ls-tree', '-z', commit, '--', DOC_CHECKS_FILE], env);
-  if (entry.code !== 0) return invalid(`git ls-tree failed: ${entry.stderr.trim()}`);
+  const file = await fileAtCommit(repo, commit, DOC_CHECKS_FILE, env);
+  if ('error' in file) return invalid(file.error);
+  if (file.text === null) return { config: null };
+  const parsed = parseDocChecksConfig(file.text);
+  return 'error' in parsed ? invalid(parsed.error) : { config: parsed };
+}
+
+/** The text of <path> as committed at <commit>, null when the commit has none, or why git could not read it. */
+export async function fileAtCommit(
+  repo: string,
+  commit: string,
+  path: string,
+  env: NodeJS.ProcessEnv,
+): Promise<{ text: string | null } | { error: string }> {
+  const entry = await gitText(repo, ['ls-tree', '-z', commit, '--', path], env);
+  if (entry.code !== 0) return { error: `git ls-tree failed: ${entry.stderr.trim()}` };
   const fields = nulFields(entry.stdout);
-  if (fields.length === 0) return { config: null };
+  if (fields.length === 0) return { text: null };
   const [, type, oid] = fields[0].slice(0, fields[0].indexOf('\t')).split(' ');
-  if (type !== 'blob') return invalid(`${DOC_CHECKS_FILE} is a ${type}, not a file`);
+  if (type !== 'blob') return { error: `${path} is a ${type}, not a file` };
   const contents = await readBlobs(repo, [oid], env);
   const text = contents?.get(oid);
-  if (text === undefined) return invalid(`git cat-file of ${DOC_CHECKS_FILE} failed`);
-  const parsed = parseDocChecksConfig(text);
-  return 'error' in parsed ? invalid(parsed.error) : { config: parsed };
+  if (text === undefined) return { error: `git cat-file of ${path} failed` };
+  return { text };
 }
 
 function toolNames(blobs: Map<string, string>, contents: Map<string, string>, tools: ToolRule): Set<string> {

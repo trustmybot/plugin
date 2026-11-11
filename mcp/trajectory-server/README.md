@@ -47,6 +47,20 @@ Before swe's close runs `verification[]`, `swe-verification-gate` checks the com
 
 Every key but `version` is optional. `changelog_dir` turns on the changelog check, `doc_paths` the stale-reference check, and `tool_sources` with `tool_name_pattern` (one capture group: the tool name) its removed-tool half. A missing file or key skips that check, and the close says which key to add. An invalid file blocks the close and shows the expected shape. This repo's own file holds the plugin's layout.
 
+## Leak scan
+
+Beside the doc checks, the close scans only the lines the branch adds since its merge base (GH 2929) for secrets (secretlint's recommended preset, bundled into `dist/hooks.js`), email addresses (`email`) and home paths such as `/Users/<name>/`, `/home/<name>/` or `C:\Users\<name>\` (`home_path`). A hit blocks the close with check `leak_scan` and lists each one as `<file>:<line> <rule>`, never the matched text. Deletions and binary files are skipped, and inline `secretlint-disable` comments are not honored. `noreply@` addresses, addresses at `example.com`, `example.org` or `example.net`, and home paths whose name is a `<placeholder>`, `user`, `me`, `you` or `runner` always pass. A repo admits more, or turns a rule off, with `.config/tmb/leak-scan.json`, read as committed at the worktree HEAD:
+
+```json
+{
+  "version": 1,
+  "allow": [{ "rule": "email", "pattern": "@corp\\.example$", "reason": "the public team alias" }],
+  "disable_rules": [{ "rule": "home_path", "reason": "docs show real layouts" }]
+}
+```
+
+`pattern` is a JavaScript regex tested against the matched text; an allow entry without `rule` covers every rule. A secretlint rule is named by its id, such as `@secretlint/secretlint-rule-github`. Every entry needs a non-empty `reason`, and an invalid file blocks the close as `leak_scan_config`. A git or scanner failure blocks the close too.
+
 ## Test
 
 ```sh
