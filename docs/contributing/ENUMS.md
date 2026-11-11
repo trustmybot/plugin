@@ -33,7 +33,7 @@ We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Suc
 | `completed` | K8s pod phase | SWE returned with commit_sha; awaiting bro task-gate (progress counters show it as awaiting close, not done) |
 | `closed` | TMB | Bro task-gate verified, task is done (the only status progress counters count as done) |
 | `failed` | K8s pod phase | SWE returned with error; awaiting bro decision |
-| `escalated` | TMB | Bro escalated to Human after max retries |
+| `escalated` | TMB | Taken off the swe path: set by bro (`task_update_status`, e.g. before a `task_retry` after a design-drift analysis) or by an issue close on each of its live tasks (a startup repair does the same for tasks left live under a closed issue). swe cannot move it out; bro moves it on with `task_reopen` or `task_retry` |
 
 Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`failed`), TMB-specific for the workflow gates (`pending`/`needs_validation`/`closed`/`escalated`). Schema enforces via `CHECK (status IN (...))` over exactly these seven values.
 
@@ -42,7 +42,7 @@ Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`fail
 | Value | Source | Meaning |
 |---|---|---|
 | `pass` | TMB | Commits OK to push |
-| `fail` | TMB | Issues found; SWE re-spawn or Human override needed |
+| `fail` | TMB | Blocking findings; the same transaction reopens a completed, needs_validation or closed task of an open issue to running at high effort (a running task only has its effort raised) for swe rework. From two FAILs since the last pass, a further swe run needs bro's rework analysis and its proven change |
 | `escalate` | TMB | Cannot be judged against its spec; bro, the owner of the spec and the design, decides |
 
 We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))`.
