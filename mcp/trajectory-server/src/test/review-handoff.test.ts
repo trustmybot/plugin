@@ -59,7 +59,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     db = tempDB({ path: dbPath });
     db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('shop', ?, 'main')`, [repoRoot]);
     db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
-    handlers = { ...compositeTools(db, dbPath).handlers, ...taskTools(db).handlers, ...validationTools(db).handlers } as Handlers;
+    handlers = { ...compositeTools(db, dbPath).handlers, ...taskTools(db).handlers, ...validationTools(db).handlers };
   });
 
   after(() => {
@@ -69,7 +69,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
 
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = (await handlers[name]!(args)) as RawResult;
-    return { isError: r.isError === true, body: JSON.parse(r.content[0]!.text) as Record<string, unknown> };
+    return { isError: r.isError === true, body: JSON.parse(r.content[0].text) as Record<string, unknown> };
   };
   const ok = async (name: string, args: Record<string, unknown>) => {
     const r = await call(name, args);

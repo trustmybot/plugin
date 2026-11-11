@@ -3493,7 +3493,7 @@ export function compositeTools(
     review_handoff: requireRoles(
       'review_handoff',
       ['bro'],
-      wrap(async (args) => {
+      wrap((args) => Promise.resolve().then(() => {
         const taskId = args['task_id'] as string;
         if (!taskId) return err('Missing required arg: task_id');
         const spawnNote = parseSpawnNote(args['spawn_note'], 'review_handoff');
@@ -3560,7 +3560,7 @@ export function compositeTools(
           };
         });
         return ok(result);
-      }),
+      })),
     ),
 
     bro_atomic_close: requireRoles(
