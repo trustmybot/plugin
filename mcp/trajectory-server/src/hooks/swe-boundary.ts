@@ -242,9 +242,9 @@ function stashVerdict(statement: Statement): 'stash' | 'unreadable' | null {
 /** The stash rule's deny for the first listed statement it does not admit, else null. */
 function stashDeny(statements: readonly Statement[]): GateResult | null {
   for (const statement of statements) {
-    const verdict = stashVerdict(statement);
-    if (verdict === 'unreadable') return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
-    if (verdict === 'stash') return deny(STASH_REASON, STASH_FIX);
+    const stashCall = stashVerdict(statement);
+    if (stashCall === 'unreadable') return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
+    if (stashCall === 'stash') return deny(STASH_REASON, STASH_FIX);
   }
   return null;
 }
@@ -421,13 +421,13 @@ function patternMayRunGit(command: string): boolean {
  * that may match git counts too, tree-sitter's read of it being unreliable.
  */
 async function hiddenCommandDeny(command: string, listed: boolean): Promise<GateResult | null> {
-  const verdict = hiddenInSource(command, await bashParser(), 0);
-  if (verdict === 'command-word' || (!listed && patternMayRunGit(command))) return deny(COMMAND_WORD_REASON, COMMAND_WORD_FIX);
-  if (verdict === 'alias') return deny(ALIAS_REASON, ALIAS_FIX);
-  if (verdict === 'expand-aliases') return deny(EXPAND_ALIASES_REASON, EXPAND_ALIASES_FIX);
+  const hidden = hiddenInSource(command, await bashParser(), 0);
+  if (hidden === 'command-word' || (!listed && patternMayRunGit(command))) return deny(COMMAND_WORD_REASON, COMMAND_WORD_FIX);
+  if (hidden === 'alias') return deny(ALIAS_REASON, ALIAS_FIX);
+  if (hidden === 'expand-aliases') return deny(EXPAND_ALIASES_REASON, EXPAND_ALIASES_FIX);
   const besideGit = GIT_WORD.test(unquotedCommand(command));
-  if ((verdict === 'git-config-env' || verdict === 'unreadable-name') && besideGit) return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
-  if (verdict === 'unreadable-name') return deny(ALIAS_REASON, ALIAS_FIX);
+  if ((hidden === 'git-config-env' || hidden === 'unreadable-name') && besideGit) return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
+  if (hidden === 'unreadable-name') return deny(ALIAS_REASON, ALIAS_FIX);
   return null;
 }
 
