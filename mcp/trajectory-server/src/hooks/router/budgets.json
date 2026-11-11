@@ -10,7 +10,7 @@
     },
     "PreToolUse:Bash": {
       "max_budget_ms": 16000,
-      "p99_sum_ms": 22023.2,
+      "p99_sum_ms": 22029.2,
       "group_budget_ms": 16000
     },
     "PreToolUse:Agent": {

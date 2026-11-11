@@ -732,7 +732,8 @@ const PROMPT_WRITE_AGENT = '---\nname: a\ndescription: d\nskills:\n  - one\n---\
 
 /**
  * prompt-write-approval's cases over a project whose DB holds a fresh full approval of one skill,
- * a stale one of another and a fresh skills-array approval of an existing agent, rebuilt per case.
+ * a stale one of another and a fresh skills-array approval of an existing agent, rebuilt per case;
+ * its Bash cases write through the shell.
  */
 function promptWriteApprovalCases(dir: string): RouterCase[] {
   const project = join(dir, 'project');
@@ -771,6 +772,10 @@ function promptWriteApprovalCases(dir: string): RouterCase[] {
     ['swe-writes-skill', write(skill('new'), { agent_type: 'tmb:swe', agent_id: 'a1' }), env],
     ['write-outside-prompt-dirs', write(join(project, 'docs/x.md')), env],
     ['missing-db', write(skill('fresh')), { ...env, TRAJECTORY_DB_PATH: join(dir, 'nowhere/trajectory.db') }],
+    ['bash-redirect-skill-no-approval', call('Bash', { command: 'echo x > .claude/skills/new/SKILL.md' }), env],
+    ['bash-redirect-skill-approved', call('Bash', { command: 'echo x > .claude/skills/fresh/SKILL.md' }), env],
+    ['bash-agent-skills-array-only', call('Bash', { command: `echo x >> ${agent}` }), env],
+    ['bash-write-elsewhere-no-db', call('Bash', { command: 'echo x > docs/x.md' }), { ...env, TRAJECTORY_DB_PATH: join(dir, 'nowhere/trajectory.db') }],
   ];
   return scenarios.map(([file, input, caseEnv]) => ({ gate: 'prompt-write-approval', file, input, env: caseEnv, cwd: project, fakeUid: false, reset: build }));
 }

@@ -9,10 +9,18 @@
  * exempt. With the newest such row scoped `skills-array`, an edit to an
  * existing agent file may change only its frontmatter `skills:` list. It
  * fails closed: no trajectory DB, no sqlite, or no approval row denies.
+ *
+ * Bash (GH 2942): each write target the cmd-analysis analyzer finds is judged
+ * the same way, and every gated one needs its own approval scoped `full`, since
+ * a shell write cannot be held to the skills: list. The analyzer's cap line
+ * denies; its never-judged targets are containment-guard's. A command with no
+ * gated target reads no DB.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type Gate, type GateResult } from './gate.js';
+import { CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths } from './cmd-analysis/index.js';
+import { judgedPath } from './no-source-edit-from-main.js';
 import { pathCanonical } from './lib/agent-context.js';
 import { DB_RETRY_FIX, dbPath, haveSqlite, projectRoot, sqlQuote, sqliteRo } from './lib/db.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
@@ -53,6 +61,16 @@ export function skillsOnlyFix(path: string): DenyFix {
   };
 }
 
+export function shellScopeReason(path: string, scope: string): string {
+  return `BLOCKED: the Human's approval for ${path} is scoped ${JSON.stringify(scope)}, not "full", and a Bash write cannot be limited to the frontmatter skills: list.`;
+}
+
+export function shellScopeFix(path: string): DenyFix {
+  return {
+    allowed: `an Edit that changes only the skills: list of ${path}, or ask the Human again and audit_append event_type='${EVENT_TYPE}' with scope "full", then the same command`,
+  };
+}
+
 interface EditSpec {
   old_string?: unknown;
   new_string?: unknown;
@@ -62,7 +80,7 @@ interface EditSpec {
 interface Payload {
   tool_name?: unknown;
   cwd?: unknown;
-  tool_input?: (EditSpec & { file_path?: unknown; content?: unknown; edits?: unknown }) | null;
+  tool_input?: (EditSpec & { file_path?: unknown; content?: unknown; edits?: unknown; command?: unknown }) | null;
 }
 
 export function approvalSql(path: string): string {
@@ -168,33 +186,64 @@ function isFile(path: string): boolean {
   }
 }
 
-export const promptWriteApproval: SyncGate = (raw, env): GateResult => {
-  let payload: Payload;
-  try {
-    payload = JSON.parse(raw) as Payload;
-  } catch {
-    return ALLOW;
+function approvalDb(env: NodeJS.ProcessEnv): string | null {
+  const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
+  return db === null || !haveSqlite(env) ? null : db;
+}
+
+/** The scope of the newest fresh approval naming <target>, or null when there is none. */
+function approvedScope(db: string, target: string, env: NodeJS.ProcessEnv): string | null {
+  const row = sqliteRo(db, approvalSql(target), env).split('\n')[0];
+  return row.startsWith(APPROVED_PREFIX) ? row.slice(APPROVED_PREFIX.length) : null;
+}
+
+function baseDir(cwd: unknown, root: string): string {
+  return typeof cwd === 'string' && isAbsolute(cwd) ? cwd : root;
+}
+
+async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
+  if (agentRole(raw) === 'swe') return ALLOW;
+  const root = projectRoot(env);
+  const cwd = payloadCwd(raw, env);
+  const lines = (await writePaths(command, { cwd, root, env })).join('\n').split('\n');
+  if (lines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
+
+  const base = baseDir(cwd, root);
+  const gated = new Set<string>();
+  for (const line of lines) {
+    const path = judgedPath(line);
+    if (path === null || path === '') continue;
+    const spelled = resolve(base, path);
+    const target = pathCanonical(spelled);
+    if (promptKind(spelled, target, root) !== null) gated.add(target);
   }
-  if (payload === null || typeof payload !== 'object') return ALLOW;
-  const tool = typeof payload.tool_name === 'string' ? payload.tool_name : '';
-  const input = payload.tool_input;
-  if (!EDIT_TOOLS.has(tool) || input === null || typeof input !== 'object') return ALLOW;
+  if (gated.size === 0) return ALLOW;
+
+  const db = approvalDb(env);
+  if (db === null) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
+  for (const target of gated) {
+    const scope = approvedScope(db, target, env);
+    if (scope === null) return denyResult(notApprovedReason(target), notApprovedFix(target));
+    if (scope !== 'full') return denyResult(shellScopeReason(target, scope), shellScopeFix(target));
+  }
+  return ALLOW;
+}
+
+function editRule(raw: string, payload: Payload, tool: string, input: NonNullable<Payload['tool_input']>, env: NodeJS.ProcessEnv): GateResult {
   const filePath = typeof input.file_path === 'string' ? input.file_path : '';
   if (filePath === '') return ALLOW;
 
   const root = projectRoot(env);
-  const base = typeof payload.cwd === 'string' && isAbsolute(payload.cwd) ? payload.cwd : root;
-  const spelled = resolve(base, filePath);
+  const spelled = resolve(baseDir(payload.cwd, root), filePath);
   const target = pathCanonical(spelled);
   const kind = promptKind(spelled, target, root);
   if (kind === null) return ALLOW;
   if (agentRole(raw) === 'swe') return ALLOW;
 
-  const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
-  if (db === null || !haveSqlite(env)) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
-  const row = sqliteRo(db, approvalSql(target), env).split('\n')[0];
-  if (!row.startsWith(APPROVED_PREFIX)) return denyResult(notApprovedReason(target), notApprovedFix(target));
-  const scope = row.slice(APPROVED_PREFIX.length);
+  const db = approvalDb(env);
+  if (db === null) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
+  const scope = approvedScope(db, target, env);
+  if (scope === null) return denyResult(notApprovedReason(target), notApprovedFix(target));
 
   if (scope === 'full' || kind !== 'agents' || !isFile(target)) return ALLOW;
   let current: string;
@@ -207,4 +256,21 @@ export const promptWriteApproval: SyncGate = (raw, env): GateResult => {
   if (next === null) return ALLOW;
   if (withoutSkillsEntry(next) === withoutSkillsEntry(current)) return ALLOW;
   return denyResult(skillsOnlyReason(target), skillsOnlyFix(target));
+}
+
+/** Answers an Edit, Write or MultiEdit at once and a Bash command as a Promise. */
+export const promptWriteApproval: Gate = (raw, env) => {
+  let payload: Payload;
+  try {
+    payload = JSON.parse(raw) as Payload;
+  } catch {
+    return ALLOW;
+  }
+  if (payload === null || typeof payload !== 'object') return ALLOW;
+  const tool = typeof payload.tool_name === 'string' ? payload.tool_name : '';
+  const input = payload.tool_input;
+  if (input === null || typeof input !== 'object') return ALLOW;
+  if (tool === 'Bash') return typeof input.command === 'string' && input.command.trim() !== '' ? bashRule(raw, input.command, env) : ALLOW;
+  if (!EDIT_TOOLS.has(tool)) return ALLOW;
+  return editRule(raw, payload, tool, input, env);
 };
