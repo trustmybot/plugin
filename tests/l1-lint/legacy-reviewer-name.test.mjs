@@ -124,7 +124,7 @@ describe('a planted repo', () => {
 
   for (const [label, rel] of [
     ['a new tracked file using the old name', 'scripts/new-agent.sh'],
-    ['a file beside the exactly allowlisted research question', 'research/gh1346-ab/m3/other-questions.ts'],
+    ['a file beside the exactly allowlisted db.ts', 'mcp/trajectory-server/src/other-db.ts'],
   ]) {
     test(`fails on ${label}, naming it`, () => {
       plant(rel);
