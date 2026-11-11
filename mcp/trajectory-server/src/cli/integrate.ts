@@ -48,7 +48,12 @@
  *      output tail on stderr, nothing recorded, branch unmoved.
  *      verification[] runs in the temporary worktree and is recorded as a
  *      verification_runs row (source manual, commit_sha = the rebased SHA).
- *      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
+ *      A failure → exit 1, branch unmoved. On a pass the close lints
+ *      (hooks/lib/close-lints.ts, GH 2570) run on the rebased SHA with what
+ *      verification left of the budget, recorded as a lint_runs row (source
+ *      integrate, base_sha = merge-base with the PR target, else <base>); a
+ *      failing lint or a malformed close-lints.json → exit 1, branch unmoved.
+ *      A pass moves refs/heads/<branch_id>
  *      to the rebased SHA, then, in one transaction, sets tasks.commit_sha to
  *      it (only while it still names the reviewed SHA) and writes a
  *      task_integrated audit row (task_id, reviewed_sha, review_anchor_at,
@@ -73,7 +78,7 @@
  * plugin_config.verification_timeout_s (default 900 s; TMB_VERIFICATION_TIMEOUT_S
  * overrides it), capped at 1800 s.
  * stdout carries only the SHA; progress and failures go to stderr.
- * Exit 0 = integrated, 1 = verification failed, 2 = conflict or patch drift,
+ * Exit 0 = integrated, 1 = verification or a close lint failed, 2 = conflict or patch drift,
  * 3 = no passing review, 4 = usage error or a precondition not met.
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
@@ -82,6 +87,7 @@ import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { auditSql, dbWrite, nowIso } from '../hooks/lib/audit.js';
 import { dbPath, GATE_READ_ERROR, gateRead, sqliteRo, sqlInt, sqlQuote } from '../hooks/lib/db.js';
+import { describeFailures, lintBaseSha, runCloseLints, runLabel } from '../hooks/lib/close-lints.js';
 import { isDir } from '../hooks/lib/git.js';
 import { keysInOrder } from '../hooks/lib/jq-key-order.js';
 import { jsonStream } from '../hooks/lib/jq.js';
@@ -574,6 +580,18 @@ SELECT changes();`,
 
     if (!this.finish(0, 0)) {
       this.die(4, `run #${this.runId} passed but its finish write failed, so the push guard will not count it; ${branch} unmoved`);
+    }
+
+    const lintBase = (await lintBaseSha(this.wt, db, this.taskId, newSha, this.env)) || this.baseSha;
+    const lints = await runCloseLints(this.wt, newSha, lintBase, timeoutS - (nowS() - startS), { ...this.env, PATH: toolchainPath }, {
+      db,
+      taskId: this.taskId,
+      source: 'integrate',
+    });
+    if (typeof lints === 'string') this.die(1, `close lints did not run on ${newSha}: ${lints}; ${branch} unmoved`);
+    if (lints.exitCode !== 0) {
+      this.io.err(`${describeFailures(lints)}\n`);
+      this.die(1, `close lints failed on ${newSha} (${runLabel(lints)}); ${branch} unmoved`);
     }
 
     const oldTip = this.tip;

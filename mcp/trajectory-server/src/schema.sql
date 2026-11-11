@@ -308,6 +308,41 @@ CREATE TABLE IF NOT EXISTS verification_run_commands (
     PRIMARY KEY (run_id, ordinal)
 );
 
+-- lint_runs (v69, GH 2570): one row per run of a task's close lints, the
+-- repo's .config/tmb/close-lints.json, at the
+-- task's commit_sha on base_sha (the merge-base it was linted against).
+-- fingerprint is lintFingerprint over the fingerprint_inputs blobs at
+-- commit_sha. Written through src/hooks/lib/lint-runs.ts like
+-- verification_runs: the row at the start, a lint_run_results row per lint,
+-- then finished_at/exit_code (both NULL only while the run is in progress). A
+-- run with no lints is a row with exit_code 0 and no results.
+CREATE TABLE IF NOT EXISTS lint_runs (
+    id           INTEGER PRIMARY KEY,
+    task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    commit_sha   TEXT    NOT NULL,
+    base_sha     TEXT    NOT NULL,
+    fingerprint  TEXT    NOT NULL,
+    source       TEXT    NOT NULL CHECK (source IN ('gate','integrate')),
+    started_at   TEXT    NOT NULL,
+    finished_at  TEXT,
+    exit_code    INTEGER,
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_lint_runs_task_commit
+    ON lint_runs(task_id, commit_sha, finished_at);
+
+-- lint_run_results: one row per lint of a run, in close-lints.json order.
+CREATE TABLE IF NOT EXISTS lint_run_results (
+    run_id       INTEGER NOT NULL REFERENCES lint_runs(id) ON DELETE CASCADE,
+    ordinal      INTEGER NOT NULL,
+    name         TEXT    NOT NULL,
+    exit_code    INTEGER,
+    elapsed_s    REAL,
+    output_tail  TEXT,
+    PRIMARY KEY (run_id, ordinal)
+);
+
 -- review_findings (v47, GH 1737): one row per defect a code-reviewer FAIL or
 -- escalate verdict names. validation_record writes the row (id F<task_id>-<n>,
 -- n counting up per task; status 'open'); swe-verification-gate.sh runs every
@@ -432,7 +467,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 69, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 70, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -817,7 +852,7 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     symbols_md5 (GH 1680) is the stamp content_md5 || ':' ||
 --     EXTRACTOR_VERSION the file's wm_symbols rows were parsed at; NULL until
 --     first parsed. A scan re-parses a file only when it differs from the
---     current stamp. lane (v69 GH 2886) is 'test' when the project's test-lane
+--     current stamp. lane (v70 GH 2886) is 'test' when the project's test-lane
 --     classifier (defaults plus plugin_config.world_model_test_lane) matches
 --     the path, else 'product'; every scan re-derives it.
 --   wm_symbols (GH 1680, ADR 0001 L1): one row per definition tree-sitter

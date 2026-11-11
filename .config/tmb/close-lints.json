@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "lints": [
+    { "name": "l1", "command": "node --experimental-strip-types tests/run-all.ts --l1-only" }
+  ],
+  "fingerprint_inputs": [
+    "tests/l1-lint/**",
+    "tests/run-all.ts",
+    "tests/**/*allowlist*",
+    ".config/tmb/**",
+    "bun.lock",
+    "package.json",
+    "**/tsconfig*.json"
+  ]
+}

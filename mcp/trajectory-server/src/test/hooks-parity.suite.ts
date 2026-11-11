@@ -318,6 +318,7 @@ export function hooksParityShard(k: number, n: number): void {
           'rework-limit',
           'session-handoff',
           'swe-downstream-context',
+          'swe-edit-lint',
           'swe-resume-gate',
           'swe-stop-cause',
           'task-overrun-alert',
