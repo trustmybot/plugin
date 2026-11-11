@@ -430,6 +430,10 @@ export function validationTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
+    // LOAD-BEARING-SAFETY: only code-reviewer writes a verdict, never bro on its behalf. Bro impersonating
+    // code-reviewer is a content-integrity violation, so this refuses bro's identity, and the auto-mode
+    // classifier blocks bro's raw DB writes as impersonation; the honor-system validation-record-fallback
+    // CLI is for code-reviewer itself to write the row when this server is down.
     validation_record: requireRoles('validation_record', ['code-reviewer'], wrapHandler(async (args) => {
       const agent = requireArg(args, 'agent') as string;
       const taskId = coerceTaskId(requireArg(args, 'task_id'));
