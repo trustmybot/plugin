@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
-import { tempDB } from './helpers.js';
+import { seedReviewedCommit, tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
 import { WORKFLOW_MODE_KEY, configTools, readWorkflowMode, setConfigValues } from '../tools/config.js';
 
@@ -156,6 +156,7 @@ describe('SC3: the shared close path stamps tasks.workflow_mode', () => {
   const atomicClose = async (id: number) => {
     const sha = seedCompleted(id);
     assert.equal(modeOf(id), null, 'an open task carries no recorded mode');
+    seedReviewedCommit(db, 1, id, sha);
     const r = await call(composites.handlers, 'bro_atomic_close', { agent: 'bro', task_id: String(id), commit_sha: sha, verification_summary: 'ok' });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
   };

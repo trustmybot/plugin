@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
-import { pinScanEnv, seedReviewerObservation, tempDB } from './helpers.js';
+import { pinScanEnv, seedReviewedCommit, seedReviewerObservation, tempDB } from './helpers.js';
 import { auditTools, insertAudit } from '../tools/audit.js';
 import { discussionTools, insertDiscussion } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
@@ -298,6 +298,7 @@ describe('composite audit writers populate audit.repo', () => {
       await call(taskTools(db).handlers, 'task_update_status', {
         agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
       });
+      seedReviewedCommit(db, issueId, taskId, 'abc1234');
       const r = await call(composites.handlers, 'bro_atomic_close', {
         agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
       });

@@ -257,7 +257,7 @@ describe('db-path-rule: one trajectory-DB location rule across the hooks, and fa
     {
       hook: 'code-reviewer-after-atomic-close',
       payload: () => '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"task_id=4"}}',
-      normal: 'status=closed but actual status=completed',
+      normal: 'has no review_handoff for the task\'s current commit',
     },
     { hook: 'stay-on-base-guard', payload: () => '{"tool_name":"Bash","tool_input":{"command":"git checkout feat/open"}}', normal: 'belongs to open task #2' },
     { hook: 'no-worktree-branch-create', payload: () => BRANCH_CREATE, normal: 'cannot create a branch' },
