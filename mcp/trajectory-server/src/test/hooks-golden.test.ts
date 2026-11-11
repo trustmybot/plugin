@@ -47,6 +47,7 @@ const TS_BORN_GATES: ReadonlySet<string> = new Set([
   'swe-resume-gate',
   'swe-stop-cause',
   'task-overrun-alert',
+  'test-run-nudge',
   'tool-output-size',
   'wm-read-before-provision',
   'worktree-adopt-guard',

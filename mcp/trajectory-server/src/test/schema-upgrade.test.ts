@@ -4948,6 +4948,8 @@ describe('schema upgrade — v35 -> v36 verification_runs + verification_run_com
         worktree_path: null,
         worktree_adopted: 0,
         workflow_mode: null,
+        base_sha: null,
+        wm_commit: null,
       })),
     );
 
@@ -5034,6 +5036,8 @@ describe('schema upgrade — v36 -> v37 tasks.effort + agent_runs.effort', () =>
         worktree_path: null,
         worktree_adopted: 0,
         workflow_mode: null,
+        base_sha: null,
+        wm_commit: null,
       })),
       'existing tasks keep every value and read effort medium',
     );
@@ -5994,11 +5998,13 @@ describe('schema upgrade — v50 / v51 -> v52 agent_runs.stop_cause, stop_detail
         { name: 'stop_detail', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'hook_block_tokens', type: 'INTEGER', notnull: 0, dflt_value: null },
       ]);
-      assert.deepEqual(tail('tasks', 4), [
+      assert.deepEqual(tail('tasks', 6), [
         { name: 'checkpoint', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'worktree_path', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'worktree_adopted', type: 'INTEGER', notnull: 1, dflt_value: '0' },
         { name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'base_sha', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'wm_commit', type: 'TEXT', notnull: 0, dflt_value: null },
       ]);
       assert.deepEqual(
         { ...migrated.get<Record<string, unknown>>('SELECT id, plugin_version, stop_cause, stop_detail FROM agent_runs WHERE id = 11') },
@@ -6469,12 +6475,14 @@ describe('schema upgrade — v53 -> v54 tasks.worktree_path and worktree_adopted
     assert.deepEqual(
       migrated
         .all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(tasks)')
-        .slice(-3)
+        .slice(-5)
         .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value })),
       [
         { name: 'worktree_path', type: 'TEXT', notnull: 0, dflt_value: null },
         { name: 'worktree_adopted', type: 'INTEGER', notnull: 1, dflt_value: '0' },
         { name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'base_sha', type: 'TEXT', notnull: 0, dflt_value: null },
+        { name: 'wm_commit', type: 'TEXT', notnull: 0, dflt_value: null },
       ],
     );
     assert.deepEqual(
