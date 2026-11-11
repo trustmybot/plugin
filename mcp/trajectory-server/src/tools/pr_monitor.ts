@@ -117,7 +117,7 @@ function resolveMonitorTaskId(db: TrajectoryDB, branch: string | undefined, repo
 // The issue that carries a PR's comments: the PR's linked task (pr_review_runs),
 // else the task on the head branch → its issue. When the slug maps to a
 // registered repo only that repo's tasks (or legacy rows with no repo) qualify;
-// otherwise any repo's task does. A task is closed at bro_atomic_close before
+// otherwise any repo's task does. A task is closed at bro_atomic_close after code-reviewer's pass and before
 // its PR opens, so closed tasks carry comments; failed and escalated tasks do
 // not. The most recently updated match wins. Null when no task carries the PR.
 function resolveCarrierIssueId(

@@ -1,7 +1,7 @@
 /**
  * Opt-in per-repo worktree setup (GH 2054): the runWorktreeSetup util, and
- * its fail-soft (task_provision), fail-with-error (pr_monitor_worktree) and
- * fail-closed (swe-verification-gate) callers. cli.js integrate's case lives
+ * its environment-gate (task_provision, GH 2866), fail-with-error
+ * (pr_monitor_worktree) and fail-closed (swe-verification-gate) callers. cli.js integrate's case lives
  * in cli-integrate.test.ts.
  */
 import { after, before, describe, it } from 'node:test';
@@ -15,6 +15,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 import { compositeTools } from '../tools/composites.js';
 import { sweVerificationGate } from '../hooks/swe-verification-gate.js';
+import { DOC_CHECKS_FILE } from '../hooks/lib/doc-checks.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
@@ -178,7 +179,7 @@ function makeRepo(setup: unknown): { ws: string; repoRoot: string } {
   return { ws, repoRoot };
 }
 
-describe('task_provision runs worktree setup fail-soft', () => {
+describe('task_provision runs worktree setup as an environment gate stage', () => {
   const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
   const provision = async (repoRoot: string, ws: string, branch: string): Promise<{ r: RawResult; db: ReturnType<typeof tempDB> }> => {
     const db = tempDB();
@@ -195,19 +196,18 @@ describe('task_provision runs worktree setup fail-soft', () => {
     return { r, db };
   };
 
-  it('a failing setup still provisions and reports the failing command', async () => {
+  it('a failing setup refuses at stage setup, writes no task row and removes the branch and worktree', async () => {
     const { ws, repoRoot } = makeRepo({ version: 1, commands: ['echo provision-setup-broke; exit 6'] });
     try {
       const { r, db } = await provision(repoRoot, ws, 'feat/setup-fails');
-      assert.ok(!r.isError, JSON.stringify(parse(r)));
-      const out = parse(r);
-      assert.equal(typeof out['task_id'], 'number');
-      assert.equal(out['git_setup'], 'created');
-      assert.ok(existsSync(join(repoRoot, '.claude/worktrees/setup-fails/a.txt')), 'worktree created');
-      const setup = out['worktree_setup'] as { ran: boolean; error: string; output_tail: string; commands: { exit_code: number }[] };
-      assert.equal(setup.ran, true);
-      assert.match(setup.error, /exited 6: echo provision-setup-broke; exit 6/);
-      assert.match(setup.output_tail, /provision-setup-broke/);
+      assert.equal(r.isError, true, JSON.stringify(parse(r)));
+      const failed = parse(r)['env_gate_failed'] as { stage: string; detail: string; output_tail: string };
+      assert.equal(failed.stage, 'setup');
+      assert.match(failed.detail, /exited 6: echo provision-setup-broke; exit 6/);
+      assert.match(failed.output_tail, /provision-setup-broke/);
+      assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM tasks')!.n, 0);
+      assert.equal(existsSync(join(repoRoot, '.claude/worktrees/setup-fails')), false, 'worktree removed');
+      assert.equal(git(repoRoot, 'branch', '--list', 'feat/setup-fails'), '', 'branch removed');
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
@@ -419,6 +419,7 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
       mkdirSync(wt, { recursive: true });
       writeSetup(wt, { version: 1, commands: t.setup });
       writeFileSync(join(wt, '.gitignore'), 'setup-ran\n');
+      writeFileSync(join(wt, DOC_CHECKS_FILE), readFileSync(join(PLUGIN_ROOT, DOC_CHECKS_FILE)));
       git(wt, 'init', '-q');
       git(wt, 'add', '.');
       git(wt, 'commit', '-q', '-m', t.slug);

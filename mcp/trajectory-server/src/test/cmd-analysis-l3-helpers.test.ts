@@ -148,9 +148,9 @@ s.group('tmb_cmd_write_shapes lists the shapes once')
   .has(shapes, 'git mv', 'git mv');
 
 s.group('tmb_is_prompt_surface_path matches at a path boundary');
-for (const p of ['agents/swe.md', 'skills/x/SKILL.md', 'skills/x/references/r.md', 'commands/scan.md', 'templates/agents/a.md', 'rules/style.md', '.claude/agents/local.md', 'CLAUDE.md', 'sub/CODEX.md', '/w/.claude/worktrees/t/agents/a.md'])
+for (const p of ['agents/swe.md', 'skills/x/SKILL.md', 'skills/x/references/r.md', 'commands/scan.md', 'templates/agents/a.md', 'rules/style.md', '.claude/agents/local.md', 'CLAUDE.md', 'sub/CLAUDE.md', '/w/.claude/worktrees/t/agents/a.md'])
   s.eq('true', surface(p), `${p} should be a prompt surface`);
-for (const p of ['myskills/x/SKILL.md', 'myagents/a.md', 'src/agents.md', 'skills/x/helper.sh', 'agents/openai.yaml', 'NOTCLAUDE.md', 'docs/x.md'])
+for (const p of ['myskills/x/SKILL.md', 'myagents/a.md', 'src/agents.md', 'skills/x/helper.sh', 'agents/openai.yaml', 'NOTCLAUDE.md', 'docs/x.md', 'CODEX.md', 'sub/CODEX.md', 'CURSOR.md', 'GEMINI.md'])
   s.eq('false', surface(p), `${p} is not a prompt surface`);
 
 s.group('tmb_is_prompt_surface_path anchors on the repo root');

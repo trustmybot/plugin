@@ -6,7 +6,8 @@
  * path before each side runs; both sides must exit 0, print the same stdout
  * and stderr byte for byte, and leave the sandbox alike.
  *
- * The sandbox holds a project DB with tasks closed (11), completed (12),
+ * The sandbox holds a project DB with tasks closed (11), completed (12, its
+ * review_handoff for an older commit), handed off and completed (15),
  * running (13) and needs_validation (14), a schema-only DB, a corrupt DB and
  * a bare dir. A payload names the sandbox as @SANDBOX@ and the PATH without
  * jq or without the sqlite3 CLI as @NOJQ_PATH@ / @NOSQLITE_PATH@; corpus_env
@@ -72,11 +73,15 @@ export function buildSandbox(s: string): void {
   mkdirSync(join(s, 'bare'));
   trajectoryDb(join(s, 'project/.claude/tmb/trajectory.db'), (db) => {
     db.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'reviewer spawn gates', 'open', ?, ?)").run(T1, T1);
-    const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, 1, ?, 'd', ?, ?, ?)");
-    task.run(11, 'feat/closed', 'closed', T1, T1);
-    task.run(12, 'feat/completed', 'completed', T1, T1);
-    task.run(13, 'feat/running', 'running', T1, T1);
-    task.run(14, 'feat/needs-validation', 'needs_validation', T1, T1);
+    const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, commit_sha, created_at, updated_at) VALUES (?, 1, ?, 'd', ?, ?, ?, ?)");
+    task.run(11, 'feat/closed', 'closed', null, T1, T1);
+    task.run(12, 'feat/completed', 'completed', 'bbbbbbb', T1, T1);
+    task.run(13, 'feat/running', 'running', null, T1, T1);
+    task.run(14, 'feat/needs-validation', 'needs_validation', null, T1, T1);
+    task.run(15, 'feat/handed-off', 'completed', 'ccccccc', T1, T1);
+    const handoff = db.prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (1, 'bro', 'review_handoff', 'handoff', ?, ?)");
+    handoff.run(JSON.stringify({ task_id: 12, commit_sha: 'aaaaaaa' }), T1);
+    handoff.run(JSON.stringify({ task_id: 15, commit_sha: 'ccccccc' }), T1);
   });
   trajectoryDb(join(s, 'fresh/.claude/tmb/trajectory.db'), () => {});
   mkdirSync(join(s, 'bad/.claude/tmb'), { recursive: true });

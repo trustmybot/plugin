@@ -9,5 +9,4 @@ mcp/trajectory-server/src/test/agent-scope.test.ts	SC2: validation_record reject
 tests/fixtures/hook-corpus/git-push-guard/deny-pr-reviewer.json	SC4: a push whose payload names the pre-rename agent is denied
 tests/l1-lint/legacy-reviewer-name.test.mjs	this lint
 tests/l1-lint/legacy-reviewer-name.allowlist	this allowlist
-research/gh1346-ab/m3/questions.ts	the v51-migration question asks about the v50 to v51 rename
 tests/fixtures/hook-golden/git-push-guard.json	golden keys name the allowlisted corpus file deny-pr-reviewer.json

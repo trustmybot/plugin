@@ -7,7 +7,8 @@
  *      that row to its agent_id; repeated briefs keep one row.
  *   3. Live — a bound row is never swept_orphan, however old.
  *   4. Resume (GH 1742) — a failed stop, a resumed brief and a committed stop
- *      leave the failed row and a completed row chained to it by resumed_from.
+ *      with a passing verification run at HEAD (GH 2866) leave the failed row
+ *      and a completed row chained to it by resumed_from.
  *   5. Refused spawn (GH 1509) — an unbound row older than 90 s no longer
  *      blocks a respawn and is swept_orphan by it; PostToolUse(Agent) binds the
  *      row to tool_response.agentId; PermissionDenied(Agent) closes it and
@@ -205,6 +206,13 @@ describe('swe run identity: spawn, bind, live, resume and refused spawn', () => 
     writeFileSync(join(wt, 'w.txt'), 'w\n');
     git(wt, 'add', 'w.txt');
     git(wt, 'commit', '-qm', 'feat: w');
+    const head = spawnSync('git', ['-C', wt, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: sb.env }).stdout.trim();
+    const w = new DatabaseSync(db);
+    try {
+      w.prepare("INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (8, ?, 'gate', ?, ?, 0, 600, 0)").run(head, NOW, NOW);
+    } finally {
+      w.close();
+    }
     stop(8, 'agent-8');
     assert.equal(q('SELECT status FROM tasks WHERE id=8'), 'completed', 'the committed stop completes the task');
     assert.equal(q('SELECT COUNT(*) FROM agent_runs WHERE task_id=8'), '2', 'two rows');

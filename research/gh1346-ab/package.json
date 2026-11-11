@@ -1,9 +1,0 @@
-{
-  "name": "gh1346-ab",
-  "private": true,
-  "type": "module",
-  "description": "A/B harness for the GH 1346 token-reduction methods. Research only; nothing here ships.",
-  "dependencies": {
-    "@toon-format/toon": "4.4.0"
-  }
-}

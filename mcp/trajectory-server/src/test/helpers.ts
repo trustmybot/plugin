@@ -46,6 +46,22 @@ export function seedReviewerObservation(
   return Number(res.lastInsertRowid);
 }
 
+// seedReviewedCommit writes bro's review_handoff of the commit followed by a
+// code-reviewer pass: the review evidence bro_atomic_close requires before it
+// closes the task.
+export function seedReviewedCommit(db: TrajectoryDB, issueId: number | string, taskId: number | string, sha: string): void {
+  const earlier = new Date(Date.now() - 60_000).toISOString();
+  const later = new Date(Date.now() - 30_000).toISOString();
+  db.run(
+    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_handoff', 'handoff', ?, ?)`,
+    [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: sha }), earlier],
+  );
+  db.run(
+    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'code-reviewer', 'pass', 1, ?)`,
+    [taskId, later],
+  );
+}
+
 export interface ScanEnvPin {
   dbPath: string;
   mcpJsonPath: string;

@@ -127,7 +127,7 @@ describe('require-spawn-effort: the Agent call carries the effort the DB holds',
           const out = run(payload('code-reviewer', REVIEW_PROMPT, given));
           assert.ok(out.includes(DENY), `deny for ${given ?? 'no effort'}`);
           assert.ok(out.includes('Allowed form: the same Agent call with effort=\\"high\\"'), 'names the assigned value');
-          assert.ok(out.includes("the task's assigned reviewer effort, returned by bro_atomic_close"), 'names the source');
+          assert.ok(out.includes("the task's assigned reviewer effort, returned by review_handoff"), 'names the source');
           assert.ok(!out.includes('config_set(key=\\"reviewer_effort\\"'), 'not the config remedy');
         }
       } finally {
@@ -165,6 +165,68 @@ describe('require-spawn-effort: the Agent call carries the effort the DB holds',
         const out = run(payload('code-reviewer', prompt, 'high'));
         assert.ok(out.includes(DENY), 'the assigned high of task 1 does not apply');
         assert.ok(out.includes('config_set(key=\\"reviewer_effort\\"'), 'names the config key');
+      } finally {
+        clear();
+      }
+    });
+  });
+
+  describe("a code-reviewer spawn expects the task's assigned reviewer model (GH 2932)", () => {
+    const assignRow = (content: Record<string, unknown>) =>
+      exec(
+        db,
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES
+          (1, 'feat/medium', 'bro', 'reviewer_effort_assigned', 's', '${JSON.stringify({ task_id: 1, commit_sha: 'abc1234', reason: 'docs_tests', ...content })}', '${NOW}');`,
+      );
+    const clear = () => exec(db, `DELETE FROM audit WHERE event_type = 'reviewer_effort_assigned';`);
+    const spawn = (effort: string | undefined, model?: string) => {
+      const input = JSON.parse(payload('code-reviewer', REVIEW_PROMPT, effort)) as { tool_input: Record<string, string> };
+      if (model !== undefined) input.tool_input.model = model;
+      return run(JSON.stringify(input));
+    };
+
+    it('assigned model: only the exact effort and model pass', () => {
+      assignRow({ effort: 'high', model: 'sonnet' });
+      try {
+        assert.equal(spawn('high', 'sonnet'), '', 'exact match passes');
+        for (const [effort, model, passed] of [
+          ['high', undefined, 'effort=\\"high\\" and no model'],
+          ['high', 'opus', 'effort=\\"high\\" and model=\\"opus\\"'],
+          ['medium', 'sonnet', 'effort=\\"medium\\" and model=\\"sonnet\\"'],
+          [undefined, 'sonnet', 'no effort and model=\\"sonnet\\"'],
+        ] as const) {
+          const out = spawn(effort, model);
+          assert.ok(out.includes(DENY), `deny for ${effort}/${model}`);
+          assert.ok(out.includes(`passed ${passed}`), `names what was passed: ${out}`);
+          assert.ok(out.includes('runs at effort \\"high\\" with model=\\"sonnet\\"'), 'names the expected pair');
+          assert.ok(out.includes('Allowed form: the same Agent call with effort=\\"high\\" and model=\\"sonnet\\"'), 'names the fix');
+        }
+      } finally {
+        clear();
+      }
+    });
+
+    it('no model assigned: a spawn naming any model is denied, naming no model as the fix', () => {
+      assignRow({ effort: 'high' });
+      try {
+        assert.equal(spawn('high'), '', 'no model passes');
+        const out = spawn('high', 'opus');
+        assert.ok(out.includes(DENY), 'a model is denied');
+        assert.ok(out.includes('Allowed form: the same Agent call with effort=\\"high\\" and no model'), out);
+      } finally {
+        clear();
+      }
+      const config = spawn('medium', 'sonnet');
+      assert.ok(config.includes(DENY), 'the config path assigns no model either');
+      assert.ok(config.includes('Allowed form: the same Agent call with effort=\\"medium\\" and no model'), config);
+      assert.ok(config.includes('config_set(key=\\"reviewer_effort\\"'), 'config remedy');
+    });
+
+    it('a newest row with an unknown model reads as the config', () => {
+      assignRow({ effort: 'high', model: 'gpt-x' });
+      try {
+        assert.equal(spawn('medium'), '', 'config medium, no model');
+        assert.ok(spawn('high', 'gpt-x').includes(DENY), 'the unknown model is not admitted');
       } finally {
         clear();
       }

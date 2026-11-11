@@ -4,8 +4,8 @@
  *   node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" prompt-author-lint <path-to-md-file>
  *
  * Scans the body after the frontmatter (the lines after the second `---` line;
- * a file with no such pair has no body) for pink-elephant negations and noise
- * citations. Prints one `[<class>] <n>:<line>` finding per line on stdout, n
+ * a file with no such pair has no body) for bare negations (a prohibition with
+ * no alternative and no hard-limit mark) and noise citations. Prints one `[<class>] <n>:<line>` finding per line on stdout, n
  * counting body lines, class by class. Advisory: exit 0 always, usage included.
  */
 import { readFileSync } from 'node:fs';
@@ -14,6 +14,8 @@ import { type CliIo, isFile } from './fallback-db.js';
 const USAGE = 'usage: cli.js prompt-author-lint <path-to-md-file>\n';
 
 const COMMENT_LINE = /^[ \t\n\v\f\r]*(#|\/\/|--)/;
+const PAIRED_ALTERNATIVE = /\b(instead|rather than|unless|only when|only if|except)\b| — |;|, but\b/i;
+const HARD_LIMIT = /\bNEVER\b|\bMUST NOT\b|LOAD-BEARING-SAFETY/;
 
 interface Check {
   name: string;
@@ -22,11 +24,10 @@ interface Check {
 }
 
 const CHECKS: readonly Check[] = [
-  { name: 'pink-elephant', match: /^(Don't|Never|Do not) / },
   {
-    name: 'pink-elephant-mid',
-    match: /MUST NOT|\bdo not\b|\bdon't\b|\bnever\b/,
-    skip: (text) => COMMENT_LINE.test(text) || text.includes('LOAD-BEARING-SAFETY'),
+    name: 'bare-negation',
+    match: /^(Don't|Never|Do not) |\bdo not\b|\bdon't\b|\bnever\b/,
+    skip: (text) => COMMENT_LINE.test(text) || PAIRED_ALTERNATIVE.test(text) || HARD_LIMIT.test(text),
   },
   { name: 'issue-number', match: /#[0-9]{1,5}\b|\(#[A-Z]+[0-9]+\)|\[bro #[0-9]+\]/ },
   { name: 'memory-path', match: /feedback_[a-z_-]+\.md|~\/\.claude\/projects\// },

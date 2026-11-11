@@ -307,7 +307,7 @@ describe('statsTools — task_stats cost_estimate', () => {
     };
     run('claude', 'model-a', 1_000_000, 100_000, 2_000_000, 10_000);
     run('claude', 'model-a', 500_000, 0, 0, 0);
-    run('codex', 'model-b', 10_000, 10_000, 0, 0);
+    run('claude', 'model-b', 10_000, 10_000, 0, 0);
     run('claude', null, 7, 3, 0, 0);
     return taskId;
   };
@@ -325,12 +325,12 @@ describe('statsTools — task_stats cost_estimate', () => {
     assert.equal(payload.unpriced_tokens, 20_000 + 10, 'model-b and the model-less row are unpriced');
     assert.deepEqual(payload.cost_groups, [
       { host: 'claude', model: 'model-a', spawn_count: 2, tokens_total: 3_610_000, cost_estimate: 6.6375, unpriced_tokens: 0 },
-      { host: 'codex', model: 'model-b', spawn_count: 1, tokens_total: 20_000, cost_estimate: 0, unpriced_tokens: 20_000 },
+      { host: 'claude', model: 'model-b', spawn_count: 1, tokens_total: 20_000, cost_estimate: 0, unpriced_tokens: 20_000 },
       { host: 'claude', model: null, spawn_count: 1, tokens_total: 10, cost_estimate: 0, unpriced_tokens: 10 },
     ]);
     assert.deepEqual(
       payload.spawns.map((s: { host: string; model: string | null }) => [s.host, s.model]),
-      [['claude', 'model-a'], ['claude', 'model-a'], ['codex', 'model-b'], ['claude', null]],
+      [['claude', 'model-a'], ['claude', 'model-a'], ['claude', 'model-b'], ['claude', null]],
     );
     db.close();
   });

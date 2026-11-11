@@ -1,0 +1,2 @@
+### Fixed
+- **The schema-upgrade and task-close parity tests pass on dev again** (GH 2941): their frozen expected outputs predated the `workflow_mode`, `base_sha` and `wm_commit` task columns (schema v66 and v67), so five schema-upgrade cases and every swe-atomic-close parity case failed. The expectations and the swe-atomic-close golden recording now carry the three columns with their NULL defaults, and the golden coverage check lists `test-run-nudge` as a gate born in TypeScript with no bash corpus. No production code changed.

@@ -1,11 +1,13 @@
 /**
- * Reviewer effort by risk tier (GH 1955). bro_atomic_close assigns the effort
+ * Reviewer effort by risk tier (GH 1955). review_handoff assigns the effort
  * the task's code-reviewer spawn runs at and records it in one
  * reviewer_effort_assigned audit row; require-spawn-effort and swe-atomic-close
  * read that row back through reviewerEffortFor in src/hooks/lib/effort.ts.
  * With reviewer_effort_tiers and reviewer_effort_ab unset every assignment is
- * plugin_config.reviewer_effort (reason `config`). reviewerSpawn builds the
- * code-reviewer Agent call bro_atomic_close returns as reviewer_spawn (GH 2582).
+ * plugin_config.reviewer_effort (reason `config`). A tier assignment takes
+ * the model and effort plugin_config.reviewer_tier_settings names for its
+ * reason (GH 2932). reviewerSpawn builds the code-reviewer Agent call
+ * review_handoff returns as reviewer_spawn (GH 2582).
  */
 import type { TrajectoryDB } from './db.js';
 import { ANCHORS } from './hooks/code-reviewer-spawn-note.js';
@@ -15,13 +17,16 @@ import {
   readHighEffortPaths,
   readReviewerEffortAb,
   readReviewerEffortTiers,
+  readReviewerTierSettings,
   resolveEffortDefaults,
   type Effort,
+  type ReviewerModel,
+  type ReviewerTierReason,
 } from './tools/config.js';
 
 export const REVIEWER_EFFORT_EVENT = 'reviewer_effort_assigned';
 
-export type ReviewerEffortReason = 'prompt_bearing' | 'high_effort_paths' | 'docs_tests' | 'default' | 'config';
+export type ReviewerEffortReason = ReviewerTierReason | 'config';
 export type ReviewerEffortArm = 'tiered' | 'fixed';
 
 export interface ReviewerEffortTierInput {
@@ -46,7 +51,7 @@ export function isDocsOrTestPath(path: string): boolean {
  * overlapping a high_effort_paths prefix; low when every changed path is docs
  * or tests; medium otherwise, an empty list included.
  */
-export function reviewerEffortTier(input: ReviewerEffortTierInput): { effort: Effort; reason: ReviewerEffortReason } {
+export function reviewerEffortTier(input: ReviewerEffortTierInput): { effort: Effort; reason: ReviewerTierReason } {
   if (input.prompt_bearing) return { effort: 'high', reason: 'prompt_bearing' };
   if (input.changed.some((file) => input.high_effort_paths.some((prefix) => pathsOverlap(file, prefix)))) {
     return { effort: 'high', reason: 'high_effort_paths' };
@@ -82,19 +87,28 @@ function enrolledTaskCount(db: TrajectoryDB, label: string): number {
 
 export interface ReviewerEffortAssignment {
   readonly effort: Effort;
+  readonly model?: ReviewerModel;
   readonly reason: ReviewerEffortReason;
   readonly label?: string;
   readonly arm?: ReviewerEffortArm;
 }
 
+function applyTierSetting(db: TrajectoryDB, tier: { effort: Effort; reason: ReviewerTierReason }): ReviewerEffortAssignment {
+  const setting = readReviewerTierSettings(db)[tier.reason];
+  const effort = setting?.effort ?? tier.effort;
+  return setting?.model ? { effort, model: setting.model, reason: tier.reason } : { effort, reason: tier.reason };
+}
+
 /**
- * Assigns the reviewer effort for one close and writes its
- * reviewer_effort_assigned row. Call inside the close transaction, after
- * bro_verification_pass. An unchecked scope (no changed list) is the config
+ * Assigns the reviewer effort for one review handoff and writes its
+ * reviewer_effort_assigned row. Call inside the handoff transaction, after
+ * its review_handoff row. An unchecked scope (no changed list) is the config
  * effort. A task enrolled under the current A/B label keeps its arm; a new
  * one enrolls while fewer than `target` tasks carry the label, at its id's
  * parity arm (even tiered, odd fixed). Any other task follows
- * reviewer_effort_tiers.
+ * reviewer_effort_tiers. A tier assignment takes the model and effort
+ * reviewer_tier_settings names for its reason; the config effort never
+ * carries a model.
  */
 export function assignReviewerEffort(
   db: TrajectoryDB,
@@ -103,10 +117,10 @@ export function assignReviewerEffort(
   scope: { checked: boolean; changed: readonly string[] },
   now: string,
 ): ReviewerEffortAssignment {
-  const fixed = { effort: resolveEffortDefaults(db).reviewer, reason: 'config' as const };
+  const fixed: ReviewerEffortAssignment = { effort: resolveEffortDefaults(db).reviewer, reason: 'config' };
   const tier = scope.checked
     ? reviewerEffortTier({ prompt_bearing: task.prompt_bearing === 1, changed: scope.changed, high_effort_paths: readHighEffortPaths(db) })
-    : fixed;
+    : null;
 
   const ab = readReviewerEffortAb(db);
   let arm: ReviewerEffortArm | null = null;
@@ -115,7 +129,7 @@ export function assignReviewerEffort(
     if (arm === null && enrolledTaskCount(db, ab.label) < ab.target) arm = reviewerEffortAbArm(task.id);
   }
   const useTier = arm !== null ? arm === 'tiered' : readReviewerEffortTiers(db);
-  const chosen = useTier ? tier : fixed;
+  const chosen = useTier && tier !== null ? applyTierSetting(db, tier) : fixed;
   const assignment: ReviewerEffortAssignment = arm !== null && ab ? { ...chosen, label: ab.label, arm } : chosen;
 
   insertAudit(db, {
@@ -123,7 +137,7 @@ export function assignReviewerEffort(
     branch_id: task.branch_id,
     from_node: 'bro',
     event_type: REVIEWER_EFFORT_EVENT,
-    summary: `Task ${task.id} review assigned effort ${assignment.effort} (${assignment.reason}${assignment.arm ? `, arm ${assignment.arm}` : ''}).`,
+    summary: `Task ${task.id} review assigned effort ${assignment.effort}${assignment.model ? `, model ${assignment.model}` : ''} (${assignment.reason}${assignment.arm ? `, arm ${assignment.arm}` : ''}).`,
     content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, ...assignment }),
     created_at: now,
   });
@@ -136,6 +150,7 @@ const REVIEWER_SPAWN_LINE = 'Review this commit against its spec; task_brief car
 export interface ReviewerSpawn {
   readonly prompt: string;
   readonly effort: Effort;
+  readonly model?: ReviewerModel;
   readonly subagent_type: typeof REVIEWER_SUBAGENT_TYPE;
 }
 
@@ -147,18 +162,19 @@ function anchorValue(value: string): string {
 }
 
 /**
- * The code-reviewer Agent call for a closed task: every ANCHORS entry of
+ * The code-reviewer Agent call for a handed-off task: every ANCHORS entry of
  * code-reviewer-spawn-note as name=value, one short line, and the assigned
- * effort. repo_path is the task's worktree, else its repo's path; attempt_n is
- * the task's code-reviewer validation rows + 1. A missing input names itself
- * in reviewer_spawn_unavailable instead.
+ * effort and model (no model key when none is assigned). repo_path is the
+ * task's worktree, else its repo's path; attempt_n is the task's
+ * code-reviewer validation rows + 1. A missing input names itself in
+ * reviewer_spawn_unavailable instead.
  */
 export function reviewerSpawn(
   db: TrajectoryDB,
   task: { id: number; branch_id: string; repo: string | null },
   repoPath: string | null,
   commitSha: string,
-  effort: Effort,
+  assigned: Pick<ReviewerEffortAssignment, 'effort' | 'model'>,
   sessionId: string | null,
 ): ReviewerSpawnResult {
   if (sessionId === null) return { reviewer_spawn_unavailable: 'session_id' };
@@ -179,5 +195,11 @@ export function reviewerSpawn(
     subagent_session_id: sessionId,
   };
   const anchors = ANCHORS.map((name) => `${name}=${anchorValue(values[name])}`).join(' ');
-  return { reviewer_spawn: { prompt: `${anchors}\n${REVIEWER_SPAWN_LINE}`, effort, subagent_type: REVIEWER_SUBAGENT_TYPE } };
+  const prompt = `${anchors}\n${REVIEWER_SPAWN_LINE}`;
+  const { effort, model } = assigned;
+  return {
+    reviewer_spawn: model
+      ? { prompt, effort, model, subagent_type: REVIEWER_SUBAGENT_TYPE }
+      : { prompt, effort, subagent_type: REVIEWER_SUBAGENT_TYPE },
+  };
 }
