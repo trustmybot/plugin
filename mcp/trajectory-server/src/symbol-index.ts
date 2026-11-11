@@ -46,7 +46,7 @@ import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js'
 import { envReaderFor } from './env/collect.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 15;
+export const EXTRACTOR_VERSION = 16;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -249,6 +249,34 @@ export function resolveImport(fromFile: string, spec: string | null, fileSet: Se
   return null;
 }
 
+// Resolve a Python dotted module ('.a', '..', 'pkg.mod') to `mod.py` or
+// `mod/__init__.py`. Leading dots climb from the importing file's package; an
+// absolute module is tried from the repo root, then from each ancestor
+// directory of the importing file, shallowest first, for `src/` layouts.
+export function resolvePythonImport(fromFile: string, spec: string | null, fileSet: Set<string>): string | null {
+  if (!spec) return null;
+  const dots = spec.match(/^\.*/)![0].length;
+  const parts = spec.slice(dots).split('.').filter(Boolean);
+  const fromDir = posix.dirname(fromFile);
+  let roots: string[];
+  if (dots > 0) {
+    const up = Array<string>(dots - 1).fill('..');
+    roots = [posix.normalize(posix.join(fromDir, ...up))];
+    if (roots[0]!.startsWith('..')) return null;
+  } else {
+    roots = ['.'];
+    for (let dir = fromDir; dir !== '.'; dir = posix.dirname(dir)) roots.splice(1, 0, dir);
+  }
+  for (const root of roots) {
+    const base = posix.join(root, ...parts);
+    for (const c of parts.length ? [`${base}.py`, `${base}/__init__.py`] : [`${base}/__init__.py`]) {
+      const path = posix.normalize(c);
+      if (fileSet.has(path)) return path;
+    }
+  }
+  return null;
+}
+
 class SymbolWriter {
   readonly inserted = new Set<string>();
   readonly removed = new Set<string>();
@@ -362,7 +390,7 @@ class Resolver {
     }
     for (const { from, edge } of pending) {
       if (edge.kind === 'imports') {
-        const target = resolveImport(from, edge.hint, this.fileSet);
+        const target = this.importTarget(from, edge);
         if (target) {
           const m = this.importMap.get(from) ?? new Map<string, string>();
           m.set(edge.dst_name, target);
@@ -376,10 +404,21 @@ class Resolver {
     }
   }
 
+  // The file an 'imports' edge names. In Python, `from pkg import x` names
+  // the submodule pkg/x.py when pkg/__init__.py defines no x.
+  private importTarget(from: string, edge: ExtractedEdge): string | null {
+    if (!from.endsWith('.py')) return resolveImport(from, edge.hint, this.fileSet);
+    const module = resolvePythonImport(from, edge.hint, this.fileSet);
+    if (module && (this.byName.get(edge.dst_name) ?? []).some((c) => c.path === module)) return module;
+    if (!edge.hint || edge.hint === edge.dst_name) return module;
+    const submodule = `${edge.hint}${edge.hint.endsWith('.') ? '' : '.'}${edge.dst_name}`;
+    return resolvePythonImport(from, submodule, this.fileSet) ?? module;
+  }
+
   resolve(from: string, edge: ExtractedEdge): { dst: number; how: 'exact' | 'name' } | null {
     if (NAME_ONLY_EDGES.has(edge.kind)) return null;
     if (edge.kind === 'imports') {
-      const target = resolveImport(from, edge.hint, this.fileSet);
+      const target = this.importTarget(from, edge);
       if (!target) return null;
       const hit = (this.byName.get(edge.dst_name) ?? []).find((c) => c.path === target);
       const dst = hit?.id ?? this.modules.get(target);

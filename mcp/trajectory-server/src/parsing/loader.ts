@@ -2,8 +2,8 @@
 // bash and python grammars, shipped as .wasm files in dist/parsing/. Nothing
 // loads at server start; the first loadParser(name) / loadParsers() call
 // imports the runtime and compiles what it asks for, and every later call
-// reuses them. loadParsers() compiles the four the symbol index reads; python
-// serves only the write-path analyzer (GH 1739).
+// reuses them. loadParsers() compiles all five for the symbol index; the
+// write-path analyzer (GH 1739) also loads python on its own.
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,9 +11,9 @@ import type { Parser } from 'web-tree-sitter';
 
 type Runtime = typeof import('web-tree-sitter');
 
-export type IndexedGrammar = 'typescript' | 'tsx' | 'javascript' | 'bash';
+export type IndexedGrammar = 'typescript' | 'tsx' | 'javascript' | 'bash' | 'python';
 
-export type GrammarName = IndexedGrammar | 'python';
+export type GrammarName = IndexedGrammar;
 
 export type Parsers = Record<IndexedGrammar, Parser>;
 
@@ -27,7 +27,7 @@ const GRAMMAR_WASM: Record<GrammarName, string> = {
   python: 'tree-sitter-python.wasm',
 };
 
-const INDEXED: IndexedGrammar[] = ['typescript', 'tsx', 'javascript', 'bash'];
+const INDEXED: IndexedGrammar[] = ['typescript', 'tsx', 'javascript', 'bash', 'python'];
 
 let pending: Promise<Parsers> | null = null;
 let loads = 0;

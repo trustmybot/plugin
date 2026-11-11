@@ -1,7 +1,7 @@
 /**
  * The write-path analyzer loads tree-sitter-bash on its first non-blank
  * command and never again (GH 1692), python on its first python program
- * (GH 1739), and loadParsers() still compiles the four indexed grammars. Each
+ * (GH 1739), and loadParsers() still compiles the five indexed grammars. Each
  * check runs in a fresh node process so its counters start at 0.
  */
 import { describe, it } from 'node:test';
@@ -33,7 +33,7 @@ describe('bash parser laziness (GH 1692)', () => {
     assert.deepEqual(counts, [0, 0, 1]);
   });
 
-  it('shares the bash grammar with loadParsers, which still loads all four', () => {
+  it('shares the bash grammar with loadParsers, which still loads all five', () => {
     const out = run(`
       const { writePaths } = await import(${JSON.stringify(ANALYZER)});
       const { loadParsers, loadParser, parserLoadCount } = await import(${JSON.stringify(LOADER)});
@@ -48,7 +48,7 @@ describe('bash parser laziness (GH 1692)', () => {
     `);
     assert.deepEqual(out, {
       first: ['/w/a'],
-      grammars: ['bash', 'javascript', 'tsx', 'typescript'],
+      grammars: ['bash', 'javascript', 'python', 'tsx', 'typescript'],
       loads: 1,
       shared: true,
     });
