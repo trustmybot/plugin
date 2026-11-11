@@ -10,6 +10,7 @@ import { GATE_NAME as REVIEWER_DOWNSTREAM_GATE, reviewerDownstreamContext } from
 import { GATE_NAME as BRO_TURN_USAGE_GATE, broTurnUsage } from './bro-turn-usage.js';
 import { GATE_NAME as FOOTER_GATE, attributionFooter } from './attribution-footer.js';
 import { GATE_NAME as CQ_LINT_GATE, codeQualityLint } from './code-quality-lint.js';
+import { GATE_NAME as TEST_RUN_NUDGE_GATE, testRunNudge } from './test-run-nudge.js';
 import { GATE_NAME as COMMIT_MSG_GATE, commitMsgLint } from './commit-msg-lint.js';
 import { containmentGuard } from './containment-guard.js';
 import { GATE_NAME as DRIFT_WARN_GATE, deferredToolsDriftWarn } from './deferred-tools-drift-warn.js';
@@ -89,6 +90,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [BRO_TURN_USAGE_GATE, broTurnUsage],
   [FOOTER_GATE, attributionFooter],
   [CQ_LINT_GATE, codeQualityLint],
+  [TEST_RUN_NUDGE_GATE, testRunNudge],
   [COMMIT_MSG_GATE, commitMsgLint],
   ['containment-guard', containmentGuard],
   [DRIFT_WARN_GATE, deferredToolsDriftWarn],
@@ -258,6 +260,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(STAY_ON_BASE_GATE, 'enforcement'),
     routerGate(BRANCH_UP_TO_DATE_GATE, 'enforcement'),
     routerGate(COMMIT_MSG_GATE, 'advisory'),
+    routerGate(TEST_RUN_NUDGE_GATE, 'advisory'),
     routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
     routerGate(REMOTE_ID_GATE, 'enforcement'),
     routerGate(NO_PROSE_GATE, 'enforcement'),
