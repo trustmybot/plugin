@@ -44,7 +44,7 @@ Read the verdict and `mcp_available` from each task's validation row via `valida
 `<repo path>` is the task's repo `path` from `repos_list`; `<slug>` is that repo's `owner/name` from `git -C <repo path> remote get-url origin`.
 
 - All-pass → `git -C <repo path> push origin <feature>`, then `gh pr create -R <slug> --head <feature> --base <pr_target>` / `glab mr create -R <slug> --source-branch <feature> --target-branch <pr_target>`, surface URL. After merge, run post-merge cleanup below. A pass can carry `nit` and `pre_existing` findings (its `return_line` counts them as `findings=<n>`): bundle each nit into the next task on that surface, or close it as wontfix with a reason (`task_reopen` `wontfix`); file each pre_existing finding as a GitHub issue.
-- Any fail → surface verbatim. AUQ: `"code-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`.
+- Any fail → the FAIL already reopened the task: `running` at `effort='high'`, with a `spawn_note` naming the blocking finding ids and their `class` (`validation_record` returns it as `reopened`; `task_get` shows it). Surface the FAIL verbatim, hold the push, and spawn swe at `effort='high'`. When `require-task-spec` denies the spawn for a missing worktree, call `task_reopen(task_id, reason)` first; it recreates the worktree. On `reopen_skipped`, handle the task by its current status.
 - Rework on a branch with an open PR → `git -C <repo path> push origin <feature>`, then confirm `git -C <repo path> rev-parse origin/<feature>` equals the local tip (`git -C <repo path> rev-parse <feature>`) before telling the Human the PR is updated.
 
 ### Post-merge cleanup
