@@ -3,8 +3,8 @@
 // Trajectory: bro triages simple → issue_create → discussion (intent + triage) →
 // task_provision (decision + task + branch + worktree + planning_complete) →
 // SWE starts with task_brief, commits in the worktree, returns
-// (task_update_status='completed') → bro verifies (no validation row at task close;
-// code-reviewer fires only at push gate) → bro_atomic_close → issue_close.
+// (task_update_status='completed') → bro verifies → review_handoff →
+// code-reviewer pass → bro_atomic_close, which closes the issue with its last task.
 //
 // Asserts the structural contract: state transitions, audit events, role
 // enforcement at each call, and the branch + worktree task_provision leaves on
@@ -13,9 +13,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { startProjectClient, call, seedHumanRow, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedHumanRow, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
 
-test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → bro closes (no per-task code-reviewer)', async (t) => {
+test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → code-reviewer passes → bro closes', async (t) => {
   const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
@@ -75,35 +75,26 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);
 
-  // 6. CRITICAL: bro's task gate — verifies and closes (no code-reviewer at this point).
-  // code-reviewer is the PUSH gate, not the task gate. validation_attempts stays empty
-  // until the push gate fires (Flow 6).
-  const preCloseValidations = await call(client, 'validation_history', {
-    agent: 'bro', task_id: taskId,
-  });
-  assert.equal(preCloseValidations.ok, true);
-  assert.equal(preCloseValidations.data.length, 0,
-    'simple-task close must NOT spawn code-reviewer (push gate is amortized)');
-
-  const closed = await call(client, 'bro_atomic_close', {
+  // 6. bro's task gate: the close is refused until code-reviewer passes the commit.
+  const closeArgs = {
     agent: 'bro', task_id: taskId,
     commit_sha: sha,
     verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
     close_issue_if_last_task: true,
     waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
-  });
+  };
+  const unreviewed = await call(client, 'bro_atomic_close', closeArgs);
+  assert.equal(unreviewed.ok, false, 'bro_atomic_close before a review pass must be refused');
+  assert.match(String(unreviewed.error?.error), /^review_pass_missing/);
+
+  // 7. bro hands the commit to code-reviewer, which passes it; the close then
+  // closes the task and, as its last task, the issue.
+  await reviewHandoffAndPass(client, dbPath, taskId);
+  const closed = await call(client, 'bro_atomic_close', closeArgs);
   assert.equal(closed.ok, true, `bro_atomic_close: ${JSON.stringify(closed)}`);
+  assert.equal(closed.data.issue_closed, true, `the last task's close closes the issue: ${JSON.stringify(closed)}`);
 
-  // 7. bro closes the issue. code-reviewer runs at the push gate, not per task, so
-  // the closed task has no verdict yet: the close carries an explicit review waiver.
-  const issueClosed = await call(client, 'issue_close', {
-    agent: 'bro', issue_id: issueId,
-    waive_review: true,
-    waive_review_reason: 'simple task: code-reviewer runs at the push gate, not at task close',
-  });
-  assert.equal(issueClosed.ok, true, JSON.stringify(issueClosed));
-
-  // 8. Final state: issue closed, task closed with commit_sha, no validation rows yet
+  // 8. Final state: issue closed, task closed with commit_sha, one passing review
   const finalIssue = await call(client, 'issue_get', { agent: 'bro', issue_id: issueId });
   assert.equal(finalIssue.data.status, 'closed');
 
@@ -116,7 +107,9 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   assert.equal(audit.ok, true);
   assert.ok(audit.data.some(e => e.event_type === 'planning_complete'),
     'planning_complete event must land in audit');
-  const waived = audit.data.filter(e => e.event_type === 'review_gate_waived');
-  assert.equal(waived.length, 1, 'one review_gate_waived row for the unreviewed task');
-  assert.equal(waived[0].from_node, 'bro');
+  assert.equal(audit.data.filter(e => e.event_type === 'review_handoff').length, 1, 'one review_handoff row anchors the review');
+  assert.equal(audit.data.filter(e => e.event_type === 'review_gate_waived').length, 0, 'a reviewed task needs no review waiver');
+
+  const validations = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });
+  assert.deepEqual(validations.data.map(r => [r.agent, r.verdict]), [['code-reviewer', 'pass']]);
 });

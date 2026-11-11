@@ -83,6 +83,23 @@ export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l
        FROM tasks t WHERE t.id = ${id};`]);
 }
 
+// reviewHandoffAndPass runs the review bro_atomic_close requires (GH 2939):
+// bro's review_handoff for the task's current commit, then an observed
+// code-reviewer pass carrying REVIEW_PROBES. Returns the validation_record
+// result; throws when either call is refused. Needs a startClient({ fileDb: true }) dbPath.
+export async function reviewHandoffAndPass(client, dbPath, taskId, { attemptN = 1, agentId, sessionId, feedback = 'LGTM.' } = {}) {
+  const handoff = await call(client, 'review_handoff', { agent: 'bro', task_id: taskId });
+  if (!handoff.ok) throw new Error(`review_handoff task ${taskId}: ${JSON.stringify(handoff)}`);
+  const identity = { ...(agentId && { agentId }), ...(sessionId && { sessionId }) };
+  seedReviewerObservation(dbPath, taskId, attemptN, identity);
+  const pass = await call(client, 'validation_record', {
+    agent: 'code-reviewer', task_id: taskId, attempt_n: attemptN, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES,
+    feedback, subagent_session_id: `l3-review-${taskId}-${attemptN}`,
+  });
+  if (!pass.ok) throw new Error(`validation_record pass task ${taskId}: ${JSON.stringify(pass)}`);
+  return pass;
+}
+
 // seedHumanRow writes an author='human' discussions row, which no tool writes
 // (discussion_append refuses author='human', GH 2148), and returns its id.
 // Needs a startClient({ fileDb: true }) dbPath.

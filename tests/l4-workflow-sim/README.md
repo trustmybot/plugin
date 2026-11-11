@@ -15,7 +15,7 @@ Cross-reference: [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md
 | 3 — Difficult task | `flow-03-difficult-task.test.mjs` | ✅ Q+A discussions + decision record |
 | 4 — Agent-creator | n/a | **L5 only** — pure filesystem write |
 | 5 — Skill creation | n/a | **L5 only** — pure filesystem write |
-| 6 — Push gate | `flow-06-push-gate.test.mjs` | ✅ closed-task + validation_record + retry |
+| 6 — Push gate | `flow-06-push-gate.test.mjs` | ✅ review_handoff + validation_record before close + retry |
 | 7 — Scan + architecture refresh | covered by `mcp/trajectory-server/src/test/scan.test.ts` (unit) | ✅ scan_run + deep_scan_completed audit |
 | 8 — SWE retry / escalation | `flow-08-swe-retry.test.mjs` | ✅ multiple validation_attempts + status='escalated' |
 | 9 — Roundtable | n/a | covered by audit 'roundtable_summary' event in flow-03 + role-matrix |
