@@ -66,7 +66,12 @@ import {
   verificationDefaultsMissingField,
   verificationDefaultsResult,
 } from './verification-defaults.js';
-import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
+import {
+  checkVerificationPaths,
+  checkVerificationProse,
+  suggestVerification,
+  verificationPathResult,
+} from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
 import {
@@ -2047,10 +2052,10 @@ export function compositeTools(
         const defaults = readVerificationDefaults(repoPath, pathRef);
         if ('error' in defaults) return verificationDefaultsResult('task_provision', pathRef, defaults.error);
         const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(givenVerification, defaults.commands);
-        if (pathRef) {
-          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification, files });
-          if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
-        }
+        const pathRefusal = pathRef
+          ? checkVerificationPaths({ repoPath, ref: pathRef, verification, files })
+          : checkVerificationProse(verification, pathRef);
+        if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
         const cut: { base?: CutBase | null } = {};
         const branchStage = (): BranchStageOutcome => {
           const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
@@ -3032,10 +3037,11 @@ export function compositeTools(
           defaults.commands,
         );
         const storedVerification = verificationDefaultsAdded.length > 0 ? JSON.stringify(retryVerification) : failed.verification;
-        if (!repoPath || pathRef) {
-          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles });
-          if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
-        }
+        const pathRefusal =
+          !repoPath || pathRef
+            ? checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles })
+            : checkVerificationProse(retryVerification, pathRef);
+        if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
         const suggested = () => ({
           verification_defaults_added: verificationDefaultsAdded,
           ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
