@@ -354,11 +354,13 @@ export function removeProjectSandbox(opts: {
       if (kept.length > 0) network['allowedDomains'] = kept;
       else delete network['allowedDomains'];
     }
-    if (opts.record.allow_local_binding_set) delete network['allowLocalBinding'];
+    if (opts.record.allow_local_binding_set && network['allowLocalBinding'] === true) delete network['allowLocalBinding'];
     if (Object.keys(network).length === 0) delete sandbox['network'];
   }
-  if (opts.record.enabled_set) delete sandbox['enabled'];
-  if (opts.record.weaker_network_isolation_set) delete sandbox['enableWeakerNetworkIsolation'];
+  if (opts.record.enabled_set && sandbox['enabled'] === true) delete sandbox['enabled'];
+  if (opts.record.weaker_network_isolation_set && sandbox['enableWeakerNetworkIsolation'] === true) {
+    delete sandbox['enableWeakerNetworkIsolation'];
+  }
   if (Object.keys(sandbox).length === 0) delete settings['sandbox'];
   if (isObject(settings['env'])) {
     const env = settings['env'] as Json;
