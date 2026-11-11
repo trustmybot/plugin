@@ -36,7 +36,7 @@ import { SUBPROCESS_TIMEOUT_MS, WORKTREE_TIMEOUT_MS } from '../utils/timeouts.js
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
-import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
+import { ensureFresh, fetchTargetNow, freshnessBlock, type TargetFetchAttempt } from '../world-model/freshness.js';
 import { readRepoTargetBranch, repoRowPath, repoTargetBase, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
@@ -1616,7 +1616,7 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        'Sets up one task for swe. Before the DB commit an environment gate runs fetch, branch, worktree, setup and reindex; a failed stage returns env_gate_failed and writes nothing. ' +
+        'Sets up one task for swe. First syncs the world model to origin/<target>. Before the DB commit an environment gate runs fetch, branch, worktree, setup and reindex; a failed stage returns env_gate_failed and writes nothing. ' +
         "A new branch is cut from local <base> when it is a fast-forward ahead of origin/<base>, else from origin/<base> (git_setup 'created'); an existing ref at or behind the base tip is fast-forwarded ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind, open PRs) unless reuse_existing. " +
         "Writes a kind='decision' discussion and the task in one transaction. " +
         `${verificationPathsDoc('the base')} ` +
@@ -1814,6 +1814,23 @@ export function compositeTools(
     }
   };
 
+  // task_provision plans against origin/<target branch> as just fetched
+  // (GH 2958): a fetch that ignores the read window, then the index brought to
+  // that tip, waiting for another holder of the repo's lock. A failed fetch
+  // leaves the provision on the current index.
+  const provisionReindex = async (repo: string, agent: string): Promise<TargetFetchAttempt> => {
+    const fetched = await fetchTargetNow(db, repo, { agent });
+    const graph = graphHolder?.ensureGraph() ?? null;
+    if (graph) {
+      try {
+        await ensureFresh(db, graph, repo, { dbPath, trigger: fetched.result === 'moved' ? 'fetch' : 'spawn', wait: true });
+      } catch (e) {
+        serverLog({ event: 'wm_provision_reindex_error', repo, error: (e as Error).message });
+      }
+    }
+    return fetched;
+  };
+
   const handlers: Record<string, Fn> = {
     task_provision: requireRoles(
       'task_provision',
@@ -1998,6 +2015,7 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
 
+        const targetFetch = repoValue ? await provisionReindex(repoValue, agent) : null;
         const base = repoTargetBase(db, repoPath, repoValue, args['base'] as string | undefined);
         if (baseIsBranch(base, branchId)) {
           return err(
@@ -2148,6 +2166,18 @@ export function compositeTools(
               event_type: 'registry_gate_waived',
               summary: registryGateWaiverReason.slice(0, 200),
               content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
+              created_at: now,
+            });
+          }
+
+          if (targetFetch?.result === 'failed') {
+            insertAudit(db, {
+              issue_id: issueId,
+              branch_id: branchId,
+              from_node: agent,
+              event_type: 'wm_provision_fetch_failed',
+              summary: `task_provision could not fetch origin/${targetFetch.branch ?? '?'} of ${repoValue}; planned on the current world-model index.`,
+              content_json: JSON.stringify({ repo: repoValue, branch: targetFetch.branch, error: targetFetch.error }),
               created_at: now,
             });
           }
