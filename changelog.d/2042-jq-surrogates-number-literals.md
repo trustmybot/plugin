@@ -1,0 +1,2 @@
+### Fixed
+- **Hooks read payloads the way jq 1.7.1 does for surrogate escapes and number literals** (GH 2042): a `\ud800`-style escape with no low surrogate after it now ends the payload stream as a parse error, and the router blocks such a payload on any event an enforcement gate serves instead of letting the gates read it; a lone low-surrogate escape reads as U+FFFD; and a numeric field a gate prints keeps its literal, so `1.0` stays `1.0` and `1e1000` prints `1E+1000` instead of `1` and `Infinity`.

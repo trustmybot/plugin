@@ -8,6 +8,30 @@
 import { isRawJson, keysInOrder, parseKeepingKeyOrder, stringifyInOrder, valueEnd, type JsonReviver } from './jq-key-order.js';
 import { jqRawText } from './project-env.js';
 
+const ANY_SURROGATE_ESCAPE = /\\u[dD][89a-fA-F]/;
+/** One JSON string escape, a high-surrogate escape together with the low-surrogate escape after it. */
+const ESCAPE_OR_SURROGATE_PAIR = /\\(?:u[dD][89abAB][0-9a-fA-F]{2}(?:\\u[dD][c-fC-F][0-9a-fA-F]{2})?|u[dD][c-fC-F][0-9a-fA-F]{2}|[\s\S])/g;
+const LONE_HIGH_SURROGATE_ESCAPE = /^\\u[dD][89abAB][0-9a-fA-F]{2}$/;
+const LONE_LOW_SURROGATE_ESCAPE = /^\\u[dD][c-fC-F][0-9a-fA-F]{2}$/;
+
+/**
+ * <json> with its surrogate escapes read as jq 1.7 reads them, where JSON.parse
+ * would keep a lone surrogate: a \uD800-\uDBFF escape no \uDC00-\uDFFF escape
+ * follows is a parse error (a SyntaxError), and a lone \uDC00-\uDFFF escape is
+ * U+FFFD.
+ */
+export function jqSurrogateEscapes(json: string): string {
+  if (!ANY_SURROGATE_ESCAPE.test(json)) return json;
+  return json.replace(ESCAPE_OR_SURROGATE_PAIR, (escape) => {
+    if (LONE_HIGH_SURROGATE_ESCAPE.test(escape)) throw new SyntaxError(`Lone high-surrogate escape ${escape}`);
+    return LONE_LOW_SURROGATE_ESCAPE.test(escape) ? '\\ufffd' : escape;
+  });
+}
+
+function parseJqValue(json: string, reviver?: JsonReviver): unknown {
+  return parseKeepingKeyOrder(jqSurrogateEscapes(json), reviver);
+}
+
 /** The JSON values of a jq input stream, up to the first one that fails to parse. */
 export function jsonValues(text: string, reviver?: JsonReviver): unknown[] {
   const values: unknown[] = [];
@@ -18,7 +42,7 @@ export function jsonValues(text: string, reviver?: JsonReviver): unknown[] {
     const end = valueEnd(text, i);
     if (end < 0) return values;
     try {
-      values.push(parseKeepingKeyOrder(text.slice(i, end), reviver));
+      values.push(parseJqValue(text.slice(i, end), reviver));
     } catch {
       return values;
     }
@@ -40,7 +64,7 @@ export function jsonStream(text: string): { values: unknown[]; complete: boolean
     const end = valueEnd(text, i);
     if (end < 0) return { values, complete: false };
     try {
-      values.push(parseKeepingKeyOrder(text.slice(i, end)));
+      values.push(parseJqValue(text.slice(i, end)));
     } catch {
       return { values, complete: false };
     }
@@ -83,7 +107,7 @@ function truthy(v: unknown): boolean {
  */
 export function jqAlternatives(text: string, paths: readonly (readonly string[])[]): string {
   const out: string[] = [];
-  for (const value of jsonValues(text)) {
+  for (const value of jsonValues(text, jqLiteralNumbers)) {
     try {
       for (const path of paths) {
         const v = getPath(value, path);
@@ -127,7 +151,7 @@ export function jqOr(value: unknown, fallback: unknown): unknown {
 
 /** `jq -r '.<key> // "<fallback>"'` over every value of <text>, the lines joined by newlines. */
 export function jqFieldOr(text: string, key: string, fallback = ''): string {
-  return jqMap(text, (value) => jqRawText(jqOr(index(value, key), fallback))).join('\n');
+  return jqMap(text, (value) => jqRawText(jqOr(index(value, key), fallback)), jqLiteralNumbers).join('\n');
 }
 
 /** `jq -r '.message.content // [] | tostring'`: one line per value. */

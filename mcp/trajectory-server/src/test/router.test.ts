@@ -184,6 +184,24 @@ describe('router fail-closed: each denies naming the gate', () => {
     assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate router got an unparseable payload without a decision/);
     assert.equal(d.denied?.gate, 'router');
   });
+
+  it('a lone high-surrogate escape, which jq and the gates\' jq readers reject, denies naming the router before any gate runs (GH 2042)', async () => {
+    const payload = bash('git push --force origin main \ud800');
+    assert.match(payload, /\\ud800/);
+    const d = await decide('PreToolUse', payload, {}, { groups: group(['g', 'enforcement']), findGate: fakes({ g: () => ALLOW }) });
+    assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate router got an unparseable payload without a decision/);
+    assert.equal(d.denied?.gate, 'router');
+    assert.equal(d.gates.length, 0);
+  });
+
+  it('a lone low-surrogate escape or a surrogate pair still reaches the gates (GH 2042)', async () => {
+    for (const escapes of ['\\udc00', '\\ud83d\\ude00']) {
+      const payload = bash('echo ESCAPES').replace('ESCAPES', escapes);
+      const d = await decide('PreToolUse', payload, {}, { groups: group(['g', 'enforcement']), findGate: fakes({ g: () => ALLOW }) });
+      assert.equal(d.denied, null);
+      assert.equal(d.gates.length, 1);
+    }
+  });
 });
 
 describe('router budgets', () => {
