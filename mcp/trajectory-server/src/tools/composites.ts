@@ -1,8 +1,8 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { constants as osConstants } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
@@ -653,6 +653,46 @@ function setupEnv(worktreePath: string): NodeJS.ProcessEnv {
 // The tool-result field for a setup, absent when the repo has no setup file.
 function setupField(setup: WorktreeSetupResult | undefined): { worktree_setup?: WorktreeSetupResult } {
   return setup && (setup.ran || setup.error !== undefined) ? { worktree_setup: setup } : {};
+}
+
+const PR_REVIEW_DIR_RE = /^pr-review-[0-9a-f]{7,40}-[A-Za-z0-9]{6}$/;
+
+// <repo>/.claude/worktrees, checked both lexically and through realpath so a
+// symlinked parent cannot redirect a checkout or a delete outside the repo.
+function worktreesDirContained(repoPath: string, dir: string): boolean {
+  if (resolve(dir) !== resolve(repoPath, '.claude', 'worktrees')) return false;
+  try {
+    return realpathSync(dir) === join(realpathSync(repoPath), '.claude', 'worktrees');
+  } catch {
+    return false;
+  }
+}
+
+// True only for a per-call pr-review-<sha>-<suffix> entry directly inside
+// <repo>/.claude/worktrees.
+export function prReviewDirRemovable(repoPath: string, wtPath: string): boolean {
+  return PR_REVIEW_DIR_RE.test(basename(wtPath)) && worktreesDirContained(repoPath, dirname(resolve(wtPath)));
+}
+
+function clearPrReviewWorktree(repoPath: string, wtPath: string): void {
+  const quiet = { stdio: 'ignore' as const, timeout: WORKTREE_TIMEOUT_MS };
+  try {
+    execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], quiet);
+  } catch {
+    // Best-effort: the path may not be a registered worktree.
+  }
+  try {
+    execFileSync('git', ['-C', repoPath, 'worktree', 'prune'], quiet);
+  } catch {
+    // Best-effort.
+  }
+  if (!existsSync(wtPath) || !prReviewDirRemovable(repoPath, wtPath)) return;
+  try {
+    rmSync(wtPath, { recursive: true, force: true });
+    execFileSync('git', ['-C', repoPath, 'worktree', 'prune'], quiet);
+  } catch {
+    // Best-effort.
+  }
 }
 
 // Session-worktree adoption (GH 2032): task_provision, task_reopen and
@@ -1306,7 +1346,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha> (node_modules linked) after .config/tmb/worktree-setup.json (failed step: named error, no command) under verification budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
+        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha>-<suffix> (node_modules linked) after .config/tmb/worktree-setup.json (failed step: named error, no command) under budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -3074,18 +3114,27 @@ export function compositeTools(
 
         const repoRefusal = outsideProject('pr_monitor_worktree', runContext.projectRoot, repoPath);
         if (repoRefusal) return outsideProjectResult(repoRefusal);
-        const wtPath = `${repoPath}/.claude/worktrees/pr-review-${commitSha}`;
+        const wtParent = `${repoPath}/.claude/worktrees`;
+        let wtPath: string;
         let stdout = '';
         let stderr = '';
         let exitCode = 0;
         let timedOut = false;
 
         try {
+          mkdirSync(wtParent, { recursive: true });
+          if (!worktreesDirContained(repoPath, wtParent)) throw new Error(`${wtParent} resolves outside ${repoPath}`);
+          wtPath = mkdtempSync(`${wtParent}/pr-review-${commitSha}-`);
+        } catch (e) {
+          return err(`worktree add failed: ${(e as Error).message}`);
+        }
+        try {
           execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
             stdio: ['ignore', 'pipe', 'pipe'],
             timeout: WORKTREE_TIMEOUT_MS,
           });
         } catch (e) {
+          clearPrReviewWorktree(repoPath, wtPath);
           return err(`worktree add failed: ${(e as Error).message}`);
         }
 
