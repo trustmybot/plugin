@@ -11,7 +11,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from '../l3-integration/mcp/harness.mjs';
 
 async function completeAndClose(client, dbPath, project, taskId, worktreePath, file) {
   const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
@@ -99,7 +99,7 @@ test('Flow 8 — retry loop: fail, task_reopen rework in the same worktree, then
 
   seedReviewerObservation(dbPath, taskId, 2);
   const pass = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true,
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES,
     feedback: 'Fixed; LGTM.',
     subagent_session_id: 'flow08-retry-session-2',
   });
@@ -122,7 +122,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   // attempt 1: pass
   seedReviewerObservation(dbPath, taskId, 1);
   await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'first',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES, feedback: 'first',
     subagent_session_id: 'flow08-upsert-session-1',
   });
 

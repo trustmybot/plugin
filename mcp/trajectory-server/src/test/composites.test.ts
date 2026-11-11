@@ -2464,8 +2464,8 @@ describe('task_brief (#300)', () => {
       timed_out: false,
       budget_s: 1200,
       commands: [
-        { ordinal: 1, command: 'npm test', exit_code: 0, elapsed_s: 170.25 },
-        { ordinal: 2, command: 'bash lint.sh', exit_code: 0, elapsed_s: 0.5 },
+        { ordinal: 1, command: 'npm test', exit_code: 0, elapsed_s: 170.25, output_tail: 'pass' },
+        { ordinal: 2, command: 'bash lint.sh', exit_code: 0, elapsed_s: 0.5, output_tail: 'ok' },
       ],
     });
     db.close();
