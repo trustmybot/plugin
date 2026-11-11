@@ -30,13 +30,13 @@ export const KEYS = [
   {
     name: 'issue_classification_labels',
     type: 'string[]',
-    setBy: 'bro via `config_set`; Codex `planning_label_taxonomy_set`',
+    setBy: 'bro via `config_set`',
     effect: '`issue_create` requires at least one of these labels; unset or malformed falls back to the generic default.',
   },
   {
     name: 'issue_priority_labels',
     type: 'string[]',
-    setBy: 'bro via `config_set`; Codex `planning_label_taxonomy_set`',
+    setBy: 'bro via `config_set`',
     effect: '`issue_create` requires at least one of these labels; unset or malformed falls back to the generic default.',
   },
   {
@@ -44,7 +44,7 @@ export const KEYS = [
     type: 'string[]',
     defaultText: 'unset (no area required)',
     setBy: 'bro via `config_set` (anything but an array of non-empty strings is refused)',
-    effect: 'When non-empty, `issue_create`, `issue_update` (when labels are passed), `intent_start` and Codex `planning_issue_create` require exactly one of these labels; zero is `missing_required_labels`, two or more is `multiple_area_labels`. Unset or `[]` changes nothing.',
+    effect: 'When non-empty, `issue_create`, `issue_update` (when labels are passed), and `intent_start` require exactly one of these labels; zero is `missing_required_labels`, two or more is `multiple_area_labels`. Unset or `[]` changes nothing.',
   },
   {
     name: 'issue_area_paths',

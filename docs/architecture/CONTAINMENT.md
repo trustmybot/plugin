@@ -1,6 +1,6 @@
 # Containment
 
-TMB writes nothing outside the project it runs in, whatever scope it is installed at. Every file a hook, a script or the MCP server creates lives under the project root, in the host's state directory (see [`../adapters/ADAPTER_CONTRACT.md`](../adapters/ADAPTER_CONTRACT.md) Rule 3). The agents TMB runs are held to the same boundary. This doc states the boundaries, the invariants that keep them, and why; for the code that enforces each one, ask the world model (`world_model_search`).
+TMB writes nothing outside the project it runs in, whatever scope it is installed at. Every file a hook, a script or the MCP server creates lives under the project root, in the host's state directory. The agents TMB runs are held to the same boundary. This doc states the boundaries, the invariants that keep them, and why; for the code that enforces each one, ask the world model (`world_model_search`).
 
 ## The invariant
 
