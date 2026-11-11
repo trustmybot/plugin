@@ -205,8 +205,9 @@ describe('taskTools', () => {
 
     await step('running');           // pending → running
     await step('needs_validation');  // running → needs_validation
-    const completed = await step('completed'); // needs_validation → completed
-    assert.ok(completed.completed_at, 'completed sets completed_at');
+    await step('completed'); // needs_validation → completed
+    const completedAt = db.get<{ completed_at: string | null }>('SELECT completed_at FROM tasks WHERE id = ?', [Number(taskId)]);
+    assert.ok(completedAt?.completed_at, 'completed sets completed_at');
 
     // 'closed' is reached only via bro_atomic_close (#1025); set it directly to
     // exercise the one remaining task_update_status edge out of closed.
@@ -246,14 +247,18 @@ describe('taskTools', () => {
     // Reopening out of 'completed' clears the stale completion stamp.
     const t3 = await mk('feat/reopen-clears-stamp');
     await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: t3, status: 'running' });
-    const comp = parseResult(await call(tools.handlers, 'task_update_status', {
+    const completedAt = () =>
+      db.get<{ completed_at: string | null }>('SELECT completed_at FROM tasks WHERE id = ?', [Number(t3)])?.completed_at;
+    const comp = await call(tools.handlers, 'task_update_status', {
       agent: 'swe', task_id: t3, status: 'completed', commit_sha: 'abc1234',
-    }));
-    assert.ok(comp.completed_at, 'completed sets completed_at');
-    const reopened = parseResult(await call(tools.handlers, 'task_update_status', {
+    });
+    assert.ok(!comp.isError, comp.content[0].text);
+    assert.ok(completedAt(), 'completed sets completed_at');
+    const reopened = await call(tools.handlers, 'task_update_status', {
       agent: 'bro', task_id: t3, status: 'needs_validation',
-    }));
-    assert.equal(reopened.completed_at, null, 'reopening out of completed clears completed_at');
+    });
+    assert.ok(!reopened.isError, reopened.content[0].text);
+    assert.equal(completedAt(), null, 'reopening out of completed clears completed_at');
 
     db.close();
   });
@@ -2755,6 +2760,27 @@ describe('task_update_status return_line (GH 1959)', () => {
     const { db, id } = seedTask('abcdef1234567');
     const r = await call(taskTools(db).handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'failed' });
     assert.equal(parseResult(r).return_line, `status=failed task=${id} sha=abcdef12`);
+    db.close();
+  });
+
+  it('returns only the outcome, not the task row, however long the spec (GH 3030)', async () => {
+    const { db, id } = seedTask(null);
+    const longSpec = '## Description\n\n' + 'x'.repeat(4000);
+    db.run('UPDATE tasks SET spec_body = ? WHERE id = ?', [longSpec, id]);
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+    const r = await call(taskTools(db).handlers, 'task_update_status', {
+      agent: 'swe', task_id: String(id), status: 'completed', commit_sha: sha,
+    });
+    assert.ok(!r.isError, r.content[0].text);
+    const data = JSON.parse(r.content[0].text) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(data).sort(), ['commit_sha', 'return_line', 'status', 'task_id']);
+    assert.deepEqual(data, {
+      task_id: id,
+      status: 'completed',
+      commit_sha: sha,
+      return_line: `status=completed task=${id} sha=01234567`,
+    });
+    assert.ok(Buffer.byteLength(r.content[0].text) < 300, `result is ${Buffer.byteLength(r.content[0].text)} bytes`);
     db.close();
   });
 });
