@@ -802,7 +802,7 @@ describe('progress counters count closed only', () => {
     db.close();
   });
 
-  it('branch_report_md labels completed tasks as awaiting close', async () => {
+  it('branch_report_md labels completed tasks as awaiting review and close', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
     seedTask(db, issue, 'completed', { branch: 'fix/one', completedAt: iso(-HOUR) });
@@ -811,7 +811,7 @@ describe('progress counters count closed only', () => {
     }));
     const md = String(out['markdown']);
     assert.match(md, /\*\*Done:\*\* 0 of 1 closed, 1 awaiting close/);
-    assert.match(md, /completed \(awaiting close\)/);
+    assert.match(md, /completed \(awaiting review and close\)/);
     db.close();
   });
 });

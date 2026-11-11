@@ -117,18 +117,22 @@ The Agent PreToolUse gates enforce a spawn contract:
 - The task must be `pending` (or `running` with no live SWE run) with a non-empty `spec_body` — `task_provision` guarantees this.
 - The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
-## 6. Verify on SWE return + atomic close
+## 6. Verify on SWE return, hand off to code-reviewer, close after the pass
 
 Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
 
 After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C <repo path> diff` of the commit, the repo path from `repos_list`). A diff too large to judge directly goes to a subagent that reports against the `SC<n>` ids. Judge the work against the spec on four counts:
 
-1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `bro_atomic_close` refuses the close and lists the extras grouped by surface; it closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, and afterwards `task_brief.scope` carries `extras_accepted` and `base_moved`.
+1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `review_handoff` records them with swe's reasons in `task_brief.scope.extras`, so code-reviewer reads them too; at the close, `bro_atomic_close` refuses and lists the extras grouped by surface, and closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, after which `task_brief.scope` carries `extras_accepted` and `base_moved`.
 2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
 3. `task_brief.completion_report` covers every `SC<n>` id, and the diff bears out each claim: a `met` shows in the diff, a `not_applicable` carries a reason you accept, and a `not_met` fails this check. The changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
 4. `git -C <repo path> show --stat <commit_sha>` lists the changed paths under the directories `files[]` names.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task). The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read. Then spawn code-reviewer for the push gate with the `reviewer_spawn` that `bro_atomic_close` returned (pass it your `session_id`) — the anchors only, which the spawn-shape hook enforces. Context the reviewer cannot read from `task_brief` goes in `bro_atomic_close`'s `spawn_note` (300 characters max). On a reviewer FAIL: surface it, hold the push, and rework the task (below).
+The order is swe → code-reviewer → bro's close:
+
+- **Hand off.** All four pass → call `review_handoff(task_id, session_id)` on the completed task. It refuses without a completion report covering every `SC<n>` id or without a passing verification run for the task's `commit_sha`, records the review anchor and the reviewer effort, leaves the status `completed`, and returns `reviewer_spawn`. Spawn code-reviewer with that `reviewer_spawn` as is — the anchors only, which the spawn-shape hook enforces; the spawn gate denies a code-reviewer spawn on a completed task with no handoff for its commit. Context the reviewer cannot read from `task_brief` goes in `review_handoff`'s `spawn_note` (300 characters max).
+- **Close after a PASS.** Call `bro_atomic_close` (`close_issue_if_last_task=true` when it's the last task); it refuses with `review_pass_missing` until a passing verdict follows the handoff of the task's current commit, and keeps the scope gate of check 1. The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read.
+- **Rework after a FAIL.** Surface it, hold the push, and `task_reopen` the completed task (below); the reworked commit takes a new `review_handoff`.
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
 
@@ -151,4 +155,4 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 
 When the hook alerts that a task has run past 60 minutes, relay it to the Human once, with its attempt count and its current blocker, and decide together whether to continue, redesign the spec or split the task.
 
-The worktree stays in place through `bro_atomic_close` and is removed once code-reviewer passes the task, so rework continues where SWE left off.
+The worktree stays in place through review and rework, so rework continues where SWE left off, and is removed when `bro_atomic_close` closes the task after code-reviewer's pass.
