@@ -32,6 +32,7 @@ Golden is earned, not a style. The eval set is required because rule 7 is the on
 | G12 | No emphasis words (CRITICAL, MUST, ALL CAPS, ALWAYS, NEVER) appear outside true invariants. | 12 | T3 | machine |
 | G13 | Each non-obvious rule gives its reason. | 13 | T3 | judgment |
 | G14 | An eval set of representative cases exists and was re-run after the last wording change. | 7 | T1 | machine |
+| G15 | The prompt matches its agent's place in FLOWS.md and its Quality-layers row: it owns only that layer's checks, hands over that layer's contract, and redoes no other layer's check. | TMB conventions | none (convention) | judgment |
 
 ---
 
