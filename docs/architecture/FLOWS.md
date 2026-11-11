@@ -49,7 +49,7 @@ Every flow is built on two axes. The first is a responsibility boundary: each la
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a decision + blast-radius, then standard SWE flow | + a decision record | `task_provision`'s decision body (the universal decision gate) |
 | 6 | Push gate / PR review | Each completed task after `review_handoff`; `git push` of a commit with no passing review | bro → code-reviewer (one per handed-off task, parallel), then `bro_atomic_close` on each pass | a verdict per reviewed commit, with its findings | `code-reviewer-no-worktree`, `code-reviewer-spawn-prompt-shape`, `code-reviewer-after-atomic-close`, `code-reviewer-spawn-note`, `code-reviewer-preflight`, `git-push-guard` |
 | 8 | SWE retry / escalation | An architecture misfit bro finds, a code-reviewer fail verdict, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task | `task_reopen` / `task_retry` composites, `rework-limit`, `swe-resume-gate` |
-| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → code-reviewer per actionable comment batch | stored comments, new issues and tasks, the run's resume point | — |
+| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → swe per ratified comment group | stored comments and new tasks on the PR's linked issue, the run's `last_fetched_at` cursor | — |
 | 33 | Multi-repo path discipline | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo | — |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
 | | **Extending the team** | | | | |
@@ -57,7 +57,7 @@ Every flow is built on two axes. The first is a responsibility boundary: each la
 | 4 | Agent-creator | Routing hits a role the project has no agent for | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | a registered skill | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | the consultant's analysis or concern | `consultant-persistence-gate` |
-| 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | the table, its votes and the ratified decision | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
+| 9 | Roundtable | The Human types `/roundtable <topic>`: multi-consultant deliberation with AUQ ratification | bro orchestrates the consultants (2–5 accepted) and records each vote | the table, its votes and the ratified decision | `roundtable-slash-detect`, `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | | **Reporting TMB bugs** | | | | |
 | **B** | Bug report (opt-in) | bro hits a real TMB bug and the Human opted in | bro (Human previews and approves each report) | a record of each filed report | — |
 
@@ -344,7 +344,7 @@ Two FAILs on a task since its last passing review trip the rework limit (L5); br
 
 ### M. Monitor PR comments
 
-`/monitor <PR_number>` slash command. Bro fetches the PR's review comments via `pr_monitor_comments_get`, triages actionable ones, files them as new issues and tasks, and dispatches SWE per ratified comment batch. Each PR's run keeps its resume point, so a re-run of the same PR starts from the last fetched comment. The server stores every fetched comment as a note on the issue of the task that owns the PR, deduplicated by the comment's remote id; the result counts new and already-stored comments.
+`/monitor <PR_number>` slash command (with no number, the current branch's open PR). Bro fetches the PR's review comments via `pr_monitor_comments_get`. The server stores every fetched comment as a note on the PR's linked issue, the issue of the task that owns the PR, deduplicated by the comment's remote id; the result counts new and already-stored comments. Bro triages the task-worthy comments into groups, the Human ratifies a subset, and each ratified group becomes a task on that same linked issue (no new issue is filed), provisioned and dispatched to swe through the standard chain. Each PR's run keeps a `last_fetched_at` cursor, and a fetch that names no start time reads it, so a re-run of the same PR returns only comments newer than the last fetch.
 
 ---
 
@@ -426,7 +426,7 @@ flowchart TD
     I --> J[Subsequent sessions: bro routes to X]
 ```
 
-Reserved names — `bro`, `architect`, `swe`, `code-reviewer` — are refused. New agent files commit to the project; every dev gets it on next pull.
+Only `bro` is a reserved name, refused outright. `swe` and `code-reviewer` ship with the plugin, so a project agent of either name is refused: it would shadow the backbone. A name with a shipped template (`architect` among them) copies that template in after the Human confirms it; any other name is drafted from scratch as the chart shows. New agent files commit to the project; every dev gets it on next pull.
 
 ---
 
@@ -438,7 +438,7 @@ Same shape as flow 4 — bro drafts via `tmb_skill-creator`, Human approves, and
 
 ### C. Consultant invocation
 
-Human types `/tmb:agent-create <ask>` OR a naturalistic question matching `/tmb:agent-create`'s description. Either path loads the skill, which calls `agent_resolve` to classify the role (collision, template-copy or from-scratch) and registers a newly written consultant with `agent_register`, then spawns the consultant via `Agent`. The consultant writes its analysis with `discussion_append`; `consultant-persistence-gate` checks at SubagentStop that it did. Bro reports to Human; **the Human decides** — never the consultant.
+Human types `/tmb:agent-create <name> [question]` OR a naturalistic question matching `/tmb:agent-create`'s description. Either path loads the command, which calls `agent_resolve` to classify the role (collision, template-copy or from-scratch) and registers a newly written consultant with `agent_register`. When a question is given, the command then spawns the consultant via `Agent` on it, whichever path made the file, from-scratch included; with no question it ends at the registered file. The consultant writes its analysis with `discussion_append`; `consultant-persistence-gate` checks at SubagentStop that it did. Bro reports to Human; **the Human decides** — never the consultant.
 
 `prompt-intent-hints` detects domain-keyword prompts and injects a routing hint (advisory; bro decides whether to spawn).
 
@@ -446,15 +446,14 @@ Human types `/tmb:agent-create <ask>` OR a naturalistic question matching `/tmb:
 
 ### 9. Roundtable
 
-Multi-consultant deliberation. Bro orchestrates 2–4 consultants on a topic, then renders an AUQ for Human ratification.
+Multi-consultant deliberation, Human-triggered only. Bro orchestrates consultants on a topic (the server accepts 2–5 participants; `/roundtable` picks 2–4), then renders an AUQ for Human ratification.
 
-- `roundtable_create` opens the table.
-- Bro spawns each consultant via `Agent` with the shared topic; each writes its analysis or concern with `discussion_append`.
-- Each consultant votes with `roundtable_vote`, giving its role, vote and rationale.
-- `roundtable_close` moves the table to awaiting the Human and records its summary as a decision.
-- `roundtable-auq-shape` validates the ratification AUQ structure.
-- After Human picks: `roundtable_finalize_decisions` + `roundtable_summarize`.
-- `roundtable-cleanup-postcheck` verifies the capture surface (audit and discussion records) actually landed.
+- `roundtable-slash-detect` records each `/roundtable` the Human types. `roundtable_create` opens the table on a carrier issue only after a recent such record, so a phrase in chat cannot fire the ceremony; bro can bypass this gate only with an explicit waiver and a reason.
+- Bro spawns each consultant via `Agent` with the shared topic; each one's full position lands on the carrier issue as an analysis with `discussion_append`.
+- Bro records each consultant's stance with `roundtable_vote`, giving the participant, its vote and rationale. The vote that completes the expected participant count moves the table to awaiting the Human.
+- `roundtable-auq-shape` validates the ratification AUQ structure: agreements as one multi-select, each disagreement as a single choice.
+- After the Human picks: `roundtable_close_with_decisions` writes the ratification rows, closes the table with its outcome and returns its summary, in one transaction. A table with nothing to ratify closes as skipped with `roundtable_close`, which otherwise refuses to close a table no Human vote has ratified.
+- `roundtable-cleanup-postcheck` reports, without blocking, any capture surface the closed table lacks (its analyses, decisions, votes, outcome and summary audit).
 
 ---
 

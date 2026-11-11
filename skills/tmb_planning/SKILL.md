@@ -30,7 +30,7 @@ With the world model in hand, before you commit to building — two quick questi
 
 A reported defect gets reproduced on the target branch tip before you file or dispatch it. Record what you saw (reproduced, or already fixed and at which commit) in the issue with `discussion_append`.
 
-Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`.
+Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`. Both records go on the issue: on an existing issue now; for new work, which has no issue until §3's `intent_start` creates it, right after that call.
 
 Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle or `tmb_skill-creator` — and do **not** proceed through the branch+spec+swe steps below. Feature reuse and from-scratch are both builds: they flow on to steps 3–6.
 
@@ -38,7 +38,7 @@ Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle
 
 When a remote is configured, ask the Human which branch to base the new feature branch on — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. Choosing `pr_target` means check it out and bring it up to date with the remote; any other choice means switch and leave it as-is.
 
-Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. `task_provision` (§5) creates the git branch — don't create it here.
+Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction; then append §2's records to the new issue. `task_provision` (§5) creates the git branch — don't create it here.
 
 ## 4. Author the spec
 
@@ -88,7 +88,7 @@ A spec for a guard or gate (a hook, permission check or validator) states in `##
 
 A dry run or smoke test is a `verification[]` command that exits non-zero when its expectation fails, run against a `cp` of reference data so the live DB stays untouched. The one-line form is `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" assert-sql <db-copy> "<sql>" <expected>`. The swe report then cites that command's pass/fail rather than the numbers it saw.
 
-The chosen approach rides into `task_provision` as `decision_body` (§5) — it writes the `kind='decision'` discussion atomically with the task, so there's no separate `discussion_append` here.
+The chosen approach rides into `task_provision` as `decision_body` (§5) — it writes the `kind='decision'` discussion atomically with the task, so the approach needs no separate `discussion_append`; the reuse-vs-build call is already on the issue (§2).
 
 ### Architectural changes
 

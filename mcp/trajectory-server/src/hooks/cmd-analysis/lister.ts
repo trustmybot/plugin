@@ -217,7 +217,8 @@ function findModel(mode: ListerMode, args: string[], raw: string[], acts: string
           run.push(x);
           prev = x;
         }
-        if (run.length > 0) acts.push('x' + run.join(' '));
+        // `e`: the run starts in each found path's own dir, not find's.
+        if (run.length > 0) acts.push((w === '-execdir' || w === '-okdir' ? 'e' : 'x') + run.join(' '));
         break;
       }
       case '-delete':

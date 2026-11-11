@@ -13,7 +13,7 @@ import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode, heredocEncoder } from './encode.js';
 import { NOT_LITERAL, gitWord } from './git-word.js';
 import { bashParser } from './parser.js';
-import { ALT, DECLARE, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, statementsEnc, type Record } from './statements.js';
+import { ALT, DECLARE, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, isGitCommand, operandWords, statementsEnc, type Record } from './statements.js';
 
 /** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536); `opaque` when it runs code the listing cannot read (GH 2635). */
 export type Statement = Record & { readonly src?: string; readonly opaque?: true };
@@ -112,7 +112,7 @@ function hiddenPs4(parser: Parser, cmd: string): boolean {
       if (node.type === 'variable_assignment' && !(node.parent?.type === 'declaration_command' && nameref(node.parent))) {
         const name = ps4Name(node);
         if (name) starts.add(name.startIndex);
-      } else if (node.type === 'command' && node.childForFieldName('name')?.text === 'git') {
+      } else if (node.type === 'command' && isGitCommand(node.childForFieldName('name')?.text ?? '')) {
         for (const arg of node.childrenForFieldName('argument')) if (arg) plainText(arg);
       } else if (node.type === 'command' && node.childForFieldName('name')?.text === 'env') {
         for (const arg of node.childrenForFieldName('argument')) {
@@ -145,23 +145,12 @@ function hiddenPs4(parser: Parser, cmd: string): boolean {
  * declaration builtin that is no nameref.
  */
 function ps4Word(w: readonly string[]): boolean {
-  if (w[0] === 'git' || PS4_WORD.test(w[0] ?? '')) return false;
+  if (isGitCommand(w[0] ?? '') || PS4_WORD.test(w[0] ?? '')) return false;
   const decl = DECLARE.test(w[0] ?? '') && !(w[0] !== 'export' && w[0] !== 'readonly' && w.some((x) => NAMEREF.test(x)));
   return w.some((x, i) => {
     const word = decode(x);
     return word.includes('PS4') && !(decl && i > 0 && PS4_WORD.test(word));
   });
-}
-
-/** A statement's source words past argv0, a redirect and its target dropped. */
-function operandWords(words: readonly string[]): string[] {
-  const out: string[] = [];
-  for (let i = 1; i < words.length; i++) {
-    const redirect = REDIRECT_WORD.exec(words[i]);
-    if (redirect && redirect[0] === words[i]) i++;
-    else if (!redirect) out.push(words[i]);
-  }
-  return out;
 }
 
 /** Whether an option cluster or operand list <w> names a variable through an expansion: an operand (the first only, unless <every>), or the value of an option in <targets>; <values> are the options that take a value. */
