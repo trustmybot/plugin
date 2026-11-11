@@ -31,11 +31,11 @@ import type { Parser } from 'web-tree-sitter';
 import { type Charge, DOLLAR, type Heredoc, decode, decodeKeepDollar, encode, heldKey, plainDollars } from './encode.js';
 import { type ListerHost, listerBind } from './lister.js';
 import { MKTEMP_MARK, mktempCall } from './mktemp.js';
-import { pathCanonical } from './path.js';
+import { gitWorkTreeTop, pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
 import { COMPUTED, PARSE, UNPROVEN, heldProgram, interpWrites, progWrites, shown } from './programs.js';
 import { ALT, LOOP_CLOSE, LOOP_OPEN, type Record as Statement, SEP, UNBALANCED, WSEP, statementsEnc } from './statements.js';
-import { type Interp, stmtWritePaths, unwrapStatement } from './targets.js';
+import { type Interp, type TopPath, stmtWritePaths, unwrapStatement } from './targets.js';
 
 const BAD = '\x01';
 const MAX_DEPTH = 3;
@@ -44,6 +44,8 @@ const PROG_DIR = '/.tmb-prog-dir';
 const XARGS_VALUE = /^(-d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars)$/;
 const WATCH_VALUE = /^(-[A-Za-z]*[nq]|--interval|--equexit)$/;
 const BODY_UNRESOLVED = /^UNRESOLVED:(?!\$\(|PWD:)/;
+const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'] as const;
+const GIT_LOCATION_SET = /\bGIT_(DIR|WORK_TREE|COMMON_DIR)\b/;
 /**
  * Text that may run something after the command's last statement starts: a
  * background `&`, a pipe `|` or `|&` (every stage runs at once), a process
@@ -81,6 +83,9 @@ export interface Host {
   CLAUDE_PROJECT_DIR?: string;
   TMB_MODEL_CACHE_DIR?: string;
   HF_HOME?: string;
+  GIT_DIR?: string;
+  GIT_WORK_TREE?: string;
+  GIT_COMMON_DIR?: string;
 }
 
 export interface Options {
@@ -88,6 +93,8 @@ export interface Options {
   raw: boolean;
   root: string;
   env: Host;
+  /** Only the dirs a statement fills with a whole tree (targets.ts treeTargetWords, gitRestoredPaths) and its interpreters' targets. */
+  treeWrites?: boolean;
 }
 
 interface Level {
@@ -268,12 +275,16 @@ class WritePaths {
   out = '';
   pwd = '';
   private rootc: string | undefined;
+  /** The run's environment or any text it runs may set GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR, so a pathspec's repository top cannot be told. */
+  private gitLocationSet: boolean;
 
   constructor(
     private readonly parser: Parser,
     private readonly opts: Options,
     private readonly charge: Charge,
-  ) {}
+  ) {
+    this.gitLocationSet = GIT_LOCATION_VARS.some((name) => opts.env[name] !== undefined);
+  }
 
   private print(line: string): void {
     this.charge(line.length);
@@ -466,6 +477,30 @@ class WritePaths {
     return ((base === '' ? '' : base + '/') + p).split('\n').map(normalize).join('\n') + '\n';
   }
 
+  /** stmtWritePaths of <stmt> emitted against its dir <d>, and each path it names from a repository's top. */
+  private emitStatement(level: Level, d: string, stmt: string, chain: boolean, final: boolean): void {
+    const tree = this.opts.treeWrites ? { gitLocationSet: this.gitLocationSet } : undefined;
+    const { paths, tops } = stmtWritePaths(stmt, chain, this.interp, final, tree);
+    for (const p of paths) if (p !== '') this.emit(level, d, decPath(p));
+    for (const t of tops) this.emit(level, d, this.fromTop(d, t));
+  }
+
+  /**
+   * <t> resolved under its repository's top: the `.git` holder git finds from
+   * its base dir, else the run root. When neither its base nor a top can be
+   * told, the run root itself (`/` with none), so the write fails closed.
+   */
+  private fromTop(d: string, t: TopPath): string {
+    const { root } = this.opts;
+    const failClosed = root || '/';
+    if (t.base === null) return failClosed;
+    const base = chomp(this.join(d, decPath(t.base)));
+    if (!base.startsWith('/') || /[$`]/.test(base)) return failClosed;
+    const top = t.find ? (gitWorkTreeTop(base) ?? root) : base;
+    if (top === '') return failClosed;
+    return t.rest === '.' ? top : `${top.replace(/\/$/, '')}/${decPath(t.rest)}`;
+  }
+
   /** _tmb_cmd_emit */
   private emit(level: Level, dir: string, p: string, why = level.why): void {
     if (p.startsWith(COMPUTED)) {
@@ -598,7 +633,7 @@ class WritePaths {
           for (const ph of ['{//}', '{.}', '{}']) cmd = cmd.split(ph).join(rv);
           for (const ph of ['{/.}', '{/}']) cmd = cmd.split(ph).join('*');
         }
-        for (const p of stmtWritePaths(cmd, true, this.interp).paths) if (p !== '') this.emit(level, dir, decPath(p));
+        this.emitStatement(level, dir, cmd, true, false);
         this.execShell(level, cmd, tok, depth);
       }
     }
@@ -649,7 +684,7 @@ class WritePaths {
       }
       if (!cmd.includes('<<') && stdinInterp(words) !== '') out.push('$(proc)');
     }
-    const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env }, this.charge);
+    const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env, treeWrites: this.opts.treeWrites }, this.charge);
     nested.run(cmd, '@', 0, '');
     const lines = nested.out.split('\n');
     lines.pop();
@@ -825,6 +860,7 @@ class WritePaths {
    */
   run(cmd: string, base: string, depth: number, vars: string, top = false): string {
     this.charge(cmd.length);
+    if (GIT_LOCATION_SET.test(cmd)) this.gitLocationSet = true;
     const encoded = encode(this.parser, cmd, this.charge, true);
     if (!encoded.ok) {
       this.print(parseLine(cmd));
@@ -999,9 +1035,7 @@ class WritePaths {
       else if (body !== '' && !evaluated && this.isHeld(body)) this.print(unprovenLine(`${basename(dec(words[0]))} ${dec(body)}`));
       const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
       if (ownWords) {
-        each((d, chain) => {
-          for (const p of stmtWritePaths(record.stmt, chain, this.interp, final).paths) if (p !== '') this.emit(level, d, decPath(p));
-        });
+        each((d, chain) => this.emitStatement(level, d, record.stmt, chain, final));
       }
       if (body !== '' && !evaluated && heldProgram(body)) {
         this.print(computedLine(`${basename(dec(words[0]))} ${dec(body)}`));
@@ -1021,9 +1055,7 @@ class WritePaths {
         stmt = words.join(' ');
       }
       if (!ownWords) {
-        each((d, chain) => {
-          for (const p of stmtWritePaths(stmt, chain, this.interp, final).paths) if (p !== '') this.emit(level, d, decPath(p));
-        });
+        each((d, chain) => this.emitStatement(level, d, stmt, chain, final));
       }
       if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) each((d, _, t) => this.execWrites(level, d, mark, words, t, depth));
       for (const name of deferred) this.poison(level, name);

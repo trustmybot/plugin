@@ -13,16 +13,34 @@
  * Bash (GH 2942): each write target the cmd-analysis analyzer finds is judged
  * the same way, and every gated one needs its own approval scoped `full`, since
  * a shell write cannot be held to the skills: list. The analyzer's cap line
- * denies; its never-judged targets are containment-guard's. A command with no
- * gated target reads no DB.
+ * denies, and so does a command that did not parse wherever containment-guard
+ * judges too (a trajectory DB and sqlite resolve), since nothing it writes can
+ * be told (GH 2981); where it does not, such a command is denied only when its
+ * text may name `.claude` (mayNameClaudeDir). Its other never-judged targets
+ * are containment-guard's. A write target is judged on each word bash
+ * brace-expands it to; a command that writes nothing has no word expanded. A
+ * command with no gated target reads no DB.
+ *
+ * A write naming only a dir above the prompt dirs (GH 2981) is gated too: a
+ * `.claude`, `.claude/skills` or `.claude/agents` dir for any write, and the
+ * root, any ancestor of it or of where the prompt dirs resolve when a whole
+ * tree lands there (the analyzer's treeWrites mode: a recursive cp, rsync,
+ * tar extract, git checkout / restore pathspec, read from the repository's top
+ * for a `:/` or `:(top)` one, or interpreter copy), since the tree may carry a
+ * `.claude/skills` of its own. A mv lands only its sources' names, so a mv
+ * into the root is gated only when one, brace-expanded, is named `.claude` or
+ * is a glob that may match it (no glob char matches a leading dot unless the
+ * command names dotglob); a source whose braces expand past what can be listed
+ * counts as one that may be named `.claude`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths } from './cmd-analysis/index.js';
+import { braceEdge, braceExpand, CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
+import { NEVER_JUDGED, NEVER_JUDGED_FIX, UNJUDGED_PHRASE } from './containment-guard.js';
 import { judgedPath } from './no-source-edit-from-main.js';
 import { pathCanonical } from './lib/agent-context.js';
-import { DB_RETRY_FIX, dbPath, haveSqlite, projectRoot, sqlQuote, sqliteRo } from './lib/db.js';
+import { DB_RETRY_FIX, dbPath, dbState, haveSqlite, projectRoot, sqlQuote, sqliteRo } from './lib/db.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
 import { agentRole } from './lib/role.js';
 
@@ -37,6 +55,7 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 // Case-insensitive: on macOS's default APFS a .Claude/Skills spelling writes into .claude/skills.
 const PROMPT_DIR = /(^|\/)\.claude\/(skills|agents)\//i;
 const AGENT_DIR = /(^|\/)\.claude\/agents\//i;
+const PROMPT_PARENT = /(^|\/)\.claude(\/(skills|agents))?$/i;
 
 export const UNVERIFIABLE_REASON =
   'BLOCKED: a project skill or agent write needs a Human approval record, and the trajectory DB is unavailable to verify it — failing closed.';
@@ -120,6 +139,12 @@ function realPromptDirs(root: string, kind: PromptKind): string[] {
   return dirs;
 }
 
+/** The paths of a spelled and a canonical target under the root, spelled and canonical. */
+function rootRels(spelled: string, target: string, root: string): string[] {
+  const canonicalRoot = pathCanonical(root);
+  return [underRoot(spelled, root), underRoot(spelled, canonicalRoot), underRoot(target, canonicalRoot)].filter((rel): rel is string => rel !== null);
+}
+
 /**
  * The project prompt dir a write lands in, agents winning over skills, or null. Judged on the
  * spelled path (vs the root as given and canonical), on the canonical one, and on where the root's
@@ -127,8 +152,7 @@ function realPromptDirs(root: string, kind: PromptKind): string[] {
  * a dir Claude Code loads slips past.
  */
 function promptKind(spelled: string, target: string, root: string): PromptKind | null {
-  const canonicalRoot = pathCanonical(root);
-  const rels = [underRoot(spelled, root), underRoot(spelled, canonicalRoot), underRoot(target, canonicalRoot)].filter((rel): rel is string => rel !== null);
+  const rels = rootRels(spelled, target, root);
   const inRealDir = (kind: PromptKind): boolean => isAbsolute(root) && realPromptDirs(root, kind).some((dir) => within(target, dir));
   if (rels.some((rel) => AGENT_DIR.test(rel)) || inRealDir('agents')) return 'agents';
   if (rels.some((rel) => PROMPT_DIR.test(rel)) || inRealDir('skills')) return 'skills';
@@ -201,22 +225,128 @@ function baseDir(cwd: unknown, root: string): string {
   return typeof cwd === 'string' && isAbsolute(cwd) ? cwd : root;
 }
 
+/** Whether a write target is a `.claude`, `.claude/skills` or `.claude/agents` dir under the root, any letter case, spelled or resolved. */
+function isPromptParent(spelled: string, target: string, root: string): boolean {
+  return rootRels(spelled, target, root).some((rel) => PROMPT_PARENT.test(rel));
+}
+
+/**
+ * A shell glob as a case-insensitive RegExp, or null when it is no valid class. As bash's default
+ * (no dotglob), its `*`, `?` and `[...]` never match a leading dot; only a literal leading `.` does.
+ */
+function globRegExp(glob: string, dotglob: boolean): RegExp | null {
+  let re = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    const close = c === '[' ? glob.indexOf(']', i + 2) : -1;
+    if (c === '*') re += '.*';
+    else if (c === '?') re += '.';
+    else if (close > 0) {
+      const body = glob.slice(i + 1, close).replace(/\\/g, '\\\\');
+      re += `[${/^[!^]/.test(body) ? `^${body.slice(1)}` : body}]`;
+      i = close;
+    } else re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  }
+  try {
+    return new RegExp(`^${dotglob || glob.startsWith('.') ? '' : '(?!\\.)'}${re}$`, 'i');
+  } catch {
+    return null;
+  }
+}
+
+/** An extglob operator (`@(…)`, `!(…)`, `+(…)`, `*(…)`, `?(…)`), whose match is not modelled. */
+const EXTGLOB = /[@!+*?]\(/;
+
+/**
+ * Whether <path> is <of> or an ancestor of it, a glob in its last segment matching the name below
+ * its parent (an invalid glob or an extglob matches); <dotglob> as in globRegExp.
+ */
+function ancestorOrSelf(path: string, of: string, dotglob: boolean): boolean {
+  if (path === '/' || within(of, path)) return true;
+  const slash = path.lastIndexOf('/');
+  const name = path.slice(slash + 1);
+  if (!/[*?[]/.test(name) && !EXTGLOB.test(name)) return false;
+  const parent = path.slice(0, slash) || '/';
+  const below = parent === '/' ? of.slice(1) : underRoot(of, parent);
+  if (below === null || below === '') return false;
+  if (EXTGLOB.test(name)) return true;
+  return globRegExp(name, dotglob)?.test(below.split('/')[0]) ?? true;
+}
+
+/**
+ * Whether a tree written whole into <spelled> can reach a prompt dir: it is the root's `.claude`
+ * dir (spelled or canonical) or an ancestor of it, or an ancestor of where the root's skill or
+ * agent dirs or their symlinked entries resolve; a glob last segment (`mv x/.c* .`) counts when
+ * it may match the next segment down.
+ */
+function holdsPromptDirs(spelled: string, target: string, root: string, dotglob: boolean): boolean {
+  if (!isAbsolute(root) || root === '/') return false;
+  const claudeDirs = [join(root, '.claude'), join(pathCanonical(root), '.claude')];
+  if (claudeDirs.some((dir) => ancestorOrSelf(spelled, dir, dotglob) || ancestorOrSelf(target, dir, dotglob))) return true;
+  return [...realPromptDirs(root, 'skills'), ...realPromptDirs(root, 'agents')].some((dir) => ancestorOrSelf(target, dir, dotglob));
+}
+
+/**
+ * The canonical targets of <lines> that <isGated> holds for. A write target is judged on each word
+ * bash brace-expands it to (a redirect target too), or past what can be listed on its first and
+ * last; only a line that is a write target gets here, so no other command's words expand.
+ */
+function gatedTargets(lines: readonly string[], base: string, isGated: (spelled: string, target: string) => boolean): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    const path = judgedPath(line);
+    if (path === null || path === '') continue;
+    for (const alternative of braceExpand(path) ?? [braceEdge(path, false), braceEdge(path, true)]) {
+      const spelled = resolve(base, alternative);
+      const target = pathCanonical(spelled);
+      if (isGated(spelled, target)) out.push(target);
+    }
+  }
+  return out;
+}
+
+/** Whether the command may let a glob match a leading dot: bash's dotglob or GLOBIGNORE, or zsh's GLOB_DOTS, named anywhere in it. */
+const DOTGLOB = /dotglob|GLOBIGNORE|glob_?dots/i;
+
+/** An analyzer line for a command (or a body it runs) that did not parse, so nothing it writes can be told. */
+const UNPARSED = 'UNRESOLVED:$(parse):';
+
+/**
+ * Whether an unparsed command's raw text may name `.claude`, read conservatively since nothing
+ * else of it can be told: `claude` in any letter case once every quote and backslash is taken out,
+ * ANSI-C or locale quoting (`$'…'`, `$"…"`, which can spell any char), or a whitespace-free run
+ * holding a `.` with a glob, brace or `$` after it (`.c*`, `.[cC]laude`, `x/.{a,b}`, `.$X`).
+ */
+function mayNameClaudeDir(command: string): boolean {
+  return /claude/i.test(command.replace(/['"\\]/g, '')) || /\$['"]/.test(command) || /\.\S*[*?[{$]/.test(command);
+}
+
+const analyzed = async (command: string, options: WritePathsOptions): Promise<string[]> => (await writePaths(command, options)).join('\n').split('\n');
+
 async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   if (agentRole(raw) === 'swe') return ALLOW;
   const root = projectRoot(env);
   const cwd = payloadCwd(raw, env);
-  const lines = (await writePaths(command, { cwd, root, env })).join('\n').split('\n');
+  const lines = await analyzed(command, { cwd, root, env });
   if (lines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
+  const treeLines = await analyzed(command, { cwd, root, env, treeWrites: true });
+  if (treeLines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
+  const unparsed = lines.find((line) => line.startsWith(UNPARSED));
+  if (unparsed !== undefined) {
+    // containment-guard's own state test: where it stands aside (no DB or no sqlite) an unparsed command goes on unless it may name a prompt root.
+    if (dbState(env) !== 'unresolved') {
+      return denyResult(`BLOCKED: write target "${unparsed.slice(UNPARSED.length)}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED['$(parse)']}`, NEVER_JUDGED_FIX['$(parse)']);
+    }
+    if (mayNameClaudeDir(command)) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
+  }
 
   const base = baseDir(cwd, root);
-  const gated = new Set<string>();
-  for (const line of lines) {
-    const path = judgedPath(line);
-    if (path === null || path === '') continue;
-    const spelled = resolve(base, path);
-    const target = pathCanonical(spelled);
-    if (promptKind(spelled, target, root) !== null) gated.add(target);
-  }
+  const dotglob = DOTGLOB.test(command);
+  const promptWrite = (spelled: string, target: string): boolean => promptKind(spelled, target, root) !== null || isPromptParent(spelled, target, root);
+  const plain = gatedTargets(lines, base, promptWrite);
+  const tree = gatedTargets(treeLines, base, (spelled, target) => promptWrite(spelled, target) || holdsPromptDirs(spelled, target, root, dotglob));
+  // A full approval of a dir already admits any tree into it, so where a moved file lands inside a gated dir needs no second approval.
+  const gated = new Set([...plain, ...tree.filter((path) => !plain.some((dir) => underRoot(path, dir) !== null))]);
   if (gated.size === 0) return ALLOW;
 
   const db = approvalDb(env);
