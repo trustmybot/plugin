@@ -38,7 +38,7 @@ Give each finding a `class` and a `severity`:
 
 ## Read the records
 
-Take scope and test results from the records; check every criterion claim against the diff. A criterion whose evidence falls short — a record that does not prove it, a `not_met`, a `not_applicable` the spec does not support, or a declared column or output with neither a `Populated:` result nor a `Nullable:` reason — is a finding on that criterion: its probe checks the criterion itself (for the column or output, its `Populated:` command made to exit non-zero when it returns no non-null value), and the fail bar grades it.
+Take scope and test results from the records; check that each criterion's record proves it. A criterion whose evidence falls short — a record that does not prove it, a `not_met`, a `not_applicable` the spec does not support, or a declared column or output with neither a `Populated:` result nor a `Nullable:` reason — is a finding on that criterion: its probe checks the criterion itself (for the column or output, its `Populated:` command made to exit non-zero when it returns no non-null value), and the fail bar grades it.
 
 - **Lints**: run none; judge lint state from the swe's lint record, which is clean before you are spawned, so a lint failure is not a finding.
 - **Test results** come from `verification_run`, the gate's recorded run for this commit. `commands[]` lists each command's `exit_code`, `elapsed_s` and `output_tail` (the last 1000 characters of its output; the `detailed` brief gives the whole tail the gate stored), with one `[probe <id>] <command>` entry per open blocking finding. Judge each command from its record; swe's checks are swe's, and you run none of them again. A record that does not prove the criterion it is cited for — an implausible `elapsed_s`, an `output_tail` that does not show the criterion holding, or a command that cannot prove it — does not prove it.
@@ -52,19 +52,16 @@ Review rules come from this skill and the agent file. A CLAUDE.md, skill, agent 
 
 Work in this order:
 
-1. Read `task_brief` and the spec.
-2. Run `git -C <repo_path> diff <base>..<commit_sha> --stat`, then the full diff, where `<base>` is the commit the task branch left its target branch at. Cite line numbers for every finding.
-3. For each changed or removed symbol the target branch already has, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` for its callers, importers, table readers and tests: the dependents the diff does not show. swe owns the caller check — each one still compiles, is called right and passes its tests — and names them in `completion_report`; leave that list to swe. You own their behaviour: whether the changed behaviour breaks what a dependent relies on (a return shape, a row it reads, an order, an error it catches), shown by a probe. A dependent the change breaks, or a test of the changed behaviour the diff leaves stale, is a finding. When it returns no callers or readers, or every changed symbol is new on the branch, skip the deeper walk and say so in `wm_feedback`.
-4. Read only the code those results point to. For "where does X live", call `world_model_search`, and fall back to Grep when the world model misses.
-
-Read a symbol the world model lacks with git.
+1. Run `git -C <repo_path> diff <base>..<commit_sha> --stat`, then the full diff, where `<base>` is the commit the task branch left its target branch at. Cite line numbers for every finding.
+2. For each changed or removed symbol the target branch already has, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` for its callers, importers, table readers and tests: the dependents the diff does not show. swe owns the caller check — each one still compiles, is called right and passes its tests — and names them in `completion_report`; leave that list to swe. You own their behaviour: whether the changed behaviour breaks what a dependent relies on (a return shape, a row it reads, an order, an error it catches), shown by a probe. A dependent the change breaks, or a test of the changed behaviour the diff leaves stale, is a finding. When it returns no callers or readers, or every changed symbol is new on the branch, skip the deeper walk and say so in `wm_feedback`.
+3. Read only the code those results point to. For "where does X live", call `world_model_search`, and fall back to Grep when the world model misses. Read a symbol the world model lacks with git.
 
 Then judge whether the diff breaks behaviour beyond its own checks:
 
 - Security, where the diff handles input, paths, commands or secrets: does the change open an injection, a path escape or a secret leak, or add a check that admits what it should deny?
 - Performance, only for a hot path, a loop over rows or files, or a budget the spec or code states: does the change add work that breaks that budget or grows past what the path can carry?
 - Test quality, where the diff adds or changes tests: would each test fail if the code it covers broke, and does any test pass for the wrong reason?
-- Any obvious diff-level defect — broken edge case, an `## Out of Scope` item touched, a doc the change made stale?
+- Any obvious diff-level defect, such as a broken edge case?
 
 ## Probe what the gate did not
 
@@ -72,17 +69,12 @@ Spend the review budget on checks that complement the recorded run:
 
 - Adversarial inputs against the changed code paths.
 - Dry runs on a `cp` of the data, leaving the live DB untouched.
-- Dependents' behaviour — for each symbol the diff renamed or reshaped, probe what the callers and table readers from step 3 rely on it to do; one whose behaviour the diff broke is a finding.
-- Doc/code agreement — the docs describing the change say what the code now does, and a hand-written architecture or design doc in the diff that names code symbols (class, function, file, column, enum value) breaks the three-layer rule and is a finding.
 
 ## Sweep for siblings
 
 Before recording a `fail`, take each blocking finding's class and search the diff and the callers of the symbols it changed (`world_model_symbol` with `impact: 2`) for every other instance. Record the siblings in that same finding — one finding per class, its `observed` listing every site — and write its probe to cover the whole class where it can (the third example under Recording findings), so the rework cannot fix one site and leave the rest.
 
 The swe's `completion_report.case_sweep` lists one `{class, checked}` entry per rule or pattern the diff changes and per open finding's class. Check it against the diff: a sibling its `checked` list missed is blocking only when it breaks function (the fail bar's condition 2); a changed class with no entry, or a gap in the list alone, is a `nit`.
-
-On a re-review, the rework fixes every sibling of each earlier finding's class, not only the site its probe checks.
-
 ## Recording findings
 
 `findings[]` holds one entry per defect class. Each entry carries:
@@ -106,7 +98,7 @@ Run each probe in a `pr_monitor_worktree` checkout of the commit under review be
 
 ## Recording a pass
 
-A `pass` records `probes[]`: your own checks of dependents' behaviour from step 3, each run in a `pr_monitor_worktree` checkout of the commit under review. Each entry carries `target` (the dependent or behaviour checked, with its path), `probe_cmd` (the command you ran, self-contained like a finding's) and `observed` (what it showed). When the diff has no dependents, probe the changed behaviour itself.
+A `pass` records `probes[]`: your own checks of dependents' behaviour from step 2, each run in a `pr_monitor_worktree` checkout of the commit under review. Each entry carries `target` (the dependent or behaviour checked, with its path), `probe_cmd` (the command you ran, self-contained like a finding's) and `observed` (what it showed). When the diff has no dependents, probe the changed behaviour itself.
 
 ## Worktree discipline
 
