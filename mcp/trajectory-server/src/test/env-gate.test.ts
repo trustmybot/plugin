@@ -4,9 +4,10 @@
 import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
@@ -294,6 +295,29 @@ describe('environment gate (GH 2866)', () => {
       assert.match(decision.body, /Environment gate: reindex skipped because the server has no world-model graph/);
     } finally {
       fx.cleanup();
+    }
+  });
+});
+
+describe('the server READMEs describe the fail-closed environment gate (F827-1)', () => {
+  const serverRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const read = (rel: string): string => readFileSync(join(serverRoot, rel), 'utf8');
+
+  it('no README still calls worktree setup or creation fail-soft for the gated tools', () => {
+    const serverReadme = read('README.md');
+    const toolsReadme = read('src/tools/README.md');
+    assert.doesNotMatch(serverReadme, /provisioning still succeeds/);
+    assert.doesNotMatch(serverReadme, /^- .task_provision., .task_reopen., .task_retry.: fail-soft/m);
+    assert.doesNotMatch(toolsReadme, /Only worktree creation stays fail-soft/);
+    assert.doesNotMatch(toolsReadme, /the worktree follows fail-soft/);
+  });
+
+  it('both READMEs name env_gate_failed and the recorded base and world-model commits', () => {
+    for (const rel of ['README.md', 'src/tools/README.md']) {
+      const text = read(rel);
+      assert.match(text, /env_gate_failed/, rel);
+      assert.match(text, /base_sha/, rel);
+      assert.match(text, /wm_commit/, rel);
     }
   });
 });

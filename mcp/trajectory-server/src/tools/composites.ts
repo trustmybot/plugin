@@ -1290,9 +1290,9 @@ export function compositeTools(
       name: 'task_retry',
       description:
         "Retry a failed task in one transaction: appends the rationale, creates a new task inheriting issue_id, parent_branch_id and repo, " +
-        "then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
+        "its branch and worktree cut by task_provision's environment gate. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
         `${verificationPathsDoc('the base')} ` +
-        'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.',
+        'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, base_sha, wm_commit, env_gate, worktree_path, worktree_adopted?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1503,11 +1503,11 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        'Sets up one task for swe. The branch is set up before the DB commit, so a git failure writes no task row. ' +
+        'Sets up one task for swe. Before the DB commit an environment gate runs fetch, branch, worktree, setup and reindex; a failed stage returns env_gate_failed and writes nothing. ' +
         "A new branch is cut from local <base> when it is a fast-forward ahead of origin/<base>, else from origin/<base> (git_setup 'created'); an existing ref at or behind the base tip is fast-forwarded ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind, open PRs) unless reuse_existing. " +
-        "Writes a kind='decision' discussion and the task in one transaction, then the worktree (fail-soft; worktree_reused when it exists). " +
+        "Writes a kind='decision' discussion and the task in one transaction. " +
         `${verificationPathsDoc('the base')} ` +
-        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?}.',
+        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_sha, wm_commit, env_gate, base_diverged?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1591,9 +1591,9 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, and recreates a missing branch and worktree. Refused when the task's issue is closed. " +
+        "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Refused when the task's issue is closed. " +
         `${verificationPathsDoc('the branch tip')} ` +
-        'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.',
+        'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, base_sha, wm_commit, env_gate, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
         type: 'object',
         properties: {
