@@ -15,7 +15,7 @@ import { compositeTools } from '../tools/composites.js';
 import { taskTools } from '../tools/tasks.js';
 import { validationTools } from '../tools/validation.js';
 import { makeSandbox, runGate, type Sandbox } from './hook-sandbox.js';
-import { seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, ((args: Record<string, unknown>) => Promise<unknown>) | undefined>;
@@ -128,7 +128,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
   const verdict = async (taskId: number, attemptN: number, v: 'pass' | 'fail', findings: unknown[] = []) => {
     seedReviewerObservation(db, taskId, attemptN, { agentId: `reviewer${attemptN}agent${taskId}x` });
     await ok('validation_record', {
-      agent: 'code-reviewer', task_id: String(taskId), attempt_n: attemptN, verdict: v, feedback: v, mcp_available: true, findings,
+      agent: 'code-reviewer', task_id: String(taskId), attempt_n: attemptN, verdict: v, feedback: v, mcp_available: true, findings, probes: TEST_PROBES,
     });
   };
 

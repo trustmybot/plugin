@@ -267,6 +267,10 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     -- Keep these comments comma-free: DROP COLUMN on the last column cuts back
     -- to the nearest comma.
     reviewed_sha        TEXT,
+    -- probes_json (v68 GH 2866): the JSON array of {target probe_cmd observed}
+    -- checks the reviewer ran. Every pass carries one. NULL when a fail or
+    -- escalate sent none and for rows from before v68.
+    probes_json         TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -428,7 +432,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 67, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 68, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

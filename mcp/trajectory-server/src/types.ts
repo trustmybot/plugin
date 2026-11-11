@@ -200,6 +200,7 @@ export interface ValidationAttempt {
   reviewed_sha?: string | null;
   created_at: string;
   repo?: string | null;
+  probes_json?: string | null;
 }
 
 /** A review_findings row (schema v47, GH 1737). */

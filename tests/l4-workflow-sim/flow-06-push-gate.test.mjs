@@ -17,7 +17,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun, sqliteRun } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun, sqliteRun, REVIEW_PROBES } from '../l3-integration/mcp/harness.mjs';
 
 async function provisionClosedTask(client, project, dbPath, issueId, branchId, sweAgentId) {
   const provisioned = await call(client, 'task_provision', {
@@ -98,7 +98,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → code-reviewer si
   // 3. code-reviewer signs off task A
   seedReviewerObservation(dbPath, taskA, 1, { agentId: 'flow06-reviewer-a' });
   const recordA = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskA, attempt_n: 1, verdict: 'pass', mcp_available: true,
+    agent: 'code-reviewer', task_id: taskA, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES,
     feedback: 'Gate 2 review: tests pass; diff matches spec; LGTM.',
     subagent_session_id: 'flow06-session-A',
   });
@@ -107,7 +107,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → code-reviewer si
   // 4. code-reviewer signs off task B
   seedReviewerObservation(dbPath, taskB, 1, { agentId: 'flow06-reviewer-b' });
   const recordB = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskB, attempt_n: 1, verdict: 'pass', mcp_available: true,
+    agent: 'code-reviewer', task_id: taskB, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES,
     feedback: 'Gate 2 review: clean.',
     subagent_session_id: 'flow06-session-B',
   });
@@ -148,7 +148,7 @@ test('Flow 6 fail-path — code-reviewer FAIL verdict triggers retry signal in n
   // attempt 2: pass after fix
   seedReviewerObservation(dbPath, taskId, 2, { agentId: 'flow06-reviewer-x2' });
   const pass2 = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true,
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES,
     feedback: 'Fixed; LGTM.',
     subagent_session_id: 'flow06-pass-session-2',
   });

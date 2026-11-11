@@ -64,6 +64,10 @@ export async function startClient({ env, extraEnv, dbPath: requestedDbPath = ':m
   };
 }
 
+// A well-formed probes[] for a validation_record pass, which the server
+// refuses without one (GH 2866).
+export const REVIEW_PROBES = [{ target: 'the changed behavior', probe_cmd: 'npm test', observed: 'exit 0: all passing' }];
+
 // seedReviewerObservation writes the reviewer_identity_observed row the
 // reviewer-identity-observe hook writes when a code-reviewer subagent calls
 // validation_record (the server refuses a verdict without one). Needs a

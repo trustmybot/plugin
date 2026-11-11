@@ -19,6 +19,10 @@ export function tempDB(opts: { seedScan?: boolean; path?: string } = {}): Trajec
   return db;
 }
 
+// TEST_PROBES is a well-formed probes[] for a validation_record pass, which
+// refuses a pass without one (GH 2866).
+export const TEST_PROBES = [{ target: 'the changed behavior', probe_cmd: 'npm test', observed: 'exit 0: all passing' }];
+
 // seedReviewerObservation writes the row the reviewer-identity-observe hook
 // writes when a code-reviewer subagent calls validation_record, so a test's
 // validation_record call finds a reviewer identity to stamp.

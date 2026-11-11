@@ -19,7 +19,7 @@ import { ALLOW, type Gate } from '../hooks/gate.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { FROM_NODE, recordReviewerSpawn, reviewerSpawnAnchors } from '../hooks/record-reviewer-spawn.js';
 import { validationTools } from '../tools/validation.js';
-import { seedReviewerObservation } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -104,7 +104,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
         agent: 'code-reviewer',
         task_id: TASK_ID,
         attempt_n: attemptN,
-        verdict: 'pass',
+        verdict: 'pass', probes: TEST_PROBES,
         feedback: '# Review',
         mcp_available: true,
         ...extra,
@@ -287,7 +287,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
 
       const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
       try {
-        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 67);
+        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 68);
         const after = migrated.all<Record<string, unknown>>('SELECT * FROM validation_attempts ORDER BY id').map((r) => ({ ...r }));
         assert.deepEqual(after, before.map((r) => ({ ...r, reviewed_sha: null })));
         assert.deepEqual(

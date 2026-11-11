@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, seedReviewerObservation } from './harness.mjs';
+import { startClient, call, seedReviewerObservation, REVIEW_PROBES } from './harness.mjs';
 
 // Role matrix coverage for tools that wrap handlers with `requireRoles`. Every
 // registered tool, gated or not, rejects a missing or invalid `agent`.
@@ -274,7 +274,7 @@ test('validation_record — code-reviewer only; architect/bro/swe all forbidden'
   }
 
   const unobserved = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
   assert.equal(unobserved.ok, false, 'code-reviewer without an observed identity must be refused');
@@ -282,7 +282,7 @@ test('validation_record — code-reviewer only; architect/bro/swe all forbidden'
 
   seedReviewerObservation(dbPath, taskId, 1, { agentId: 'role-matrix-reviewer', sessionId: 'role-matrix-main' });
   const ok = await call(client, 'validation_record', {
-    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
   assert.equal(ok.ok, true, `code-reviewer should record after an observed row; got ${JSON.stringify(ok)}`);

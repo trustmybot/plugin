@@ -62,6 +62,7 @@ import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
   carryOpenFindings,
+  clipOutputTail,
   gateCommands,
   latestVerificationRun,
   passingRunForCommit,
@@ -434,10 +435,12 @@ export type BriefResponseFormat = (typeof BRIEF_RESPONSE_FORMATS)[number];
 const isBriefResponseFormat = (v: unknown): v is BriefResponseFormat =>
   (BRIEF_RESPONSE_FORMATS as readonly unknown[]).includes(v);
 const BRIEF_RESPONSE_FORMAT_HINT =
-  "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
+  "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries, full discussion rows and full check output tails.";
+/** How much of each stored verification_run_commands.output_tail a concise brief carries. */
+const BRIEF_OUTPUT_TAIL_CHARS = 1000;
 const BRIEF_SECTION_HINTS = {
   core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
-  verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
+  verification: 'verification[] the close gate runs and verification_run, its latest recorded run with each command\'s output_tail: load before closing or after a gate failure',
   scope: "scope {files, extras, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
 };
@@ -1771,7 +1774,7 @@ export function compositeTools(
       name: 'task_brief',
       description:
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
-        "scope {files, extras, extras_accepted, base_moved} from the review handoff and close of the current commit, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
+        "scope {files, extras, extras_accepted, base_moved} from the review handoff and close of the current commit, verification_run (the gate's latest run, each command with output_tail), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
         "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, freshness, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
@@ -1789,7 +1792,7 @@ export function compositeTools(
           response_format: {
             type: 'string',
             enum: [...BRIEF_RESPONSE_FORMATS],
-            description: "'concise' (default) trims world-model summaries and other discussion rows; 'detailed' returns them in full.",
+            description: "'concise' (default) trims world-model summaries, other discussion rows and output_tail (last 1000 chars); 'detailed' returns them in full.",
           },
         },
         required: ['agent', 'task_id'],
@@ -2868,12 +2871,21 @@ export function compositeTools(
           };
         };
 
+        const verificationSection = () => {
+          const stored = latestVerificationRun(db, task.id, { withOutputTail: true });
+          if (!concise || !stored) return { verification: parseTaskFiles(task.verification), verification_run: stored };
+          trimmed ||= stored.commands.some((c) => (c.output_tail?.length ?? 0) > BRIEF_OUTPUT_TAIL_CHARS);
+          const commands = stored.commands.map((c) => ({
+            ...c,
+            output_tail: clipOutputTail(c.output_tail ?? null, BRIEF_OUTPUT_TAIL_CHARS),
+          }));
+          return { verification: parseTaskFiles(task.verification), verification_run: { ...stored, commands } };
+        };
+
         const brief = {
           ...(want('core') ? coreSection() : {}),
           ...(section === 'core' ? { sections: BRIEF_SECTION_HINTS } : {}),
-          ...(want('verification')
-            ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db, task.id) }
-            : {}),
+          ...(want('verification') ? verificationSection() : {}),
           ...(want('scope') ? scopeSection() : {}),
           ...(want('history') ? historySection() : {}),
           ...(want('core') ? { freshness: freshnessBlock(db, repo || null) } : {}),

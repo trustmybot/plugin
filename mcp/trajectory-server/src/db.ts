@@ -15,7 +15,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 67;
+export const TARGET_SCHEMA_VERSION = 68;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -838,6 +838,8 @@ function runMigrations(
   if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
   // v66→v67: tasks.base_sha and tasks.wm_commit, the environment gate's commits (GH 2866)
   if (fromVersion < 67 && toVersion >= 67) migrateV66toV67(db);
+  // v67→v68: validation_attempts.probes_json, the checks a reviewer ran (GH 2866)
+  if (fromVersion < 68 && toVersion >= 68) migrateV67toV68(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3498,6 +3500,25 @@ function migrateV66toV67(db: DatabaseSync): void {
       for (const column of ['base_sha', 'wm_commit']) {
         if (!hasColumn(db, 'tasks', column)) db.exec(`ALTER TABLE tasks ADD COLUMN ${column} TEXT`);
       }
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v67→v68: validation_attempts.probes_json (GH 2866), the checks a code-reviewer
+// ran for its verdict. Existing rows keep NULL.
+function migrateV67toV68(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'probes_json')) {
+      db.exec('ALTER TABLE validation_attempts ADD COLUMN probes_json TEXT');
     }
     commitTransaction(db);
   } catch (err) {

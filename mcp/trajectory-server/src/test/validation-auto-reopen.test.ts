@@ -25,7 +25,7 @@ import { reReviewAdmission } from '../tools/reopen.js';
 import { scanTools } from '../tools/scan.js';
 import { REVIEWER_SPAWN_FROM_NODE, validationTools } from '../tools/validation.js';
 import { reindexIdle } from '../world-model/freshness.js';
-import { pinScanEnv, seedReviewerObservation, tempDB, type ScanEnvPin } from './helpers.js';
+import { TEST_PROBES, pinScanEnv, seedReviewerObservation, tempDB, type ScanEnvPin } from './helpers.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -91,6 +91,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
       verdict,
       feedback: '# Review',
       mcp_available: true,
+      probes: TEST_PROBES,
       ...(findings ? { findings } : {}),
     })) as unknown as Raw;
   }
