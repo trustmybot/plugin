@@ -1,6 +1,6 @@
-# Label Doctrine
+# Labels
 
-**Source of truth for the issue labels on the trustmybot/plugin GitHub board.** The taxonomy governs TMB development only. It does not ship to TMB users: no shipped default, prompt, skill or tool description names these labels.
+The issue labels on the trustmybot/plugin GitHub board. The taxonomy governs TMB development only. It does not ship to TMB users: no shipped default, prompt, skill or tool description names these labels.
 
 Every label lives in [`.github/labels.json`](../../.github/labels.json) as `{name, color, description, group}`. The tables below are generated from it.
 
@@ -10,9 +10,8 @@ Every issue carries exactly **one type**, **one priority** and **one area**. The
 
 Names stay flat and self-explanatory; groups that need a prefix use the `Prefix: Value` form (`Priority: High`, `Area: Hooks`), per GH 101.
 
-Adding, renaming or removing a label is a doctrine change: edit `labels.json` in a PR, regenerate this file, and let the sync workflow apply it.
+To add, rename or remove a label, edit `labels.json` in a PR, regenerate this file, and let the sync workflow apply it.
 
----
 
 ## Canonical list
 
@@ -66,9 +65,8 @@ Adding, renaming or removing a label is a doctrine change: edit `labels.json` in
 
 <!-- END GENERATED labels -->
 
----
 
-## Enforcement
+## Checks
 
 | Piece | What it does |
 |---|---|
@@ -81,29 +79,14 @@ Adding, renaming or removing a label is a doctrine change: edit `labels.json` in
 | `tests/l1-lint/labels.test.mjs` | Unit tests for the triage rule plus the doc-sync check. |
 | `tests/l1-lint/bug-form.test.mjs` | Checks that `bug.yml` lists the same fields, labels, types and options as `FORM_FIELDS` in the bug-report module. |
 
-## How agents use labels
+## Filing with labels
 
-When bro files an issue, it applies one type, one priority and one area from the list above. **Don't invent labels.** If none fits, surface it to the Human: the answer is a `labels.json` change, never an ad-hoc label.
+Whoever files an issue, a contributor or an agent working on TMB, applies one type, one priority and one area from the list above. When none fits, the answer is a `labels.json` change, never an ad-hoc label.
 
-## Lifecycle / stale — no label
+No label tracks staleness: a label for time-based state duplicates the issue's update time, so search by it instead (`gh issue list --state open --search 'updated:<YYYY-MM-DD>'`).
 
-Use `gh issue list --state open --search 'updated:<2026-01-01'` (or similar) to surface stale items. We dropped `lifecycle/stale` (GH 101): a label for time-based state is double bookkeeping.
-
----
-
-## Migration history
-
-- **2026-04-25 (v0.4.1, PR GH 98)**: First migration — invented `area:install`, `p:high`, `stale`, etc. (8 invented labels) → adopted K8s convention (`area/install`, `priority/critical-urgent`).
-- **2026-04-25 (v0.4.1, PR for GH 101)**: Second migration — K8s prefixes proved opaque; pivoted to a flat style. `area/install` → `Install`, `priority/high` → `Priority: High`. Dropped `lifecycle/stale` and 6 unused GH defaults. Added `Improvement` and `Docs`.
-- **2026-10-25 (GH 1770)**: Third migration — one type, one priority and one area per issue, sourced from `labels.json`.
-  - Renamed: Hooks → Area: Hooks, MCP → Area: Trajectory Server, Install → Area: Install, Workflow → Area: Agents, Discussion → Research.
-  - Merged, then deleted: Tests → Test, Performance → token-burn, enforcement → Area: Hooks, Doctrine → Area: Agents.
-  - Deleted: design, architecture, campaign, Roundtable, javascript, dependencies.
-  - Added: Area: World Model, Area: Dashboard, Area: Cheatcode, Area: Release, needs-triage.
-
----
 
 ## Related
 
-- [`ENUMS.md`](./ENUMS.md) — same governance rule applied to DB column ENUMs
+- [`ENUMS.md`](./ENUMS.md) — same rule for the DB vocabularies: adopt an established convention, invent only where none applies
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md#filing-an-issue) — filing an issue

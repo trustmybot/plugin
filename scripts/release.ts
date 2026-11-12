@@ -11,7 +11,7 @@
 //   4. Create the GitHub release with notes extracted from CHANGELOG.md
 //   5. Run the L5 release canary (re-clone the tag in Docker, run install-smoke)
 //   6. Re-pin the rc channel to the new stable tag's payload/<tag>
-//      (publish-rc-channel.ts --stable-repin — CONTRIBUTING Phase-D step 14)
+//      (publish-rc-channel.ts --stable-repin — docs/contributing/RELEASE.md Phase D step 14)
 //
 // Idempotent + safety-checked:
 //   - Refuses to run unless current branch is `main`.
@@ -332,7 +332,7 @@ async function main(): Promise<void> {
 
   // ---------- step 6: re-pin the rc channel to the stable tag ----------
   //
-  // CONTRIBUTING Phase-D step 14. After a stable cut the rc channel must converge
+  // docs/contributing/RELEASE.md Phase D step 14. After a stable cut the rc channel must converge
   // on the released build: publish-rc-channel.ts --stable-repin pins
   // payload/<tag>, the runtime-only build release-payload.yml pushes on the tag
   // push of step 2. Fail-forward like the canary: the release is already public,

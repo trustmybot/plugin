@@ -256,4 +256,4 @@ sqlite3 <workspace>/.claude/tmb/trajectory.db \
 
 ---
 
-Releasing (version bump, rc and stable promotion) is in [CONTRIBUTING.md](../../CONTRIBUTING.md); migrations are built in `mcp/trajectory-server/src/db.ts`.
+Releasing (version bump, rc and stable promotion) is in [RELEASE.md](../contributing/RELEASE.md); migrations are built in `mcp/trajectory-server/src/db.ts`.

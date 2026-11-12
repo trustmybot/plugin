@@ -25,7 +25,7 @@
 //   8. Ensure a marketplace-rc README.md exists.
 //   9. Show the diff, confirm y/N (skipped by --yes), then commit + push origin main.
 //
-// --stable-repin mode (CONTRIBUTING Phase-D step 14):
+// --stable-repin mode (docs/contributing/RELEASE.md Phase D step 14):
 //   Re-pins the rc channel to a STABLE tag (X.Y.Z) after a release so rc-channel
 //   installs converge on the released build between rc cycles. VERSION must match
 //   a stable tag; the rc-only refusal and the release-gate pre-check are bypassed
