@@ -95,7 +95,7 @@ Hook gates in TypeScript, one per `mcp/trajectory-server/src/hooks/<name>.ts` (a
 | `substrate-preflight.ts` | SessionStart | Verify the trajectory DB + world-model substrates are reachable before the session proceeds |
 | `orphan-scan.ts` | SessionStart | Report this project's stale trajectory DBs, duplicate server procs and unpinned caches left by upgrades (cleans only when opted in) |
 | `user-prompt-persona.ts` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin hooks reloaded mid-session) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
-| `activation-routine.ts` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner; HALT + recovery pointer when the MCP server is not running |
+| `activation-routine.ts` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner; HALT + recovery pointer when the MCP server is not running; one /compact nudge per session once bro's context passes `bro_compact_nudge_tokens` |
 | `session-log-capture.ts` | UserPromptSubmit | Track current cc.log for diagnostics |
 | `prompt-intent-hints.ts` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / headless / ADR / consultant / search-grounding) to the right guidance; `headless-intent` asks one consent before enabling headless enforcement |
 | `roundtable-slash-detect.ts` | UserPromptSubmit | Detect `/roundtable` invocation for server gate |

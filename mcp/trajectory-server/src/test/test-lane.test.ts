@@ -114,7 +114,7 @@ describe('GH 2886: the v69 -> v70 migration', () => {
     const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
     const fresh = new TrajectoryDB(join(dir, 'fresh.db'));
     try {
-      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 70);
+      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 71);
       const cols = (d: TrajectoryDB) =>
         d.all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(wm_files)')
           .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }));

@@ -27,8 +27,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  DATA_INSTALLERS,
   LOCK_TOKEN_ENV,
   ensureBridge,
+  findInstaller,
   installRuntimeDeps,
   isValidInstall,
   releaseLock,
@@ -988,5 +990,66 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
       assert.equal(realpathSync(r.rec[0]![0]!), realpathSync(join(r.root, 'mcp/trajectory-server')));
       assert.deepEqual([r.rec[0]![1], r.rec[0]![2]], ['npm', 'install --omit=dev --ignore-scripts --no-save --no-audit --no-fund']);
     });
+  });
+});
+
+describe('findInstaller on win32 (GH 3060)', () => {
+  let base: string;
+  const execPath = '/fake/node/node.exe';
+  const npmArgs = ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'];
+  const bunArgs = ['install', '--frozen-lockfile', '--production', '--ignore-scripts'];
+  const win32 = { platform: 'win32' as const, execPath };
+
+  before(() => {
+    base = mkdtempSync(join(tmpdir(), 'tmb-win32-installer-'));
+  });
+  after(() => rmSync(base, { recursive: true, force: true }));
+
+  const dirWith = (name: string, files: string[]): string => {
+    const dir = join(base, name);
+    for (const file of files) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true });
+      writeFileSync(join(dir, file), '');
+    }
+    return dir;
+  };
+
+  it('resolves bun.exe from a Path-keyed PATH with bun\'s args', () => {
+    const bunDir = dirWith('bun-exe', ['bun.exe']);
+    const r = findInstaller({ Path: `${dirWith('empty', [])};${bunDir}` }, DATA_INSTALLERS, win32);
+    assert.equal(r?.installer.name, 'bun');
+    assert.equal(r?.command, join(bunDir, 'bun.exe'));
+    assert.deepEqual(r?.args, bunArgs);
+  });
+
+  it('skips a bun.cmd-only dir and falls through to npm via node + npm-cli.js', () => {
+    const shimDir = dirWith('bun-cmd', ['bun.cmd']);
+    const npmDir = dirWith('npm-cmd', ['npm.cmd', 'node_modules/npm/bin/npm-cli.js']);
+    const r = findInstaller({ Path: `${shimDir};${npmDir}` }, DATA_INSTALLERS, win32);
+    assert.equal(r?.installer.name, 'npm');
+    assert.equal(r?.command, execPath);
+    assert.deepEqual(r?.args, [join(npmDir, 'node_modules/npm/bin/npm-cli.js'), ...npmArgs]);
+  });
+
+  it('a bun.cmd-only PATH with no npm-cli.js anywhere yields no installer', () => {
+    const shimDir = dirWith('bun-cmd-only', ['bun.cmd']);
+    const npmNoCli = dirWith('npm-no-cli', ['npm.cmd']);
+    assert.equal(findInstaller({ Path: `${shimDir};${npmNoCli}` }, DATA_INSTALLERS, win32), undefined);
+  });
+
+  it('falls back to npm-cli.js beside execPath when no PATH dir holds npm', () => {
+    const nodeDir = dirWith('node-home', ['node.exe', 'node_modules/npm/bin/npm-cli.js']);
+    const nodeExec = join(nodeDir, 'node.exe');
+    const r = findInstaller({ PATH: dirWith('nothing', []) }, DATA_INSTALLERS, { platform: 'win32', execPath: nodeExec });
+    assert.equal(r?.command, nodeExec);
+    assert.equal(r?.args[0], join(nodeDir, 'node_modules/npm/bin/npm-cli.js'));
+  });
+
+  it('on darwin resolves an executable bare bun from PATH as before', () => {
+    const bunDir = dirWith('posix-bun', ['bun', 'bun.exe']);
+    chmodSync(join(bunDir, 'bun'), 0o755);
+    const r = findInstaller({ PATH: bunDir }, DATA_INSTALLERS, { platform: 'darwin', execPath });
+    assert.equal(r?.command, join(bunDir, 'bun'));
+    assert.deepEqual(r?.args, bunArgs);
   });
 });

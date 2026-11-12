@@ -87,11 +87,7 @@ Schema enforces via `CHECK (state IN ('open','closed'))`. `scan_run` imports the
 | `bro` | TMB persona | The single Human entry point |
 | `swe` | TMB agent | Executor (one task per spawn) |
 | `code-reviewer` | TMB agent | Push-gate reviewer |
-| `architect` | TMB consultant template | Project consultant |
-| `cto` | TMB consultant template | Project consultant |
-| `ceo` | TMB consultant template | Project consultant |
-| `pm` | TMB consultant template | Project consultant |
-| `<custom>` | per-project | User-created agents (e.g. `legal-reviewer`, `security-reviewer`) |
+| `<custom>` | per-project | Consultants drafted with `/tmb:agent-create` (e.g. `legal-reviewer`, `security-reviewer`) |
 | `system` | TMB runtime | A machine event with no agent or hook author |
 | `executor` | TMB server | Issue-sync bookkeeping the server writes on its own (`issue_adopted`, `issue_linked`, `sync_skipped`) |
 | `trajectory-server` | TMB server | `tmb_branch_autocreated` rows written when `task_create_batch` creates a branch ref |
@@ -113,6 +109,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `agent_runs_claimed` | `server` | reserved — Legacy type kept for historical rows: in v1.1.0-rc.1 `bro-turn-usage` claimed per-task bro `agent_runs` rows opened without a `session_id` for its session; bro is now metered per session, so nothing writes it and `audit_append` refuses it; `content_json` carries `run_ids`, `session_id` |
 | `branch_gate_waived` | `bro` | `task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason |
 | `branch_id_proposed` | `bro` | `intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it |
+| `bro_compact_nudged` | `hook` | `activation-routine` told bro, once per session, that its context (the last main-thread call's input, cache-creation and cache-read tokens) is past `plugin_config.bro_compact_nudge_tokens` and to ask the Human to run /compact at the next natural break (GH 3029); one row per `session_id`, ever (the once-marker), on the system issue `-1`, from_node `hook:activation-routine`; `content_json` carries `session_id`, `context_tokens`, `threshold` |
 | `bro_verification_fail` | `bro` | Bro task-gate found a V1/V2/V3 check that failed |
 | `bro_verification_pass` | `bro` | `bro_atomic_close` closed the task after code-reviewer's pass (older rows: bro's task-gate checks passed before review); `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads |
 | `bug_report_filed` | `bro` | reserved — Bro filed a TMB bug report on github.com/trustmybot/plugin after the Human approved the `bug_report_draft` draft; written by bro via `audit_append`, and `bug_report_draft` returns the newest row with the same signature as `already_filed`; `content_json` carries `signature`, `url`, `mode` (`issue`, `comment`, `link`) |

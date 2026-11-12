@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -8,6 +8,17 @@ import { fileURLToPath } from 'node:url';
 import { dockerBuild } from './run-docker.ts';
 
 const RUNNER = join(dirname(fileURLToPath(import.meta.url)), 'run-docker.ts');
+const REPO_ROOT = join(dirname(RUNNER), '..', '..');
+const BUN_PINNED_DOCKERFILES = ['install-smoke.Dockerfile', 'release-canary.Dockerfile'];
+
+function bunPinProblems(dockerfile: string): string[] {
+  const problems: string[] = [];
+  if (/bun-v\d/.test(dockerfile)) problems.push('hardcodes bun-v<version>');
+  if (/BUN_VERSION=\d/.test(dockerfile)) problems.push('hardcodes BUN_VERSION=<version>');
+  if (!/^COPY \.bun-version \/tmp\/\.bun-version$/m.test(dockerfile)) problems.push('lacks COPY .bun-version');
+  if (!dockerfile.includes("bun-v$(tr -d '[:space:]' < /tmp/.bun-version)")) problems.push('does not install bun-v<.bun-version>');
+  return problems;
+}
 
 test('install builds install-smoke.Dockerfile tagged with the plugin version', () => {
   assert.deepEqual(dockerBuild('install', { version: '1.2.3' }), {
@@ -93,4 +104,21 @@ test('run-docker.ts runs when invoked through a symlinked directory', (t) => {
   });
   assert.equal(r.status, 2, r.stdout + r.stderr);
   assert.match(r.stderr, /Usage: .*run-docker\.ts <install\|canary\|upgrade>/);
+});
+
+test('.bun-version holds a bare bun version', () => {
+  assert.match(readFileSync(join(REPO_ROOT, '.bun-version'), 'utf8'), /^\d+\.\d+\.\d+\s*$/);
+});
+
+for (const name of BUN_PINNED_DOCKERFILES) {
+  test(`${name} installs the bun version from .bun-version, never a literal`, () => {
+    assert.deepEqual(bunPinProblems(readFileSync(join(dirname(RUNNER), name), 'utf8')), []);
+  });
+}
+
+test('the bun pin check flags a hardcoded version or a missing .bun-version COPY', () => {
+  const pinned = readFileSync(join(dirname(RUNNER), 'install-smoke.Dockerfile'), 'utf8');
+  assert.deepEqual(bunPinProblems(`${pinned}\nRUN bash -s bun-v1.3.4\n`), ['hardcodes bun-v<version>']);
+  assert.deepEqual(bunPinProblems(`${pinned}\nARG BUN_VERSION=1.3.4\n`), ['hardcodes BUN_VERSION=<version>']);
+  assert.deepEqual(bunPinProblems(pinned.replace('COPY .bun-version /tmp/.bun-version\n', '')), ['lacks COPY .bun-version']);
 });

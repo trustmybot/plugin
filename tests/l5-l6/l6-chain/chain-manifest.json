@@ -139,7 +139,7 @@
       "row_dir": "rows/13/13-roundtable",
       "partial_test": true,
       "seed_before": null,
-      "chain_setup_command": "node --experimental-strip-types --experimental-sqlite \"$PLUGIN_ROOT/tests/l5-l6/rows/13/13-roundtable/seed-agents.ts\" \"$PWD\" \"$PLUGIN_ROOT\"",
+      "chain_setup_command": "node --experimental-strip-types --experimental-sqlite \"$PLUGIN_ROOT/tests/l5-l6/rows/13/13-roundtable/seed-agents.ts\" \"$PWD\"",
       "seed_after": "seeds/after-13-roundtable.sql",
       "halt_on_fail": true
     },

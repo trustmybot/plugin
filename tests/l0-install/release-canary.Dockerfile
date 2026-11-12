@@ -31,11 +31,12 @@ RUN apt-get update \
       curl unzip git ca-certificates sqlite3 jq coreutils \
  && rm -rf /var/lib/apt/lists/*
 
-# Pin bun so the install layer's cache key tracks the version: the canary must
-# never validate the committed bun.lock with a cache-stale bun. Declared right
-# before the install RUN so changing BUN_VERSION invalidates this layer.
-ARG BUN_VERSION=1.3.4
-RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}"
+# Pin bun to .bun-version, the one source every workflow reads, so the install
+# layer's cache key tracks it: the canary must never validate the committed
+# bun.lock with a cache-stale bun. Copied right before the install RUN so
+# changing .bun-version invalidates this layer.
+COPY .bun-version /tmp/.bun-version
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v$(tr -d '[:space:]' < /tmp/.bun-version)"
 ENV PATH="/root/.bun/bin:${PATH}"
 
 # 2. Marketplace install simulation. Place the plugin tree where CC's

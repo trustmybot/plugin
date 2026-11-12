@@ -604,7 +604,7 @@
   },
   "mcp/trajectory-server/src/symbol-index.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 1
     },
     "@typescript-eslint/require-await": {
       "count": 1
@@ -695,13 +695,13 @@
       "count": 8
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 10
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 42
+      "count": 38
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1

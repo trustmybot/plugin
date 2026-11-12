@@ -318,6 +318,25 @@ export function readTestLaneConfig(db: Pick<TrajectoryDB, 'get'>): TestLaneConfi
   }
 }
 
+export const BRO_COMPACT_NUDGE_TOKENS_KEY = 'bro_compact_nudge_tokens';
+export const BRO_COMPACT_NUDGE_TOKENS_DEFAULT = 80000;
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** The bro context, in tokens, past which activation-routine nudges a /compact once per session; 0 is off. Unset or malformed reads as the default. */
+export function parseBroCompactNudgeTokens(valueJson: string | undefined): number {
+  if (valueJson === undefined || valueJson === '') return BRO_COMPACT_NUDGE_TOKENS_DEFAULT;
+  try {
+    const value: unknown = JSON.parse(valueJson);
+    if (isNonNegativeInteger(value)) return value;
+  } catch {
+    // An unparseable stored value reads as the default.
+  }
+  return BRO_COMPACT_NUDGE_TOKENS_DEFAULT;
+}
+
 /** Keys config_set refuses: only the Human sets them, through /onboard. */
 const HUMAN_ONLY_CONFIG_KEYS: ReadonlySet<string> = new Set([WORKFLOW_MODE_KEY]);
 
@@ -381,6 +400,11 @@ function validateKnownConfigValue(key: string, value: unknown): void {
   if (key === WORLD_MODEL_TEST_LANE_KEY && !isTestLaneConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"extend"?: [glob...], "exclude"?: [glob...]} of non-empty strings, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === BRO_COMPACT_NUDGE_TOKENS_KEY && !isNonNegativeInteger(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be a non-negative integer (0 turns the nudge off), got ${JSON.stringify(value)}.`,
     );
   }
   if (key === WORKFLOW_MODE_KEY && !isWorkflowMode(value)) {
