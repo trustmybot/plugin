@@ -206,6 +206,28 @@ A prompt is not documentation. It loads into the agent's context every time its 
 
 A skill over about 200 lines is a signal it is doing too much. In order: apply the boundary test and migrate what it flags; move judgment used on every run into the agent body and keep situational judgment in the skill; split into several skills only when neither suffices. Measure density, not just length.
 
+## Core prompts stay minimal; depth is a cheatcode
+
+Each shipped prompt (`CLAUDE.md`, an agent, a skill) carries the wiring that makes TMB work: who the agent is, what it does every turn, and pointers to the skills and commands that hold procedures. Rubrics, checklists, persona and style guidance, and domain heuristics arrive as cheatcodes ([`CHEATCODES.md`](../architecture/CHEATCODES.md)); a paragraph that teaches a technique instead of wiring a role belongs in one.
+
+## Prompts fit their quality layer
+
+Each prompt fits its agent's place in [`FLOWS.md`](../architecture/FLOWS.md) and its row of the Quality layers table. It asks only for the checks that layer owns, hands over that layer's stated contract, and never asks the agent to redo a check another layer owns: overlapping layers duplicate work and blur who owns a leak. Where the flow and a prompt disagree, fix one of them in the same change so they do not drift.
+
+## Prompt cache zones
+
+Claude Code's prompt cache matches from the start of the assembled prompt and stops at the first byte that differs. TMB orders its context in three zones so the stable prefix stays as long as possible:
+
+| Zone | Content | Stability |
+|------|---------|-----------|
+| **A — stable identity** | Plugin persona (`CLAUDE.md`), MCP tool descriptions, fixed across all sessions and users | Stable |
+| **B — semi-stable bodies** | Skill bodies and rule files, which change only on plugin upgrades | Semi-stable |
+| **C — volatile hook tails** | Hook-injected context (counts, banners, branch, last commits), which changes every session or turn | Volatile |
+
+**Contract for hook authors:** a hook that injects `additionalContext` puts its stable descriptive text first and its volatile fields at the tail of its own output, because a hook that opens with a volatile line breaks the cache for everything after it. Volatile fields include the branch name, commit and dirty-path counts, open-issue and pending-task counts, recent commit messages, the DB and plugin paths, and any timestamp or PID.
+
+An L3 hook test checks this order for the activation-routine hook only; the other hooks are held to it by review.
+
 ## See also
 
 - [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md) — how we author personas, skills, and commands.
