@@ -4017,7 +4017,7 @@ function migrateV24toV25(db: DatabaseSync): void {
          NULL, 'skills/tmb_push-gate/SKILL.md', NULL, 'curated', 'global', 'active',
          datetime('now'), datetime('now'), datetime('now')),
         ('tmb_comment-triage', 'skill', 'builtin',
-         'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.',
+         'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per group without waiting on the Human. Loaded by bro when review comments reach a PR it owns.',
          NULL, 'skills/tmb_comment-triage/SKILL.md', NULL, 'curated', 'global', 'active',
          datetime('now'), datetime('now'), datetime('now'))
     `);

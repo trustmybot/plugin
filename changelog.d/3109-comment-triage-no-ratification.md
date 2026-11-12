@@ -1,0 +1,2 @@
+### Changed
+- **bro fixes review comments on its PRs without asking first** (GH 3109): comment triage used to offer the task-worthy comment groups as a multi-select and wait for you to pick. bro now sends every group to swe, reopening the closed task that owns the touched code on the same branch or opening a new task, and runs the usual review chain. Only a comment that would change the issue's intent or scope still comes to you; bro records it on the issue and asks. When bro cannot resolve the PR or its issue, it records the gap and skips the PR instead of asking.

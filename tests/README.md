@@ -196,7 +196,7 @@ L5/L6 test against bro's ability to translate user intent into the right orchest
 | `@bro I want to make this project available on GitHub.` | `@bro reonboard with remote=GitHub, branching_model=github-flow.` |
 | `@bro let's switch to Clerk for auth.` | `@bro plan a difficult-path migration from JWT to Clerk and dispatch SWE.` |
 
-Legitimate user-typed slash commands stay verbatim (`/onboard`, `/roundtable …`, `/monitor 123`, `/scan`). Don't have the user type `@bro scan the codebase` — `scan_run` is supposed to be fired implicitly by the world-model-cold gate when bro reaches `task_create_batch`. Asking for it explicitly bypasses the very contract row 4 exists to verify.
+Legitimate user-typed slash commands stay verbatim (`/onboard`, `/roundtable …`, `/dashboard`, `/scan`). Don't have the user type `@bro scan the codebase` — `scan_run` is supposed to be fired implicitly by the world-model-cold gate when bro reaches `task_create_batch`. Asking for it explicitly bypasses the very contract row 4 exists to verify.
 
 ## Debug modes
 
