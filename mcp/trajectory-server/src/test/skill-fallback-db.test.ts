@@ -35,8 +35,21 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
       `PRAGMA journal_mode=DELETE;
        INSERT INTO issues (id, objective, status, created_at, updated_at)
          VALUES (1, 'fallback db', 'open', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
-       INSERT INTO tasks (id, issue_id, branch_id, description, created_at, updated_at)
-         VALUES (7, 1, 'fix/fallback-db', 'validated task', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');`,
+       INSERT INTO tasks (id, issue_id, branch_id, description, commit_sha, created_at, updated_at)
+         VALUES (7, 1, 'fix/fallback-db', 'validated task', 'abc1234', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+       INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+         VALUES (7, 'abc1234def5678', 'gate', '2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z', 0, 900, 0);
+       INSERT INTO tasks (id, issue_id, branch_id, description, commit_sha, created_at, updated_at) VALUES
+         (8, 1, 'fix/no-run', 'd', 'abc1234', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+         (9, 1, 'fix/failed-run', 'd', 'abc1234', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+         (10, 1, 'fix/timed-out-run', 'd', 'abc1234', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+         (11, 1, 'fix/other-sha-run', 'd', 'abc1234', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+         (12, 1, 'fix/no-commit', 'd', NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+       INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES
+         (9, 'abc1234', 'gate', '2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z', 1, 900, 0),
+         (10, 'abc1234', 'gate', '2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z', 124, 900, 1),
+         (11, 'fff0000', 'gate', '2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z', 0, 900, 0),
+         (12, 'abc1234', 'gate', '2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z', 0, 900, 0);`,
     );
     const d = new DatabaseSync(db);
     try {
@@ -284,6 +297,24 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
     const fail = validation('/', '7', '97', 'fail', 'broken', 'sess-97', '[{"probe_cmd":"false","expected":"e","observed":"o"}]');
     assert.ok(fail.includes('"ok":true'), `fail without probes recorded: ${fail}`);
     assert.equal(q("SELECT COALESCE(probes_json, '<null>') FROM validation_attempts WHERE attempt_n = 97;"), '<null>', 'a fail without probes stores NULL');
+  });
+
+  it('GH 2897: a pass without a passing run at tasks.commit_sha is verification_run_required, naming the run state, and writes nothing', () => {
+    const before_ = rows();
+    for (const [task, found] of [
+      ['8', 'no verification run for the task'],
+      ['9', 'a failed run (exit_code=1)'],
+      ['10', 'a run that timed out'],
+      ['11', 'only a run at another commit (fff0000)'],
+      ['12', 'no commit recorded for the task'],
+    ] as const) {
+      const out = validation('/', task, '1', 'pass', 'ok', `sess-run-${task}`, '[]', PROBES);
+      assert.ok(out.includes('"error":"verification_run_required"'), `task ${task} pass refused: ${out}`);
+      assert.ok(out.includes(`found ${found}.`), `task ${task} names the run state: ${out}`);
+    }
+    assert.equal(rows(), before_, 'nothing written by a refused pass');
+    const fail = validation('/', '8', '1', 'fail', 'broken', 'sess-run-8f', '[{"probe_cmd":"false","expected":"e","observed":"o"}]');
+    assert.ok(fail.includes('"ok":true'), `a fail needs no run: ${fail}`);
   });
 
   it('no .claude dir appears in either cwd', () => {

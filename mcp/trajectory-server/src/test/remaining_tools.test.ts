@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedPassingRun, seedReviewerObservation, tempDB } from './helpers.js';
 import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
 import { skillTools } from '../tools/skills.js';
@@ -269,6 +269,7 @@ describe('validationTools', () => {
       [taskId],
     );
     db.run(`INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s) VALUES (1, 1, 'npm test', 0, 600)`);
+    db.run(`UPDATE tasks SET commit_sha = 'aaa1111' WHERE id = ?`, [taskId]);
     seedReviewerObservation(db, taskId, 1);
     await call(tools.handlers, 'validation_record', {
       agent: 'code-reviewer',
@@ -327,6 +328,7 @@ describe('validationTools', () => {
       subagent_session_id: 'session-1',
     });
 
+    seedPassingRun(db, taskId);
     seedReviewerObservation(db, taskId, 2);
     await call(tools.handlers, 'validation_record', {
       agent: 'code-reviewer',

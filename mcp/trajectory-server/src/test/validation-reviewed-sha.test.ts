@@ -20,7 +20,7 @@ import { ALLOW, type Gate } from '../hooks/gate.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { FROM_NODE, recordReviewerSpawn, reviewerSpawnAnchors } from '../hooks/record-reviewer-spawn.js';
 import { validationTools } from '../tools/validation.js';
-import { TEST_PROBES, seedReviewerObservation } from './helpers.js';
+import { TEST_PROBES, seedPassingRun, seedReviewerObservation } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -97,6 +97,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
         "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, commit_sha, created_at, updated_at) VALUES (?, ?, ?, 'dev', 'd', 'closed', ?, ?, ?)",
         [TASK_ID, ISSUE_ID, BRANCH, TASK_SHA, NOW, NOW],
       );
+      seedPassingRun(db, TASK_ID);
     });
     after(() => db.close());
 

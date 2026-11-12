@@ -145,7 +145,7 @@ export function assignReviewerEffort(
 }
 
 export const REVIEWER_SUBAGENT_TYPE = 'tmb:code-reviewer';
-const REVIEWER_SPAWN_LINE = 'Review this commit against its spec; task_brief carries the rest.';
+const REVIEWER_SPAWN_LINE = 'Judge whether this commit breaks other behaviour; task_brief carries the spec and the rest.';
 
 export interface ReviewerSpawn {
   readonly prompt: string;
