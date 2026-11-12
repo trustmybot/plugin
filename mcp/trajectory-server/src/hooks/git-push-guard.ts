@@ -13,6 +13,10 @@
  * Code a statement runs later (a trap, an alias, a `-C` callback, a PS4 that
  * `set -x` expands) is listed in `-`, so a push in it is an unresolved target.
  *
+ * GH 3102: a push is judged on the commits its refspecs send, not on HEAD,
+ * forced pushes included, a refspec that names no commit is denied, and a
+ * stored commit_sha matches as a 7+ hex prefix of the pushed SHA.
+ *
  * Decision 369: a command naming `push` (or, GH 2634, a git word beside an
  * expansion) that tree-sitter-bash cannot parse is denied (GH 1927), and the
  * DB is read wherever node:sqlite works, with no sqlite3 CLI on PATH.
@@ -26,9 +30,12 @@ import {
   gitSubcommandOf,
   payloadCwd,
   prefilterPasses,
+  type Statement,
   stmtRepoRoot,
 } from './cmd-analysis/index.js';
+import { operandWords } from './cmd-analysis/statements.js';
 import { DB_RETRY_FIX, dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
+import { shaPrefixMatchSql, shaValuesCte } from './lib/sha-prefix.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { type DenyFix, denyResult as deny } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
@@ -39,8 +46,16 @@ import { HAS_PASS_SQL } from '../review-sql.js';
 export const GATE_NAME = 'git-push-guard';
 
 const SOURCE_PATHS = [':(top)', ':(top,exclude,glob)mcp/*/dist/**', ':(top,exclude)dashboard/dist'];
-const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const HEX = /^[0-9a-f]+$/;
+/** `git push` options whose value is the next word. */
+const PUSH_VALUE_OPTIONS: ReadonlySet<string> = new Set(['--repo', '--receive-pack', '--exec', '-o', '--push-option']);
+/** `git push` options that push every ref under a namespace instead of naming refspecs. */
+const PUSH_REF_SETS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['--all', ['refs/heads/']],
+  ['--branches', ['refs/heads/']],
+  ['--mirror', ['refs/']],
+  ['--tags', ['refs/tags/']],
+]);
 const GIT_WORD = /\bgit\b/;
 /** An `xargs` git may take its subcommand from stdin (GH 2797). */
 const XARGS = /\bxargs\b/;
@@ -62,9 +77,89 @@ const opaqueReason = (what: string): string =>
   `BLOCKED: ambiguous_git_subcommand: \`${what}\` runs code the guard cannot read (a \`bash -c\` or \`eval\` string built from an expansion, a command word that is an expansion, code a shell reads from stdin, a \`\${…@P}\` prompt expansion, a PS4 set other than by a literal \`PS4=\` assignment, a variable name a builtin takes from an expansion, or code nested too deep), so it cannot tell whether that code pushes. Write the code literally.`;
 const OPAQUE_FIX: DenyFix = { allowed: "the code itself, or bash -c '<literal code>', or PS4='<literal>'" };
 const INTEGRATE_FIX: DenyFix = { allowed: 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>' };
+const unresolvedRefspecReason = (refspec: string, what: string, dir: string): string =>
+  `BLOCKED: the push gate cannot resolve the refspec \`${refspec}\` of \`${what}\` to a commit in ${dir}, so it cannot tell which commits the push sends and refuses to fail open. The gate reads the refs before the command runs, so a ref an earlier statement of the same command creates (\`git checkout -b X && git push -u origin X\`) does not exist yet: run the push as its own command once the ref exists.`;
+const UNRESOLVED_REFSPEC_FIX: DenyFix = { allowed: 'git -C <repo> push <remote> <src>[:<dst>] as its own command, its <src> an existing local branch, HEAD, a full ref or a commit' };
+const SHA_LIST_REASON = 'BLOCKED: the push gate read a pushed commit that is not a full SHA, so it cannot match it against task commits and refuses to fail open.';
 
 function pushVerb(sub: string): boolean {
   return sub === 'push' || sub.startsWith('push ');
+}
+
+/** What a `git push` names: its remote ('' when none), its refspecs, whether `--delete` makes every refspec a delete, and the ref namespaces `--all`, `--branches`, `--mirror` or `--tags` push. */
+export interface PushArgs {
+  readonly remote: string;
+  readonly refspecs: readonly string[];
+  readonly deletes: boolean;
+  readonly refSets: readonly string[];
+}
+
+/** The PushArgs of <sub>, git's subcommand `push` and the words after it, its redirects dropped. */
+export function pushArgs(sub: string): PushArgs {
+  const words = operandWords(sub.split(/[ \t]+/).filter((w) => w !== ''));
+  const operands: string[] = [];
+  const refSets = new Set<string>();
+  let repoOption = '';
+  let deletes = false;
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    if (word === '--') {
+      operands.push(...words.slice(i + 1));
+      break;
+    }
+    if (!word.startsWith('-') || word === '-') {
+      operands.push(word);
+    } else if (PUSH_VALUE_OPTIONS.has(word)) {
+      if (word === '--repo') repoOption = words[i + 1] ?? '';
+      i++;
+    } else if (word.startsWith('--repo=')) {
+      repoOption = word.slice('--repo='.length);
+    } else if (word === '--delete') {
+      deletes = true;
+    } else if (PUSH_REF_SETS.has(word)) {
+      for (const set of PUSH_REF_SETS.get(word) ?? []) refSets.add(set);
+    } else if (!word.startsWith('--')) {
+      for (let c = 1; c < word.length; c++) {
+        if (word[c] === 'd') deletes = true;
+        if (word[c] !== 'o') continue;
+        if (c === word.length - 1) i++;
+        break;
+      }
+    }
+  }
+  return { remote: operands[0] ?? repoOption, refspecs: expandTagShorthand(operands.slice(1)), deletes, refSets: [...refSets] };
+}
+
+/** <refspecs> with git's `tag <name>` shorthand written out as `refs/tags/<name>:refs/tags/<name>`. */
+function expandTagShorthand(refspecs: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < refspecs.length; i++) {
+    const name = refspecs[i + 1];
+    if (refspecs[i] === 'tag' && name !== undefined) {
+      out.push(`refs/tags/${name}:refs/tags/${name}`);
+      i++;
+    } else {
+      out.push(refspecs[i]);
+    }
+  }
+  return out;
+}
+
+/** One refspec of a push: its source and destination as written ('' when left out), and whether it is a delete, which sends no commits. */
+interface Refspec {
+  readonly src: string;
+  readonly dst: string;
+  readonly deletes: boolean;
+}
+
+/** <refspec> split, its `+` (a forced update, judged like any other) dropped; null for a pattern or negative refspec, which names no one commit. */
+function splitRefspec(refspec: string): Refspec | null {
+  const spec = refspec.startsWith('+') ? refspec.slice(1) : refspec;
+  if (spec.startsWith('^') || spec.includes('*')) return null;
+  const colon = spec.indexOf(':');
+  const src = colon < 0 ? spec : spec.slice(0, colon);
+  const dst = colon < 0 ? '' : spec.slice(colon + 1);
+  return { src, dst, deletes: src === '' && dst !== '' };
 }
 
 /** The lines of a `$(...)` capture, as `printf '%s\n' "$x"` feeds them on: [""] for "". */
@@ -185,10 +280,10 @@ class Guard {
    * verification run of its own; __ERR__ when a DB read fails.
    */
   async uncheckedRebases(dir: string, pushed: string): Promise<string> {
-    const values = hexLines(pushed).map((sha) => `('${sha}')`);
-    if (values.length === 0) return '';
+    const values = shaValuesCte(hexLines(pushed));
+    if (values === null) return '';
     const taskCommits = this.read(
-      `WITH p(sha) AS (VALUES ${values.join(',')}) SELECT p.sha FROM p WHERE EXISTS (SELECT 1 FROM tasks t WHERE length(t.commit_sha) >= 7 AND substr(p.sha, 1, length(t.commit_sha)) = t.commit_sha);`,
+      `WITH ${values} SELECT p.sha FROM p WHERE EXISTS (SELECT 1 FROM tasks t WHERE ${shaPrefixMatchSql('t.commit_sha', 'p.sha')});`,
     );
     if (taskCommits === GATE_READ_ERROR) return GATE_READ_ERROR;
     const fresh = without(pushed, taskCommits);
@@ -236,11 +331,11 @@ class Guard {
     const all = [...matches, ...srcMatches].filter((m) => m !== '');
     if (all.length === 0) return '';
 
-    const inList = all.filter((m) => field(m, 4) === '1' && HEX.test(field(m, 1))).map((m) => `'${field(m, 1)}'`);
+    const reviewed = shaValuesCte(all.filter((m) => field(m, 4) === '1' && HEX.test(field(m, 1))).map((m) => field(m, 1)));
     let ok = '';
-    if (inList.length > 0) {
+    if (reviewed !== null) {
       ok = this.read(
-        `SELECT DISTINCT commit_sha FROM verification_runs WHERE commit_sha IN (${inList.join(',')}) AND exit_code = 0 AND timed_out = 0;`,
+        `WITH ${reviewed} SELECT DISTINCT p.sha FROM p WHERE EXISTS (SELECT 1 FROM verification_runs v WHERE ${shaPrefixMatchSql('v.commit_sha', 'p.sha')} AND v.exit_code = 0 AND v.timed_out = 0);`,
       );
       if (ok === GATE_READ_ERROR) return GATE_READ_ERROR;
     }
@@ -273,22 +368,87 @@ class Guard {
     return base;
   }
 
-  private async pushedShas(dir: string): Promise<string> {
+  /** The commits a bare `git push`, which names no refspec, sends: those past the upstream, else past the base. */
+  private async headShas(dir: string): Promise<string> {
     const upstream = await gitOut(dir, ['log', '@{u}..HEAD', '--pretty=%H'], this.env);
     if (upstream !== '') return upstream;
     const base = await this.baseRef(dir);
     return await gitOut(dir, ['log', base === '' ? 'HEAD' : `${base}..HEAD`, '--pretty=%H'], this.env);
   }
 
-  /** The deny for one push, or null when it may go. */
-  async judge(dir: string): Promise<GateResult | null> {
-    const pushed = await this.pushedShas(dir);
+  /** The commit <rev> names in <dir>, or '' when it names none. */
+  private async commitOf(dir: string, rev: string): Promise<string> {
+    if (rev === '' || rev.startsWith('-')) return '';
+    const r = await gitRun(dir, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], this.env);
+    return r.code === 0 ? r.stdout.trim() : '';
+  }
+
+  /** The remote-tracking ref of the branch <spec> updates on <remote>, when it exists; '' sends the caller to the base. */
+  private async trackingRef(dir: string, remote: string, spec: Refspec): Promise<string> {
+    let dst = spec.dst || spec.src;
+    if (dst === 'HEAD' || dst === '@') dst = await gitOut(dir, ['symbolic-ref', '-q', 'HEAD'], this.env);
+    const branch = dst.startsWith('refs/heads/') ? dst.slice('refs/heads/'.length) : dst.startsWith('refs/') ? '' : dst;
+    if (remote === '' || branch === '') return '';
+    const ref = `refs/remotes/${remote}/${branch}`;
+    return (await this.commitOf(dir, ref)) === '' ? '' : ref;
+  }
+
+  /** The refspecs `<set>:<set>` for every ref under each of <sets>. */
+  private async refSetSpecs(dir: string, sets: readonly string[]): Promise<string[]> {
+    if (sets.length === 0) return [];
+    const refs = await gitOut(dir, ['for-each-ref', '--format=%(refname)', ...sets], this.env);
+    return refs === '' ? [] : lines(refs).map((ref) => `${ref}:${ref}`);
+  }
+
+  /**
+   * The commits one push statement sends, newline-joined, or the refspec no
+   * commit can be found for. Each refspec sends its source minus the remote
+   * branch it updates when that is tracked here, else minus the base; a bare
+   * push keeps HEAD's range and a delete sends nothing.
+   */
+  private async pushedShas(dir: string, args: PushArgs): Promise<{ shas: string } | { unresolved: string }> {
+    if (args.refspecs.length === 0 && args.refSets.length === 0) return { shas: await this.headShas(dir) };
+    if (!(await gitOk(dir, ['rev-parse', '--git-dir'], this.env))) return { shas: '' };
+    const isMatching = (refspec: string): boolean => refspec === ':' || refspec === '+:';
+    const matching = args.refspecs.some(isMatching) ? ['refs/heads/'] : [];
+    const specs: { refspec: string; enumerated: boolean }[] = [
+      ...args.refspecs.filter((refspec) => !isMatching(refspec)).map((refspec) => ({ refspec, enumerated: false })),
+      ...(await this.refSetSpecs(dir, [...new Set([...args.refSets, ...matching])])).map((refspec) => ({ refspec, enumerated: true })),
+    ];
+    let base: string | undefined;
+    const shas = new Set<string>();
+    for (const { refspec, enumerated } of specs) {
+      const spec = splitRefspec(refspec);
+      if (spec === null) return { unresolved: refspec };
+      if (args.deletes || spec.deletes) continue;
+      const tip = await this.commitOf(dir, spec.src);
+      if (tip === '') {
+        if (enumerated) continue;
+        return { unresolved: refspec };
+      }
+      let stop = await this.trackingRef(dir, args.remote, spec);
+      if (stop === '') stop = base ??= await this.baseRef(dir);
+      const range = stop === '' ? [tip] : [tip, `^${stop}`];
+      const out = await gitOut(dir, ['rev-list', ...range], this.env);
+      if (out !== '') for (const sha of lines(out)) shas.add(sha);
+    }
+    return { shas: [...shas].join('\n') };
+  }
+
+  /** The deny for one push statement <push>, whose subcommand words are <sub>, or null when it may go. */
+  async judge(push: Statement, sub: string): Promise<GateResult | null> {
+    const { dir } = push;
+    const listed = await this.pushedShas(dir, pushArgs(sub));
+    if ('unresolved' in listed) return deny(unresolvedRefspecReason(listed.unresolved, push.src ?? push.stmt, dir), UNRESOLVED_REFSPEC_FIX);
+    const pushed = listed.shas;
     if (pushed === '') return null;
-    const shaList = hexLines(pushed).map((sha) => `'${sha}'`);
+    const shaList = hexLines(pushed);
     if (shaList.length === 0) return null;
+    const values = shaValuesCte(shaList);
+    if (values === null) return deny(SHA_LIST_REASON, 'policy');
 
     const unsigned = this.read(
-      `SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE t.commit_sha IN (${shaList.join(',')}) AND NOT ${HAS_PASS_SQL};`,
+      `WITH ${values} SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE EXISTS (SELECT 1 FROM p WHERE ${shaPrefixMatchSql('t.commit_sha', 'p.sha')}) AND NOT ${HAS_PASS_SQL};`,
     );
     if (unsigned === GATE_READ_ERROR) return deny(DB_REASON, DB_RETRY_FIX);
     if (unsigned !== '') {
@@ -332,9 +492,9 @@ export const gitPushGuard: Gate = async (payload, env) => {
   const subs = listed.statements.map((statement) => gitSubcommandOf(statement));
   const unknown = listed.statements[subs.indexOf(undefined)];
   if (unknown) return deny(subcommandReason(unknown.src ?? unknown.stmt), SUBCOMMAND_FIX);
-  const pushes = listed.statements.filter((_, j) => {
+  const pushes = listed.statements.flatMap((statement, j) => {
     const sub = subs[j] ?? '';
-    return pushVerb(sub) && !FORCE.test(` ${sub} `);
+    return pushVerb(sub) ? [{ statement, sub }] : [];
   });
   if (pushes.length === 0) return ALLOW;
 
@@ -344,13 +504,13 @@ export const gitPushGuard: Gate = async (payload, env) => {
 
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`)) ?? '';
   const guard = new Guard(db, cwd, env);
-  for (const push of pushes) {
-    const { dir } = push;
-    if (dir === '?') return { stdout: denyAmbiguousGitTarget(push), code: 0 };
-    if (dir === '-') return { stdout: denyAmbiguousGitTarget(push, true), code: 0 };
+  for (const { statement, sub } of pushes) {
+    const { dir } = statement;
+    if (dir === '?') return { stdout: denyAmbiguousGitTarget(statement), code: 0 };
+    if (dir === '-') return { stdout: denyAmbiguousGitTarget(statement, true), code: 0 };
     if (dir.includes('/.claude/worktrees/')) return deny(WORKTREE_REASON, WORKTREE_FIX);
     if (db === '' || !haveSqlite(env)) continue;
-    const verdict = await guard.judge(dir);
+    const verdict = await guard.judge(statement, sub);
     if (verdict) return verdict;
   }
   return ALLOW;

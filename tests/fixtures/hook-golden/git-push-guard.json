@@ -23,24 +23,6 @@
       "stdout": ""
     }
   },
-  "allow-force-f.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stdout": ""
-    }
-  },
-  "allow-force-long.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stdout": ""
-    }
-  },
-  "allow-force-with-lease-value.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stdout": ""
-    }
-  },
   "allow-heredoc-body-push.json": {
     "C,en_US.UTF-8": {
       "code": 0,
@@ -123,6 +105,24 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB. Allowed form: the same call again, once the trajectory DB reads\"}}\n"
+    }
+  },
+  "deny-force-f.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+    }
+  },
+  "deny-force-long.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+    }
+  },
+  "deny-force-with-lease-value.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-pr-reviewer.json": {
@@ -249,27 +249,6 @@
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git push -u origin feat/fp` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> push -u origin feat/fp\"}}\n"
     }
   },
-  "generic/allow-force-f.json": {
-    "C,UTF-8,en_US.UTF-8": {
-      "audit": [],
-      "code": 0,
-      "stdout": ""
-    }
-  },
-  "generic/allow-force-long.json": {
-    "C,UTF-8,en_US.UTF-8": {
-      "audit": [],
-      "code": 0,
-      "stdout": ""
-    }
-  },
-  "generic/allow-force-with-lease-value.json": {
-    "C,UTF-8,en_US.UTF-8": {
-      "audit": [],
-      "code": 0,
-      "stdout": ""
-    }
-  },
   "generic/allow-heredoc-body-push.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
@@ -366,6 +345,27 @@
       "audit": [],
       "code": 0,
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git push` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> push\"}}\n"
+    }
+  },
+  "generic/deny-force-f.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git push -f origin main` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> push -f origin main\"}}\n"
+    }
+  },
+  "generic/deny-force-long.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git -C @SANDBOX@/unsigned push --force origin main` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> push --force origin main\"}}\n"
+    }
+  },
+  "generic/deny-force-with-lease-value.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git push --force-with-lease=main origin main` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> push --force-with-lease=main origin main\"}}\n"
     }
   },
   "generic/deny-pr-reviewer.json": {
