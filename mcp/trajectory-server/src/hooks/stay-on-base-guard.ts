@@ -7,12 +7,9 @@
  * literal text (gitSubcommandOf, GH 2641) in a known dir outside
  * .claude/worktrees/ is denied once the DB resolves.
  *
- * Decisions and deny text are the .sh's, with three exceptions: a command
- * tree-sitter-bash cannot parse is denied with git-guards' PARSE_REASON when
- * the DB resolves, the
- * payload is read with no jq on PATH (the .sh reads an empty tool_name and
- * allows), and the DB is read through node:sqlite with no sqlite3 CLI on PATH
- * (the .sh allows).
+ * A command tree-sitter-bash cannot parse is denied with git-guards'
+ * PARSE_REASON when the DB resolves. The payload is read with no jq on PATH,
+ * and the DB through node:sqlite with no sqlite3 CLI on PATH.
  */
 import { statSync } from 'node:fs';
 import { ALLOW, type Gate } from './gate.js';

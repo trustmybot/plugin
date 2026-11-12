@@ -7,9 +7,7 @@
  * bound to an agent id is never matched.
  *
  * Fail-open: it never blocks, prints nothing, and a failed write leaves the DB
- * unchanged. Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so it
- * rolls the spawn back on a machine without them where the .sh skipped it
- * (decision 703).
+ * unchanged. It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { dbWrite, nowIso } from './lib/audit.js';
@@ -20,11 +18,11 @@ import { normalizeRole } from './lib/role.js';
 
 export const GATE_NAME = 'swe-spawn-rollback';
 
-/** db-write.sh's TMB_RUN_NO_USAGE_SQL: a run row with no token usage. */
+/** A run row with no token usage. */
 export const RUN_NO_USAGE_SQL =
   'COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0';
 
-/** db-write.sh's TMB_RUN_UNMEASURED_SQL, a SET-clause item. */
+/** The SET-clause item marking a run with no token usage unmeasured. */
 export const RUN_UNMEASURED_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${RUN_NO_USAGE_SQL} THEN 'unmeasured' END)`;
 
 /**

@@ -5,10 +5,8 @@
  * dead, and cache versions no installed_plugins.json entry pins. Another
  * project's DB, process or pinned cache version is never listed or touched.
  * Advisory: every failure exits 0 silently, and a 4 s internal deadline
- * (second granularity, as the .sh's `date +%s`) caps the scan.
- *
- * Divergences: the .sh exits 0 silently without jq, and skips the schema
- * comparison without the sqlite3 CLI; this gate needs neither.
+ * (second granularity, as `date +%s`) caps the scan. It needs neither jq nor
+ * the sqlite3 CLI.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, opendirSync, readFileSync, rmSync, statSync } from 'node:fs';

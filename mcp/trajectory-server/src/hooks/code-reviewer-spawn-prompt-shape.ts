@@ -8,9 +8,8 @@
  * The prompt is matched line by line as macOS grep matches it in the hook's
  * locale: `[:alnum:]` is ASCII letters and digits on bytes, or Unicode letters
  * and decimal digits by character under a UTF-8 locale; `-i` folds ASCII
- * case only; `.` is one byte, or one character. Unlike the .sh, it needs no
- * jq, so it denies on a machine without jq where the .sh let the spawn
- * through (decision 703). Bypass: TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE=1.
+ * case only; `.` is one byte, or one character. It needs no jq. Bypass:
+ * TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE=1.
  */
 import { ALLOW, type SyncGate } from './gate.js';
 import { ANCHORS } from './code-reviewer-spawn-note.js';
@@ -21,7 +20,7 @@ import { grepAlnum, grepMultibyte } from './lib/lint-shell.js';
 export const GATE_NAME = 'code-reviewer-spawn-prompt-shape';
 export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE';
 
-/** The `grep -i` patterns, in the order the .sh tries them; `.` is any one character. */
+/** The `grep -i` patterns, in the order they are tried; `.` is any one character. */
 export const RUBBER_STAMP_PHRASES = ['trust the prior verdict', 'fast-track if', 'rubber.stamp', 'prior verdict'] as const;
 
 const ANCHOR_LIST = `${ANCHORS.slice(0, -1).join(', ')}, and ${ANCHORS[ANCHORS.length - 1]}`;

@@ -1,10 +1,9 @@
 /**
  * SessionStart hook (GH 1692, #171): the .gitignore of the project's git repo and of every registered repos
  * row's repo lists `.claude/`, created or appended to when it does not, with
- * one stderr line per file it changed. No stdout; it never denies.
- *
- * Divergence: the .sh reads the repos table only with the sqlite3 CLI on
- * PATH; this gate reads it through node:sqlite as well.
+ * one stderr line per file it changed. No stdout; it never denies. The repos
+ * table is read through node:sqlite, or the sqlite3 CLI where node:sqlite is
+ * unavailable.
  */
 import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { ALLOW, type Gate } from './gate.js';
@@ -45,7 +44,7 @@ function ensureIgnored(root: string): void {
     if (isFile(gitignore)) appendFileSync(gitignore, `\n${RULE}`);
     else writeFileSync(gitignore, RULE);
   } catch {
-    /* the .sh's redirection fails and it notes the file all the same */
+    /* a failed write still notes the file */
   }
   process.stderr.write(`tmb: ensured .claude/ is in ${gitignore}\n`);
 }

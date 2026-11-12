@@ -7,9 +7,7 @@
  * it allows, except that a DB read error or a failed write denies with the
  * DB-unavailable reason.
  *
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so it records the
- * caller on a machine without them where the .sh recorded nothing
- * (decision 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { auditAppend, nowIso } from './lib/audit.js';

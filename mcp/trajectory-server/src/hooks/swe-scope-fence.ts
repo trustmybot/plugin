@@ -13,9 +13,7 @@
  * empty files[], a DB read error, a target outside the worktree or inside
  * files[], and a path already noted.
  *
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so without them it
- * still notes a write outside files[] where the .sh stayed silent (decision
- * 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { agentContext, pathCanonical } from './lib/agent-context.js';

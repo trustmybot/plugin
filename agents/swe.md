@@ -6,7 +6,7 @@ model: opus
 maxTurns: 150
 effort: medium
 tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server__task_brief, mcp__plugin_tmb_trajectory-server__task_update_status, mcp__plugin_tmb_trajectory-server__world_model_symbol, mcp__plugin_tmb_trajectory-server__world_model_search, mcp__plugin_tmb_trajectory-server__world_model_get
-skills: [tmb_swe-checklist, tmb_docs-conventions]
+skills: [tmb_swe-checklist, tmb_docs-conventions, tmb_doc-review]
 experimental:
   cacheTtl: 1h
 ---

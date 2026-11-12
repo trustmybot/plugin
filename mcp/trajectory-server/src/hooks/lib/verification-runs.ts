@@ -1,6 +1,6 @@
 /**
- * The verification-run record of swe-verification-gate (GH 1692), the TS form
- * of scripts/hooks/lib/verification-runs.sh: the SQL that starts a run (after
+ * The verification-run record of swe-verification-gate (GH 1692): the SQL
+ * that starts a run (after
  * finishing every unfinished run past its own budget_s + 60 s as exit 137),
  * records one command with its output tail capped, finishes a run, and finds a
  * reusable passing run. The gate and `cli.js integrate` (GH 1405) write each

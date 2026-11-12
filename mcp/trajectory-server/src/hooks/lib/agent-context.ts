@@ -1,7 +1,6 @@
 /**
- * TypeScript port of scripts/hooks/lib/agent-context.sh (GH 1692): the acting
- * agent's context from its identity and the trajectory DB, never from the
- * shared session cwd. Where the .sh exports TMB_CTX_*, these return them.
+ * The acting agent's context (GH 1692), from its identity and the trajectory
+ * DB, never from the shared session cwd: these return the TMB_CTX_* values.
  */
 import { existsSync, lstatSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { jqAlternatives } from './jq.js';

@@ -12,21 +12,17 @@
  * Rule 2, Bash, with or without a DB: a write the cmd-analysis analyzer finds
  * to a prompt-surface path outside a worktree is denied for every identity.
  *
- * Decisions and deny text are the .sh's, with these exceptions (decision 703):
+ * Further rules:
  *   - GH 1796: the target and the scratch roots (.claude/<plugin>/scratch/ and
  *     /tmp/claude-<uid>, as containment-guard's harnessTmp admits it) are
  *     compared canonically, so a write under /private/tmp/claude-<uid> on
- *     macOS, where /tmp links to /private/tmp, is allowed; the .sh allows only
- *     a raw .claude/<plugin>/scratch/ path, and denies a scratch file whose
- *     parent dir does not exist yet.
- *   - It needs neither jq nor the sqlite3 CLI: without jq the .sh reads no
- *     tool name and allows everything; without sqlite3 it skips the
- *     registration check and guards an unregistered repo.
+ *     macOS, where /tmp links to /private/tmp, is allowed, as is a scratch
+ *     file whose parent dir does not exist yet.
+ *   - It needs neither jq nor the sqlite3 CLI.
  *   - The analyzer's never-judged targets (`$(parse)`, `$(computed)`,
- *     `$(unproven)`, which the .sh's analyzer never prints) are
- *     containment-guard's to deny, not Rule 2's. The analyzer's cap line
- *     (GH 2090) is the one Rule 2 denies itself: its padding could hide a
- *     write to a prompt-surface path. The .sh's analyzer has no cap.
+ *     `$(unproven)`) are containment-guard's to deny, not Rule 2's. The
+ *     analyzer's cap line (GH 2090) is the one Rule 2 denies itself: its
+ *     padding could hide a write to a prompt-surface path.
  */
 import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -105,8 +101,8 @@ function under(path: string, dir: string): boolean {
 }
 
 /**
- * The scratch allowance: the raw target under .claude/<plugin>/scratch/, as the
- * .sh has it, or (GH 1796) its canonical path under .claude/<plugin>/scratch/ or
+ * The scratch allowance: the raw target under .claude/<plugin>/scratch/, or
+ * (GH 1796) its canonical path under .claude/<plugin>/scratch/ or
  * under the canonical /tmp/claude-<uid>.
  */
 function inScratch(target: string, input: string, env: NodeJS.ProcessEnv): boolean {

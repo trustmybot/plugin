@@ -1,7 +1,6 @@
 /**
- * The forge-write classifier of scripts/hooks/lib/cmd-analysis.sh (GH 1692):
- * tmb_gh_mutation, _tmb_gh_mutation_in and tmb_gh_mutation_from, over the
- * statements cmdStatements lists.
+ * The forge-write classifier (GH 1692): whether a gh or glab call mutates the
+ * forge, over the statements cmdStatements lists.
  */
 import { gitSubcommand } from './git.js';
 

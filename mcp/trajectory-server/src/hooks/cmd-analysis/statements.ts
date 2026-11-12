@@ -1,5 +1,5 @@
 /**
- * _tmb_cmd_statements_enc (cmd-analysis.sh) on an encoded skeleton: one
+ * The statement lister on an encoded skeleton: one
  * `<dir-token>\t<encoded statement>` record per executable statement, the
  * effective dir tracked through cd / pushd / popd / cd - / git -C / subshells
  * and $VAR dirs resolved from a flat allowlisted prefix. With `assign`,

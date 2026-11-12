@@ -5,12 +5,9 @@
  * statement whose subcommand is not literal text (gitSubcommandOf, GH 2641);
  * a DB read error denies.
  *
- * Decisions and deny text are the .sh's, with three exceptions: a command
- * tree-sitter-bash cannot parse is a violation denied with git-guards'
- * PARSE_REASON once the DB resolves, the
- * payload is read with no jq on PATH (the .sh reads an empty tool_name and
- * allows), and the DB is read through node:sqlite with no sqlite3 CLI on PATH
- * (the .sh allows).
+ * A command tree-sitter-bash cannot parse is a violation denied with
+ * git-guards' PARSE_REASON once the DB resolves. The payload is read with no
+ * jq on PATH, and the DB through node:sqlite with no sqlite3 CLI on PATH.
  */
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
