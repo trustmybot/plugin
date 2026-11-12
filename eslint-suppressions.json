@@ -695,13 +695,13 @@
       "count": 8
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 10
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 42
+      "count": 38
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1

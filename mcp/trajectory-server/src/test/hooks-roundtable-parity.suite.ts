@@ -53,12 +53,17 @@ export const ROUNDTABLE_GATES = [
 
 const UNSET = ['TRAJECTORY_DB_PATH', 'TMB_TEST_RUN_ID', 'TMB_FORBID_LIVE_SYNC', 'CLAUDE_SESSION_ID', 'TMB_HOOKS_SQLITE', 'LANG', 'LC_CTYPE'];
 
+/** The consultants the bash-era recordings saw in every DB, seeded by the schema before GH 3068 and registered per project since. */
+const CONSULTANTS = ['architect', 'cto', 'ceo', 'pm'];
+
 function trajectoryDb(path: string, rows: (db: DatabaseSync) => void): void {
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   try {
     db.exec(SCHEMA);
     db.prepare('UPDATE issues SET updated_at = ?, created_at = ? WHERE id = -1').run(T0, T0);
+    const consultant = db.prepare("INSERT INTO agents (name, kind, file_path) VALUES (?, 'consultant', ?)");
+    for (const name of CONSULTANTS) consultant.run(name, `project:.claude/agents/${name}.md`);
     rows(db);
   } finally {
     db.close();

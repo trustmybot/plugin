@@ -87,11 +87,7 @@ Schema enforces via `CHECK (state IN ('open','closed'))`. `scan_run` imports the
 | `bro` | TMB persona | The single Human entry point |
 | `swe` | TMB agent | Executor (one task per spawn) |
 | `code-reviewer` | TMB agent | Push-gate reviewer |
-| `architect` | TMB consultant template | Project consultant |
-| `cto` | TMB consultant template | Project consultant |
-| `ceo` | TMB consultant template | Project consultant |
-| `pm` | TMB consultant template | Project consultant |
-| `<custom>` | per-project | User-created agents (e.g. `legal-reviewer`, `security-reviewer`) |
+| `<custom>` | per-project | Consultants drafted with `/tmb:agent-create` (e.g. `legal-reviewer`, `security-reviewer`) |
 | `system` | TMB runtime | A machine event with no agent or hook author |
 | `executor` | TMB server | Issue-sync bookkeeping the server writes on its own (`issue_adopted`, `issue_linked`, `sync_skipped`) |
 | `trajectory-server` | TMB server | `tmb_branch_autocreated` rows written when `task_create_batch` creates a branch ref |

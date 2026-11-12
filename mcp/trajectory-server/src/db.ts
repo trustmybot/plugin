@@ -16,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 70;
+export const TARGET_SCHEMA_VERSION = 71;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -845,6 +845,8 @@ function runMigrations(
   if (fromVersion < 69 && toVersion >= 69) migrateV68toV69(db);
   // v69→v70: wm_files.lane, each file's test or product lane (GH 2886)
   if (fromVersion < 70 && toVersion >= 70) migrateV69toV70(db);
+  // v70→v71: drop the agents rows seeded for the removed consultant templates (GH 3068)
+  if (fromVersion < 71 && toVersion >= 71) migrateV70toV71(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3595,6 +3597,32 @@ function migrateV69toV70(db: DatabaseSync): void {
         if (isDefaultTestPath(f.path)) markTest.run(f.id);
       }
     }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v70→v71: the architect, cto, ceo and pm consultant templates left the plugin
+// (GH 3068). Their seeded rows point at deleted plugin files, so they go; a row
+// promoted to a project: copy keeps its prompt file and stays. No table holds a
+// foreign key to agents, and agent_runs, audit and discussions name agents by
+// text, so their history stays as written.
+function migrateV70toV71(db: DatabaseSync): void {
+  if (!tableExists(db, 'agents')) return;
+  beginImmediate(db);
+  try {
+    db.exec(`
+      -- LINT-ALLOW: removes only the rows whose plugin template file was deleted (GH 3068).
+      DELETE FROM agents
+       WHERE name IN ('architect', 'cto', 'ceo', 'pm')
+         AND file_path = 'plugin:templates/agents/' || name || '.md'
+    `);
     commitTransaction(db);
   } catch (err) {
     try {

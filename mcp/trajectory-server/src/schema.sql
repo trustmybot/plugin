@@ -373,8 +373,8 @@ CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
     ON review_findings(task_id, status);
 
 -- agents.file_path names the root the prompt file ships from: 'plugin:' is
--- relative to the installed plugin root (backbone agents, consultant
--- templates), 'project:' to the workspace root (.claude/agents/<name>.md).
+-- relative to the installed plugin root (backbone agents), 'project:' to the
+-- workspace root (.claude/agents/<name>.md).
 CREATE TABLE IF NOT EXISTS agents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL UNIQUE,
@@ -388,11 +388,7 @@ CREATE TABLE IF NOT EXISTS agents (
 -- AUTOINCREMENT counter untouched when the rows are already present.
 WITH seed (name, kind, file_path) AS (VALUES
     ('swe',          'backbone',   'plugin:agents/swe.md'),
-    ('code-reviewer', 'backbone',   'plugin:agents/code-reviewer.md'),
-    ('architect',    'consultant', 'plugin:templates/agents/architect.md'),
-    ('cto',          'consultant', 'plugin:templates/agents/cto.md'),
-    ('ceo',          'consultant', 'plugin:templates/agents/ceo.md'),
-    ('pm',           'consultant', 'plugin:templates/agents/pm.md'))
+    ('code-reviewer', 'backbone',   'plugin:agents/code-reviewer.md'))
 INSERT INTO agents (name, kind, file_path)
 SELECT name, kind, file_path FROM seed
  WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.name = seed.name);
@@ -467,7 +463,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 70, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 71, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
