@@ -2,7 +2,8 @@
  * no-source-edit-from-main end to end (GH 1692), the l3 bash suite's cases in
  * node:test: an Edit/Write of source outside an SWE worktree in a TMB project
  * is denied by location, whatever the agent identity. Worktree targets, .md
- * files, configs/manifests and a missing DB pass; enforcement surfaces are
+ * files, configs/manifests and a missing DB pass for every agent but bro, whose
+ * edits need a running no-code task's worktree (GH 3075); enforcement surfaces are
  * denied first, but only in the running plugin's own source repo (GH 1362).
  * Bash writes to prompt surfaces are judged by destination (GH 1031, GH 1196),
  * a non-isolated swe may edit source, Rule 1 scopes by repo registration
@@ -137,19 +138,32 @@ describe('no-source-edit-from-main l3: location-based block, any agent context',
     has(hook(edit('Write', 'mcp/trajectory-server/src/index.ts', tx.empty)), DENY, 'absent identity never grants passage'));
 });
 
-describe('no-source-edit-from-main l3: allowlist paths (DB present, any context)', () => {
+describe('no-source-edit-from-main l3: allowlist paths (DB present, any non-bro agent)', () => {
+  for (const [label, tool, path] of [
+    ['consultant + .md file', 'Edit', 'docs/architecture/FILES.md'],
+    ['consultant + CHANGELOG.md', 'Edit', 'CHANGELOG.md'],
+    ['consultant + LICENSE', 'Write', 'LICENSE'],
+    ['consultant + .gitignore', 'Edit', '.gitignore'],
+    ['consultant + agents/swe.md (agent prompts editable)', 'Edit', 'agents/swe.md'],
+    ['consultant + skills/tmb_foo/SKILL.md', 'Edit', 'skills/tmb_foo/SKILL.md'],
+    ['consultant + .claude-plugin/plugin.json', 'Edit', '.claude-plugin/plugin.json'],
+    ['consultant + .github/workflows/test.yml', 'Edit', '.github/workflows/test.yml'],
+  ] as const) {
+    it(`${label}: pass`, () => silent(hook(asAgent(tool, path, 'researcher')), `${path} allowed`));
+  }
   for (const [label, tool, path, transcript] of [
     ['bro mode + .md file', 'Edit', 'docs/architecture/FILES.md', 'bro'],
     ['bro mode + CHANGELOG.md', 'Edit', 'CHANGELOG.md', 'bro'],
     ['bro mode + LICENSE', 'Write', 'LICENSE', 'bro'],
-    ['bro mode + .gitignore', 'Edit', '.gitignore', 'bro'],
-    ['bro mode + agents/swe.md (agent prompts editable)', 'Edit', 'agents/swe.md', 'bro'],
-    ['bro mode + skills/tmb_foo/SKILL.md', 'Edit', 'skills/tmb_foo/SKILL.md', 'bro'],
-    ['plain session + .md file (allowlist applies to all contexts)', 'Edit', 'docs/architecture/FILES.md', 'plain'],
-    ['bro mode + .claude-plugin/plugin.json', 'Edit', '.claude-plugin/plugin.json', 'bro'],
+    ['bro mode + agents/swe.md', 'Edit', 'agents/swe.md', 'bro'],
+    ['plain session (bro role) + .md file', 'Edit', 'docs/architecture/FILES.md', 'plain'],
     ['bro mode + .github/workflows/test.yml', 'Edit', '.github/workflows/test.yml', 'bro'],
   ] as const) {
-    it(`${label}: pass`, () => silent(hook(edit(tool, path, tx[transcript])), `${path} allowed`));
+    it(`GH 3075: ${label}: BLOCK (the allowlist no longer admits bro)`, () => {
+      const out = hook(edit(tool, path, tx[transcript]));
+      has(out, DENY, `${path} denied to bro in the main checkout`);
+      has(out, 'in the main checkout', 'reason names the main checkout');
+    });
   }
   it('bro mode + hooks.json: BLOCK (enforcement surface)', () => {
     const out = hook(edit('Edit', 'hooks/hooks.json', tx.bro), { cwd: pluginRepo });
@@ -171,15 +185,20 @@ describe('no-source-edit-from-main l3: enforcement-surface deny precedes the all
 });
 
 describe('no-source-edit-from-main l3: worktree paths, SWE always allowed', () => {
-  for (const [label, tool, path, transcript] of [
-    ['worktree + scripts/hooks/foo.ts (SWE in worktree edits hooks)', 'Edit', '.claude/worktrees/task-14/scripts/hooks/foo.ts', 'bro'],
-    ['worktree + hooks/hooks.json (SWE in worktree edits manifest)', 'Edit', '.claude/worktrees/task-14/hooks/hooks.json', 'bro'],
-    ['REGRESSION: target inside .claude/worktrees/<slug>/', 'Edit', '.claude/worktrees/task-42/src/foo.ts', 'bro'],
-    ['REGRESSION: target with absolute worktree path', 'Write', '/tmp/proj/.claude/worktrees/task-42/src/index.ts', 'bro'],
-    ['worktree target with no transcript (worktree exemption is location-only)', 'Edit', '.claude/worktrees/task-99/src/foo.ts', ''],
+  for (const [label, tool, path, agent] of [
+    ['worktree + scripts/hooks/foo.ts (SWE in worktree edits hooks)', 'Edit', '.claude/worktrees/task-14/scripts/hooks/foo.ts', 'swe'],
+    ['worktree + hooks/hooks.json (SWE in worktree edits manifest)', 'Edit', '.claude/worktrees/task-14/hooks/hooks.json', 'swe'],
+    ['REGRESSION: target inside .claude/worktrees/<slug>/', 'Edit', '.claude/worktrees/task-42/src/foo.ts', 'swe'],
+    ['REGRESSION: target with absolute worktree path', 'Write', '/tmp/proj/.claude/worktrees/task-42/src/index.ts', 'swe'],
+    ['consultant worktree target (worktree exemption is location-only for non-bro agents)', 'Edit', '.claude/worktrees/task-99/src/foo.ts', 'researcher'],
   ] as const) {
-    it(`${label}: PASS`, () => silent(hook(edit(tool, path, transcript === '' ? '' : tx[transcript])), `${path} allowed`));
+    it(`${label}: PASS`, () => silent(hook(asAgent(tool, path, agent)), `${path} allowed`));
   }
+  it('GH 3075: bro + a worktree path no task owns: BLOCK, naming the no-code task route', () => {
+    const out = hook(edit('Edit', '.claude/worktrees/task-42/docs/a.md', tx.bro));
+    has(out, DENY, 'bro worktree edits need a running no-code task');
+    has(out, 'no_code_class', 'fix names the no-code class');
+  });
   it('REGRESSION: target outside any worktree, even when CWD pretends: BLOCK', () => {
     const wt = join(t, '.claude/worktrees/task-42');
     mkdirSync(wt, { recursive: true });
@@ -282,8 +301,8 @@ describe("no-source-edit-from-main l3: the enforcement surface is the plugin's o
   });
   it('user repo (no manifest) + scripts/hooks/x.ts, non-isolated swe: ALLOWED', () =>
     silent(hook(asAgent('Edit', 'scripts/hooks/x.ts', 'swe'), { cwd: userRepo }), "swe permit applies to a user repo's scripts/hooks/"));
-  it('user repo (no manifest) + scripts/hooks/README.md: ALLOWED as .md', () =>
-    silent(hook(asAgent('Edit', 'scripts/hooks/README.md', 'bro'), { cwd: userRepo }), ".md allowlist applies to a user repo's scripts/hooks/"));
+  it('user repo (no manifest) + scripts/hooks/README.md, consultant: ALLOWED as .md', () =>
+    silent(hook(asAgent('Edit', 'scripts/hooks/README.md', 'researcher'), { cwd: userRepo }), ".md allowlist applies to a user repo's scripts/hooks/"));
   it('user repo (no manifest) + absolute scripts/hooks/x.ts, swe: ALLOWED', () =>
     silent(hook(asAgent('Edit', join(userRepo, 'scripts/hooks/x.ts'), 'swe')), 'absolute target in a user repo is not an enforcement surface'));
   it('repo with a DIFFERENT plugin manifest name + scripts/hooks/x.ts, bro: treated as user repo', () => {

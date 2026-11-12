@@ -271,13 +271,14 @@ describe('schema — current table set, default values, constraints', () => {
       { name: 'stop_detail', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'hook_block_tokens', type: 'INTEGER', notnull: 0, dflt_value: null },
     ]);
-    assert.deepEqual(tail('tasks', 6), [
+    assert.deepEqual(tail('tasks', 7), [
       { name: 'checkpoint', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'worktree_path', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'worktree_adopted', type: 'INTEGER', notnull: 1, dflt_value: '0' },
       { name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'base_sha', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'wm_commit', type: 'TEXT', notnull: 0, dflt_value: null },
+      { name: 'no_code_class', type: 'TEXT', notnull: 0, dflt_value: null },
     ]);
     db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'budget'), ('swe', 'hook_block'), ('swe', NULL)`);
     assert.throws(() => db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'timeout')`), /CHECK/);
@@ -301,14 +302,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 71 in plugin_meta', () => {
+  it('fresh DB has schema_version = 72 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 71);
+    assert.equal(meta.schema_version, 72);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

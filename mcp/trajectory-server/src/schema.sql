@@ -220,7 +220,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- the environment gate passed. NULL before v67 and when the server ran
     -- without a world-model graph. Keep this comment comma-free for the same
     -- DROP COLUMN reason.
-    wm_commit         TEXT
+    wm_commit         TEXT,
+    -- no_code_class (v72 GH 3075): docs or prompts when bro authors the task
+    -- itself in its worktree; NULL for a code task swe runs. task_provision
+    -- is its only writer. Keep this comment comma-free for the same DROP
+    -- COLUMN reason.
+    no_code_class     TEXT CHECK (no_code_class IS NULL OR no_code_class IN ('docs','prompts'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -463,7 +468,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 71, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 72, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

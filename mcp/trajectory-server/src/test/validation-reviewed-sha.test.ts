@@ -301,7 +301,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
 
       const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
       try {
-        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 71);
+        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 72);
         const after = migrated.all<Record<string, unknown>>('SELECT * FROM validation_attempts ORDER BY id').map((r) => ({ ...r }));
         assert.deepEqual(after, before.map((r) => ({ ...r, reviewed_sha: null })));
         assert.deepEqual(
