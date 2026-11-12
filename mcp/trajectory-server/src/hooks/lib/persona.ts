@@ -2,7 +2,7 @@
  * The persona helper (GH 1692), shared by
  * session-start-persona and user-prompt-persona, which deliver bro's persona:
  * Claude Code never loads a plugin's CLAUDE.md, so the hooks inject
- * $CLAUDE_PLUGIN_ROOT/CLAUDE.md as context. As the .sh does, it falls back to
+ * $CLAUDE_PLUGIN_ROOT/CLAUDE.md as context. It falls back to
  * raw text and a sed-style parse when jq is not on PATH, writes only the
  * per-session marker <project>/.claude/<plugin>/sessions/<session_id>.persona
  * and never touches the project's CLAUDE.md.
@@ -152,7 +152,7 @@ export function touchEmpty(path: string): void {
   try {
     writeFileSync(path, '');
   } catch {
-    /* as the .sh: ignored */
+    /* a marker write failure is ignored */
   }
 }
 

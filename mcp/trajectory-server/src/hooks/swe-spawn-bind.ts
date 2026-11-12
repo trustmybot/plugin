@@ -6,9 +6,7 @@
  * tool_use row is left for task_brief / SubagentStop.
  *
  * Fail-open: it never blocks, prints nothing, and a failed write leaves the DB
- * unchanged. Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so it
- * binds the row on a machine without them where the .sh skipped it
- * (decision 703).
+ * unchanged. It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { dbWrite } from './lib/audit.js';

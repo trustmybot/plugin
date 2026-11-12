@@ -8,12 +8,11 @@
  * TMB_DISABLE_README_STALENESS_HOOK=1.
  *
  * The verdict comes from git alone, read in the closed commit's tree
- * (GH 2044, GH 1792), where the .sh read the main checkout's files and their
- * mtimes: a README.md absent from the commit's tree is missing; one the
- * commit itself changes is fresh; any other is older than the commit. So a
- * README the commit adds or edits, on a branch the main checkout has not
- * checked out, is no longer flagged. Unlike the .sh, it needs neither jq nor
- * the sqlite3 CLI (decision 703).
+ * (GH 2044, GH 1792), not the main checkout's files and their mtimes: a
+ * README.md absent from the commit's tree is missing; one the commit itself
+ * changes is fresh; any other is older than the commit. So a README the
+ * commit adds or edits, on a branch the main checkout has not checked out, is
+ * not flagged. It needs neither jq nor the sqlite3 CLI.
  *
  * Scope (GH 1965): a directory with a path segment in plugin_config
  * `readme_nudge_skip_dirs` (a JSON array of segments; unset or not an array
@@ -62,7 +61,7 @@ function cut(text: string): [string, string] {
   return bar < 0 ? [text, text] : [text.slice(0, bar), text.slice(bar + 1)];
 }
 
-/** The .sh's `${row%%|*}` / `${row#*|}` split of `commit_sha|repo|issue_id|branch_id`. */
+/** The `${row%%|*}` / `${row#*|}` split of `commit_sha|repo|issue_id|branch_id`. */
 export function parseTaskRow(row: string): ClosedTask {
   const [commitSha, rest1] = cut(row);
   const [repo, rest2] = cut(rest1);

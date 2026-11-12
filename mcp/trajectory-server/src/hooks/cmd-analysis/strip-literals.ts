@@ -1,6 +1,5 @@
 /**
- * tmb_cmd_strip_literals of scripts/hooks/lib/cmd-analysis.sh in its plain
- * mode (GH 1692), the awk scanner ported state for state: heredoc bodies and
+ * The plain literal stripper (GH 1692), a state-by-state line scanner: heredoc bodies and
  * comments dropped, quotes removed, a quoted blank or operator shown as `_`,
  * `$(` / backtick substitutions inside double quotes kept as `$(...)`, and a
  * line that ends inside a quote joined to the next by `_`.

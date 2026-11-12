@@ -1,6 +1,6 @@
 /**
  * What clean-merged-branch and close-issue-on-merge share (GH 1692): the
- * PostToolUse(Bash) payload read as their .sh's jq calls read it, and the
+ * PostToolUse(Bash) payload read with jq's semantics, and the
  * failed-merge check on the tool response.
  */
 import { jqCompact, jqIndex, jqLiteralNumbers, jqMap, jqOr } from './jq.js';

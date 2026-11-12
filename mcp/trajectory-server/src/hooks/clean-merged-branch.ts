@@ -4,12 +4,12 @@
  * else the branch checked out where the merge ran) and its worktree are
  * removed when the branch is not protected, its work is already in its base
  * (ancestor, squash or rebase merge) and its worktree is clean; then a
- * detached `git fetch --prune`. stderr notes are the .sh's.
+ * detached `git fetch --prune`. Each step notes itself on stderr.
  *
  * Advisory: it prints nothing on stdout and always exits 0. Bypass:
- * TMB_DISABLE_CLEAN_MERGED_BRANCH=1. Unlike the .sh it needs no jq, and it
- * reads repos.target_branch and protected_branches wherever node:sqlite
- * works, with no sqlite3 CLI on PATH (decision 703).
+ * TMB_DISABLE_CLEAN_MERGED_BRANCH=1. It needs no jq, and it reads
+ * repos.target_branch and protected_branches wherever node:sqlite works, with
+ * no sqlite3 CLI on PATH.
  */
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';

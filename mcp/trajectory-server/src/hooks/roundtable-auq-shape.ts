@@ -2,8 +2,8 @@
  * PreToolUse hook on AskUserQuestion (#141, GH 1692): while a roundtable is awaiting_human
  * with no human vote, a ratification batch must be Q1 multiSelect
  * (agreements), Q2..Qn radios (disagreements), at most 4 questions; a batch
- * of another shape gets permissionDecision "ask" with the violations. Unlike
- * the .sh, it needs neither jq nor the sqlite3 CLI (decision 703).
+ * of another shape gets permissionDecision "ask" with the violations. It
+ * needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult } from './gate.js';
 import { dbPath, haveSqlite, sqliteRo } from './lib/db.js';
@@ -61,7 +61,7 @@ function multiSelectAt(questions: readonly unknown[], i: number): boolean {
 
 /**
  * The violations of the batch's `.tool_input.questions` (one value per
- * payload value), as the .sh finds them; null when it passes the batch by
+ * payload value); null when it passes the batch by
  * (no questions, or a count of 0).
  */
 export function shapeViolations(echoed: string): string[] | null {

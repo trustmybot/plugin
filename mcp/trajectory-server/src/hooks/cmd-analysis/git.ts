@@ -1,7 +1,7 @@
 /**
- * The git-target helpers of scripts/hooks/lib/cmd-analysis.sh (GH 1692):
- * tmb_cmd_statements, tmb_cwd_state, tmb_git_subcommand, tmb_stmt_repo_root
- * and tmb_deny_ambiguous_git_target, on the tree-sitter-bash skeleton of
+ * The git-target helpers (GH 1692): the statement listing, the cwd state,
+ * the git subcommand, a statement's repo root and the ambiguous-target deny,
+ * on the tree-sitter-bash skeleton of
  * encode.ts. Where encode() cannot parse the command, or a `bash -c` / `eval`
  * body in it, cmdStatements fails closed instead of listing the statements it
  * could read (GH 1927).

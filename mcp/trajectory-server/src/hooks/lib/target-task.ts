@@ -1,6 +1,5 @@
 /**
- * The target-to-task helpers ported from the former shell libs query-task.sh
- * and cmd-analysis.sh (GH 1692): worktreeRootForTarget,
+ * The target-to-task helpers (GH 1692): worktreeRootForTarget,
  * resolveTaskIdForTarget and pathDigest.
  */
 import { createHash } from 'node:crypto';

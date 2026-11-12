@@ -4,7 +4,7 @@
  * artifact's body and writes it back carrying exactly the TMB footer. Best
  * effort: a missing CLI, a failed read or no URL in the response is a no-op.
  *
- * Decisions, argv and the bodies written are the .sh's. The repo comes from
+ * The repo comes from
  * the response's URL through GH_REPO / GITLAB_REPO, so no directory chooses
  * it; the CLI only needs a place to start. The hook also runs with no
  * jq on PATH, and grep's `[:alnum:]` under a UTF-8 locale is Unicode's
@@ -47,7 +47,7 @@ const KINDS: readonly Kind[] = [
   { cli: 'glab', group: 'issue', urlPath: '/-/issues/' },
 ];
 
-/** normalize_footer of the .sh: bare Claude Code footer lines dropped, the TMB footer appended once. */
+/** The body with bare Claude Code footer lines dropped, the TMB footer appended once. */
 export function normalizeFooter(body: string, env: NodeJS.ProcessEnv = process.env): string {
   const text = shellCapture(body);
   const kept = text === ''

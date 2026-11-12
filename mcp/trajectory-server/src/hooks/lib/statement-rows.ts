@@ -33,7 +33,7 @@ export function lineStatements(statements: readonly Statement[]): Array<Statemen
   });
 }
 
-/** The `dir` / `stmt` pairs the .sh's read loop sees from tmb_cmd_statements' lines, a row of a one-line statement keeping that statement's `cut` and `literals` and reading its `src`. */
+/** The `dir` / `stmt` pairs of the statement listing's lines, a row of a one-line statement keeping that statement's `cut` and `literals` and reading its `src`. */
 export function statementRows(statements: readonly Statement[]): Statement[] {
   const text = stripTrailingNewlines(statements.map(({ dir, stmt }) => `${dir}\t${stmt}`).join('\n'));
   if (text === '') return [];

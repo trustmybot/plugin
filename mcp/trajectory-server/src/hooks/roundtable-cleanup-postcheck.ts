@@ -4,8 +4,7 @@
  * advisory additionalContext naming each capture surface the closed
  * roundtable lacks (analysis and decision discussions, closed state, outcome,
  * votes, the roundtable_summary audit row). Never blocks; silent on any local
- * failure. Unlike the .sh, it needs neither jq nor the sqlite3 CLI
- * (decision 703).
+ * failure. It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult } from './gate.js';
 import { dbPath, haveSqlite, sqlInt, sqliteRo } from './lib/db.js';
@@ -37,7 +36,7 @@ const atLeastOne = (count: string): boolean => /^[0-9]+$/.test(count) && Number(
 
 /**
  * The capture surfaces missing from <row>, the query's list-mode output, read
- * as the .sh's `IFS='|' read -r`: the first line only, the outcome the rest of
+ * as `IFS='|' read -r` reads it: the first line only, the outcome the rest of
  * it, and an outcome of a lone `|` read as empty. Null when the row names no
  * issue.
  */

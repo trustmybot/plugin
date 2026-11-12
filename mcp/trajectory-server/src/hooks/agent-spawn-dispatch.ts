@@ -5,11 +5,7 @@
  * dropped. The first deny is printed verbatim and ends the run. Otherwise the
  * PREPARE steps (ensure-swe-worktree, record-swe-spawn, record-reviewer-spawn) run fail-open, and
  * the gates' additionalContext parts, joined by a `---` line, come out as one
- * PreToolUse additionalContext. It always exits 0.
- *
- * Unlike the .sh, it needs no jq, so a machine without jq still runs the
- * chain where the .sh exited 1 with "agent-spawn-dispatch: jq not found"
- * (decision 703).
+ * PreToolUse additionalContext. It always exits 0 and needs no jq.
  */
 import type { Gate, GateResult } from './gate.js';
 import { ALLOW } from './gate.js';
