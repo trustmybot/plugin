@@ -1,14 +1,13 @@
 /**
  * PreToolUse(Agent) gate (GH 1740), run by agent-spawn-dispatch after
  * code-reviewer-after-atomic-close: before a code-reviewer spawn for task_id=<N>,
- * five deterministic checks on the task's commit, in order. The first that
+ * four deterministic checks on the task's commit, in order. The first that
  * fails denies with the JSON reason {check, expected, actual}, so no reviewer
  * is spent on a commit a machine could have refused:
  *
  *   sha_mismatch       refs/heads/<branch_id> in the task repo is tasks.commit_sha
  *   no_passing_run     a verification_runs row for (task, commit) with exit 0, not timed out
- *   base_conflict      `git merge-tree --write-tree <pr_target tip> <commit>` exits 0
- *   no_lint_record     the task's newest finished lint_runs row for the commit exists
+ *   no_lint_record    the task's newest finished lint_runs row for the commit exists
  *                      and exited 0
  *   stale_lint_record  that run's fingerprint is the close-lints fingerprint of the commit,
  *                      its base_sha is merge-base(<pr_target tip>, <commit>), and its
@@ -16,8 +15,10 @@
  *
  * The changelog and stale-doc checks run earlier, at swe's close
  * (swe-verification-gate, GH 2866), and a failing one records no verification
- * run, so no_passing_run also holds them. The first three stay here because the
- * branch tip and the PR target can move after the close.
+ * run, so no_passing_run also holds them. sha_mismatch and stale_lint_record
+ * stay here because the branch tip and the PR target can move after the close.
+ * A conflict with the PR target does not deny: the merge resolves it, after
+ * review.
  *
  * The last two are an allowlist over swe's close-lint record (GH 2570): a record
  * the preflight cannot prove current and clean denies, a malformed
@@ -30,7 +31,7 @@ import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { closeLintsPlan } from './lib/close-lints.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
-import { gitText, listed, nulFields, revParse } from './lib/doc-checks.js';
+import { gitText, listed, revParse } from './lib/doc-checks.js';
 import { prTargetRef } from './lib/git-refs.js';
 import { latestLintRun } from './lib/lint-runs.js';
 import { structuredDenyResult, type DenyFix } from './lib/deny.js';
@@ -40,7 +41,7 @@ import { normalizeRole } from './lib/role.js';
 export const GATE_NAME = 'code-reviewer-preflight';
 export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_PREFLIGHT';
 
-export type PreflightCheck = 'sha_mismatch' | 'no_passing_run' | 'base_conflict' | 'no_lint_record' | 'stale_lint_record';
+export type PreflightCheck = 'sha_mismatch' | 'no_passing_run' | 'no_lint_record' | 'stale_lint_record';
 
 export interface PreflightFailure {
   check: PreflightCheck;
@@ -135,31 +136,8 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
   if (targetRow === GATE_READ_ERROR) return dbUnavailable(env);
   const targetRef = await prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch, env);
   const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
-  if (targetRef === null || targetTip === null) {
-    return deny({
-      check: 'base_conflict',
-      expected: `${commit} merges cleanly into the PR target`,
-      actual: `no PR target ref resolves in ${repo}`,
-    }, taskId);
-  }
-  const merge = await gitText(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
-  if (merge.code !== 0) {
-    const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ''))];
-    return deny({
-      check: 'base_conflict',
-      expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
-      actual: merge.code !== 1 || conflicted.length === 0 ? `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}` : `conflicts in ${listed(conflicted)}`,
-    }, taskId);
-  }
+  const mergeBase = targetTip === null ? '' : (await gitText(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
 
-  const mergeBase = (await gitText(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
-  if (mergeBase === '') {
-    return deny({
-      check: 'base_conflict',
-      expected: `${commit} shares history with ${targetRef} (${targetTip})`,
-      actual: 'no merge-base',
-    }, taskId);
-  }
   const lintRun = latestLintRun(db, taskId, commit, env) ?? (recorded !== commit ? latestLintRun(db, taskId, recorded, env) : null);
   if (lintRun === null || lintRun.exit_code !== 0) {
     const failing = lintRun?.results.filter((r) => r.exit_code !== 0).map((r) => `${r.name} exit_code=${r.exit_code ?? 'null'}`) ?? [];
@@ -182,6 +160,20 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       check: 'stale_lint_record',
       expected: `the lint run's fingerprint is the close-lints fingerprint of ${commit}`,
       actual: `${run}: fingerprint recorded ${lintRun.fingerprint}, recomputed ${plan.fingerprint}`,
+    }, taskId);
+  }
+  if (targetRef === null || targetTip === null) {
+    return deny({
+      check: 'stale_lint_record',
+      expected: `the lint run's base_sha is merge-base(<PR target>, ${commit})`,
+      actual: `${run}: no PR target ref resolves in ${repo}`,
+    }, taskId);
+  }
+  if (mergeBase === '') {
+    return deny({
+      check: 'stale_lint_record',
+      expected: `the lint run's base_sha is merge-base(${targetRef}, ${commit})`,
+      actual: `${run}: ${commit} shares no history with ${targetRef} (${targetTip})`,
     }, taskId);
   }
   if (lintRun.base_sha !== mergeBase) {

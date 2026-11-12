@@ -147,7 +147,7 @@ Each completed task bro hands to review gets its own code-reviewer, in parallel;
 
 | Step | Actor | What it guarantees |
 |---|---|---|
-| Spawn | bro → code-reviewer | the reviewer gets anchors and a short note only, and starts only on a commit machines already vouch for: the right tip, a passing run, a current lint record, no base conflict |
+| Spawn | bro → code-reviewer | the reviewer gets anchors and a short note only, and starts only on a commit machines already vouch for: the right tip, a passing run, a current lint record; a conflict with the base waits for the merge |
 | Probe | code-reviewer | deterministic: reads the brief and the commit and probes the diff's dependents through the world model in a review worktree; it runs no lints, since the spawn already proved swe's lint record |
 | Verdict | code-reviewer | judgment: a fail carries a blocking finding, a pass may carry nits and pre-existing findings; the reviewer's identity is observed, never claimed |
 | Pass | bro | bro reads the verdict from its record and closes the task (its worktree removed at task close, before the merge), integrates it if the base moved, pushes and opens the PR |

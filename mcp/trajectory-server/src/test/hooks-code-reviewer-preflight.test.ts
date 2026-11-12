@@ -287,8 +287,14 @@ describe('code-reviewer-preflight', () => {
     });
   });
 
-  describe('base_conflict', () => {
-    it('denies when the PR target gained a conflicting change', async () => {
+  describe('a conflict with the PR target is left to the merge (GH 3101)', () => {
+    function assertMergeTreeConflicts(f: Fixture, path: RegExp): void {
+      const r = spawnSync('git', ['-C', f.repo, 'merge-tree', '--write-tree', '--name-only', 'dev', BRANCH], { env: f.env, encoding: 'utf8' });
+      assert.equal(r.status, 1, 'merge-tree reports a conflict');
+      assert.match(r.stdout, path);
+    }
+
+    it('allows a commit that conflicts with the PR target tip and passes the other four checks', async () => {
       const f = fixture();
       featureCommit(f);
       await f.record();
@@ -296,9 +302,25 @@ describe('code-reviewer-preflight', () => {
       f.write('src/a.txt', 'one\ntwo\nthree\nFOUR on dev\n');
       f.commit('dev conflicts');
       f.git('checkout', '-q', BRANCH);
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'base_conflict');
-      assert.match(d.actual ?? '', /conflicts in src\/a\.txt/);
+      assertMergeTreeConflicts(f, /src\/a\.txt/);
+      await assertAllowed(f);
+    });
+
+    it('still denies stale_lint_record on the conflicting commit when its lint base_sha is not the merge-base', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const sha = await f.record({ exit: 0 }, null);
+      const mergeBase = f.git('merge-base', 'dev', sha);
+      const id = await f.lint(sha, { baseSha: sha });
+      f.git('checkout', '-q', 'dev');
+      f.write('src/a.txt', 'one\ntwo\nthree\nFOUR on dev\n');
+      f.commit('dev conflicts');
+      f.git('checkout', '-q', BRANCH);
+      assert.deepEqual(denial((await run(f)).stdout), {
+        check: 'stale_lint_record',
+        expected: `the lint run's base_sha is merge-base(dev, ${sha})`,
+        actual: `run ${id}: base_sha recorded ${sha}, merge-base ${mergeBase}`,
+      });
     });
 
     it('allows a clean base move', async () => {
@@ -335,13 +357,7 @@ describe('code-reviewer-preflight', () => {
       f.git('checkout', '-q', BRANCH);
     }
 
-    function assertMergeTreeConflicts(f: Fixture): void {
-      const r = spawnSync('git', ['-C', f.repo, 'merge-tree', '--write-tree', '--name-only', 'dev', BRANCH], { env: f.env, encoding: 'utf8' });
-      assert.equal(r.status, 1, 'merge-tree reports a conflict');
-      assert.match(r.stdout, /dist\/chunks\/View-bbb222\.js/);
-    }
-
-    it('denies a conflict on a generated build path (GH 2054)', async () => {
+    it('allows a conflict on a generated build path (GH 2054)', async () => {
       const f = fixture(GENERATED_FILES);
       f.write('mcp/trajectory-server/dist/x.js', 'export const x = 2;\n');
       f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
@@ -351,28 +367,35 @@ describe('code-reviewer-preflight', () => {
       f.write('mcp/trajectory-server/dist/x.js', 'export const x = 3;\n');
       f.commit('dev rebuilds dist');
       f.git('checkout', '-q', BRANCH);
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'base_conflict');
-      assert.equal(d.actual, 'conflicts in mcp/trajectory-server/dist/x.js');
+      assertMergeTreeConflicts(f, /mcp\/trajectory-server\/dist\/x\.js/);
+      await assertAllowed(f);
     });
 
-    it('denies a hashed-chunk conflict (GH 2054)', async () => {
-      const f = fixture(GENERATED_FILES);
-      await generatedChunkConflict(f);
-      assertMergeTreeConflicts(f);
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'base_conflict');
-      assert.match(d.actual ?? '', /^conflicts in .*dist\/chunks\/View-bbb222\.js/);
+    it('allows a hashed-chunk conflict, alone or alongside a source conflict (GH 2005, GH 2054)', async () => {
+      for (const alsoConflictSource of [false, true]) {
+        const f = fixture(GENERATED_FILES);
+        await generatedChunkConflict(f, alsoConflictSource);
+        assertMergeTreeConflicts(f, /dist\/chunks\/View-bbb222\.js/);
+        await assertAllowed(f);
+      }
     });
+  });
 
-    it('denies a source conflict alongside a generated chunk, naming both paths', async () => {
-      const f = fixture(GENERATED_FILES);
-      await generatedChunkConflict(f, true);
-      assertMergeTreeConflicts(f);
+  describe('the PR target lookup feeding stale_lint_record', () => {
+    it('denies stale_lint_record when no PR target ref resolves', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const sha = await f.record();
+      const w = new DatabaseSync(f.db);
+      w.prepare("UPDATE repos SET target_branch = 'gone'").run();
+      w.prepare("UPDATE tasks SET parent_branch_id = 'gone' WHERE id = ?").run(TASK_ID);
+      w.close();
+      f.git('branch', '-q', '-m', 'dev', 'trunk');
+      f.git('checkout', '-q', '--detach');
       const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'base_conflict');
-      assert.match(d.actual ?? '', /dist\/chunks\/View-bbb222\.js/);
-      assert.match(d.actual ?? '', /src\/a\.txt/);
+      assert.equal(d.check, 'stale_lint_record');
+      assert.match(d.actual ?? '', new RegExp(`no PR target ref resolves in .*repo$`));
+      assert.match(d.expected ?? '', new RegExp(`merge-base\\(<PR target>, ${sha}\\)`));
     });
   });
 
@@ -589,10 +612,10 @@ describe('scripts/hooks/README.md describes the GH 2866 split of the doc checks'
     return readme.slice(from, to);
   };
 
-  it('the preflight paragraph names five checks and none of the doc checks', () => {
+  it('the preflight paragraph names four checks and none of the doc checks', () => {
     const preflight = between('`code-reviewer-preflight` judges a code-reviewer spawn', 'Then the TypeScript gate `rework-limit`');
-    assert.match(preflight, /with five deterministic checks/);
-    for (const check of ['sha_mismatch', 'no_passing_run', 'base_conflict', 'no_lint_record', 'stale_lint_record']) assert.ok(preflight.includes(`\`${check}\` (`), `${check} is listed`);
+    assert.match(preflight, /with four deterministic checks/);
+    for (const check of ['sha_mismatch', 'no_passing_run', 'no_lint_record', 'stale_lint_record']) assert.ok(preflight.includes(`\`${check}\` (`), `${check} is listed`);
     for (const check of ['stale_doc_ref', 'missing_changelog']) assert.equal(preflight.includes(check), false, `${check} is not a preflight check`);
   });
 
