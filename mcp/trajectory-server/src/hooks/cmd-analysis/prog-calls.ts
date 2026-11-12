@@ -1,12 +1,11 @@
 /**
- * _tmb_cmd_prog_calls (cmd-analysis.sh): the awk call scanner over a python /
- * node / perl / ruby program, ported state for state. It runs on the
- * program's UTF-8 bytes, as awk does under LC_ALL=C, and prints the same
- * lines: `W` and `T<TAB><literal>` / `F` per write call, `S<TAB><command>`,
- * except that a python or node target that is one bare name, a python
- * write_text / write_bytes receiver that is one, or one `sys.argv[<n>]` /
- * `process.argv[<n>]` prints `F<TAB><name>` (GH 1692) where the awk prints `F`,
- * `R<TAB><code>`, `U`, `H`, `C`, `Q<TAB><quoted literal>` and `A`.
+ * The call scanner over a python / node / perl / ruby program, a state
+ * machine on the program's UTF-8 bytes. It prints these lines: `W` and
+ * `T<TAB><literal>` / `F` per write call, where a python or node target that
+ * is one bare name, a python write_text / write_bytes receiver that is one,
+ * or one `sys.argv[<n>]` / `process.argv[<n>]` prints `F<TAB><name>`
+ * (GH 1692); `S<TAB><command>`, `R<TAB><code>`, `U`, `H`, `C`,
+ * `Q<TAB><quoted literal>` and `A`.
  */
 
 export type Lang = 'py' | 'node' | 'perl' | 'ruby';

@@ -10,8 +10,8 @@
  * → exit 0, no output. Not ready and the data dir already holds a valid
  * install for the key → the bridge, no output. Otherwise the gate takes the
  * lock `<data>/deps/.install.lock`, starts `node dist/hooks.js
- * ensure-mcp-deps-installed --install` detached and prints the .sh's notice.
- * Unset CLAUDE_PLUGIN_DATA, or win32, keeps the .sh's install into the MCP dir.
+ * ensure-mcp-deps-installed --install` detached and prints the install notice.
+ * Unset CLAUDE_PLUGIN_DATA, or win32, installs into the MCP dir.
  * Bypass, unset CLAUDE_PLUGIN_ROOT, no MCP package.json → exit 0, no output.
  */
 import { spawn, spawnSync, type StdioOptions } from 'node:child_process';
@@ -82,7 +82,7 @@ interface Context {
   readonly env: NodeJS.ProcessEnv;
   readonly root: string;
   readonly mcpDir: string;
-  /** Unset CLAUDE_PLUGIN_DATA or win32: install into the MCP dir as the .sh does. */
+  /** Unset CLAUDE_PLUGIN_DATA or win32: install into the MCP dir. */
   readonly legacy: boolean;
   readonly legacyReason: string;
   readonly dataDir: string;
@@ -358,8 +358,7 @@ function claimLock(lock: string): string | undefined {
 }
 
 /**
- * Takes over a stale lock under the mutex `<lock>.reclaim`, as the retired dispatch.sh's
- * reclaim() did: the holder re-checks staleness, so a lock re-created
+ * Takes over a stale lock under the mutex `<lock>.reclaim`: the holder re-checks staleness, so a lock re-created
  * meanwhile is never removed. A mutex older than 30 s is dropped for the next caller.
  */
 function reclaimLock(lock: string, staleMin: number): string | undefined {
@@ -537,7 +536,7 @@ function ensureDeps(env: NodeJS.ProcessEnv): GateResult {
   return notice(`📦 Installing the MCP server's @huggingface/transformers in the background (${installer.installer.name}); semantic search runs on FTS until then and embeddings go live on the next Claude Code restart.${logNote}`);
 }
 
-/** Every path exits 0, as the .sh does: a filesystem error leaves the session to start degraded. */
+/** Every path exits 0: a filesystem error leaves the session to start degraded. */
 export const ensureMcpDepsInstalled: SyncGate = (_payload, env) => {
   try {
     return ensureDeps(env);

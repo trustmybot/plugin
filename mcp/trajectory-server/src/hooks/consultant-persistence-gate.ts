@@ -9,8 +9,7 @@
  * issue discussion_append defaults to. It passes on stop_hook_active, an
  * unresolvable agent, the backbone roles, a non-consultant, an unresolved DB
  * and no open issue; a DB read error blocks with the DB-unavailable reason.
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so it enforces on
- * a machine without them where the .sh let every stop through (decision 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult } from './gate.js';
 import { agentTranscript, transcriptStart } from './lib/agent-context.js';

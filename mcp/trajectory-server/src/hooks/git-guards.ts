@@ -14,13 +14,11 @@
  * no policy gets github-flow with its default branch as target and sole
  * protected branch.
  *
- * Deny messages and decisions are the .sh's, with four stricter exceptions:
- * a command naming git, gh or glab that tree-sitter-bash cannot parse is
- * denied with PARSE_REASON (the .sh judges the statements its awk skeleton
- * reads), the early exit reads ASCII letters and digits in every locale, the
- * DB is read wherever node:sqlite works, with no sqlite3 CLI on PATH, and the
- * switch-then-fast-forward sync needs an ASCII-only command (the .sh's awk
- * fails on a quoted non-ASCII character in a UTF-8 locale and so denies it).
+ * A command naming git, gh or glab that tree-sitter-bash cannot parse is
+ * denied with PARSE_REASON, the early exit reads ASCII letters and digits in
+ * every locale, the DB is read wherever node:sqlite works, with no sqlite3
+ * CLI on PATH, and the switch-then-fast-forward sync needs an ASCII-only
+ * command.
  */
 import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
@@ -69,7 +67,7 @@ const MALFORMED_REASON = "BLOCKED: this repo's protected_branches is malformed J
  * _cmd_needs_git_guard: a git, gh or glab word anywhere, as written or
  * unquoted, a `$'…'` word (GH 2758), or a git word beside an expansion (GH 2641), the early exit before
  * any parse or DB read. Its letters and digits are ASCII in every locale, so a
- * word right after a non-ASCII letter is analysed, as the .sh does under LC_ALL=C.
+ * word right after a non-ASCII letter is analysed, as under LC_ALL=C.
  */
 export function needsGitGuard(command: string): boolean {
   return prefilterPasses(command, (text) => NEEDS_GUARD.test(text)) || gitBesideExpansion(command);

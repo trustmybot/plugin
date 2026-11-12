@@ -1,8 +1,8 @@
 /**
  * `git -C <dir> <args>` for the hook gates (GH 1692): argv only, never a shell
- * string, stderr dropped as the .sh's `2>/dev/null` does. Under the router the
- * child is killed at the running gate's deadline (decisions 922 and 937);
- * outside it, as the .sh runs git, with no timeout of its own.
+ * string, stderr dropped. Under the router the child is killed at the running
+ * gate's deadline (decisions 922 and 937); outside it git runs with no
+ * timeout of its own.
  *
  * Within one router call (runWithGitMemo, decision 937) the gates share git: a
  * read this file can prove read-only runs once and identical `fetch`es share one
@@ -257,7 +257,7 @@ export async function gitOut(dir: string, args: readonly string[], env: NodeJS.P
   return (await gitRun(dir, args, env, input)).stdout.replace(/\n+$/, '');
 }
 
-/** `git -C <dir> <args>` succeeded; `stderr: 'inherit'` for a call the .sh leaves unsilenced. */
+/** `git -C <dir> <args>` succeeded; `stderr: 'inherit'` for a call whose stderr reaches the user. */
 export async function gitOk(
   dir: string,
   args: readonly string[],

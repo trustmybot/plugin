@@ -2,13 +2,10 @@
  * SessionStart hook (GH 1692, #98): when a dist/tools/*.js on
  * disk is newer than this session's own trajectory-server child, a Tier 2
  * restart note. The child is the trajectory-server whose ppid chain holds
- * the nearest Claude Code ancestor of this process (ps and pgrep, as the .sh
- * walks it). Test overrides: TMB_MCP_PID_OVERRIDE, TMB_MCP_START_OVERRIDE,
- * TMB_TOOL_DIR_OVERRIDE, TMB_DRIFT_SELF_PID. It never denies.
- *
- * Divergences: the .sh needs jq to print the note (it exits 127 without);
- * this gate needs no jq, and compares mtimes in place of a mktemp reference
- * file, so an unwritable TMPDIR no longer silences it.
+ * the nearest Claude Code ancestor of this process (walked with ps and
+ * pgrep). Test overrides: TMB_MCP_PID_OVERRIDE, TMB_MCP_START_OVERRIDE,
+ * TMB_TOOL_DIR_OVERRIDE, TMB_DRIFT_SELF_PID. It never denies, needs no jq,
+ * and compares mtimes directly, with no reference file in TMPDIR.
  */
 import { spawnSync } from 'node:child_process';
 import { lstatSync, readdirSync, statSync } from 'node:fs';
@@ -26,8 +23,8 @@ const SERVER_PATTERN = 'trajectory-server/dist/index.js';
 const INT64_MAX = 2n ** 63n - 1n;
 const INT64_MIN = -(2n ** 63n);
 /**
- * An arithmetic error in the .sh abandons its start-time block; the unset
- * start then fails the reference date, so the hook exits 0 with no output.
+ * An arithmetic error in the start-time computation, as bash arithmetic
+ * raises it; the hook then exits 0 with no output.
  */
 class ArithError extends Error {}
 
@@ -114,7 +111,7 @@ function arithDigits(text: string): bigint {
   return BigInt(text);
 }
 
-/** Seconds of a ps etime `[DD-][HH:]MM:SS`, as the .sh splits it. */
+/** Seconds of a ps etime `[DD-][HH:]MM:SS`, each field base 10. */
 export function etimeSeconds(raw: string): bigint {
   const dash = raw.indexOf('-');
   const days = dash < 0 ? '0' : raw.slice(0, dash);

@@ -6,8 +6,8 @@
  * `dist/hooks.js liveness-sentinel`, the one registration outside the router),
  * so a deleted or unwired hook cannot leave a stale row; every hook hooks.json
  * registers has a row. scripts/hooks/README.md opens its entry-point section
- * with the router as every registration but that sentinel, and never names the
- * retired dispatch.sh. A self-test plants each failure in a copied tree.
+ * with the router as every registration but that sentinel, and names no shell
+ * script and no shell helpers. A self-test plants each failure in a copied tree.
  */
 import assert from 'node:assert/strict';
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,7 +20,8 @@ const HOOKS_SRC = 'mcp/trajectory-server/src/hooks';
 const REFERENCE = 'docs/reference/REFERENCE.md';
 const README = 'scripts/hooks/README.md';
 const README_ROUTER = 'Every `hooks/hooks.json` command is the TypeScript router, `node dist/hooks.js <Event> [part]`';
-const README_STALE = 'dispatch.sh';
+/** A shell script name, or the shell helpers lib/ no longer holds. */
+const README_STALE = /\.sh\b|shell helpers/;
 
 /** Every gate hooks.json runs, the router entries expanded to their dist/hooks-router.txt gates. */
 function registered(root: string): string[] {
@@ -64,7 +65,9 @@ function checkTree(root: string): { rows: number; errors: string[] } {
   }
   if (cells.length === 0) errors.push(`${REFERENCE} has no hook table under ## Hooks`);
   const readme = readFileSync(join(root, README), 'utf8');
-  if (readme.includes(README_STALE) || !readme.includes(README_ROUTER)) errors.push(`${README} does not say every hooks/hooks.json command is the router`);
+  if (!readme.includes(README_ROUTER)) errors.push(`${README} does not say every hooks/hooks.json command is the router`);
+  const stale = README_STALE.exec(readme);
+  if (stale) errors.push(`${README} names "${stale[0]}", but no shell script or shell helper remains`);
   return { rows: cells.length, errors };
 }
 
@@ -115,11 +118,23 @@ describe('hooks-doc-fresh self-test: each planted drift fails naming it', () => 
     assert.ok(errors.some((e) => e.includes('orphan-scan, which has no orphan-scan.ts row')), errors.join('\n'));
   });
 
-  it('a README naming dispatch.sh fails', () => {
+  for (const [planted, named] of [
+    ['Every gate runs through `dispatch.sh`.', '.sh'],
+    ['This directory keeps the shared shell helpers in `lib/`.', 'shell helpers'],
+  ] as const) {
+    it(`a README naming ${named} fails`, () => {
+      setReference(reference());
+      cpSync(join(PLUGIN_ROOT, README), join(tree, README));
+      appendFileSync(join(tree, README), `${planted}\n`);
+      const { errors } = checkTree(tree);
+      assert.ok(errors.some((e) => e.includes(`scripts/hooks/README.md names "${named}"`)), errors.join('\n'));
+    });
+  }
+
+  it('a README without the router sentence fails', () => {
     setReference(reference());
-    appendFileSync(join(tree, README), `Every gate runs through \`${README_STALE}\`.\n`);
+    writeFileSync(join(tree, README), readFileSync(join(PLUGIN_ROOT, README), 'utf8').replace(README_ROUTER, 'Gates run.'));
     const { errors } = checkTree(tree);
-    assert.ok(errors.length > 0);
     assert.ok(errors.some((e) => e.includes('scripts/hooks/README.md does not say')), errors.join('\n'));
   });
 });

@@ -1,7 +1,7 @@
 /**
- * The retired dispatch.sh's per-call dedupe, ported for the router: one run per (event,
+ * The router's per-call dedupe: one run per (event,
  * session_id, tool_name, tool_input, tool_use_id), per (SessionStart,
- * session_id) as dispatch.sh keyed that event, or per whole payload when it has
+ * session_id) for that event, or per whole payload when it has
  * no tool_name, the gate left out of the key since the router runs them all and
  * the part in it, so parts of one event never answer for each other. The first
  * call creates <state>/locks/events/<key>/ (mkdir is the lock), writes its

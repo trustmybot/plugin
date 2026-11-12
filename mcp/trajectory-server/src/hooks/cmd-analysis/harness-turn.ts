@@ -1,5 +1,5 @@
 /**
- * tmb_is_harness_turn of scripts/hooks/lib/cmd-analysis.sh (GH 1692): whether
+ * The harness-turn check (GH 1692): whether
  * a UserPromptSubmit prompt came from the harness, not the Human — a task or
  * system notification, a subagent hand-back, an agent or cross-session
  * message.

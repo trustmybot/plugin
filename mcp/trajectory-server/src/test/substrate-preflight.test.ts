@@ -1,9 +1,11 @@
 /**
  * substrate-preflight end to end (GH 1692), the SessionStart gate that emits a
- * TMB DEGRADED banner when jq, sqlite3, git or node is missing from PATH:
+ * TMB DEGRADED banner when git or node is missing from PATH, or sqlite3 is
+ * missing and node:sqlite is unavailable too:
  *   1. a healthy host with a remote URL: exit 0, no output;
- *   2. one or more binaries missing: each named in one banner, the output one
- *      SessionStart JSON value with a string additionalContext, jq not needed;
+ *   2. one or more needed binaries missing: each named in one banner, the
+ *      output one SessionStart JSON value with a string additionalContext; jq
+ *      missing, or the sqlite3 CLI missing beside node:sqlite, is no banner;
  *   3. the offline note when the registered repo's remotes have no URL or it
  *      has no repo_remotes row, and none when a URL is configured;
  *   4. degraded and offline at once: both in the output.
@@ -70,10 +72,11 @@ describe('substrate-preflight: the DEGRADED banner and the offline note', () => 
     return dir;
   }
 
-  function run(opts: { path?: string; db?: string } = {}): { stdout: string; status: number | null } {
+  function run(opts: { path?: string; db?: string; sqlite?: 'cli' } = {}): { stdout: string; status: number | null } {
     const env: NodeJS.ProcessEnv = { ...sb.env };
     if (opts.path !== undefined) env.PATH = opts.path;
     if (opts.db !== undefined) env.TRAJECTORY_DB_PATH = opts.db;
+    if (opts.sqlite !== undefined) env.TMB_HOOKS_SQLITE = opts.sqlite;
     const r = runGate(GATE, { cwd: sb.dir, env, input: '{}' });
     return { stdout: r.stdout, status: r.status };
   }
@@ -100,33 +103,41 @@ describe('substrate-preflight: the DEGRADED banner and the offline note', () => 
   });
 
   describe('missing binaries', () => {
-    let noJq: string;
+    let noGit: string;
     before(() => {
-      noJq = run({ path: stubDirWith('sqlite3', 'git', 'node') }).stdout;
+      noGit = run({ path: stubDirWith('sqlite3', 'node'), db: dbWithRemote }).stdout;
     });
 
-    it('jq missing: a non-empty TMB DEGRADED banner naming jq, produced without jq', () => {
-      assert.notEqual(noJq, '');
-      assert.ok(noJq.includes('TMB DEGRADED'), noJq);
-      assert.ok(noJq.includes('jq'), noJq);
+    it('git missing: a TMB DEGRADED banner naming git, produced without jq', () => {
+      assert.ok(noGit.includes('TMB DEGRADED'), noGit);
+      assert.ok(noGit.includes('missing git'), noGit);
+      assert.ok(!noGit.includes('jq'), noGit);
     });
 
-    it('jq missing: one SessionStart JSON value with a string additionalContext', () => {
-      const v = single(noJq);
+    it('git missing: one SessionStart JSON value with a string additionalContext', () => {
+      const v = single(noGit);
       assert.equal(v.hookSpecificOutput?.hookEventName, 'SessionStart');
       assert.equal(typeof v.hookSpecificOutput?.additionalContext, 'string');
     });
 
-    it('sqlite3 missing: a TMB DEGRADED banner naming sqlite3', () => {
-      const out = run({ path: stubDirWith('jq', 'git', 'node') }).stdout;
-      assert.ok(out.includes('TMB DEGRADED'), out);
-      assert.ok(out.includes('sqlite3'), out);
+    it('jq missing alone: no banner, since no hook needs jq', () => {
+      assert.equal(run({ path: stubDirWith('sqlite3', 'git', 'node'), db: dbWithRemote }).stdout, '');
     });
 
-    it('jq and git missing: both named in one banner', () => {
-      const out = run({ path: stubDirWith('sqlite3', 'node') }).stdout;
-      assert.ok(out.includes('jq'), out);
-      assert.ok(out.includes('git'), out);
+    it('sqlite3 CLI missing with node:sqlite: no banner', () => {
+      assert.equal(run({ path: stubDirWith('git', 'node'), db: dbWithRemote }).stdout, '');
+    });
+
+    it('sqlite3 CLI missing and node:sqlite off: a TMB DEGRADED banner naming sqlite3', () => {
+      const out = run({ path: stubDirWith('git', 'node'), db: dbWithRemote, sqlite: 'cli' }).stdout;
+      assert.ok(out.includes('TMB DEGRADED'), out);
+      assert.ok(out.includes('missing sqlite3'), out);
+    });
+
+    it('git and node missing: both named in one banner', () => {
+      const out = run({ path: stubDirWith('sqlite3'), db: dbWithRemote }).stdout;
+      assert.ok(out.includes('missing git'), out);
+      assert.ok(out.includes('missing node'), out);
     });
   });
 

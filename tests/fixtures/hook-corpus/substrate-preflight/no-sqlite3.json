@@ -5,5 +5,9 @@
   "corpus_env": {
     "PATH": "@PATH_WITHOUT:sqlite3@"
   },
-  "corpus_expect": "TMB DEGRADED: missing sqlite3 — task/spawn gates cannot verify state. Install"
+  "corpus_expect": "\"additionalContext\":\"TMB: operating locally — no remote configured; remote/push ops are skipped.\"}}",
+  "corpus_divergence": {
+    "why": "node:sqlite reads the DB without the sqlite3 CLI, so the banner does not name sqlite3 and the offline note still runs",
+    "bash_expect": "TMB DEGRADED: missing sqlite3 — task/spawn gates cannot verify state. Install"
+  }
 }

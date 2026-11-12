@@ -8,8 +8,8 @@
  *
  * GH 2032 (decision 703): a task with a recorded tasks.worktree_path, read
  * through taskLocation, already has its worktree when that path exists, so
- * no slug worktree is added beside it. Unlike the .sh, it needs neither jq
- * nor the sqlite3 CLI.
+ * no slug worktree is added beside it. It needs neither jq nor the sqlite3
+ * CLI.
  */
 import { existsSync } from 'node:fs';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
@@ -36,7 +36,7 @@ export function sweSpawnTaskId(input: JqInput): string {
   return sqlInt(promptTaskId(jqCapture(input, ['tool_input', 'prompt'], true)));
 }
 
-/** The .sh's REPO_ROOT: the repos row's path as stored, else a path under the workspace root. */
+/** The repo root: the repos row's path as stored, else a path under the workspace root. */
 export function prepareRepoRoot(db: string, repo: string, env: NodeJS.ProcessEnv): string {
   const workspaceRoot = posixDirname(posixDirname(posixDirname(db)));
   if (repo !== '') return repoPathByName(db, repo, env) || `${workspaceRoot}/${repo}`;

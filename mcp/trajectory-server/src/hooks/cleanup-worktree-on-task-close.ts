@@ -10,7 +10,7 @@
  *
  * A worktree the task adopted from the session (tasks.worktree_adopted=1,
  * GH 2032) is not the task's to remove: it is kept, with a note on stderr.
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI (decision 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { HAS_PASS_SQL } from '../review-sql.js';
 import { taskLocation } from './lib/agent-context.js';
@@ -59,7 +59,7 @@ async function listedWorktree(repoRoot: string, matches: (path: string) => boole
   return '';
 }
 
-/** The repo root the .sh resolves: tasks.repo's repos.path or `<workspace>/<repo>`, else the sole repo, else the workspace. */
+/** The task's repo root: tasks.repo's repos.path or `<workspace>/<repo>`, else the sole repo, else the workspace. */
 function taskRepoRoot(db: string, taskId: string, env: NodeJS.ProcessEnv): string {
   const taskRepo = sqliteRo(db, `SELECT repo FROM tasks WHERE id=${taskId} LIMIT 1;`, env);
   const workspace = posixDirname(posixDirname(posixDirname(db)));

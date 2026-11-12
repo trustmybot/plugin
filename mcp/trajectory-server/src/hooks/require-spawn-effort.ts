@@ -9,8 +9,7 @@
  * and the model it assigned, or no model when it assigned none (GH 2932);
  * any other agent is allowed. A missing effort is a mismatch. No resolvable
  * DB allows; a DB read failure denies, and a DB without tasks.effort gets the
- * restart-to-migrate remedy. Unlike the .sh, it needs no jq, so it decides
- * where the .sh denies for a missing jq.
+ * restart-to-migrate remedy. It needs no jq.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, stripTrailingNewlines } from './lib/db.js';

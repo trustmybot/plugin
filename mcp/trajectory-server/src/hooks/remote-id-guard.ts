@@ -9,15 +9,13 @@
  * It fails open: no DB, no SQLite, no issues table, no offending token, a
  * `#<n>` that is no local id, and TMB_DISABLE_REMOTE_ID_GUARD=1 all allow.
  * The analysis runs within TMB_REMOTE_ID_GUARD_DEADLINE_S seconds (default 3,
- * GH 1821), an in-process time budget where the .sh kills a process group:
- * past it the gate allows, prints one stderr line and writes one
+ * GH 1821), an in-process time budget: past it the gate allows, prints one stderr line and writes one
  * remote_id_guard_overrun audit row on issue -1. TMB_REMOTE_ID_GUARD_TEST_OVERRUN=1
  * makes the budget read as spent from the start, so a test reaches that path
  * without waiting on the clock.
  *
- * Unlike the .sh it needs neither jq nor the sqlite3 CLI, and a command
- * tree-sitter-bash cannot parse is allowed rather than read with the .sh's
- * awk skeleton (decision 703).
+ * It needs neither jq nor the sqlite3 CLI, and a command tree-sitter-bash
+ * cannot parse is allowed.
  */
 import { statSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
@@ -87,7 +85,7 @@ function unhex(hex: string): string {
   return nul < 0 ? text : text.slice(0, nul);
 }
 
-/** Each token that is a local issue id, with the `gh|gl|objective` row the .sh's per-id SELECT prints; one read for all tokens. */
+/** Each token that is a local issue id, with its `gh|gl|objective` row; one read for all tokens. */
 function localRows(db: string, tokens: readonly string[], env: NodeJS.ProcessEnv): Map<string, string> {
   const values = tokens.map((n) => `('${n}', ${n})`).join(', ');
   const out = sqliteRo(

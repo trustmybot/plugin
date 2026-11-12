@@ -1,8 +1,8 @@
 /**
  * SessionStart hook (GH 1692): writes <state_dir>/sessions/<session_id>.plugin-hooks, the proof that this
  * session loaded the plugin's hooks, pruning such markers over 24 h old. It
- * writes only into an existing state dir and prints nothing. Unlike the .sh,
- * which exits without jq, it reads the payload itself (decision 703).
+ * writes only into an existing state dir and prints nothing. It reads the
+ * payload itself, with no jq.
  */
 import { mkdirSync, statSync } from 'node:fs';
 import { ALLOW, type GateResult } from './gate.js';

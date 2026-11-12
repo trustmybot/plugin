@@ -60,9 +60,7 @@
  * served (GH 2297). Past the cap the gate denies with `suite slot busy` and
  * records no run.
  *
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so without them it
- * still runs verification[] and denies a failing command where the .sh let
- * every completion through (decision 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, closeSync, constants, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';

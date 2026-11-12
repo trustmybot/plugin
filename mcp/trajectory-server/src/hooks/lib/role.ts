@@ -1,6 +1,6 @@
 /**
- * TypeScript port of scripts/hooks/lib/normalize-role.sh, plus the role read
- * of cmd-analysis.sh's tmb_agent_role (GH 1692).
+ * Agent role normalization, plus the acting agent's role read from a hook
+ * payload (GH 1692).
  */
 import { jqAlternatives } from './jq.js';
 
