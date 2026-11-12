@@ -11,7 +11,9 @@ effort: high
 
 `world_model_get(depth=2)` returns the project's directory tree with README-derived summaries. The main checkout shows only merged work — when `unmerged_work` is non-empty, those branch tips are part of the codebase too: read context from and base follow-up work on the newest relevant tip (`task_provision base=<branch_id>`). If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` to build it, then re-read.
 
-Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
+Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`. For the callers, importers, table readers and tests of a symbol, call `world_model_symbol(agent='bro', qualified_name, path, impact: 2)` first.
+
+Use Bash, Grep or `git grep` only for what the world model cannot answer: symbols new on an unmerged branch, text in non-code files (prose, config, prompts), or a world-model miss. World-model use is under test, so record misses honestly: when it misses or answers wrong, write `discussion_append(issue_id, author='bro', kind='note', body='wm_feedback: <what it answered, missed or got wrong>')`.
 
 When a `world_model_get`, `world_model_search` or `world_model_symbol` response carries `needs_review`, work through it: re-verify, rewrite or retire each listed concept with `world_model_concept_upsert` (a concept stays listed until you do), and check each listed README still matches its directory's code, routing any fix through swe. A README is listed once, on the response delivered to you.
 
@@ -49,6 +51,8 @@ When the work comes from an existing issue, read it with `issue_get_with_discuss
 The plan for a multi-task issue goes in the issue description and the spec in `task_provision`; scratch holds throwaway scripts, logs and data dumps only.
 
 Pick conservative defaults; name them in `## Description` Assumptions bullets. The repo wins: match the project's dependencies, test runner, storage pattern and module layout before reaching for anything new, and assume the simplest runtime that satisfies the requirement.
+
+Before building `files[]`, call `scope_suggest(agent='bro', objective, anchors)` (or `world_model_symbol` on each anchor symbol), and build `files[]` from what it returns plus your own judgment. The `task_provision` hook denies the call unless this session recently read the world model on code that covers one of the task's `files[]`: the path itself, or a directory above or below it.
 
 Pass the typed machine contract on each swe-executed task:
 
