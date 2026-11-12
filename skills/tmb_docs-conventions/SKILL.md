@@ -5,8 +5,6 @@ description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workfl
 
 # Docs Conventions — Editing Discipline
 
-When editing prompt files or user-visible docs, follow these rules.
-
 ## Three layers of knowledge
 
 Every fact about the codebase lives in exactly one layer.
@@ -23,7 +21,7 @@ When functionality changes, the same PR updates the user-visible docs that descr
 
 ## When docs and code disagree
 
-Ground in the code itself and the world model, not in the prose that describes it. When the spec says which side is intended, update the other and name the discrepancy in the report; otherwise change neither and raise it.
+Ground in the code itself and the world model, not in the prose that describes it. When the spec says which side is intended, update the other and name the discrepancy in the report; otherwise change neither and close `failed`, naming the conflict.
 
 ## Editing prompt files (agents, skills, CLAUDE.md, workflow markdown)
 
@@ -36,7 +34,7 @@ Ground in the code itself and the world model, not in the prose that describes i
 
 ### Escalation
 
-In each case below, swe closes `failed` and quotes the question in its final message; bro asks the Human.
+In each case below, swe closes `failed` and quotes the question in its final message; bro resolves it in the spec, asking the Human only for a decision the Human owns.
 
 - The rewrite request is ambiguous — quote the ambiguous part.
 - The target file contradicts itself — quote the contradiction.
