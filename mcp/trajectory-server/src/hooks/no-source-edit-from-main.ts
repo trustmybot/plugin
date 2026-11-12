@@ -12,9 +12,11 @@
  * and neither the worktree dir nor the allowlist admits a write to a repo file:
  * it is allowed only inside the worktree of a running task with a
  * no_code_class, on a path the task's base_sha path classes call docs or
- * prompts. A worktree path inside a git repo fails closed when the DB cannot
- * prove its task. A write that is no repo file (scratch, outside every
- * registered repo, or ignored by git) keeps the decision every other role gets.
+ * prompts. A scratch write, or a file outside every registered repo or ignored
+ * by git, keeps the decision every other role gets, except under
+ * .claude/worktrees/ inside a git repo: there any non-scratch bro write not
+ * proven to sit in a running no-code task's worktree is denied, including when
+ * the DB cannot be read or lacks the repos table or the task row.
  *
  * Rule 2, Bash, with or without a DB: a write the cmd-analysis analyzer finds
  * to a prompt-surface path outside a worktree is denied for every identity.

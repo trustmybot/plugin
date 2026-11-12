@@ -3,7 +3,8 @@
  * node:test: an Edit/Write of source outside an SWE worktree in a TMB project
  * is denied by location, whatever the agent identity. Worktree targets, .md
  * files, configs/manifests and a missing DB pass, except that bro's edits to a
- * registered repo's files need a running no-code task's worktree (GH 3075); enforcement surfaces are
+ * registered repo's files, and to any .claude/worktrees/ path inside a git repo,
+ * need a running no-code task's worktree (GH 3075); enforcement surfaces are
  * denied first, but only in the running plugin's own source repo (GH 1362).
  * Bash writes to prompt surfaces are judged by destination (GH 1031, GH 1196),
  * a non-isolated swe may edit source, Rule 1 scopes by repo registration

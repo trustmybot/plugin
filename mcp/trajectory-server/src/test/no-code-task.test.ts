@@ -386,13 +386,15 @@ describe('SC2: bro edits only no-code paths of a running classed task', () => {
     assert.deepEqual(await edit(f, join(f.env.HOME ?? '', '.claude/projects/p/memory/feedback_x.md')), ALLOWED);
   });
 
-  it('keeps the base decision for files of an unregistered repo and files git ignores', async () => {
+  it('keeps the base decision for unregistered-repo and git-ignored files, except under .claude/worktrees/', async () => {
     const f = fixture();
     const other = join(dirname(f.checkout), 'unregistered');
     mkdirSync(other, { recursive: true });
     spawnSync('git', ['-C', other, 'init', '-q'], { env: f.env });
     assert.deepEqual(await edit(f, join(other, 'b.ts')), ALLOWED);
     assert.deepEqual(await edit(f, join(f.checkout, '.claude/notes.md')), ALLOWED, '.claude/ is in info/exclude');
+    assert.match(denyReason(await edit(f, join(other, '.claude/worktrees/y/src/a.ts'))), /No task owns|not a git worktree|not a file inside/);
+    assert.match(denyReason(await edit(f, join(f.checkout, '.claude/worktrees/unowned/.claude/notes.md'))), /No task owns|not a git worktree|not a file inside/);
   });
 
   it('resolves `..` first, so a path escaping a worktree into main-checkout files is judged there', async () => {
