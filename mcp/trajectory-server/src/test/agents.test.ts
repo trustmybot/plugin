@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,12 +23,15 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
-const PLUGIN_ROOT = (() => {
-  const env = process.env['CLAUDE_PLUGIN_ROOT'];
-  if (env && existsSync(join(env, '.claude-plugin', 'plugin.json'))) return env;
+const CHECKOUT_ROOT = (() => {
   let dir = dirname(fileURLToPath(import.meta.url));
   while (!existsSync(join(dir, '.claude-plugin', 'plugin.json'))) dir = dirname(dir);
   return dir;
+})();
+
+const PLUGIN_ROOT = (() => {
+  const env = process.env['CLAUDE_PLUGIN_ROOT'];
+  return env && existsSync(join(env, '.claude-plugin', 'plugin.json')) ? env : CHECKOUT_ROOT;
 })();
 
 describe('agentTools', () => {
@@ -45,7 +48,7 @@ describe('agentTools', () => {
   it('every plugin: file_path a fresh DB seeds names a file that ships with the plugin', () => {
     const db = tempDB();
     for (const { file_path } of db.all<{ file_path: string }>("SELECT file_path FROM agents WHERE file_path LIKE 'plugin:%'")) {
-      assert.ok(existsSync(join(PLUGIN_ROOT, file_path.slice('plugin:'.length))), `${file_path} must exist under the plugin root`);
+      assert.ok(existsSync(join(CHECKOUT_ROOT, file_path.slice('plugin:'.length))), `${file_path} must ship in this checkout`);
     }
     db.close();
   });
@@ -350,19 +353,9 @@ describe('agent_resolve', () => {
     }
   });
 
-  for (const name of ['architect', 'cto', 'ceo', 'pm']) {
-    it(`'${name}' resolves from-scratch: no consultant template ships for it`, async () => {
-      const db = tempDB();
-      const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
-      const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name });
-      const data = parseResult(result);
-      assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
-      assert.equal(data.mode, 'from-scratch');
-      assert.equal(data.scaffold_path, join(PLUGIN_ROOT, 'templates', 'agents', 'template.md'));
-      assert.equal(data.file_path, `project:.claude/agents/${name}.md`);
-      db.close();
-    });
-  }
+  it('this checkout ships template.md as its only agent template, so every consultant name resolves from-scratch', () => {
+    assert.deepEqual(readdirSync(join(CHECKOUT_ROOT, 'templates', 'agents')), ['template.md']);
+  });
 
   it('Branch C — from-scratch: returns mode=from-scratch for an unknown name', async () => {
     const db = tempDB();
