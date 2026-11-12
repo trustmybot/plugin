@@ -76,26 +76,9 @@ Agentic prompts add tool use, autonomy, and multi-turn state:
 
 ---
 
-## Pre-ship checklist
+## Before shipping
 
-One item per core rule, in the same order.
-
-- [ ] 1. Few rules, the most important first.
-- [ ] 2. Only what this task needs; the rest pointed to, with no issue numbers, PR links, or history.
-- [ ] 3. One structure style; a mixed prompt tags its instructions, context, examples, and inputs.
-- [ ] 4. No "think step by step" for a reasoning model.
-- [ ] 5. The role sets scope and voice, with no expert-persona claim.
-- [ ] 6. No tips, threats, flattery, urgency, or politeness tricks.
-- [ ] 7. Re-run against representative cases after the wording change.
-- [ ] 8. Examples for any non-obvious format, matching the wanted output.
-- [ ] 9. A positive form wherever one exists; each prohibition is a hard limit, paired with what to do instead and enforced outside the prompt.
-- [ ] 10. Scope and output shape stated; no conflicting or duplicated rules.
-- [ ] 11. Tool and skill descriptions match the code.
-- [ ] 12. Emphasis words only on true invariants.
-- [ ] 13. Each non-obvious rule gives its reason.
-- [ ] 14. Untrusted input sits in named tags marked as data, and trust is enforced in a hook or gate.
-
-[`GOLDEN_PROMPTS.md`](GOLDEN_PROMPTS.md) turns these rules into scored criteria with examples.
+Score the prompt against the [Golden Prompts criteria](GOLDEN_PROMPTS.md#criteria): each maps to a rule above and says whether a lint or a reader checks it.
 
 ---
 
