@@ -66,7 +66,7 @@ Every flow is built on two axes. The first is a responsibility boundary: each la
 2. **One plugin loads together:** the swe and code-reviewer agents, the trajectory server and the hooks. Claude Code doesn't load a plugin's CLAUDE.md, so the hooks deliver bro's persona.
 3. **Session start marks the session and runs advisory checks** (health, required tools, upgrade leftovers, project inventory) that never block the session; when something is broken, a degraded banner names it.
 4. **The first prompt** starts onboarding (flow 1) on a project that isn't onboarded. A mid-session install needs a full restart of Claude Code.
-5. **A long bro session gets one /compact nudge.** Once per session, when bro's latest context passes the `bro_compact_nudge_tokens` config key (80000 tokens by default, 0 turns it off), the bro-turn gate adds one advisory line suggesting /compact at the next natural break; the compaction restore brings back the issue, its tasks and the newest decision. It never blocks.
+5. **A long bro session gets one /compact nudge.** Once per session, when bro's context passes a configurable token threshold (off when set to zero), bro gets one advisory line suggesting /compact at the next natural break. The compaction restore brings back the issue, its tasks and the newest decision. It never blocks.
 
 ## Part II — Cold start
 
