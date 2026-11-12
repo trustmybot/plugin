@@ -638,9 +638,12 @@ function handoffGateError(
   return null;
 }
 
-// The scope record of the newest `eventType` audit row naming this task and commit.
-function scopeRecordFor<T>(db: TrajectoryDB, eventType: string, taskId: number, commitSha: string | null): Partial<T> | null {
-  if (!commitSha) return null;
+// cli.js integrate moves commit_sha onto a rebased SHA without re-recording
+// scope, so a commit with no scope row inherits it from the commit integrate
+// rebased, hop by hop, bounded like review-sql's legacy anchor chain.
+const INTEGRATE_CHAIN_HOPS = 10;
+
+function scopeRowFor<T>(db: TrajectoryDB, eventType: string, taskId: number, commitSha: string): Partial<T> | null {
   const row = db.get<{ content_json: string }>(
     `SELECT content_json FROM audit
       WHERE event_type = ? AND json_valid(content_json)
@@ -649,6 +652,32 @@ function scopeRecordFor<T>(db: TrajectoryDB, eventType: string, taskId: number, 
     [eventType, taskId, commitSha],
   );
   return row ? ((JSON.parse(row.content_json) as { scope?: Partial<T> }).scope ?? null) : null;
+}
+
+function integratedFrom(db: TrajectoryDB, taskId: number, commitSha: string): string | null {
+  const row = db.get<{ reviewed_sha: string }>(
+    `SELECT json_extract(content_json, '$.reviewed_sha') AS reviewed_sha FROM audit
+      WHERE event_type = 'task_integrated' AND from_node = 'hook:integrate' AND json_valid(content_json)
+        AND json_extract(content_json, '$.task_id') = ? AND json_extract(content_json, '$.commit_sha') = ?
+        AND json_type(content_json, '$.reviewed_sha') = 'text'
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [taskId, commitSha],
+  );
+  return row?.reviewed_sha ?? null;
+}
+
+// The scope record of the newest `eventType` audit row naming this task and
+// its commit, else the nearest commit cli.js integrate rebased onto it.
+function scopeRecordFor<T>(db: TrajectoryDB, eventType: string, taskId: number, commitSha: string | null): Partial<T> | null {
+  const visited = new Set<string>();
+  let sha = commitSha;
+  for (let hops = 0; sha && !visited.has(sha) && hops <= INTEGRATE_CHAIN_HOPS; hops++) {
+    const scope = scopeRowFor<T>(db, eventType, taskId, sha);
+    if (scope) return scope;
+    visited.add(sha);
+    sha = integratedFrom(db, taskId, sha);
+  }
+  return null;
 }
 
 function outsideProjectResult(refusal: NonNullable<ReturnType<typeof outsideProject>>): CallToolResult {

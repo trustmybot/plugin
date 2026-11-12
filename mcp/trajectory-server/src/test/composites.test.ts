@@ -2872,6 +2872,102 @@ describe('task_brief sections (GH 1743)', () => {
   });
 });
 
+describe('task_brief scope across cli.js integrate (GH 3103)', () => {
+  const SPEC = ['## Description', 'do it', '', '## Success Criteria', '- SC1: works'].join('\n');
+  const REVIEWED = 'abc123def';
+  let at = 0;
+  const audit = (db: TrajectoryDB, fromNode: string, eventType: string, content: Record<string, unknown>): void => {
+    db.run(
+      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (1, 'fix/1-brief', ?, ?, 'seeded', ?, ?)`,
+      [fromNode, eventType, JSON.stringify(content), new Date(Date.UTC(2026, 0, 1, 0, 0, ++at)).toISOString()],
+    );
+  };
+  const seedReviewed = (db: TrajectoryDB): number => {
+    const id = seedTask(db, { repo: 'app', spec: SPEC, files: ['src/a.ts'], verification: ['true'] });
+    audit(db, 'bro', 'review_handoff', {
+      task_id: id, commit_sha: REVIEWED,
+      scope: { extras: [{ path: 'docs/x.md', reason: 'doc for it' }], checked: true, base_moved: true, recorded_base: null, merge_base: null },
+    });
+    audit(db, 'bro', 'bro_verification_pass', {
+      task_id: id, commit_sha: REVIEWED,
+      scope: { extras_accepted: ['docs/x.md'], base_moved: true, recorded_base: null, merge_base: null },
+    });
+    db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+    return id;
+  };
+  const integrate = (db: TrajectoryDB, id: number, from: string, to: string, fromNode = 'hook:integrate'): void => {
+    audit(db, fromNode, 'task_integrated', {
+      task_id: id, reviewed_sha: from, review_anchor_at: '2026-01-01T00:00:00.000Z', commit_sha: to, base: 'dev', run_id: null,
+    });
+    db.run(`UPDATE tasks SET commit_sha = ? WHERE id = ?`, [to, id]);
+  };
+  const scope = async (db: TrajectoryDB, id: number): Promise<unknown> =>
+    parse(
+      await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null).handlers, 'task_brief', {
+        agent: 'bro', task_id: id, section: 'scope',
+      }),
+    )['scope'];
+  const reviewedScope = {
+    files: ['src/a.ts'],
+    extras: [{ path: 'docs/x.md', reason: 'doc for it' }],
+    extras_accepted: ['docs/x.md'],
+    base_moved: true,
+  };
+  const emptyScope = { files: ['src/a.ts'], extras: [], extras_accepted: [], base_moved: null };
+
+  it('one integrate keeps the reviewed commit\'s extras, extras_accepted and base_moved', async () => {
+    const db = tempDB();
+    const id = seedReviewed(db);
+    integrate(db, id, REVIEWED, 'rebased1');
+    assert.deepEqual(await scope(db, id), reviewedScope);
+    db.close();
+  });
+
+  it('a two-hop integrate chain walks back to the reviewed commit', async () => {
+    const db = tempDB();
+    const id = seedReviewed(db);
+    integrate(db, id, REVIEWED, 'rebased1');
+    integrate(db, id, 'rebased1', 'rebased2');
+    assert.deepEqual(await scope(db, id), reviewedScope);
+    db.close();
+  });
+
+  it('a scope row recorded for the current commit wins over the reviewed commit\'s', async () => {
+    const db = tempDB();
+    const id = seedReviewed(db);
+    integrate(db, id, REVIEWED, 'rebased1');
+    audit(db, 'bro', 'review_handoff', {
+      task_id: id, commit_sha: 'rebased1',
+      scope: { extras: [], checked: true, base_moved: false, recorded_base: null, merge_base: null },
+    });
+    const got = (await scope(db, id)) as Record<string, unknown>;
+    assert.deepEqual(got['extras'], []);
+    assert.equal(got['base_moved'], false);
+    assert.deepEqual(got['extras_accepted'], ['docs/x.md'], 'no close row on rebased1, so the reviewed close carries');
+    db.close();
+  });
+
+  it('a task_integrated row from another author is not followed', async () => {
+    const db = tempDB();
+    const id = seedReviewed(db);
+    integrate(db, id, REVIEWED, 'rebased1', 'bro');
+    assert.deepEqual(await scope(db, id), emptyScope);
+    db.close();
+  });
+
+  it('with no scope row anywhere on the chain, extras stay empty and base_moved null', async () => {
+    const db = tempDB();
+    const id = seedTask(db, { repo: 'app', spec: SPEC, files: ['src/a.ts'], verification: ['true'] });
+    db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+    assert.deepEqual(await scope(db, id), emptyScope);
+    integrate(db, id, REVIEWED, 'rebased1');
+    integrate(db, id, 'rebased1', REVIEWED);
+    assert.deepEqual(await scope(db, id), emptyScope, 'a cyclic chain ends');
+    db.close();
+  });
+});
+
 describe('task_provision (#157)', () => {
   const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 
