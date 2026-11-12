@@ -18,10 +18,10 @@ The stem names the *feature*, not a *domain word*. Generic uses (e.g. "resource"
 
 Short, memorable, one concept. A vivid name (`cheatcode`) beats a generic one (`resource`): unique, greppable, and it sticks. Avoid words already used generically in the codebase.
 
-## Enforcement
+## Checks
 
 The stem rule is held in review; no lint checks it across surfaces. Two lints hold the skill names: [`skill-frontmatter.test.mjs`](../../tests/l1-lint/skill-frontmatter.test.mjs) (a `SKILL.md` `name` equals its directory) and [`skill-catalog-sync.test.mjs`](../../tests/l1-lint/skill-catalog-sync.test.mjs) (the skill directories and the builtin-skill seed rows in `schema.sql` are the same set).
 
 ## Intentional exceptions
 
-`onboard` is intentionally **tools-only** — `onboard_*` MCP tools (and the `onboard.ts` source) with no skill. The onboarding ceremony is driven entirely through the MCP surface. This is a deliberate `WONTFIX`, not a drift.
+`onboard` has no `tmb_onboard` skill: the Human runs the `/onboard` command (`commands/onboard.md`), and the `onboard_*` MCP tools (`onboard.ts`) drive every round. The stem still carries across the command, tools and source.

@@ -1,6 +1,6 @@
 # Changelog fragments and generated files
 
-Two things every pull request used to touch made each merge to `dev` conflict with every open branch: the `## Unreleased` block of `CHANGELOG.md` and the generated artefacts. This page is how a branch avoids both.
+A file every branch edits makes each merge to `dev` conflict with every open branch. Two kinds of file would do that: the `## Unreleased` block of `CHANGELOG.md` and the generated artefacts. This page is how a branch avoids both.
 
 ## Changelog fragments
 
@@ -12,7 +12,7 @@ A branch adds one file under [`changelog.d/`](../../changelog.d/README.md) and l
 ```
 
 - File name `<gh-issue>-<slug>.md`; line 1 is one of `### Added`, `### Changed`, `### Fixed`, `### Removed`, `### Security`; the rest is one bullet citing `GH <n>` for that issue (never `#<n>`).
-- `tests/l1-lint/changelog-current.test.mjs` validates every fragment and, on a feature branch, fails when the branch both edits `CHANGELOG.md` and adds a fragment, fails any direct `CHANGELOG.md` edit after its cut-over date (version bump branches and the branches already in flight at the cut-over excepted), and requires each `GH <n>` cited in the branch's commit subjects to have a fragment or an existing `CHANGELOG.md` entry.
+- `tests/l1-lint/changelog-current.test.mjs` validates every fragment and, on a feature branch, fails when the branch both edits `CHANGELOG.md` and adds a fragment, fails any direct `CHANGELOG.md` edit except on a version bump branch, and requires each `GH <n>` cited in the branch's commit subjects to have a fragment or an existing `CHANGELOG.md` entry.
 - At release, `node --experimental-strip-types scripts/maintenance/bump-version.ts <version>` turns `## Unreleased` plus every fragment into the `## v<version> — <date>` section (grouped by section, fragments sorted by issue number, byte-identical for the same inputs) and deletes the fragments. `--dry-run` prints that section and changes nothing; a malformed fragment refuses the bump with every file unchanged. `--impact-db <trajectory DB>` (opt-in, needs the built MCP server) adds a final `### Measured impact` section: one bullet per PR-declared `Metric:` line saying whether the change-impact measurement bore it out, with the median ratio and its 95% CI; the GitHub release notes carry it.
 
 ## Generated files and rebases

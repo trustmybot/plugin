@@ -1,10 +1,8 @@
-# DB ENUM Doctrine
+# DB enums
 
-**The lint-guarded controlled vocabularies of the trajectory DB.** Same governance rule as [`LABELS.md`](./LABELS.md): adopt established conventions where they exist; invent only when no industry analog applies.
+The trajectory DB vocabularies a lint holds against the code. Values adopt an established convention where one exists and are invented only where none applies, the same rule as [`LABELS.md`](./LABELS.md).
 
-## Why this matters
-
-Hooks branch on these values. Skills assert on them. Bro chooses paths based on them. A typo or a silent rename breaks downstream code without a compile error. A canonical doc + a lint guard catches drift before it ships.
+Hooks, skills and bro branch on these values, so a typo or a silent rename breaks them without a compile error; the [lint guard](#lint-guard) catches that drift before it ships.
 
 ## Every other vocabulary
 
