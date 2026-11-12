@@ -12,7 +12,6 @@ Names stay flat and self-explanatory; groups that need a prefix use the `Prefix:
 
 To add, rename or remove a label, edit `labels.json` in a PR, regenerate this file, and let the sync workflow apply it.
 
----
 
 ## Canonical list
 
@@ -66,7 +65,6 @@ To add, rename or remove a label, edit `labels.json` in a PR, regenerate this fi
 
 <!-- END GENERATED labels -->
 
----
 
 ## Checks
 
@@ -87,7 +85,6 @@ Whoever files an issue, a contributor or an agent working on TMB, applies one ty
 
 No label tracks staleness: a label for time-based state duplicates the issue's update time, so search by it instead (`gh issue list --state open --search 'updated:<YYYY-MM-DD>'`).
 
----
 
 ## Related
 
