@@ -437,7 +437,7 @@ Only `bro` is a reserved name, refused outright. `swe` and `code-reviewer` ship 
 
 ### 5. Skill creation
 
-Same shape as flow 4 — bro drafts via `tmb_skill-creator`, Human approves, and swe writes the skill into the project's own skills folder through the code-touching flow. Agent body files stay unedited; a global agent gets a project-local override agent file that extends `skills:`.
+Same shape as flow 4 — bro drafts via `tmb_skill-creator`, Human approves, and the skill lands in the project's own skills folder. Bro never edits agent body files; instead it writes a project-local override agent file that extends `skills:`.
 
 ---
 
