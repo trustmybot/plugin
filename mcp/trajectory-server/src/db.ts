@@ -1032,7 +1032,7 @@ function migrateV11toV12(db: DatabaseSync): void {
 // Typed Rails (#673): add typed files/verification task columns the enforcement
 // hooks read directly. Both are JSON arrays defaulting to '[]'; existing task
 // rows keep that empty default, so the hooks skip enforcement for pre-migration
-// tasks. See docs/reference/REFERENCE.md.
+// tasks.
 function migrateV12toV13(db: DatabaseSync): void {
   beginImmediate(db);
   try {
