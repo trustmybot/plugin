@@ -1,7 +1,7 @@
 /**
  * git-push-guard (GH 1692), the l3 bash suite's cases in node:test: a push whose range holds a closed task's commit_sha without a passing
- * code-reviewer verdict is denied. Force pushes go to git-guards; no DB, no
- * new commits or untracked commits pass. SWE and code-reviewer pushes are
+ * code-reviewer verdict is denied. Force pushes are judged the same way
+ * (GH 3102); no DB, no new commits or untracked commits pass. SWE and code-reviewer pushes are
  * denied by identity, worktree pushes by path (a leading cd or -C beating a
  * stale cwd), and only a real push statement counts. An unreadable DB fails
  * closed, the WAL reads hold, a bare push beside linked worktrees is
@@ -54,17 +54,20 @@ describe('git-push-guard l3: the review gate', () => {
 
   it('non-push command passes through silently', () => hasNot(run('git status'), DENY, 'git status should not be gated'));
 
-  it('git push --force is delegated to git-guards (this hook allows)', () => {
+  it('GH 3102: git push --force with an unsigned commit is judged like any push: BLOCKED', () => {
     const db = newDb(r.repo);
     insertTask(db, 1, r.sha1);
-    hasNot(run('git push --force origin main', db), DENY, 'force push should be deferred to git-guards');
+    has(run('git push --force origin main', db), 'task_id=1', 'a forced push of an unsigned commit must block');
   });
 
-  it('git push -f is delegated to git-guards (this hook allows)', () => {
+  it('GH 3102: git push -f with an unsigned commit is judged like any push: BLOCKED', () => {
     const db = newDb(r.repo);
     insertTask(db, 1, r.sha1);
-    hasNot(run('git push -f origin main', db), DENY, 'force push (-f) should be deferred');
+    has(run('git push -f origin main', db), 'task_id=1', 'a forced push (-f) of an unsigned commit must block');
   });
+
+  it('GH 3102: git push --force with all-signed commits: allowed', () =>
+    hasNot(run('git push --force origin main', bothSigned(r)), DENY, 'a forced push of reviewed commits passes this gate'));
 
   it('no DB: TMB not tracking, push allowed', () => hasNot(run('git push origin main', NO_DB), DENY, 'missing DB should not block'));
 
@@ -192,8 +195,8 @@ describe('git-push-guard l3: the review gate', () => {
     has(run('git push origin main', NO_DB, 'swe'), DENY, 'bare swe agent_type must also be blocked');
   });
 
-  it('SWE caller: git push --force still exits early (force delegated to git-guards before SWE check)', () =>
-    hasNot(run('git push --force origin main', newDb(r.repo), 'tmb:swe'), DENY, 'force push exits before SWE check (git-guards handles it)'));
+  it('GH 3102: SWE caller: git push --force is BLOCKED like any SWE push', () =>
+    has(run('git push --force origin main', newDb(r.repo), 'tmb:swe'), 'SWE must never push', 'a forced push is still a push'));
 
   it('non-SWE caller: git push NOT blocked by SWE check (bro/regular-claude)', () =>
     hasNot(run('git push origin main', bothSigned(r)), DENY, 'non-SWE caller with all-signed should not be blocked'));
@@ -210,8 +213,8 @@ describe('git-push-guard l3: the review gate', () => {
     has(run('git push origin main', NO_DB, 'code-reviewer'), DENY, 'bare code-reviewer agent_type must also be blocked');
   });
 
-  it('code-reviewer caller: git push --force still exits early (force delegated to git-guards before role check)', () =>
-    hasNot(run('git push --force origin main', newDb(r.repo), 'tmb:code-reviewer'), DENY, 'force push exits before role check (git-guards handles it)'));
+  it('GH 3102: code-reviewer caller: git push --force is BLOCKED like any code-reviewer push', () =>
+    has(run('git push --force origin main', newDb(r.repo), 'tmb:code-reviewer'), 'must not push', 'a forced push is still a push'));
 
   it('bro caller (no agent_type): git push with all-signed NOT blocked by role check', () =>
     hasNot(run('git push origin main', bothSigned(r)), DENY, 'bro/Human with all-signed commits must not be blocked by role check'));
@@ -308,10 +311,10 @@ describe('git-push-guard l3: push detection', () => {
   ])
     it(`positive: ${name} — IS_PUSH triggers (SWE blocked)`, () => has(run(cmd, 'tmb:swe'), DENY, `${cmd} must be detected as a push and blocked for SWE`));
 
-  it('#1016: double-space force push still delegated to git-guards (allowed here)', () => {
+  it('#1016 + GH 3102: double-space force push reaches the unsigned gate', () => {
     const db = newDb(r.repo);
     insertTask(db, 1, r.sha1);
-    hasNot(push(r.sb, 'git  push  --force origin main', { cwd: r.repo, db }), DENY, 'double-space force push exits before the unsigned gate');
+    has(push(r.sb, 'git  push  --force origin main', { cwd: r.repo, db }), 'task_id=1', 'double-space force push is judged like any push');
   });
 
   it("#1016: false-positive — 'bash -c \"echo git push\"' is NOT a push", () =>

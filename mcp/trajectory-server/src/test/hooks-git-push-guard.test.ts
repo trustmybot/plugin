@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { bashParser } from '../hooks/cmd-analysis/parser.js';
 import { encode } from '../hooks/cmd-analysis/encode.js';
 import { cmdStatements } from '../hooks/cmd-analysis/index.js';
-import { gitPushGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT, SWE_PUSH_FIX, SWE_PUSH_REASON } from '../hooks/git-push-guard.js';
+import { gitPushGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT, pushArgs, SWE_PUSH_FIX, SWE_PUSH_REASON } from '../hooks/git-push-guard.js';
 import { fixedReason } from '../hooks/lib/deny.js';
 import { CODE_REVIEWER_ROLE } from '../hooks/lib/role.js';
 import { findGate } from '../hooks/registry.js';
@@ -359,4 +359,27 @@ describe('git-push-guard: wiring', () => {
   it('names the code-reviewer role through the one shared constant', () => {
     assert.equal(CODE_REVIEWER_ROLE, 'code-reviewer');
   });
+});
+
+describe('git-push-guard: GH 3102 pushArgs reads the remote and refspecs a push names', () => {
+  const cases: [string, { remote: string; refspecs: string[]; deletes: boolean; refSets: string[] }][] = [
+    ['push', { remote: '', refspecs: [], deletes: false, refSets: [] }],
+    ['push origin feat/a', { remote: 'origin', refspecs: ['feat/a'], deletes: false, refSets: [] }],
+    ['push --force-with-lease=feat/a origin +feat/a:refs/heads/feat/a', { remote: 'origin', refspecs: ['+feat/a:refs/heads/feat/a'], deletes: false, refSets: [] }],
+    ['push origin feat/a 2>&1', { remote: 'origin', refspecs: ['feat/a'], deletes: false, refSets: [] }],
+    ['push origin feat/a > /tmp/log', { remote: 'origin', refspecs: ['feat/a'], deletes: false, refSets: [] }],
+    ['push -o ci.skip origin feat/a', { remote: 'origin', refspecs: ['feat/a'], deletes: false, refSets: [] }],
+    ['push -oci.skip origin feat/a', { remote: 'origin', refspecs: ['feat/a'], deletes: false, refSets: [] }],
+    ['push --push-option ci.skip -u origin feat/a', { remote: 'origin', refspecs: ['feat/a'], deletes: false, refSets: [] }],
+    ['push --repo origin feat/a', { remote: 'feat/a', refspecs: [], deletes: false, refSets: [] }],
+    ['push --repo=origin', { remote: 'origin', refspecs: [], deletes: false, refSets: [] }],
+    ['push -fd origin feat/a', { remote: 'origin', refspecs: ['feat/a'], deletes: true, refSets: [] }],
+    ['push --delete origin feat/a', { remote: 'origin', refspecs: ['feat/a'], deletes: true, refSets: [] }],
+    ['push origin -- -weird', { remote: 'origin', refspecs: ['-weird'], deletes: false, refSets: [] }],
+    ['push --all --tags origin', { remote: 'origin', refspecs: [], deletes: false, refSets: ['refs/heads/', 'refs/tags/'] }],
+    ['push --mirror origin', { remote: 'origin', refspecs: [], deletes: false, refSets: ['refs/'] }],
+  ];
+  for (const [sub, want] of cases) {
+    it(`\`${sub}\``, () => assert.deepEqual({ ...pushArgs(sub) }, want));
+  }
 });
