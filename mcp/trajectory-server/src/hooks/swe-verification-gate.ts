@@ -6,8 +6,8 @@
  * command or a spent budget.
  *
  * A bro close of a task with a no_code_class (GH 3075) runs the same path, after
- * first classing the task's diff since its merge base with base_sha by the
- * path classes committed at base_sha: a code or mixed diff denies, naming its
+ * first classing the task's diff since its merge base with origin/<PR target>
+ * (else base_sha) by the path classes committed at base_sha: a code or mixed diff denies, naming its
  * code paths. Any other non-swe caller, another status, no task id or no
  * resolvable DB allows; an unlocatable worktree denies. Before anything else runs, the changelog and
  * stale-doc checks (lib/doc-checks.ts, GH 2866) judge the worktree HEAD against
@@ -694,7 +694,8 @@ function withDocNotes(result: GateResult, notes: readonly string[]): GateResult 
  * with the task's PR target: the deny when one fails or cannot be proven, else null with each
  * skipped check's note pushed onto <notes>.
  */
-async function docGate(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv, notes: string[]): Promise<GateResult | null> {
+/** The task's PR target ref as prTargetRef resolves it, null when none resolves, or GATE_READ_ERROR. */
+async function taskPrTargetRef(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv): Promise<string | null> {
   const row = gateRead(
     db,
     `SELECT 'row|' || COALESCE(t.parent_branch_id, '') || '|' || COALESCE((SELECT r.target_branch FROM repos r
@@ -702,14 +703,19 @@ async function docGate(db: string, taskId: string, worktree: string, env: NodeJS
        FROM tasks t WHERE t.id = ${taskId} LIMIT 1;`,
     env,
   );
-  if (row === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
+  if (row === GATE_READ_ERROR) return GATE_READ_ERROR;
   const [, parentBranch = '', targetBranch = ''] = row.split('|');
+  return await prTargetRef(worktree, targetBranch, parentBranch, env);
+}
+
+async function docGate(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv, notes: string[]): Promise<GateResult | null> {
+  const targetRef = await taskPrTargetRef(db, taskId, worktree, env);
+  if (targetRef === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
   const unproven = (expected: string, actual: string): GateResult =>
     structuredDenyResult({ check: 'stale_doc_ref', expected, actual } satisfies DocCheckFailure, RETRY_FIXED);
 
   const head = await revParse(worktree, 'HEAD', env);
   if (head === null) return unproven('the worktree HEAD resolves to a commit', `git rev-parse HEAD failed in ${worktree}`);
-  const targetRef = await prTargetRef(worktree, targetBranch, parentBranch, env);
   const targetTip = targetRef === null ? null : await revParse(worktree, targetRef, env);
   if (targetRef === null || targetTip === null) {
     return unproven(`${head} has a merge base with the PR target`, `no PR target ref resolves in ${worktree}`);
@@ -741,12 +747,12 @@ function noCodeDenied(reason: string, fix: DenyFix = NO_CODE_FIX): GateResult {
   return { stdout: deny(`BLOCKED: bro's close of a no-code task needs every changed path classed docs or prompts. ${reason}`, fix), code: 0 };
 }
 
-/** Each path the commits <shas> change since their merge base with <baseSha>, renames as delete plus add. */
-async function changedSinceBase(worktree: string, baseSha: string, shas: readonly string[], env: NodeJS.ProcessEnv): Promise<string[] | string> {
+/** Each path the commits <shas> change since their merge base with <from>, renames as delete plus add. */
+async function changedSince(worktree: string, from: string, shas: readonly string[], env: NodeJS.ProcessEnv): Promise<string[] | string> {
   const paths = new Set<string>();
   for (const sha of shas) {
-    const mergeBase = (await gitText(worktree, ['merge-base', baseSha, sha], env)).stdout.trim();
-    if (mergeBase === '') return `no merge-base of ${sha} with the task base ${baseSha}`;
+    const mergeBase = (await gitText(worktree, ['merge-base', from, sha], env)).stdout.trim();
+    if (mergeBase === '') return `no merge-base of ${sha} with ${from}`;
     const diff = await gitText(worktree, ['diff', '--name-only', '--no-renames', '-z', mergeBase, sha], env);
     if (diff.code !== 0) return `git diff ${mergeBase} ${sha} failed: ${firstLine(diff.stderr)}`;
     for (const path of nulFields(diff.stdout)) paths.add(path);
@@ -755,9 +761,11 @@ async function changedSinceBase(worktree: string, baseSha: string, shas: readonl
 }
 
 /**
- * GH 3075: a bro close of a no-code task classes the task's diff, from its merge base
- * with base_sha to the closing commit (and the worktree HEAD verification runs on), by
- * the path classes committed at base_sha, and denies a code or mixed change.
+ * GH 3075: a bro close of a no-code task classes the task's own diff, from its merge
+ * base with origin/<PR target> to the closing commit (and the worktree HEAD verification
+ * runs on), by the path classes committed at base_sha, and denies a code or mixed
+ * change. Measuring from the PR target leaves out target commits merged into the task
+ * branch; with no origin ref for the target it measures from base_sha instead.
  */
 async function noCodeGate(db: string, taskId: string, worktree: string, commitSha: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
   const baseSha = gateRead(db, `SELECT COALESCE(base_sha, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, env);
@@ -767,13 +775,16 @@ async function noCodeGate(db: string, taskId: string, worktree: string, commitSh
   if (head === null) return noCodeDenied(`git rev-parse HEAD failed in ${worktree}.`, RETRY_FIXED);
   const closing = commitSha === '' ? head : await revParse(worktree, commitSha, env);
   if (closing === null) return noCodeDenied(`commit_sha ${commitSha} does not resolve in ${worktree}.`, RETRY_FIXED);
-  const changed = await changedSinceBase(worktree, baseSha, closing === head ? [head] : [closing, head], env);
+  const targetRef = await taskPrTargetRef(db, taskId, worktree, env);
+  if (targetRef === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
+  const from = targetRef?.startsWith('origin/') ? targetRef : baseSha;
+  const changed = await changedSince(worktree, from, closing === head ? [head] : [closing, head], env);
   if (typeof changed === 'string') return noCodeDenied(`Its diff cannot be listed: ${changed}.`, RETRY_FIXED);
   const read = readPathClasses(worktree, baseSha);
   if ('error' in read) return noCodeDenied(`${PATH_CLASSES_FILE} at ${baseSha} cannot be read: ${read.error}.`, 'policy');
   const changeClass = classifyChange(changed, read.classes);
   if (changeClass === 'docs' || changeClass === 'prompts') return null;
-  if (changed.length === 0) return noCodeDenied(`The task changes no path since ${baseSha}.`, RETRY_FIXED);
+  if (changed.length === 0) return noCodeDenied(`The task changes no path since its merge base with ${from}.`, RETRY_FIXED);
   const codePaths = changed.filter((path) => classifyPath(path, read.classes) === 'code');
   const why = read.classes === null ? `${PATH_CLASSES_FILE} is absent at ${baseSha}, so every path is code. ` : '';
   return noCodeDenied(`${why}The diff is ${changeClass}; its code paths go to swe: ${codePaths.join(', ')}.`);

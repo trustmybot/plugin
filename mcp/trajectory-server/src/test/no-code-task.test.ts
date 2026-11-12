@@ -371,6 +371,30 @@ describe('SC2: bro edits only no-code paths of a running classed task', () => {
     assert.match(denyReason(await edit(f, join(f.checkout, 'src/a.ts'))), /source edits from the main checkout are denied/);
   });
 
+  it('keeps the scratch allowance in a session whose project sits under .claude/worktrees/<name>', async () => {
+    const f = fixture();
+    const lane = join(f.checkout, '.claude/worktrees/lane');
+    f.git('worktree', 'add', '-q', lane, '-b', 'lane');
+    const env = { ...f.env, CLAUDE_PROJECT_DIR: lane, PWD: lane };
+    const payload = (file_path: string) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd: lane, tool_name: 'Write', tool_input: { file_path, content: 'x' } });
+    assert.deepEqual(await noSourceEditFromMain(payload(join(lane, '.claude/tmb/scratch/notes.txt')), env), ALLOWED);
+    assert.match(denyReason(await noSourceEditFromMain(payload(join(lane, 'docs/guide.md')), env)), /No task owns/);
+  });
+
+  it('keeps the allowlist for a .md outside every repo, in a dir that does not exist yet', async () => {
+    const f = fixture();
+    assert.deepEqual(await edit(f, join(f.env.HOME ?? '', '.claude/projects/p/memory/feedback_x.md')), ALLOWED);
+  });
+
+  it('keeps the base decision for files of an unregistered repo and files git ignores', async () => {
+    const f = fixture();
+    const other = join(dirname(f.checkout), 'unregistered');
+    mkdirSync(other, { recursive: true });
+    spawnSync('git', ['-C', other, 'init', '-q'], { env: f.env });
+    assert.deepEqual(await edit(f, join(other, 'b.ts')), ALLOWED);
+    assert.deepEqual(await edit(f, join(f.checkout, '.claude/notes.md')), ALLOWED, '.claude/ is in info/exclude');
+  });
+
   it('a DB below v72 reads every task as unclassed, not as a DB failure', async () => {
     const f = fixture();
     const d = new DatabaseSync(f.db);
@@ -488,6 +512,28 @@ describe('SC4: the bro close classes the task diff at base_sha', () => {
   it('denies a task that changes nothing since its base', async () => {
     const f = fixture();
     assert.match(denyReason(await close(f, 'bro')), /changes no path/);
+  });
+
+  /** dev gains a code commit after the task's base, and the task branch merges it before its docs commit. */
+  function mergeCodeFromTarget(f: Fixture): void {
+    writeFileSync(join(f.checkout, 'src/a.ts'), 'two\n');
+    spawnSync('git', ['-C', f.checkout, 'commit', '-qam', 'code on dev'], { env: f.env });
+    f.git('merge', '-q', '--no-edit', 'dev');
+  }
+
+  it('leaves out target commits merged into a docs branch, measuring from origin/<target>', async () => {
+    const f = fixture();
+    mergeCodeFromTarget(f);
+    spawnSync('git', ['-C', f.checkout, 'update-ref', 'refs/remotes/origin/dev', 'dev'], { env: f.env });
+    const head = docsCommit(f);
+    assert.deepEqual(await close(f, 'bro', { commit_sha: head }), ALLOWED);
+  });
+
+  it('measures from base_sha when origin/<target> does not resolve, so the merged code commit denies', async () => {
+    const f = fixture();
+    mergeCodeFromTarget(f);
+    docsCommit(f);
+    assert.match(denyReason(await close(f, 'bro')), /The diff is mixed; its code paths go to swe: src\/a\.ts\./);
   });
 
   it('classes the commit_sha the close names as well as HEAD', async () => {

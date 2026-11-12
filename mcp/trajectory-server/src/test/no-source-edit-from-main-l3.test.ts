@@ -2,8 +2,8 @@
  * no-source-edit-from-main end to end (GH 1692), the l3 bash suite's cases in
  * node:test: an Edit/Write of source outside an SWE worktree in a TMB project
  * is denied by location, whatever the agent identity. Worktree targets, .md
- * files, configs/manifests and a missing DB pass for every agent but bro, whose
- * edits need a running no-code task's worktree (GH 3075); enforcement surfaces are
+ * files, configs/manifests and a missing DB pass, except that bro's edits to a
+ * registered repo's files need a running no-code task's worktree (GH 3075); enforcement surfaces are
  * denied first, but only in the running plugin's own source repo (GH 1362).
  * Bash writes to prompt surfaces are judged by destination (GH 1031, GH 1196),
  * a non-isolated swe may edit source, Rule 1 scopes by repo registration
@@ -32,6 +32,7 @@ let runningPlugin: string;
 let pluginRepo: string;
 let userRepo: string;
 let otherPluginRepo: string;
+let userRepoDb: string;
 const tx: Record<string, string> = {};
 
 const jsonl = (...rows: unknown[]) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
@@ -78,6 +79,9 @@ before(() => {
   makeRepo(pluginRepo, 'fixture-plugin');
   makeRepo(userRepo);
   makeRepo(otherPluginRepo, 'some-other-plugin');
+  userRepoDb = join(t, 'user-repo-registered.db');
+  sql(userRepoDb, REPOS_TABLE);
+  sql(userRepoDb, 'INSERT INTO repos (name, path) VALUES (?, ?)', 'user-repo', git(sb.env, userRepo, 'rev-parse', '--show-toplevel'));
 });
 after(() => sb.remove());
 
@@ -155,12 +159,15 @@ describe('no-source-edit-from-main l3: allowlist paths (DB present, any non-bro 
     ['bro mode + .md file', 'Edit', 'docs/architecture/FILES.md', 'bro'],
     ['bro mode + CHANGELOG.md', 'Edit', 'CHANGELOG.md', 'bro'],
     ['bro mode + LICENSE', 'Write', 'LICENSE', 'bro'],
+    ['bro mode + .gitignore', 'Edit', '.gitignore', 'bro'],
     ['bro mode + agents/swe.md', 'Edit', 'agents/swe.md', 'bro'],
     ['plain session (bro role) + .md file', 'Edit', 'docs/architecture/FILES.md', 'plain'],
     ['bro mode + .github/workflows/test.yml', 'Edit', '.github/workflows/test.yml', 'bro'],
   ] as const) {
-    it(`GH 3075: ${label}: BLOCK (the allowlist no longer admits bro)`, () => {
-      const out = hook(edit(tool, path, tx[transcript]));
+    it(`GH 3075: ${label} outside every git repo: pass (no repo file, so the allowlist still applies)`, () =>
+      silent(hook(edit(tool, path, tx[transcript])), `${path} allowed`));
+    it(`GH 3075: ${label} in a registered repo's main checkout: BLOCK (the allowlist no longer admits bro)`, () => {
+      const out = hook(edit(tool, path, tx[transcript]), { cwd: userRepo, db: userRepoDb });
       has(out, DENY, `${path} denied to bro in the main checkout`);
       has(out, 'in the main checkout', 'reason names the main checkout');
     });
@@ -194,8 +201,10 @@ describe('no-source-edit-from-main l3: worktree paths, SWE always allowed', () =
   ] as const) {
     it(`${label}: PASS`, () => silent(hook(asAgent(tool, path, agent)), `${path} allowed`));
   }
-  it('GH 3075: bro + a worktree path no task owns: BLOCK, naming the no-code task route', () => {
-    const out = hook(edit('Edit', '.claude/worktrees/task-42/docs/a.md', tx.bro));
+  it('GH 3075: bro + a worktree path outside every git repo: PASS (no repo file)', () =>
+    silent(hook(edit('Edit', '.claude/worktrees/task-42/docs/a.md', tx.bro)), 'worktree path outside every repo allowed'));
+  it('GH 3075: bro + a worktree path of a registered repo no task owns: BLOCK, naming the no-code task route', () => {
+    const out = hook(edit('Edit', '.claude/worktrees/task-42/docs/a.md', tx.bro), { cwd: userRepo, db: userRepoDb });
     has(out, DENY, 'bro worktree edits need a running no-code task');
     has(out, 'no_code_class', 'fix names the no-code class');
   });
