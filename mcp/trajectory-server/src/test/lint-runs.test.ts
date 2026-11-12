@@ -14,6 +14,7 @@ import {
   parseCloseLints,
   type LintRunSource,
 } from '../hooks/lib/lint-runs.js';
+import { sqliteBackend } from '../hooks/lib/sqlite-shell.js';
 import { childEnv, migratedDb, sandboxDir, sqlExec } from './db-test-fixtures.js';
 
 function sqlRows(db: string, sql: string): Record<string, unknown>[] {
@@ -173,6 +174,51 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     assert.equal(lintRunResultSql('1', 1, 'n', 0, Number.NaN, '', env).code, 2);
     assert.match(lintRunFinishSql('x', 0).error, /^tmb_lint_run: lintRunFinishSql: invalid run_id 'x'$/);
   });
+});
+
+describe('latestLintRun reads results as an array on each SQLite backend (GH 3085)', () => {
+  let dir: string;
+  let db: string;
+
+  before(() => {
+    dir = sandboxDir('lint-runs-backends');
+    db = join(dir, 'trajectory.db');
+    migratedDb(db);
+    const now = nowIso();
+    sqlExec(
+      db,
+      `INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (${TASK}, 'lr', 'open', '${now}', '${now}');
+INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (${TASK}, ${TASK}, 'feat/lr', 'd', 'running', '${now}', '${now}');`,
+    );
+    const env = childEnv();
+    const write = (s: { code: number; error: string; sql: string }): string => {
+      assert.equal(s.code, 0, s.error);
+      const r = dbWrite(db, s.sql, { caller: 'lint-runs-test', env });
+      assert.ok(r.ok, r.error);
+      return r.stdout.trim();
+    };
+    const run = write(lintRunStartSql(TASK, SHA, BASE, FP, 'gate'));
+    write(lintRunResultSql(run, 2, 'second', 1, 0.5, 'b', env));
+    write(lintRunResultSql(run, 1, 'first', 0, 0.25, 'a', env));
+    write(lintRunFinishSql(run, 1));
+  });
+
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  for (const backend of ['cli', 'node'] as const) {
+    it(`reads a finished run with result rows through the ${backend} backend`, (t) => {
+      const env = childEnv({ TMB_HOOKS_SQLITE: backend === 'cli' ? 'cli' : undefined });
+      if (sqliteBackend(env) !== backend) {
+        t.skip('this Node has no usable node:sqlite');
+        return;
+      }
+      const run = latestLintRun(db, TASK, SHA, env);
+      assert.ok(run, 'the finished run is read');
+      assert.ok(Array.isArray(run.results), `results is an array, got ${typeof run.results}`);
+      assert.equal(run.results.length, 2);
+      assert.deepEqual(run.results.map((r) => r.name), ['first', 'second']);
+    });
+  }
 });
 
 describe('parseCloseLints (GH 2570)', () => {

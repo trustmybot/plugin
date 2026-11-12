@@ -144,8 +144,8 @@ export function latestLintRun(db: string, taskId: string, sha: string, env: Node
        'run_id', r.id, 'task_id', r.task_id, 'commit_sha', r.commit_sha, 'base_sha', r.base_sha,
        'fingerprint', r.fingerprint, 'source', r.source, 'started_at', r.started_at,
        'finished_at', r.finished_at, 'exit_code', r.exit_code,
-       'results', (SELECT json_group_array(json_object('ordinal', c.ordinal, 'name', c.name, 'exit_code', c.exit_code, 'elapsed_s', c.elapsed_s, 'output_tail', c.output_tail))
-                     FROM lint_run_results c WHERE c.run_id = r.id))
+       'results', json((SELECT json_group_array(json_object('ordinal', c.ordinal, 'name', c.name, 'exit_code', c.exit_code, 'elapsed_s', c.elapsed_s, 'output_tail', c.output_tail))
+                          FROM lint_run_results c WHERE c.run_id = r.id)))
        FROM lint_runs r
       WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}' AND r.finished_at IS NOT NULL
       ORDER BY r.started_at DESC, r.id DESC LIMIT 1;`,
