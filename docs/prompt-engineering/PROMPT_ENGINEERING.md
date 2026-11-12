@@ -84,7 +84,7 @@ Score the prompt against the [Golden Prompts criteria](GOLDEN_PROMPTS.md#criteri
 
 ## Deeper doctrine
 
-**[`ENFORCEMENT.md`](ENFORCEMENT.md)** applies these rules to TMB and is required reading before you write load-bearing prompt logic. It carries the six enforcement layers (MCP server → hooks → frontmatter → schema → skill paths → **prompts**), the rule that *a step the LLM can forget, misorder, or misunderstand does not belong in a prompt*, the boundary test with its compound-failure math, the coverage matrix, the grading rubric, why core prompts stay minimal, how a prompt fits its quality layer, and the prompt cache zones. Its "Positive prompts as the floor" section applies the negation rule (rule 9) to the prompt layer.
+**[`ENFORCEMENT.md`](ENFORCEMENT.md)** applies these rules to TMB and is required reading before you write load-bearing prompt logic. It carries the six enforcement layers (MCP server → hooks → frontmatter → schema → skill paths → **prompts**), the rule that *a step the LLM can forget, misorder, or misunderstand does not belong in a prompt*, the boundary test with its compound-failure math, the coverage matrix, the grading rubric, why core prompts stay minimal, why each prompt owns one job, and the prompt cache zones. Its "Positive prompts as the floor" section applies the negation rule (rule 9) to the prompt layer.
 
 ---
 

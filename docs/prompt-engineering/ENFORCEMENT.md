@@ -210,9 +210,9 @@ A skill over about 200 lines is a signal it is doing too much. In order: apply t
 
 Each shipped prompt (`CLAUDE.md`, an agent, a skill) carries the wiring that makes TMB work: who the agent is, what it does every turn, and pointers to the skills and commands that hold procedures. Rubrics, checklists, persona and style guidance, and domain heuristics arrive as cheatcodes ([`CHEATCODES.md`](../architecture/CHEATCODES.md)); a paragraph that teaches a technique instead of wiring a role belongs in one.
 
-## Prompts fit their quality layer
+## Each prompt owns one job
 
-Each prompt fits its agent's place in [`FLOWS.md`](../architecture/FLOWS.md) and its row of the Quality layers table. It asks only for the checks that layer owns, hands over that layer's stated contract, and never asks the agent to redo a check another layer owns: overlapping layers duplicate work and blur who owns a leak. Where the flow and a prompt disagree, fix one of them in the same change so they do not drift.
+Each prompt does only its agent's job. It names what the agent receives, hands its output over in the shape the next agent expects, and never asks the agent to redo a check another agent owns: overlapping jobs duplicate work and blur who owns a miss. This holds for every agent, a new one included. An agent in TMB's code flow also matches its place in [`FLOWS.md`](../architecture/FLOWS.md) and its row of the Quality layers table; where the flow and its prompt disagree, fix one of them in the same change so they do not drift.
 
 ## Prompt cache zones
 
