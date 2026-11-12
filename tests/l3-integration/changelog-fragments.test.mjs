@@ -145,6 +145,38 @@ test('a direct CHANGELOG.md edit passes on the cut-over day and fails after it',
   assert.match(out.output, /edits CHANGELOG\.md directly/, 'names the rule');
 });
 
+test('a redaction-only CHANGELOG.md edit passes after the cut-over', () => {
+  const r = newRepo('redaction');
+  edit(join(r, 'CHANGELOG.md'), '- **First** (GH 1): hi.\n', '- **First** (GH 1): hi, trimmed.\n');
+  commitAll(r, '🐛 fix: trim a released entry');
+  const out = lint(r, AFTER_CUTOVER);
+  assert.equal(out.code, 0, out.output);
+  assert.match(out.output, /redaction-only/, 'names the exception');
+});
+
+test('a CHANGELOG.md edit that adds a line or touches a heading still fails after the cut-over', () => {
+  const added = newRepo('redaction-net-add');
+  edit(join(added, 'CHANGELOG.md'), '- **First** (GH 1): hi.\n', '- **First** (GH 1): hi.\n- **Second** (GH 1): more.\n');
+  commitAll(added, '🐛 fix: add a line');
+  const addedOut = lint(added, AFTER_CUTOVER);
+  assert.equal(addedOut.code, 1, 'net +1 → FAIL');
+  assert.match(addedOut.output, /edits CHANGELOG\.md directly/, 'net +1 names the rule');
+
+  const heading = newRepo('redaction-heading');
+  edit(join(heading, 'CHANGELOG.md'), '### Added\n', '### Changed\n');
+  commitAll(heading, '🐛 fix: rename a heading');
+  const headingOut = lint(heading, AFTER_CUTOVER);
+  assert.equal(headingOut.code, 1, 'heading swap → FAIL');
+  assert.match(headingOut.output, /edits CHANGELOG\.md directly/, 'heading swap names the rule');
+
+  const dropped = newRepo('redaction-heading-removed');
+  edit(join(dropped, 'CHANGELOG.md'), '### Fixed\n- **Old** (GH 100): old.\n', '- **Old** (GH 100): old, trimmed.\n');
+  commitAll(dropped, '🐛 fix: drop a heading');
+  const droppedOut = lint(dropped, AFTER_CUTOVER);
+  assert.equal(droppedOut.code, 1, 'removed heading → FAIL');
+  assert.match(droppedOut.output, /edits CHANGELOG\.md directly/, 'removed heading names the rule');
+});
+
 test('an in-flight branch (every cited issue in the transition list) may still edit CHANGELOG.md', () => {
   const r = newRepo('in-flight');
   edit(join(r, 'CHANGELOG.md'), '### Fixed\n', '### Fixed\n- **Runner** (GH 1245): runner.\n');

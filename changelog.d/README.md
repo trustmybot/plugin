@@ -18,7 +18,7 @@ File name: `<gh-issue>-<slug>.md` — the GitHub issue number, a hyphen, a lower
 
 ## Checks
 
-`tests/l1-lint/changelog-current.test.mjs` validates every fragment, fails a feature branch that both edits `CHANGELOG.md` and adds a fragment, fails a direct `CHANGELOG.md` edit on a feature branch after the cut-over date, and requires each `GH <n>` cited in the branch's commit subjects to have a fragment or an existing `CHANGELOG.md` entry.
+`tests/l1-lint/changelog-current.test.mjs` validates every fragment, fails a feature branch that both edits `CHANGELOG.md` and adds a fragment, fails a direct `CHANGELOG.md` edit on a feature branch after the cut-over date unless the edit only redacts (no net added lines, no `#` line touched), and requires each `GH <n>` cited in the branch's commit subjects to have a fragment or an existing `CHANGELOG.md` entry.
 
 ## Release
 

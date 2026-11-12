@@ -5,8 +5,9 @@
 //   3. On a feature branch (diff against origin/<TMB_PR_TARGET>, default dev):
 //      - editing CHANGELOG.md and adding a fragment fails — pick one;
 //      - after CUTOVER, any direct CHANGELOG.md edit fails, except on a version
-//        bump branch and on the branches already in flight at the cut-over
-//        (every GH issue its commits cite is in TRANSITION);
+//        bump branch, on the branches already in flight at the cut-over
+//        (every GH issue its commits cite is in TRANSITION), and for a
+//        redaction-only edit (no net added lines, no `#` line touched);
 //      - each `GH <n>` cited in a branch commit subject needs a fragment
 //        changelog.d/<n>-*.md or an entry in CHANGELOG.md.
 //
@@ -68,6 +69,15 @@ function hasFragmentFor(root, n) {
   if (!existsSync(dir)) return false;
   const prefix = `${n}-`;
   return readdirSync(dir).some((name) => name.startsWith(prefix) && name.endsWith('.md') && name.length >= prefix.length + 3);
+}
+
+/** The CHANGELOG.md diff since mergeBase adds no more lines than it removes and touches no `#` line. */
+function isRedactionOnly(git, mergeBase) {
+  const [added, removed] = git('diff', '--numstat', mergeBase, '--', 'CHANGELOG.md').stdout.trim().split('\t').map(Number);
+  if (!Number.isInteger(added) || !Number.isInteger(removed) || added > removed) return false;
+  const diff = outputLines(git('diff', '-U0', mergeBase, '--', 'CHANGELOG.md').stdout);
+  const hunks = diff.slice(diff.findIndex((line) => line.startsWith('@@')));
+  return !hunks.some((line) => /^[+-]#/.test(line));
 }
 
 export function changelogCurrent(rootDir, { today, baseBranch, env } = {}) {
@@ -176,7 +186,9 @@ export function changelogCurrent(rootDir, { today, baseBranch, env } = {}) {
       }
       if (changelogEdited && TODAY > CUTOVER) {
         const inFlight = cited.length > 0 && cited.every((n) => TRANSITION.includes(n));
-        if (!inFlight) {
+        if (!inFlight && isRedactionOnly(git, MB)) {
+          out.push('  ⊘ redaction-only CHANGELOG.md edit');
+        } else if (!inFlight) {
           fail(
             `branch ${BRANCH} edits CHANGELOG.md directly; since ${CUTOVER} a change adds changelog.d/<gh-issue>-<slug>.md instead (changelog.d/README.md)`,
           );
