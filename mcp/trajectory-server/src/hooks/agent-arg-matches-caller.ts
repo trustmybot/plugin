@@ -8,9 +8,7 @@
  * task's issue (else issue -1) when the DB reads; the decision never depends
  * on the DB.
  *
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI: without jq the .sh
- * exits 1 and the call goes through, without sqlite3 it writes no audit row,
- * where this denies a mismatch and records it (decision 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { auditAppend } from './lib/audit.js';
@@ -68,7 +66,7 @@ function fieldsOf(value: unknown): CallFields {
 }
 
 /**
- * The .sh's FIELDS read: the first line jq prints, or null when jq exits
+ * The call's fields as a jq read gives them: the first line jq prints, or null when jq exits
  * non-zero (a parse error, or the stream's last value errors), which allows.
  */
 export function callFields(payload: string): CallFields | null {

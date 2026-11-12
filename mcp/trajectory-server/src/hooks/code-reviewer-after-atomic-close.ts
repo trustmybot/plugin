@@ -9,9 +9,7 @@
  *
  * task_id is the first `task_id[[:space:]]*=[[:space:]]*[0-9]+` of the
  * prompt, line by line as macOS grep reads it (`[:space:]` adds Unicode
- * spaces under a UTF-8 locale). Unlike the .sh, it needs neither jq nor the
- * sqlite3 CLI, so it denies on a machine without them where the .sh let the
- * spawn through (decision 703).
+ * spaces under a UTF-8 locale). It needs neither jq nor the sqlite3 CLI.
  * Bypass: TMB_SKIP_CODE_REVIEWER_CLOSE_GATE=1.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';

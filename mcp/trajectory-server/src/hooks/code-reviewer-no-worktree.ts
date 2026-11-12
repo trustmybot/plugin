@@ -2,8 +2,7 @@
  * PreToolUse(Agent) gate (GH 1692), run by agent-spawn-dispatch: a code-reviewer spawn with isolation "worktree" is denied. code-reviewer is
  * the push gate and reviews the feature branch from the main checkout, not
  * from swe's per-task worktree. Other agent types, other tools and any other
- * isolation are allowed. Unlike the .sh, it needs no jq, so it denies on a
- * machine without jq where the .sh let the spawn through (decision 703).
+ * isolation are allowed. It needs no jq.
  * Bypass: TMB_ALLOW_CODE_REVIEWER_WORKTREE=1.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';

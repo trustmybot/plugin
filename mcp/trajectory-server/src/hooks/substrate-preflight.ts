@@ -1,21 +1,24 @@
 /**
- * SessionStart hook (GH 1692): a TMB DEGRADED banner naming each of jq, sqlite3, git and node missing from
- * PATH, and, when jq and sqlite3 are on PATH as the .sh needs them to look,
- * the offline note for a project repo with no remote URL. It never denies.
+ * SessionStart hook (GH 1692): a TMB DEGRADED banner naming each needed tool
+ * missing from PATH (sqlite3 only when node:sqlite is unavailable too, git and
+ * node), and, when a SQLite engine is available, the offline note for a
+ * project repo with no remote URL. It never denies.
  */
 import { ALLOW, type Gate } from './gate.js';
 import { dbPath, projectRoot } from './lib/db.js';
 import { commandOnPath } from './lib/host.js';
 import { jsonValues } from './lib/jq.js';
 import { repoGitRoot, repoRemotes } from './lib/repo.js';
+import { haveSqlite } from './lib/sqlite-shell.js';
 
 export const GATE_NAME = 'substrate-preflight';
 
-export const PROBES: readonly (readonly [string, string])[] = [
-  ['jq', 'most PreToolUse gates and the bro/swe doctrine hooks are inoperative'],
-  ['sqlite3', 'task/spawn gates cannot verify state'],
-  ['git', 'branch guards and commit-message lint are inoperative'],
-  ['node', 'MCP trajectory-server and scan tooling cannot start'],
+type Probe = readonly [bin: string, why: string, present: (env: NodeJS.ProcessEnv) => boolean];
+
+export const PROBES: readonly Probe[] = [
+  ['sqlite3', 'task/spawn gates cannot verify state', haveSqlite],
+  ['git', 'branch guards and commit-message lint are inoperative', (env) => commandOnPath('git', env)],
+  ['node', 'MCP trajectory-server and scan tooling cannot start', (env) => commandOnPath('node', env)],
 ];
 
 export const OFFLINE_NOTE = 'TMB: operating locally — no remote configured; remote/push ops are skipped.';
@@ -45,7 +48,7 @@ export function noRemoteUrl(remotesJson: string): boolean {
 }
 
 async function offlineNote(env: NodeJS.ProcessEnv): Promise<string> {
-  if (!commandOnPath('sqlite3', env) || !commandOnPath('jq', env)) return '';
+  if (!haveSqlite(env)) return '';
   const db = dbPath(env);
   if (db === null || db === '') return '';
   const remotes = repoRemotes(db, await repoGitRoot(projectRoot(env), env), env);
@@ -53,7 +56,7 @@ async function offlineNote(env: NodeJS.ProcessEnv): Promise<string> {
 }
 
 export const substratePreflight: Gate = async (_payload, env) => {
-  const missing = PROBES.filter(([bin]) => !commandOnPath(bin, env)).map(([bin, why]) => `missing ${bin} — ${why}`);
+  const missing = PROBES.filter(([, , present]) => !present(env)).map(([bin, why]) => `missing ${bin} — ${why}`);
   const offline = await offlineNote(env);
   if (missing.length === 0 && offline === '') return ALLOW;
   const parts = [];

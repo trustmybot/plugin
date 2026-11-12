@@ -1,11 +1,11 @@
 /**
- * The interpreter-program half of cmd-analysis.sh: _tmb_cmd_interp_writes,
- * _tmb_cmd_prog_writes, _tmb_cmd_prog_scan and _tmb_cmd_prog_literals. A
- * process call's command is judged by the caller's `procWrites`
- * (_tmb_cmd_proc_writes), which needs the whole analyzer.
+ * The interpreter-program half of the write-path analyzer: what an inline or
+ * stdin program writes, from its scanned calls and its literals. A process
+ * call's command is judged by the caller's `procWrites`, which needs the
+ * whole analyzer.
  *
- * Where the .sh prints nothing for a program that writes, the TS prints a
- * `$(computed):<text>` line instead (GH 1692): a write call whose target is
+ * A program that writes where no literal target can be read prints a
+ * `$(computed):<text>` line (GH 1692): a write call whose target is
  * not a literal (beside any literal paths the program names), a program held
  * in a variable or a substitution, a quoted paren in it included. A node
  * target name bound once, first, to a plain string literal is that literal; a
@@ -13,8 +13,7 @@
  * `Path` / `pathlib.Path` / `PurePath` of one) is every literal it is bound to
  * (`heldLiterals`); a program that reaches its namespace dynamically
  * (`VOIDERS`) resolves no name. A `sys.argv[n]` / `process.argv[n]` target is
- * never resolved: it prints a `$(computed)` line beside any operands the .sh
- * prints.
+ * never resolved: it prints a `$(computed)` line beside any literal operands.
  */
 import { SUB_PC, SUB_PO, decode } from './encode.js';
 import { type Lang, progCalls } from './prog-calls.js';
@@ -438,14 +437,14 @@ export interface ProgResult {
 }
 
 /**
- * _tmb_cmd_prog_writes: the lines it prints; `-` with `operands` for a
+ * The lines a program's writes print; `-` with `operands` for a
  * program that writes but names no literal. `computed` marks a result that a
  * write call with a non-literal target took part in, so the caller adds a
  * `$(computed)` line beside the literal paths. A write shape the scanner did
  * not see as a call (often `open(join(d, 'x'))`, a read) adds none when a
  * literal was found. A target name `heldLiterals` resolves adds no
  * `$(computed)` line, and every literal the name may hold is judged as a
- * write target. The .sh's literal fallback still runs beside them unless the
+ * write target. The literal fallback still runs beside them unless the
  * program is python that `proveProgram` proved, whose scan then names every
  * target (GH 1723): the GH 1550 rebinds the fallback guards against all sit
  * outside the prover's allowlist. A judged write call the scanner names no

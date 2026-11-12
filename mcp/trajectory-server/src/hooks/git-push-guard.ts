@@ -13,10 +13,9 @@
  * Code a statement runs later (a trap, an alias, a `-C` callback, a PS4 that
  * `set -x` expands) is listed in `-`, so a push in it is an unresolved target.
  *
- * Deny messages and decisions are the .sh's, with the two exceptions of
- * decision 369: a command naming `push` (or, GH 2634, a git word beside an
- * expansion) that tree-sitter-bash cannot parse is denied (the .sh reads it with its awk skeleton, GH 1927), and the DB is
- * read wherever node:sqlite works, with no sqlite3 CLI on PATH.
+ * Decision 369: a command naming `push` (or, GH 2634, a git word beside an
+ * expansion) that tree-sitter-bash cannot parse is denied (GH 1927), and the
+ * DB is read wherever node:sqlite works, with no sqlite3 CLI on PATH.
  */
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import {

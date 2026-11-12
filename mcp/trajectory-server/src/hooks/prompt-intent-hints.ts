@@ -6,7 +6,7 @@
  * TMB_DISABLE_*_HINT switch. Harness turns, `!` shell spans and injected
  * <system-reminder>/<pasted_content>/<agent-message> blocks are never intent.
  *
- * Unlike the .sh (decision 703), it needs neither jq nor the sqlite3 CLI, and
+ * It needs neither jq nor the sqlite3 CLI, and
  * the headless hint matches `claude -p` / `claude --print` only outside quoted
  * spans and fenced blocks and only in a clause that is not a question, its
  * other phrases only outside quoted spans and fenced blocks (GH 1751).

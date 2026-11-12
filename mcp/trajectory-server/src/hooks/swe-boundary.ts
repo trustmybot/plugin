@@ -19,12 +19,10 @@
  *       a shell alias definition or expand_aliases turned
  *       on, for swe and code-reviewer (GH 2786, GH 2837)   → deny
  *
- * Deny messages, notes, audit rows and decisions are the .sh's, with two
- * exceptions, each stricter: a command tree-sitter-bash cannot parse is
- * denied (the .sh reads it with its awk skeleton), and the DB is read
+ * A command tree-sitter-bash cannot parse is denied, and the DB is read
  * wherever node:sqlite works, with no sqlite3 CLI on PATH. The analyzer's
- * never-judged targets (`$(parse)`, `$(computed)`, `$(unproven)`, which the
- * .sh's analyzer never prints) are containment-guard's to deny, not (g)'s.
+ * never-judged targets (`$(parse)`, `$(computed)`, `$(unproven)`) are
+ * containment-guard's to deny, not (g)'s.
  * The analyzer's cap line (GH 2090) is denied here for every task, read first
  * so a command past the cap never reaches the unbounded cmdStatements.
  */
@@ -479,7 +477,7 @@ function sessionOf(input: string): string {
   return session === '' || session.includes('/') || session.startsWith('.') ? '' : session;
 }
 
-/** A `$(( ))` error: bash abandons the top-level command it is in, so the .sh prints nothing and exits 0. */
+/** A `$(( ))` error: bash abandons the top-level command it is in, so the gate prints nothing and exits 0. */
 class ArithmeticAbort extends Error {}
 
 /** cmdStatements has no work cap, so the stack can run out in it on a shape the analyzer's own count let through. */

@@ -12,10 +12,8 @@
  * row closed (a swe resumed through SendMessage, GH 1742) a
  * swe_resume_observed audit row names the agent_id. Both writes are fail-open.
  *
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so without them it
- * still denies an unbriefed swe where the .sh let every call through
- * (decision 703). It also denies MultiEdit, which the .sh lets through though
- * hooks.json routes MultiEdit to it (GH 2070).
+ * It needs neither jq nor the sqlite3 CLI. It also denies MultiEdit, which
+ * hooks.json routes to it (GH 2070).
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { agentTranscript } from './lib/agent-context.js';
@@ -33,7 +31,7 @@ const TRAJECTORY_TOOL = /^mcp__[\s\S]*trajectory-server__/;
 
 export type BriefSurface = 'task_brief' | 'mutation' | 'trajectory' | 'other';
 
-/** The .sh's `case "$TOOL_NAME"`, first match wins. */
+/** The surface a tool name falls in, first match wins. */
 export function briefSurface(toolName: string): BriefSurface {
   if (toolName.includes('task_brief')) return 'task_brief';
   if (BLOCKED_MUTATIONS.has(toolName)) return 'mutation';

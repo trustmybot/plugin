@@ -5,10 +5,8 @@
  * candidate's source_url. It fails closed: no source_url, no trajectory DB,
  * or no approval row (a DB that does not read included) denies.
  *
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI: without jq the .sh
- * let every install through, where this checks the approval; without sqlite3
- * the .sh denied every install as unverifiable, where this reads the DB
- * through node:sqlite (decision 703).
+ * It needs neither jq nor the sqlite3 CLI: the DB is read through
+ * node:sqlite.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { DB_RETRY_FIX, dbPath, haveSqlite, sqlQuote, sqliteRo } from './lib/db.js';

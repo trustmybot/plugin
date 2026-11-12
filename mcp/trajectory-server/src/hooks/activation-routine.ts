@@ -8,8 +8,8 @@
  *
  * The word test is grep's: `\b` and -i under the locale grep would run in
  * (ASCII word bytes in C; letters, digits and _ under UTF-8, where a
- * transcript line with invalid UTF-8 never matches). Unlike the .sh, it needs
- * neither jq nor the sqlite3 CLI (decision 703).
+ * transcript line with invalid UTF-8 never matches). It needs neither jq nor
+ * the sqlite3 CLI.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';

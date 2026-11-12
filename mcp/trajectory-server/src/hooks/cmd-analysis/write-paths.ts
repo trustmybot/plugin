@@ -1,12 +1,12 @@
 /**
- * tmb_cmd_write_paths (cmd-analysis.sh) on tree-sitter-bash: every path a
+ * The write-path analyzer on tree-sitter-bash: every path a
  * command writes, resolved against its statement's dir, with the variables it
  * assigns tracked, bash -c / eval bodies and sh programs fed on stdin judged
  * as commands of their own, interpreter one-liners and stdin programs judged
  * by their write calls, what find / fd / xargs run judged with its
  * placeholder bound, and loop variables bound to the paths their lister may
  * list. A bash -c statement's own redirects and write commands are judged
- * before its body. Where cmd-analysis.sh misses a write, the TS fails closed
+ * before its body. Where a write cannot be read, it fails closed
  * with UNRESOLVED:$(computed):<argv0 or text> (GH 1692): a program piped or
  * redirected into an interpreter (an info option counts only among the
  * interpreter's own options, before `-`, `--`, `sh -s` or an operand; perl -c
@@ -760,9 +760,9 @@ class WritePaths {
   }
 
   /**
-   * _tmb_cmd_proc_writes: what a program's process call writes, relative paths
-   * under `$(proc)/`. A nested `$(parse)` or `$(computed)` line keeps its
-   * reason (TS-only): the .sh strips it to its text, which is then judged as a path.
+   * What a program's process call writes, relative paths under `$(proc)/`. A
+   * nested `$(parse)` or `$(computed)` line keeps its reason rather than being
+   * stripped to its text and judged as a path.
    */
   private procWrites(cmd: string): string {
     const out: string[] = [];

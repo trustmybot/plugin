@@ -1,6 +1,6 @@
 /**
  * SessionStart hook (GH 1692): injects bro's persona, the plugin's CLAUDE.md, as additionalContext (raw
- * text when jq is not on PATH, as the .sh prints it) and marks the session so
+ * text when jq is not on PATH) and marks the session so
  * user-prompt-persona does not inject it again, with the state this session
  * recorded before a compaction appended after it (session-handoff). Never
  * blocks: exit 0.

@@ -1,12 +1,11 @@
 /**
- * The wrapper skipping shared by the scanners (_TMB_CMD_UNWRAP_AWK in
- * cmd-analysis.sh): VAR=value words and sudo / env / command / nohup / time /
- * exec with their own options, each wrapper by its own option table. The TS
- * analyzer also skips timeout (and its duration), stdbuf and nice, and their
- * Homebrew coreutils names gtimeout, gstdbuf and gnice, which the .sh does not
- * (GH 1692). A `command -v` / `-V` lookup runs nothing, so the TS stops at its
- * option word instead of skipping to the name it looks up (GH 1872). The TS
- * also skips `builtin`, which runs the builtin it names (GH 2635).
+ * The wrapper skipping shared by the scanners: VAR=value words and sudo / env
+ * / command / nohup / time / exec with their own options, each wrapper by its
+ * own option table, plus timeout (and its duration), stdbuf and nice, and
+ * their Homebrew coreutils names gtimeout, gstdbuf and gnice (GH 1692). A
+ * `command -v` / `-V` lookup runs nothing, so skipping stops at its option
+ * word instead of skipping to the name it looks up (GH 1872). `builtin` is
+ * skipped too, since it runs the builtin it names (GH 2635).
  */
 
 interface WrapSpec {

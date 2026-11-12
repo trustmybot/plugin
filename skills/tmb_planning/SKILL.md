@@ -81,6 +81,8 @@ Ground the spec in its sources, because code-reviewer judges from the task's `sp
 - Every factual claim about the code cites its source: `file:line`, or the query or command that shows it.
 - Before `task_provision`, re-read the goal (the issue and its newest decision) against the finished spec: each part of the goal maps to an `SC<n>` or an `## Out of Scope` line, and no criterion reaches past the goal.
 
+A prompt-bearing spec cites, in `## Success Criteria`, the rubric ids its prompt lines must meet, taken from the rubric `tmb_doc-review` step 1 loads, so swe and code-reviewer grade against the same list. On a no-code change you author yourself, run `tmb_doc-review` steps 1–4 on it and fix every blocking result before you ask for review.
+
 When the task adds a column, field, enum value, tool-result key or file output, `## Success Criteria` names each one with its own `Writer: <tool, hook or function that sets it>` line and a `Populated: <verification[] command proving a non-null sample or a count above zero>` line, or a `Nullable: <reason>` line when empty is correct. The spawn gate checks schema-touching specs for these lines.
 
 A spec for a guard or gate (a hook, permission check or validator) states in `## Description` whether it is allowlist-based. A denylist design needs a recorded decision (in `decision_body`) naming why an allowlist does not fit, because it fails open on input it did not foresee.

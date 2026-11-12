@@ -2,9 +2,9 @@
  * PreToolUse gate (#96): warns through additionalContext when an AskUserQuestion option's label,
  * description or preview exceeds its brevity target. Never blocks.
  *
- * Fields are read the way the .sh reads them with `jq -r '.<field> // ""'`
- * into a shell variable, words are counted like `wc -w` and preview lines
- * like `grep -c '^'`, so both give the same output for the same payload.
+ * Fields are read as `jq -r '.<field> // ""'` reads them into a shell
+ * variable, words are counted like `wc -w` and preview lines like
+ * `grep -c '^'`.
  */
 import { ALLOW, type SyncGate } from './gate.js';
 import { ctypeUtf8 } from './lib/project-env.js';

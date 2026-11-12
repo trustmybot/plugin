@@ -1,9 +1,8 @@
 /**
- * TypeScript port of the former shell lib query-task.sh (GH 1692): where the
- * trajectory DB lives, whether it reads, and the fail-closed read helpers the
- * gates use. Every function takes the `env` it resolves from (process.env in a
- * gate) and returns what the .sh's `$(...)` capture holds: its stdout without
- * trailing newlines.
+ * Where the trajectory DB lives, whether it reads, and the fail-closed read
+ * helpers the gates use (GH 1692). Every function takes the `env` it resolves
+ * from (process.env in a gate) and returns query output as a `$(...)` capture
+ * holds it: stdout without trailing newlines.
  */
 import { accessSync, closeSync, constants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { claudeProjectDir, homeDir, pluginName, posixBasename, posixDirname, shellPwd, TMB_DB_FILENAME, TMB_STATE_HOST_DIR } from './project-env.js';
@@ -159,7 +158,7 @@ export function testFlag(env: NodeJS.ProcessEnv = process.env): 'TMB_FORBID_LIVE
 
 export interface DbResolution {
   path: string | null;
-  /** The stderr line the .sh prints, or "". */
+  /** The warning line for stderr, or "". */
   warning: string;
 }
 
@@ -287,7 +286,7 @@ export function denyDbUnavailable(hook = '', env: NodeJS.ProcessEnv = process.en
 /**
  * tmb_db_path_advisory <hook>: the DB path when it resolves and reads, for an
  * advisory hook; null when unresolved (silent) or when the read errors, which
- * `onWarning` hears as the .sh's stderr line.
+ * `onWarning` hears as one stderr line.
  */
 export function dbPathAdvisory(hook = '', env: NodeJS.ProcessEnv = process.env, onWarning?: (line: string) => void): string | null {
   const db = dbPath(env, onWarning);
@@ -317,7 +316,7 @@ export function sqlInt(value = ''): string {
 
 /**
  * tmb_sql_quote <value>: <value> with every single quote doubled, minus the
- * trailing newlines the .sh's `$(...)` capture drops.
+ * trailing newlines a `$(...)` capture drops.
  */
 export function sqlQuote(value = ''): string {
   return stripTrailingNewlines(value.replace(/'/g, "''"));
@@ -333,7 +332,7 @@ const TASK_STATUS_LIST = /^[a-z_', ]*$/;
 /**
  * tmb_task_by_slug <db> <slug> [id|branch_id] [<status_list>]: <col> of the
  * newest task whose branch_id ends in /<slug>, "" when none. When several
- * match, `onWarning` gets the .sh's stderr line naming them.
+ * match, `onWarning` gets one stderr line naming them.
  */
 export function taskBySlug(
   db: string,

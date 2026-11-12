@@ -6,11 +6,8 @@
  * an error response, a response that is not a task array, or an empty one
  * prints nothing. Bypass: TMB_DISABLE_SPAWN_HINT=1.
  *
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI: without jq it still
- * hints where the .sh printed nothing, and without the sqlite3 CLI it still
- * places each worktree where the .sh reported the DB read failed; and it
- * names no pre-create worktree step, as task_provision creates the worktree
- * (GH 2713).
+ * It needs neither jq nor the sqlite3 CLI, and it names no pre-create
+ * worktree step, as task_provision creates the worktree (GH 2713).
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
