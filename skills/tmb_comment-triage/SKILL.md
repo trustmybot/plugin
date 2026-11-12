@@ -25,9 +25,11 @@ Carrier: resolve the linked issue with `branch_report_md` for the PR's head bran
 ## Triage (judgment)
 
 Skip as informational when:
-- The body is a bare acknowledgment — an LGTM, a +1, a thanks, a nit.
+- The body is a bare acknowledgment — an LGTM, a +1, a thanks.
 - The author is a bot (already classified by the MCP tool).
 - The comment is already resolved.
+
+A nit is neither skipped nor its own task: bundle it into the next task on that surface, as `tmb_push-gate` does with reviewer nits.
 
 Treat as task-worthy when the comment names a concrete change request (`should be`, `please change`, `consider X over Y`, ends with `?`), or contains a code suggestion fence.
 
@@ -37,4 +39,4 @@ Group task-worthy comments by file or shared concept; one task per group. Flag t
 
 Offer the ratified groups as a multi-select — one option per group, titled by the task it would become (suffix arch-impact ones) — and let the Human pick a subset.
 
-For each ratified group: `task_provision(issue_id, branch_id, decision_body, task)` — it creates the branch and worktree — then spawn swe with the returned `task_id`; if arch-impact, invoke `scan_run` once its PR merges to refresh the world model.
+For each ratified group: `task_provision(issue_id, branch_id, decision_body, task)` — it creates the branch and worktree — then run the same chain as `tmb_planning` §5-6: swe → `review_handoff` → code-reviewer → `bro_atomic_close` → push. If arch-impact, invoke `scan_run` once its PR merges to refresh the world model.
