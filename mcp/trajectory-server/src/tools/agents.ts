@@ -163,7 +163,7 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'agent_resolve',
       description:
-        'Read-only: validates the name and returns the /tmb:agent-create mode: "collision" (resolved_path exists: bro runs the collision dialog), "template-copy" (plugin template found) or "from-scratch" (bro scaffolds from templates/agents/template.md). ' +
+        'Read-only: validates the name and returns the /tmb:agent-create mode: "collision" (resolved_path exists: bro runs the collision dialog) or "from-scratch" (bro scaffolds from templates/agents/template.md). ' +
         'Returns file_path, to pass to agent_register, and the absolute resolved_path. bro owns the file Write and the agent_register call.',
       inputSchema: {
         type: 'object',
@@ -276,11 +276,6 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
 
         if (resolvedPath && existsSync(resolvedPath)) {
           return ok({ mode: 'collision', ...target });
-        }
-
-        const templatePath = join(PLUGIN_ROOT, 'templates', 'agents', `${name}.md`);
-        if (existsSync(templatePath)) {
-          return ok({ mode: 'template-copy', source_path: templatePath, ...target });
         }
 
         const scaffoldPath = join(PLUGIN_ROOT, 'templates', 'agents', 'template.md');

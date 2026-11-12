@@ -332,7 +332,7 @@ describe('audit_append requireRoles guard', () => {
 });
 
 describe('agent_resolve', () => {
-  it('Branch A — collision: returns mode=collision when the project: file already exists', async () => {
+  it('collision: returns mode=collision when the project: file already exists', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'tmb-resolve-a-'));
     try {
       const agentsDir = join(tmp, '.claude', 'agents');
@@ -357,7 +357,7 @@ describe('agent_resolve', () => {
     assert.deepEqual(readdirSync(join(CHECKOUT_ROOT, 'templates', 'agents')), ['template.md']);
   });
 
-  it('Branch C — from-scratch: returns mode=from-scratch for an unknown name', async () => {
+  it('from-scratch: returns mode=from-scratch for an unknown name', async () => {
     const db = tempDB();
     const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
     const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'novel-consultant' });
@@ -367,6 +367,21 @@ describe('agent_resolve', () => {
     assert.equal(data.scaffold_path, join(PLUGIN_ROOT, 'templates', 'agents', 'template.md'));
     assert.equal(data.file_path, 'project:.claude/agents/novel-consultant.md');
     assert.equal(data.resolved_path, '/tmp/workspace/.claude/agents/novel-consultant.md');
+    db.close();
+  });
+
+  it('returns from-scratch with the scaffold path for any name with no project file, template included', async () => {
+    const db = tempDB();
+    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+    for (const name of ['template', 'architect', 'cto', 'ceo', 'pm']) {
+      const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name });
+      const data = parseResult(result) as { mode: string; scaffold_path: string; source_path?: string; resolved_path: string };
+      assert.ok(!result.isError, `Expected no error for ${name}: ${JSON.stringify(data)}`);
+      assert.equal(data.mode, 'from-scratch', name);
+      assert.equal(data.scaffold_path, join(PLUGIN_ROOT, 'templates', 'agents', 'template.md'), name);
+      assert.equal(data.source_path, undefined, name);
+      assert.equal(data.resolved_path, `/tmp/workspace/.claude/agents/${name}.md`, name);
+    }
     db.close();
   });
 
