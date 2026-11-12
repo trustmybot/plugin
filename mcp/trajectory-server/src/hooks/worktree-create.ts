@@ -5,7 +5,7 @@
  * branch names (tasks.repo's repos.path), else the sole registered repo, else
  * the workspace root; with no trajectory DB, the cwd's git repo. A branch not
  * yet in the repo is created at HEAD.
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI (decision 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import type { Gate, GateResult } from './gate.js';

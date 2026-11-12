@@ -13,12 +13,11 @@
  * matches runs nothing, and a group marked stopAtFirstDeny runs no gate after
  * a deny. Outcomes, stderr and context stay in registry order however the gates
  * finish. The first deny in group order is the answer, with that gate's output; with none, the
- * allowing gates' outputs merge as the retired dispatch.sh's run_chain merged a chain's
- * context; a block on any event but PreToolUse keeps the allowing gates' context
+ * allowing gates' outputs merge into one context; a block on any event but PreToolUse keeps the allowing gates' context
  * in its one output, since as separate registrations each of them reached Claude
- * Code. A deny reads as its event wants, as the retired dispatch.sh's fail_closed_decision
- * printed it, and an unparseable payload blocks only on an event an enforcement
- * gate serves. Fail-closed as the retired dispatch.sh was: an enforcement gate that throws,
+ * Code. A deny reads in the shape its event wants, and an unparseable payload
+ * blocks only on an event an enforcement gate serves. It fails closed: an
+ * enforcement gate that throws,
  * exits other than 0 or 2 without a deny, prints unparseable output, is
  * unknown, runs past its deadline, or is left no group budget denies, naming
  * the gate; an advisory gate's failure is dropped and logged.

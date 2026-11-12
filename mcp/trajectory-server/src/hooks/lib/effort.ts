@@ -1,5 +1,5 @@
 /**
- * TypeScript port of the former shell lib query-task.sh's effort defaults (GH 1692). The
+ * The hooks' effort defaults (GH 1692). The
  * server's twin is resolveEffortDefaults in src/tools/config.ts.
  */
 import { REVIEWER_MODELS } from '../../tools/config.js';

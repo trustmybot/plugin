@@ -3,11 +3,9 @@
  * remotes rows carry no URL, as it would hang with no TTY or network while
  * TMB works locally.
  *
- * Decisions and deny text are the .sh's, with three exceptions: a command
- * tree-sitter-bash cannot parse is denied with git-guards' PARSE_REASON when
- * the DB resolves, the payload is read with no jq on PATH (the .sh reads an
- * empty command and allows), and the DB is read through node:sqlite with no
- * sqlite3 CLI on PATH (the .sh allows).
+ * A command tree-sitter-bash cannot parse is denied with git-guards'
+ * PARSE_REASON when the DB resolves. The payload is read with no jq on PATH,
+ * and the DB through node:sqlite with no sqlite3 CLI on PATH.
  */
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';

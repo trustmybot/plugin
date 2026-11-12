@@ -1,6 +1,6 @@
 /**
- * `$(printf '%s' "$INPUT" | jq -r <path>)` as the trajectory-gates chain's
- * .sh gates capture payload fields (GH 1692), on jq 1.7's stream: numbers
+ * A payload field read as `$(printf '%s' "$INPUT" | jq -r <path>)` captures
+ * it (GH 1692), on jq 1.7's stream: numbers
  * print the literal jq keeps (1.0 stays 1.0, 1e2 is 1E+2), a lone low
  * surrogate escape reads as U+FFFD, a value whose path indexes a non-object
  * prints nothing and the stream ends at the first value that fails to parse,
@@ -21,7 +21,7 @@ export interface JqInput {
   complete: boolean;
 }
 
-/** The payload as the .sh's `$(cat)` holds it, read as jq's value stream. */
+/** The payload as `$(cat)` holds it, read as jq's value stream. */
 export function jqInput(payload: string): JqInput {
   const text = payload.replace(/\0/g, '');
   const stream = jsonStream(text);

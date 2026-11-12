@@ -1,6 +1,6 @@
 /**
- * The `keep` skeleton of tmb_cmd_strip_literals (cmd-analysis.sh), built from
- * a tree-sitter-bash tree instead of its line scanner: heredoc bodies and
+ * The `keep` literal-stripped skeleton, built from a tree-sitter-bash tree
+ * instead of strip-literals.ts's line scanner: heredoc bodies and
  * comments dropped, quotes removed, every blank and operator character of
  * quoted or backslash-escaped text turned into a reversible control byte, and
  * a $( ) or backtick inside double quotes framed by QO … QC with its body

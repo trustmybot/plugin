@@ -1,7 +1,6 @@
 /**
- * The prompt-surface predicate and the write-shape list of
- * scripts/hooks/lib/cmd-analysis.sh (GH 1692): tmb_is_prompt_surface_path
- * with _tmb_surface_root, and tmb_cmd_write_shapes.
+ * The prompt-surface predicate, with the surface root it resolves, and the
+ * write-shape list (GH 1692).
  */
 import { stripTrailingNewlines } from '../lib/db.js';
 import { isDir } from '../lib/git.js';

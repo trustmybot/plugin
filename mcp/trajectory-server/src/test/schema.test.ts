@@ -110,7 +110,7 @@ describe('schema — current table set, default values, constraints', () => {
     }
 
     // The bundled tmb_* skills are seeded as origin='builtin' skill rows — the
-    // seed set must match the 8 shipped skills/<name>/ dirs exactly (#102).
+    // seed set must match the shipped skills/<name>/ dirs exactly (#102).
     const builtins = db.all<{ name: string; kind: string; file_path: string | null; source_url: string | null }>(
       `SELECT name, kind, file_path, source_url FROM cheatcodes WHERE origin = 'builtin' AND name LIKE 'tmb_%'`,
     );
@@ -122,6 +122,7 @@ describe('schema — current table set, default values, constraints', () => {
         'tmb_cheatcode',
         'tmb_comment-triage',
         'tmb_concerns-protocol',
+        'tmb_doc-review',
         'tmb_docs-conventions',
         'tmb_planning',
         'tmb_push-gate',
@@ -131,7 +132,7 @@ describe('schema — current table set, default values, constraints', () => {
         'tmb_spec-authoring',
         'tmb_swe-checklist',
       ],
-      'builtin-skill seed must equal the 12 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
+      'builtin-skill seed must equal the 13 shipped skills',
     );
     for (const b of builtins) {
       assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);

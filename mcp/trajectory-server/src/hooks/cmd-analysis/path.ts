@@ -1,4 +1,4 @@
-/** tmb_path_canonical and tmb_payload_cwd (cmd-analysis.sh). */
+/** A path's canonical form with symlinks resolved, and a hook payload's cwd. */
 import { existsSync, lstatSync, readlinkSync } from 'node:fs';
 
 const MAX_HOPS = 40;

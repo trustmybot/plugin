@@ -82,6 +82,8 @@ The `spec_body` markdown carries the prose bro and swe reason from. Its sections
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
+A prompt-bearing spec cites, in `## Success Criteria`, the rubric ids its prompt lines must meet, taken from the rubric `tmb_doc-review` step 1 loads, so swe and code-reviewer grade against the same list. On a no-code change you author yourself, run `tmb_doc-review` steps 1–4 on it and fix every blocking result before you ask for review.
+
 When the task adds a column, field, enum value, tool-result key or file output, `## Success Criteria` names each one with its own `Writer: <tool, hook or function that sets it>` line and a `Populated: <verification[] command proving a non-null sample or a count above zero>` line, or a `Nullable: <reason>` line when empty is correct. The spawn gate checks schema-touching specs for these lines.
 
 A spec for a guard or gate (a hook, permission check or validator) states in `## Description` whether it is allowlist-based: it admits what it can prove safe and denies the rest. A denylist design, which blocks known-bad input and admits everything else, fails open on whatever it did not foresee, so it needs a recorded decision (in `decision_body`) naming why an allowlist does not fit.

@@ -1,7 +1,7 @@
 /**
- * The paths one encoded statement writes, as written: tmb_cmd_write_targets,
- * _tmb_cmd_inplace_files, the sources a mv / git mv removes and
- * _tmb_cmd_git_tree (cmd-analysis.sh).
+ * The paths one encoded statement writes, as written: its write targets, the
+ * files it edits in place, the sources a mv / git mv removes and the tree a
+ * git command writes.
  */
 import { braceWords } from './brace.js';
 import { decode, QO } from './encode.js';

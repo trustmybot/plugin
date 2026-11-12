@@ -9,8 +9,8 @@
  * Fail-open: it never blocks and prints nothing; a failed write leaves the DB
  * unchanged. GH 2032 (decision 703): a task whose recorded
  * tasks.worktree_path exists gets that path as root_dir, the worktree
- * ensure-swe-worktree left in place, instead of the slug path. Unlike the
- * .sh, it needs neither jq nor the sqlite3 CLI.
+ * ensure-swe-worktree left in place, instead of the slug path. It needs
+ * neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { pluginVersion } from './bro-turn-usage.js';
