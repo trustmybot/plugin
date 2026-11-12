@@ -8,6 +8,7 @@ import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
 import { envTools } from '../tools/env.js';
 import { readVerificationDefaults, VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
+import { parsePathClasses, PATH_CLASSES_FILE, readPathClasses } from '../path-classes.js';
 import { tempDB } from './helpers.js';
 import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 import {
@@ -1392,7 +1393,7 @@ describe('onboard tools', () => {
       assert.match(String(parse(result).error), /unknown round 'headless'/);
       const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
       const roundSchema = (def?.inputSchema.properties as Record<string, { enum: string[] }>)['round'];
-      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults']);
+      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults', 'path_classes']);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -2706,6 +2707,193 @@ describe('verification defaults from the env profile (GH 2866)', () => {
       db.run(`INSERT INTO repos (path, name) VALUES ('/tmp/other', 'other')`);
       const ambiguous = await apply({ verification_defaults: ['make test'] });
       assert.match(String(parse(ambiguous).error), /needs repo/);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('path classes round (GH 3074)', () => {
+  type Option = { label: string; wire: string; recommended?: boolean };
+  type Question = { header: string; multiSelect: boolean; options: Option[]; default_index: number; evidence: string[] };
+
+  // A committed repo on main, with origin/main at the same commit.
+  function committedRepo(files: Record<string, string>): { dir: string; git: (...a: string[]) => string } {
+    const dir = mkdtempSync(join(tmpdir(), 'onboard-path-classes-'));
+    remoteRepoDirs.push(dir);
+    const git = (...a: string[]): string => {
+      const r = spawnSync('git', ['-c', 'user.email=t@t.t', '-c', 'user.name=t', ...a], { cwd: dir, encoding: 'utf8', env: GIT_ISOLATED_ENV });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    for (const [p, body] of Object.entries({ 'src/app.ts': 'export {};\n', ...files })) {
+      mkdirSync(join(dir, dirname(p)), { recursive: true });
+      writeFileSync(join(dir, p), body);
+    }
+    git('init', '-q', '-b', 'main');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'));
+    return { dir, git };
+  }
+
+  function setup(files: Record<string, string>) {
+    const repo = committedRepo(files);
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES (?, 'app')`, [repo.dir]);
+    const tools = onboardTools(db);
+    const questions = async (args: Record<string, unknown> = {}) =>
+      parse(await call(tools.handlers, 'onboard_get_questions', { round: 'path_classes', ...args }));
+    const apply = async (args: Record<string, unknown>) => (await call(tools.handlers, 'onboard_apply', args)) as { isError?: boolean };
+    return { ...repo, db, questions, apply };
+  }
+
+  const FULL_REPO = {
+    'README.md': '# app\n',
+    'docs/guide.md': '# guide\n',
+    'CLAUDE.md': 'rules\n',
+    '.claude/agents/helper.md': 'agent\n',
+    '.claude-plugin/plugin.json': '{}\n',
+    'agents/reviewer.md': 'agent\n',
+    'skills/s/SKILL.md': 'skill\n',
+  };
+  const FULL_PROPOSAL = {
+    docs: { paths: ['docs/**/*.md', 'README.md'] },
+    prompts: { paths: ['CLAUDE.md', '.claude/agents/**/*.md', 'agents/**/*.md', 'skills/**/*.md'], rubric: [] },
+  };
+
+  it('proposes docs and prompts globs only from the files on the PR target', async () => {
+    const { db, questions } = setup(FULL_REPO);
+    try {
+      const data = await questions();
+      const qs = data.questions as Question[];
+      assert.equal(qs.length, 1, JSON.stringify(data));
+      assert.equal(qs[0].multiSelect, false);
+      assert.deepEqual(qs[0].options.map((o) => o.wire), ['proposed', 'code'], 'no Keep without a committed file');
+      assert.equal(qs[0].options[0].recommended, true);
+      assert.equal(qs[0].default_index, 0);
+      assert.deepEqual(qs[0].evidence, [
+        'docs: docs/**/*.md, README.md',
+        'prompts: CLAUDE.md, .claude/agents/**/*.md, agents/**/*.md, skills/**/*.md',
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('leaves out what the repo lacks: no docs/, no .claude/agents/, no plugin manifest', async () => {
+    const { db, questions } = setup({ 'README.md': '# app\n', 'agents/reviewer.md': 'agent\n' });
+    try {
+      const qs = (await questions()).questions as Question[];
+      assert.deepEqual(qs[0].evidence, ['docs: README.md'], 'agents/ is not a prompt dir without .claude-plugin/plugin.json');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('with nothing detected asks no question and says why', async () => {
+    const { db, questions } = setup({ 'agents/reviewer.md': 'agent\n' });
+    try {
+      const data = await questions();
+      assert.deepEqual(data.questions, []);
+      assert.match(String((data.notes as string[])[0]), /no docs or prompt files detected on origin\/main/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('the proposal reads the PR target, not the working tree', async () => {
+    const { db, dir, questions } = setup({ 'README.md': '# app\n' });
+    try {
+      mkdirSync(join(dir, 'docs'), { recursive: true });
+      writeFileSync(join(dir, 'docs', 'new.md'), '# new\n');
+      const qs = (await questions()).questions as Question[];
+      assert.deepEqual(qs[0].evidence, ['docs: README.md']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('onboard_apply writes the proposal uncommitted, then Keep appears once it is committed', async () => {
+    const { db, dir, git, questions, apply } = setup(FULL_REPO);
+    try {
+      const head = git('rev-parse', 'HEAD');
+      const result = await apply({ path_classes: 'proposed' });
+      const body = parse(result);
+      assert.notEqual(result.isError, true, JSON.stringify(body));
+      const written = body.path_classes as Record<string, unknown>;
+      assert.equal(written.path, join(dir, PATH_CLASSES_FILE));
+      assert.equal(written.choice, 'proposed');
+      assert.deepEqual(written.classes, FULL_PROPOSAL);
+      assert.deepEqual([written.written, written.refused, written.commit_needed], [true, false, true]);
+      assert.match(String(written.message), /committed to the PR target \(origin\/main\)/);
+      assert.deepEqual(parsePathClasses(readFileSync(join(dir, PATH_CLASSES_FILE), 'utf8')), { classes: FULL_PROPOSAL });
+      assert.equal(git('rev-parse', 'HEAD'), head, 'nothing committed');
+      assert.deepEqual(readPathClasses(dir, 'main'), { classes: null });
+
+      git('add', PATH_CLASSES_FILE);
+      git('commit', '-q', '-m', 'classes');
+      assert.deepEqual(readPathClasses(dir, 'main'), { classes: FULL_PROPOSAL });
+      const again = parse(await apply({ path_classes: 'Use the detected classes' })).path_classes as Record<string, unknown>;
+      assert.deepEqual([again.written, again.refused, again.commit_needed], [false, false, false]);
+      assert.match(String(again.message), /already committed on main/);
+
+      const qs = (await questions()).questions as Question[];
+      assert.deepEqual(qs[0].options.map((o) => o.wire), ['__keep__', 'proposed', 'code']);
+      assert.equal(qs[0].default_index, 0);
+      const kept = parse(await apply({ path_classes: '__keep__' })).path_classes as Record<string, unknown>;
+      assert.deepEqual([kept.choice, kept.written], ['__keep__', false]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('onboard_apply refuses to overwrite a different file and the rest of the apply still lands', async () => {
+    const { db, dir, apply } = setup(FULL_REPO);
+    try {
+      const path = join(dir, PATH_CLASSES_FILE);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, '{"version":1,"docs":{"paths":["**/*.md"]}}\n');
+      const body = parse(await apply({ shape: 'local', bug_report_consent: 'yes', path_classes: 'proposed' }));
+      const refused = body.path_classes as Record<string, unknown>;
+      assert.deepEqual([refused.refused, refused.written], [true, false]);
+      assert.match(String(refused.message), /already exists with other content/);
+      assert.equal(readFileSync(path, 'utf8'), '{"version":1,"docs":{"paths":["**/*.md"]}}\n');
+      assert.equal((body.applied as Record<string, unknown>).onboarded, true);
+      assert.equal((body.applied as Record<string, unknown>).bug_report_consent, 'yes');
+    } finally {
+      db.close();
+    }
+  });
+
+  it("'code' writes nothing", async () => {
+    const { db, dir, apply } = setup(FULL_REPO);
+    try {
+      const done = parse(await apply({ path_classes: 'code' })).path_classes as Record<string, unknown>;
+      assert.deepEqual([done.choice, done.written, done.commit_needed], ['code', false, false]);
+      assert.equal(existsSync(join(dir, PATH_CLASSES_FILE)), false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('applies alone beside verification_defaults, and refuses other answers, a bad answer and an ambiguous repo', async () => {
+    const { db, dir, apply } = setup(FULL_REPO);
+    try {
+      const both = parse(await apply({ path_classes: 'proposed', verification_defaults: ['make test'], repo: 'app' }));
+      assert.equal((both.path_classes as Record<string, unknown>).written, true);
+      assert.equal((both.verification_defaults as Record<string, unknown>).written, true);
+      assert.equal(existsSync(join(dir, VERIFICATION_DEFAULTS_FILE)), true);
+      const mixed = await apply({ path_classes: 'proposed', issue_sync: 'off' });
+      assert.equal(mixed.isError, true);
+      assert.match(String(parse(mixed).error), /path_classes without shape is applied alone — drop issue_sync/);
+      const bad = await apply({ path_classes: 'docs' });
+      assert.match(String(parse(bad).error), /path_classes must be 'proposed', 'code' or '__keep__'/);
+      db.run(`INSERT INTO repos (path, name) VALUES ('/tmp/other', 'other')`);
+      const ambiguous = await apply({ path_classes: 'code' });
+      assert.match(String(parse(ambiguous).error), /path_classes needs repo/);
+      const ambiguousRound = (await call(onboardTools(db).handlers, 'onboard_get_questions', { round: 'path_classes' })) as { isError?: boolean };
+      assert.equal(ambiguousRound.isError, true);
     } finally {
       db.close();
     }
