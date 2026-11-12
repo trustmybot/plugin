@@ -116,6 +116,12 @@ function isTestFile(target: string, projectDir: string | undefined): boolean {
   return TEST_FILE_NAME.test(target) || TEST_DIR.test(pathInProject(target, projectDir));
 }
 
+/** Inside the project root only the path below it counts, so a checkout under a `build/` folder still gets linted. */
+function isSkippedDir(target: string, projectDir: string | undefined): boolean {
+  const judged = pathInProject(target, projectDir) || target;
+  return SKIPPED_DIRS.some((d) => judged.includes(d));
+}
+
 function hasHomePath(content: string, target: string, projectDir: string | undefined): boolean {
   if (isTestFile(target, projectDir)) return false;
   return content.split('\n').some((line) => [...line.matchAll(STRING_LITERAL)].some((m) => HOME_PATH.test(m[2])));
@@ -142,7 +148,7 @@ export const codeQualityLint: SyncGate = (payload, env) => {
   if (!TOOLS.has(jqRawOr(payload, [jqPath('tool_name')]))) return ALLOW;
   const target = jqRawOr(payload, [jqPath('tool_input', 'file_path')]);
   if (target === '' || !SOURCE_EXTS.some((ext) => target.endsWith(ext))) return ALLOW;
-  if (SKIPPED_DIRS.some((d) => target.includes(d))) return ALLOW;
+  if (isSkippedDir(target, env.CLAUDE_PROJECT_DIR)) return ALLOW;
   const content = newContent(payload);
   if (content === '') return ALLOW;
 

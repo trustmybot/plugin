@@ -341,4 +341,26 @@ describe('code-quality-lint: main guard, sync spawn timeout, home path (GH 3087)
       assert.equal(lint('/elsewhere/a.test.ts', literal, root), '');
     });
   });
+
+  describe('skipped directories are judged below the project root', () => {
+    const literal = "const p = '/Users/user/x';";
+
+    it('lints a source file whose project root sits under a build/, dist/ or fixtures/ folder', () => {
+      for (const root of ['/work/build/proj', '/work/dist/proj', '/work/fixtures/proj']) {
+        assert.match(lint(`${root}/src/a.ts`, literal, root), HOME_PATH, root);
+      }
+    });
+
+    it('skips generated and vendored directories inside the root', () => {
+      const root = '/work/build/proj';
+      for (const path of [`${root}/dist/a.js`, `${root}/node_modules/x/a.ts`]) {
+        assert.equal(lint(path, literal, root), '', path);
+      }
+    });
+
+    it('matches the absolute path with no root or outside it', () => {
+      assert.equal(lint('/elsewhere/dist/a.js', literal), '');
+      assert.equal(lint('/elsewhere/dist/a.js', literal, '/work/build/proj'), '');
+    });
+  });
 });
