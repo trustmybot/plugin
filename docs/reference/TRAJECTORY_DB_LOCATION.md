@@ -1,6 +1,6 @@
 # Where the trajectory DB lives
 
-One rule decides which `trajectory.db` the MCP server and every hook use. It is implemented in the server's `findExistingClaudeDbUp` in [`mcp/trajectory-server/src/platform.ts`](../../mcp/trajectory-server/src/platform.ts) and the hooks' `dbPath` in [`mcp/trajectory-server/src/hooks/lib/db.ts`](../../mcp/trajectory-server/src/hooks/lib/db.ts). Among the scripts, [`tests/l1-lint/no-private-db-path.test.mjs`](../../tests/l1-lint/no-private-db-path.test.mjs) fails on a third copy.
+One rule decides which `trajectory.db` the MCP server and every hook use. The server and the hooks each implement it once; a lint over the scripts fails on a third copy.
 
 ## Resolution order
 
@@ -8,39 +8,37 @@ One rule decides which `trajectory.db` the MCP server and every hook use. It is 
 2. **Walk up** from `CLAUDE_PROJECT_DIR` (Claude Code sets it for hooks and for the MCP server), else from the working directory, and collect every ancestor `.claude/<plugin>/trajectory.db`. A session opened in a subdirectory of a workspace therefore finds the workspace DB.
    - Never enter `$HOME` unless the walk started there.
    - No `.git` stop: a workspace root above a nested repo is reachable.
-   - Skip a stale legacy DB (its `tasks` table has no `prompt_bearing` column). A candidate whose read fails is kept, so the failure surfaces instead of resolving somewhere else.
+   - Skip a stale legacy DB, one that predates the current task schema. A candidate whose read fails is kept, so the failure surfaces instead of resolving somewhere else.
    - A candidate whose state dir holds a **`standalone`** file (`<dir>/.claude/<plugin>/standalone`) ends the walk and wins: that directory is its own project.
    - Otherwise the **outermost** candidate wins (the workspace root beats a nested repo).
 3. Otherwise **unresolved**. The server then creates a fresh DB at `<CLAUDE_PROJECT_DIR or cwd>/.claude/<plugin>/trajectory.db`.
 
-Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) the hooks (`dbPath`) never walk: they use `CLAUDE_PROJECT_DIR`'s own DB when it exists, and without `CLAUDE_PROJECT_DIR` the DB is unresolved and one stderr line names the flag.
+Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) the hooks never walk: they use `CLAUDE_PROJECT_DIR`'s own DB when it exists, and without `CLAUDE_PROJECT_DIR` the DB is unresolved and one stderr line names the flag.
 
 Nothing under `$HOME` takes part in the rule.
 
 ## The project root
 
-The project root is the directory holding the resolved DB (`<root>` in `<root>/.claude/<plugin>/trajectory.db`), on both sides: the hooks' `projectRoot` (`src/hooks/lib/db.ts`), the server's spawn cwd and its tool defaults. `CLAUDE_PROJECT_DIR` stands in only when no DB resolves. A relative `repos.path` resolves against the project root.
+The project root is the directory holding the resolved DB (`<root>` in `<root>/.claude/<plugin>/trajectory.db`), for the hooks and the server alike: the server is spawned there and its tools default to it. `CLAUDE_PROJECT_DIR` stands in only when no DB resolves. A repo registered with a relative path resolves against the project root.
 
 ## Who opens and migrates it
 
-Only the trajectory-server migrates the DB. Its entry, `src/index.ts`, opens it with `new TrajectoryDB(path, deps, { migrate: true })`. Every other opener — maintenance scripts, smoke scripts, tests — opens without `migrate`, and on a DB whose `plugin_meta.schema_version` is older than the code's it throws `TrajectoryDB: schema v<stored> is older than this code's v<target>; only the trajectory-server migrates the DB. …` before it takes a backup or runs any DDL. A fresh DB and a current-version DB open normally. SQLite has no access control, so the opener enforces this, not the MCP role checks.
+Only the trajectory-server migrates the DB. Every other opener (maintenance scripts, smoke scripts, tests) opens it without migrating, and on a DB whose schema version is older than the code's it throws an error naming both versions before it takes a backup or runs any DDL. A fresh DB and a current-version DB open normally. SQLite has no access control, so the opener enforces this, not the MCP role checks.
 
-Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs` and `mcp/trajectory-server/scripts/smoke-world-model.mjs` require `TRAJECTORY_DB_PATH` and exit 2 without it; the trajectory server's startup catch-up, which launches `run-scan.mjs`, passes the DB it resolved explicitly. To run one by hand against a project's data, point `TRAJECTORY_DB_PATH` at a copy.
+Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs` requires `TRAJECTORY_DB_PATH` and exits 2 without it; the trajectory server's startup catch-up, which launches it, passes the DB it resolved explicitly. To run it by hand against a project's data, point `TRAJECTORY_DB_PATH` at a copy. `mcp/trajectory-server/scripts/smoke-world-model.mjs` also requires `TRAJECTORY_DB_PATH`, pointing at a new or empty file, and exits 2 when it is unset or the file already holds data.
 
 ## Other DBs
 
 `trajectory_doctor`'s `no_other_trajectory_dbs` contract (warn) lists every other live DB: those the walk from `CLAUDE_PROJECT_DIR` passed, and those below the project root up to four levels deep (dot directories and `node_modules` are skipped; a `standalone` project and everything under it is not counted). Each entry names the path with its issue and task counts. It is a file contract, so it runs in `trajectory_doctor` only, not in the SessionStart banner.
 
-`/onboard` Round 0 shows the same list (`onboard_state_get` → `nesting`). When the session sits below the project root, or another DB exists, it asks whether to use the workspace, make the session directory its own project (`onboard_apply(standalone=true)` writes the `standalone` marker and a fresh DB there, then the session must restart), or cancel. On the workspace answer it offers to remove each empty stray DB (`onboard_apply(remove_stray_dbs=[…])`); a DB with any issue or task is never removed.
+`/onboard` shows the same list in its first round. When the session sits below the project root, or another DB exists, it asks whether to use the workspace, make the session directory its own project (writing the `standalone` marker and a fresh DB there, after which the session must restart), or cancel. On the workspace answer it offers to remove each empty stray DB; a DB with any issue or task is never removed.
 
-`<plugin>` is the `name` in `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` (`tmb` when unset). The `.claude` host directory is one variable in each implementation (`TMB_STATE_HOST_DIR` in `src/hooks/lib/project-env.ts`, `CLAUDE_STATE_HOST_DIR` in `platform.ts`).
+`<plugin>` is the `name` in `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` (`tmb` when unset).
 
 ## What the hooks do with the result
 
-| State (`dbState` in `src/hooks/lib/db.ts`) | Meaning | Deny-capable gates | Advisory hooks |
+| State | Meaning | Deny-capable gates | Advisory hooks |
 |---|---|---|---|
-| `unresolved` | No DB anywhere — the project is not onboarded (or `sqlite3` is missing) | Allow. TMB never bricks a non-TMB repo. | Silent no-op |
-| `ok` | The DB answers a read | Decide normally | Run normally |
-| `error` | The DB resolved but the read failed — busy, corrupt, or unreadable | Deny with `BLOCKED: trajectory DB unavailable — <hook> could not read <path> …` in the gate's normal deny format | Allow, print one stderr line |
-
-Deny-capable gates read through `gateRead` (`src/hooks/lib/db.ts`), which returns `__ERR__` on a sqlite3 failure so "no rows" and "DB unavailable" never look alike.
+| unresolved | No DB anywhere, so the project is not onboarded, or no SQLite backend (neither `node:sqlite` nor `sqlite3`) | Allow. TMB never bricks a non-TMB repo. | Silent no-op |
+| ok | The DB answers a read | Decide normally | Run normally |
+| error | The DB resolved but the read failed: busy, corrupt, or unreadable | Deny with `BLOCKED: trajectory DB unavailable — <hook> could not read <path> …` in the gate's normal deny format | Allow, print one stderr line |

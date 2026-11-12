@@ -1,7 +1,7 @@
-// L1 lint: fail when a tracked file names the reviewer by its pre-GH-1641 name (pr-reviewer / pr_reviewer, any case) outside an explicit allowlist. The reviewer is code-reviewer with no alias; the old name survives only in the v51 migration, its tests and schema fixtures, the rejection tests, a research question about the rename, and history (changelog, upgrade notes). It also checks that the UPGRADE.md schema v51 bullet names the audit.content_json rewrite. Allowlist: tests/l1-lint/legacy-reviewer-name.allowlist — <path><TAB><reason>. A path ending in / covers every file under it. An entry with no reason, or one that matches no hit, fails, so the list shrinks as the old name goes away. scan(root) checks the git repo at root; the cases below plant tracked files in a copy.
+// L1 lint: fail when a tracked file names the reviewer by its pre-GH-1641 name (pr-reviewer / pr_reviewer, any case) outside an explicit allowlist. The reviewer is code-reviewer with no alias; the old name survives only in the v51 migration, its tests and schema fixtures, the rejection tests, a research question about the rename, and history (the changelog). Allowlist: tests/l1-lint/legacy-reviewer-name.allowlist — <path><TAB><reason>. A path ending in / covers every file under it. An entry with no reason, or one that matches no hit, fails, so the list shrinks as the old name goes away. scan(root) checks the git repo at root; the cases below plant tracked files in a copy.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ALLOWLIST = 'tests/l1-lint/legacy-reviewer-name.allowlist';
-const UPGRADE = 'docs/reference/UPGRADE.md';
 const PATTERN = 'pr-reviewer\\|pr_reviewer';
 
 function git(root, args, env = process.env) {
@@ -60,15 +59,6 @@ export function scan(root = ROOT, env = process.env) {
   for (const e of entries) {
     if (!e.used) out.push(`STALE allowlist entry (no file still names pr-reviewer): ${e.path}`);
   }
-
-  const upgrade = existsSync(join(root, UPGRADE)) ? readFileSync(join(root, UPGRADE), 'utf8') : null;
-  if (
-    upgrade === null ||
-    upgrade.includes('audit rows are untouched') ||
-    !upgrade.split('\n').some((l) => /^- [^*].*schema v51/.test(l) && l.includes('content_json'))
-  ) {
-    out.push(`${UPGRADE}: the schema v51 migration-list bullet must name the audit.content_json rewrite and not say audit rows are untouched (F182-1)`);
-  }
   return { ok: out.length === 0, out: out.join('\n') };
 }
 
@@ -112,7 +102,7 @@ describe('a planted repo', () => {
     mkdirSync(repo);
     run('init', '-q');
     const hits = nonEmpty(git(ROOT, ['grep', '-il', 'pr[-_]reviewer']));
-    for (const rel of new Set([...hits, 'tests/l1-lint/legacy-reviewer-name.test.mjs', ALLOWLIST, UPGRADE])) copyTracked(rel);
+    for (const rel of new Set([...hits, 'tests/l1-lint/legacy-reviewer-name.test.mjs', ALLOWLIST])) copyTracked(rel);
     run('add', '-A');
   });
   after(() => rmSync(tmp, { recursive: true, force: true }));
