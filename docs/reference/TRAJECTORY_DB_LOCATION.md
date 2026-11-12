@@ -25,7 +25,7 @@ The project root is the directory holding the resolved DB (`<root>` in `<root>/.
 
 Only the trajectory-server migrates the DB. Every other opener (maintenance scripts, smoke scripts, tests) opens it without migrating, and on a DB whose schema version is older than the code's it throws an error naming both versions before it takes a backup or runs any DDL. A fresh DB and a current-version DB open normally. SQLite has no access control, so the opener enforces this, not the MCP role checks.
 
-Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs` requires `TRAJECTORY_DB_PATH` and exits 2 without it; the trajectory server's startup catch-up, which launches it, passes the DB it resolved explicitly. To run it by hand against a project's data, point `TRAJECTORY_DB_PATH` at a copy. `mcp/trajectory-server/scripts/smoke-world-model.mjs` also requires `TRAJECTORY_DB_PATH`, pointing at a new or empty file, and exits 2 when it is unset or the file already holds data.
+Scripts that open the DB never run this rule: they require an explicit `TRAJECTORY_DB_PATH` and exit without one. Point it at a copy to run a script against a project's data.
 
 ## Other DBs
 

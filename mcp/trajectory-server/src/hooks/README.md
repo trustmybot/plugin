@@ -1,86 +1,6 @@
-# Reference pointers
+# Hooks
 
-A contributor's lookup: where TMB keeps its state, and the names of its MCP tools, slash commands, logs, environment variables and hooks. Each entry points at the code or doc that holds the detail.
-
-## Where state lives
-
-- **Trajectory DB** — SQLite at `<project>/.claude/tmb/trajectory.db`, the same path on every channel; project-local, git-ignored, one per developer. It holds the workflow audit: issues, tasks, discussions, audit rows, validation and plugin metadata. [TRAJECTORY_DB_LOCATION.md](./TRAJECTORY_DB_LOCATION.md) has the rule that picks the file.
-- **World model** — tables in the same DB holding directories with summaries, files with a one-line purpose, and a symbol index with calls and imports, rebuilt by `/scan`. See [WORLD_MODEL.md](../architecture/WORLD_MODEL.md).
-- **Task specs** — the prose spec plus typed scope (`files`) and verification fields that the gates enforce, all in the DB and fetched with `task_get`; never on disk.
-- **Issue milestones** — a per-repo milestone on each issue. See [ERD.md](../architecture/ERD.md).
-- **Architectural decisions** — `kind=decision` discussions in the DB.
-- **Snapshots** — `docs/trustmybot/snapshots/<issue_id>.md`, written by `issue_snapshot_md`.
-
-## Other docs
-
-- **Authoring agent prompts** — [JUDGMENT_LAYER.md](../prompt-engineering/JUDGMENT_LAYER.md), with its evidence in [PROMPT_ENGINEERING.md](../prompt-engineering/PROMPT_ENGINEERING.md)
-- **Agent layers and override rules** — [RESPONSIBILITIES.md](../architecture/RESPONSIBILITIES.md)
-- **`plugin_config` keys** — [CONFIG_KEYS.md](./CONFIG_KEYS.md)
-- **Full architecture** — [FLOWS.md](../architecture/FLOWS.md)
-- **Memory model (hot and cold)** — [MEMORY.md](../architecture/MEMORY.md)
-
-## MCP tools (full list)
-
-88 tools; each one's schema and behavior is in `mcp/trajectory-server/src/tools/`, indexed by its [README](../../mcp/trajectory-server/src/tools/README.md).
-
-- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_update`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote`, `issue_reconcile_remote`
-- **milestones**: `milestone_close`
-- **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`, `task_rework_analysis`
-- **stats**: `task_stats`, `change_impact`
-- **discussions**: `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions`
-- **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_close_with_decisions`, `roundtable_finalize_decisions`, `roundtable_summarize`
-- **PR monitor**: `pr_monitor_comments_get`, `pr_monitor_runs_list`
-- **validation**: `validation_record`, `validation_history`
-- **world model**: `world_model_get`, `scope_suggest`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`
-- **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
-- **config**: `config_get`, `config_list`, `config_set`
-- **scan**: `scan_run`, `repos_list`
-- **repos**: `repo_rename`
-- **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
-- **cheatcodes**: `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`, `cheatcode_reconcile`
-- **skills**: `skill_register`, `skill_promote`
-- **agents**: `agent_list`, `agent_register`, `agent_resolve`
-- **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen`, `task_update_spec`, `review_handoff`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
-- **audit**: `audit_append`, `audit_list`, `audit_search`
-- **metering backfill**: `agent_runs_backfill`
-- **data contracts**: `trajectory_doctor`
-- **bug report**: `bug_report_draft`
-- **toolchain profiles**: `env_detect`, `env_record`, `env_get`
-
-## Slash commands
-
-Each command's procedure is in `commands/<name>.md`.
-
-- `/onboard` — set or change the project's policy: identity, branching model, PR target, remotes, issue sync and the Bash sandbox. bro starts it on first contact; you run it for later changes.
-- `/scan` — rebuild the world model and refresh the repos registry.
-- `/dashboard` — start the local dashboard and print its URL.
-- `/roundtable <topic>` — a multi-agent deliberation that you ratify.
-- `/tmb:agent-create <role> <question>` — spawn a consultant for one domain question.
-
-## Logs
-
-All under `<project>/.claude/tmb/logs/`:
-
-- `<date>-<session-id>.jsonl` — per-session Claude Code log capture
-- `mcp-server.log` — MCP server tool calls
-- `mcp-health.log` — SessionStart MCP samples and SubagentStop diagnostics
-- `issue-sync.log` — issue-sync warnings and errors
-- `sql.log` — SQL trace, when enabled
-
-## Environment variables (selected)
-
-- `TMB_DISABLE_REMOTE_SYNC` — when set, turns issue sync off whatever the config says
-- `TRAJECTORY_DB_PATH` — pins the DB path for tests and CI (step 1 of [the DB location rule](./TRAJECTORY_DB_LOCATION.md))
-- `CLAUDE_PLUGIN_ROOT` — set by Claude Code to the installed plugin's directory
-- `TMB_RUN_SILENT_MIN` — minutes of silence before the liveness probe suspects a run or watcher (default 30, scaled up under load)
-- `TMB_LIVENESS_POLL_S` — seconds between `liveness-sentinel` polls (default 60)
-- `CLAUDE_CODE_SESSION_ATTENDED` — set by Claude Code; `liveness-sentinel` arms only at `1`
-
-Hook-specific switches are named in their rows below.
-
-## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PermissionDenied / Stop / PreCompact / SubagentStart / SubagentStop / WorktreeCreate)
-
-Each gate is `mcp/trajectory-server/src/hooks/<name>.ts`, wired through `hooks/hooks.json`. Every registration but the Stop entry `liveness-sentinel` runs the TypeScript router; [scripts/hooks/README.md](../../scripts/hooks/README.md) explains the router, its gate order, the Agent spawn dispatcher and the headless shim.
+Each gate here is one `<name>.ts`, wired through `hooks/hooks.json`. Every registration but the Stop entry `liveness-sentinel` runs the TypeScript router; [scripts/hooks/README.md](../../../../scripts/hooks/README.md) explains the router, its gate order, the Agent spawn dispatcher and the headless shim.
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -149,7 +69,3 @@ Each gate is `mcp/trajectory-server/src/hooks/<name>.ts`, wired through `hooks/h
 | `swe-atomic-close.ts` | SubagentStop | Close a swe task that committed with a passing verification run, else tell bro to resume it; record run metrics |
 | `consultant-persistence-gate.ts` | SubagentStop | Persist a consultant's output before it exits |
 | `worktree-create.ts` | WorktreeCreate | Enforce worktree-creation rules |
-
-## Schema
-
-[ERD.md](../architecture/ERD.md) lists every table.

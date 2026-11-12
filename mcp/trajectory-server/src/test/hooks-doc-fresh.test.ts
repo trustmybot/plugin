@@ -1,5 +1,5 @@
 /**
- * The docs/reference/REFERENCE.md hook table and hooks/hooks.json agree both
+ * The mcp/trajectory-server/src/hooks/README.md hook table and hooks/hooks.json agree both
  * ways (GH 1692). Every row is a `<name>.ts` naming a gate source under
  * mcp/trajectory-server/src/hooks/ that hooks.json registers (a gate
  * dist/hooks-router.txt lists for a router entry's event, or the Stop entry
@@ -17,7 +17,7 @@ import { after, before, describe, it } from 'node:test';
 import { PLUGIN_ROOT, routerGates, routerTable } from './hooks-router-table.js';
 
 const HOOKS_SRC = 'mcp/trajectory-server/src/hooks';
-const REFERENCE = 'docs/reference/REFERENCE.md';
+const REFERENCE = `${HOOKS_SRC}/README.md`;
 const README = 'scripts/hooks/README.md';
 const README_ROUTER = 'Every `hooks/hooks.json` command is the TypeScript router, `node dist/hooks.js <Event> [part]`';
 /** A shell script name, or the shell helpers lib/ no longer holds. */
@@ -32,20 +32,11 @@ function registered(root: string): string[] {
   return [...new Set([...[...events].flatMap((e) => routerGates(table, e)), ...direct])].sort();
 }
 
-/** The `<name>.<ext>` cells of the REFERENCE.md hook table (the section under `## Hooks`). */
+/** The `<name>.<ext>` cells of the hook table. */
 function rows(root: string): string[] {
-  let on = false;
-  const out: string[] = [];
-  for (const line of readFileSync(join(root, REFERENCE), 'utf8').split('\n')) {
-    if (line.startsWith('## Hooks')) {
-      on = true;
-      continue;
-    }
-    if (on && line.startsWith('## ')) on = false;
-    const m = on ? /^\| `([a-z0-9-]+\.[a-z]+)`/.exec(line) : null;
-    if (m !== null) out.push(m[1]);
-  }
-  return out;
+  return readFileSync(join(root, REFERENCE), 'utf8')
+    .split('\n')
+    .flatMap((line) => /^\| `([a-z0-9-]+\.[a-z]+)`/.exec(line)?.[1] ?? []);
 }
 
 function checkTree(root: string): { rows: number; errors: string[] } {
@@ -63,7 +54,7 @@ function checkTree(root: string): { rows: number; errors: string[] } {
   for (const hook of gates) {
     if (!cells.includes(`${hook}.ts`)) errors.push(`hooks/hooks.json registers ${hook}, which has no ${hook}.ts row in the ${REFERENCE} hook table`);
   }
-  if (cells.length === 0) errors.push(`${REFERENCE} has no hook table under ## Hooks`);
+  if (cells.length === 0) errors.push(`${REFERENCE} has no hook table`);
   const readme = readFileSync(join(root, README), 'utf8');
   if (!readme.includes(README_ROUTER)) errors.push(`${README} does not say every hooks/hooks.json command is the router`);
   const stale = README_STALE.exec(readme);
@@ -71,8 +62,8 @@ function checkTree(root: string): { rows: number; errors: string[] } {
   return { rows: cells.length, errors };
 }
 
-describe('hooks-doc-fresh: the REFERENCE.md hook rows are real, wired hooks', () => {
-  it('the REFERENCE.md hook rows and the hooks hooks.json registers match, and scripts/hooks/README.md names the router', () => {
+describe('hooks-doc-fresh: the hook README rows are real, wired hooks', () => {
+  it('the hook README rows and the hooks hooks.json registers match, and scripts/hooks/README.md names the router', () => {
     const { rows: n, errors } = checkTree(PLUGIN_ROOT);
     assert.deepEqual(errors, []);
     assert.ok(n > 0);
@@ -102,7 +93,7 @@ describe('hooks-doc-fresh self-test: each planted drift fails naming it', () => 
   it('a row for a missing gate or a .sh row fails naming it', () => {
     const lines = reference().split('\n');
     const header = lines.findIndex((l) => /^\| Hook \| Trigger \| Purpose \|/.test(l));
-    assert.ok(header >= 0, 'REFERENCE.md has the hook table header');
+    assert.ok(header >= 0, 'the hook README has the table header');
     lines.splice(header + 2, 0, '| `deleted-hook.ts` | Stop | gone |', '| `git-guards.sh` | PreToolUse Bash | a shell row |');
     setReference(lines.join('\n'));
     const { errors } = checkTree(tree);

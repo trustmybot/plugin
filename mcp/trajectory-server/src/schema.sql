@@ -166,9 +166,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- Typed Rails (#673): files/verification are JSON arrays the enforcement
     -- hooks read directly. files[] is the scope-fence allowlist (swe-scope-fence.sh);
     -- verification[] is the command list the verification gate runs
-    -- (swe-verification-gate.sh). Both default to an empty array; an empty array
+    -- (swe-verification-gate.ts). Both default to an empty array; an empty array
     -- means the hook skips enforcement with a warning (no spec_body markdown
-    -- fallback). See docs/reference/REFERENCE.md.
+    -- fallback).
     files             TEXT    NOT NULL DEFAULT '[]',
     verification      TEXT    NOT NULL DEFAULT '[]',
     created_at        TEXT    NOT NULL,
