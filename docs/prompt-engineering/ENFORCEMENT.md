@@ -12,7 +12,7 @@ Skills, CLAUDE.md, and agent files are reserved for the irreducibly judgment-bou
 |---|---|---|---|
 | 1 | **MCP server** | Role-bound tool access, input validation, server-side defaults for omitted args, and atomic composite tools that run a multi-step workflow as one call in one DB transaction. | Wire-level rejection (`is_error: true`) regardless of prompt content; a composite's steps land together or not at all. |
 | 2 | **Hooks** | Gates fired by the host on lifecycle events: PreToolUse blocks a call until its prerequisite holds; PostToolUse emits follow-up side effects; SessionStart and UserPromptSubmit inject context. | A block or side effect runs outside the LLM's context and cannot be skipped. Injected context is advisory: it reaches the model but compliance stays at layer 6. |
-| 3 | **Frontmatter** | `tools:`, `disallowedTools:`, `isolation:` in agent `.md` files. | Host-enforced at spawn. |
+| 3 | **Frontmatter** | The `tools:` allowlist in agent `.md` files. | Host-enforced at spawn. |
 | 4 | **Schema constraints** | `CHECK`, `UNIQUE`, `NOT NULL`, FK on the trajectory DB. | Rejects malformed writes at the storage layer, including raw-SQL bypasses of MCP handlers. |
 | 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context. | Soft — reduces prompt noise; the model can still ignore loaded content. |
 | 6 | **Prompts** | CLAUDE.md, agent prompts, skill prose. | None — accept the compliance ceiling. |
@@ -80,13 +80,14 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 | Activation routine (onboarded marker + pending issue injection) | 2 |
 | Bro never edits source code (every code change → SWE) | 2 |
 | Project `.gitignore` excludes `.claude/` | 2 |
-| Bro creates the task branch (SWE may not invent, abbreviate, or detach) | 2 |
+| Only provisioning creates task branches and worktrees (SWE may not invent, abbreviate, or detach a branch) | 1 + 2 |
 | Branch up to date with the remote target branch before SWE attach | 2 |
 | Worktree cleanup on task close | 2 |
-| `task_create_batch` blocked until `/scan` has run (world-model-cold gate) | 1 |
-| Decision-audit row required on every `task_create_batch` | 1 |
+| Provisioning blocked until `/scan` has run (world-model-cold gate) | 1 |
+| Provisioning blocked until bro has read the world model this session | 2 |
+| Decision row required on every provisioned task | 1 |
+| Project skill and agent files change only with the Human's approval | 2 |
 | MCP calls include `agent: 'bro'` | 1 |
-| `validation_record` requires `subagent_session_id` | 1 |
 | `discussion_append(author='human')` is refused; an agent quotes the Human under its own name | 1 |
 | AUQ shape during roundtable `awaiting_human` | 2 |
 | Roundtable state machine | 1 |
@@ -99,10 +100,15 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 | Interaction | Layer |
 |---|---|
 | Spawned only with a valid `task_id` whose spec is non-empty and names a writer for each new schema item | 2 |
-| Runs in an isolated worktree created at the canonical path at spawn | 2 |
+| Spawn effort matches the task's stored effort | 2 |
+| Rework spawns judged against the task's rework record | 2 |
+| Runs in the isolated worktree that provisioning created | 1 + 2 |
 | Task moved to `running` and its run row opened at spawn | 2 |
 | Cannot create branches (attaches to bro's pre-created branch) | 2 |
 | Worktree branch descends from the remote target branch | 2 |
+| Reads its brief before any other trajectory call | 2 |
+| Writes only under its task's worktree | 2 |
+| Each edit linted as it lands | 2 |
 | Scope-limited tools keep SWE off bro-only MCP writes | 1 + 3 |
 | MCP calls include `agent: 'swe'`, scope-restricted | 1 |
 | Never writes its own `validation_record` | 1 |
@@ -113,18 +119,21 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 
 | Interaction | Layer |
 |---|---|
-| Push to a protected branch blocked unless every unsigned commit has a passing validation row | 2 |
+| Spawned only on a commit with a passing verification run and a current lint record, with the anchor-only prompt shape | 2 |
+| Push blocked unless each pushed task commit's newest verdict is a pass for that commit | 2 |
+| Reviewer identity observed at `validation_record`, never taken from the caller | 2 |
 | MCP calls include `agent: 'code-reviewer'`, scope-restricted | 1 |
 | `validation_record` is code-reviewer-only | 1 |
+| A fail reopens the task at high effort | 1 |
 | Cannot edit code (read-only review) | 3 |
-| Review output format | 6 only |
+| Diff-level judgment: whether a behaviour change the probes show is a bug | 6 only |
 
 ### Consultants
 
 | Interaction | Layer |
 |---|---|
 | Cannot write workflow state (task_*, validation_record, issue_*) | 1 |
-| Spawned only by bro, never by the Human directly | 6 only |
+| Records its analysis on the issue before it stops | 2 |
 | Return analyses, never decisions | 6 only |
 
 ### Universal
@@ -166,7 +175,7 @@ The evidence on negative instructions is mixed, and no controlled study supports
 | **(B) If/else test** | Anything you can write as an if/else statement lives in hooks/MCP, never in prompt prose. |
 | **(C) Natural-language test** | If the Human cannot read a prompt line as natural language, it is machine-spec in disguise — migrate it or rewrite it. |
 | **(D) Placement test** | 100%-required judgment belongs in the always-loaded body; optional judgment in trigger-loaded skills; deterministic logic in code. |
-| **(E) Persona test** | Every agent opens with a plain-language identity sentence ("You are a senior software engineer. You execute tasks assigned by bro."). |
+| **(E) Persona test** | Every agent opens with a plain-language sentence naming its job, not an expert title ("You execute one task spec assigned by bro."). |
 | **(F) Load-bearing test** | Every line drives a judgment, names a call, or states a constraint the reader acts on. No line sells the concept, narrates the skill's own purpose, restates the frontmatter, or repeats a point for emphasis. |
 
 ### Every line earns its place
