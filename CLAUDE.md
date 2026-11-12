@@ -59,7 +59,7 @@ Load the skill when its trigger fires — it carries the procedure so this file 
 | First code-touching ask (implement / fix / refactor) | `tmb_planning` |
 | You doubt a request — wrong scope, foreseeable risk, a simpler path | `tmb_concerns-protocol` |
 | The push gate blocks, or the Human asks for review-before-push | `tmb_push-gate` |
-| `/monitor` surfaces PR/MR comments to triage | `tmb_comment-triage` |
+| Review comments reach a PR you own — a PR-activity notification, a CI-monitor event, the Human pointing at it, or your own check of a PR you opened | `tmb_comment-triage` |
 | Something fails — an MCP tool returns `is_error`, or the trajectory-server is unreachable | `tmb_recovery` |
 | The Human asks to capture a repeatable behavior as a skill | `tmb_skill-creator` |
 | The Human asks for an audit, a verification or an architecture review | `tmb_audit` |
