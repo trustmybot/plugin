@@ -110,6 +110,12 @@ import { checkoutLag } from './world_model.js';
 const STDOUT_KEEP = 4096;
 const STDERR_KEEP = 2048;
 
+const NO_CODE_CLASSES = ['docs', 'prompts'] as const;
+
+function isNoCodeClass(value: unknown): value is (typeof NO_CODE_CLASSES)[number] {
+  return typeof value === 'string' && (NO_CODE_CLASSES as readonly string[]).includes(value);
+}
+
 interface BudgetedRun {
   stdout: string;
   stderr: string;
@@ -1724,6 +1730,12 @@ export function compositeTools(
                 enum: [...EFFORT_LEVELS],
                 description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → computed: default from plugin_config.swe_default_effort (medium when unset); high for prompt-bearing tasks, files[] touching plugin_config.high_effort_paths, and rework.',
               },
+              no_code_class: {
+                type: 'string',
+                enum: [...NO_CODE_CLASSES],
+                description:
+                  "Set when bro authors the task itself: bro may then edit, in the task worktree, the paths .config/tmb/path-classes.json at base_sha classes docs or prompts, and its close runs the verification gate and denies a diff with any code path. Omitted → a code task for swe.",
+              },
             },
             required: ['description', 'spec_body', 'files', 'verification'],
           },
@@ -1951,6 +1963,13 @@ export function compositeTools(
         });
         const { effort } = computedEffort;
 
+        const noCodeClass = task.no_code_class ?? null;
+        if (noCodeClass !== null && !isNoCodeClass(noCodeClass)) {
+          return err(
+            `typed_field_violation: task.no_code_class must be one of ${NO_CODE_CLASSES.join(', ')}, got ${JSON.stringify(noCodeClass)}.`,
+          );
+        }
+
         const slug = branchId.replace(/^[^/]+\//, '');
 
         const specShapeWaived = args['waive_spec_shape'] === true;
@@ -2136,8 +2155,8 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, no_code_class, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               branchId,
@@ -2152,6 +2171,7 @@ export function compositeTools(
               effort,
               gate?.base_sha ?? null,
               gate?.wm_commit ?? null,
+              noCodeClass,
               now,
               now,
             ],
@@ -2997,9 +3017,10 @@ export function compositeTools(
           verification: string;
           prompt_bearing: number;
           effort: Effort;
+          no_code_class: string | null;
         }>(
           `SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
-                  files, verification, prompt_bearing, effort
+                  files, verification, prompt_bearing, effort, no_code_class
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId],
         );
@@ -3115,8 +3136,8 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, no_code_class, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -3131,6 +3152,7 @@ export function compositeTools(
               effort,
               gate?.base_sha ?? null,
               gate?.wm_commit ?? null,
+              failed.no_code_class,
               now,
               now,
             ],

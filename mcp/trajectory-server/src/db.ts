@@ -16,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 71;
+export const TARGET_SCHEMA_VERSION = 72;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -847,6 +847,8 @@ function runMigrations(
   if (fromVersion < 70 && toVersion >= 70) migrateV69toV70(db);
   // v70→v71: drop the agents rows seeded for the removed consultant templates (GH 3068)
   if (fromVersion < 71 && toVersion >= 71) migrateV70toV71(db);
+  // v71→v72: tasks.no_code_class, the docs or prompts class of a task bro authors (GH 3075)
+  if (fromVersion < 72 && toVersion >= 72) migrateV71toV72(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3623,6 +3625,25 @@ function migrateV70toV71(db: DatabaseSync): void {
        WHERE name IN ('architect', 'cto', 'ceo', 'pm')
          AND file_path = 'plugin:templates/agents/' || name || '.md'
     `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v71→v72: tasks.no_code_class (GH 3075), docs or prompts for a task bro
+// authors itself in its worktree. Existing rows keep NULL: code tasks.
+function migrateV71toV72(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'no_code_class')) {
+      db.exec("ALTER TABLE tasks ADD COLUMN no_code_class TEXT CHECK (no_code_class IS NULL OR no_code_class IN ('docs','prompts'))");
+    }
     commitTransaction(db);
   } catch (err) {
     try {

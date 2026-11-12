@@ -8,6 +8,15 @@
  * own enforcement surfaces (scripts/hooks/, hooks/hooks.json of the repo whose
  * manifest names the running plugin) are denied even for a swe.
  * TMB_ALLOW_SOURCE_EDIT=1 lifts Rule 1. A DB that cannot be read denies.
+ * For bro (GH 3075) every check runs on the target with `.` and `..` resolved,
+ * and neither the worktree dir nor the allowlist admits a write to a repo file:
+ * it is allowed only inside the worktree of a running task with a
+ * no_code_class, on a path the task's base_sha path classes call docs or
+ * prompts. A scratch write, or a file outside every registered repo or ignored
+ * by git, keeps the decision every other role gets, except under
+ * .claude/worktrees/ inside a git repo: there any non-scratch bro write not
+ * proven to sit in a running no-code task's worktree is denied, including when
+ * the DB cannot be read or lacks the repos table or the task row.
  *
  * Rule 2, Bash, with or without a DB: a write the cmd-analysis analyzer finds
  * to a prompt-surface path outside a worktree is denied for every identity.
@@ -31,7 +40,9 @@ import { harnessTmp, NEVER_JUDGED } from './containment-guard.js';
 import { CAP_FIX, CAP_REASON, isCapLine, isPromptSurfacePath, payloadCwd, writePaths } from './cmd-analysis/index.js';
 import { pathCanonical } from './lib/agent-context.js';
 import { dbPath, dbState, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, projectRoot, realdir, stripTrailingNewlines } from './lib/db.js';
-import { isDir } from './lib/git.js';
+import { gitOk, gitOut, isDir } from './lib/git.js';
+import { resolveTaskIdForTarget, worktreeRootForTarget } from './lib/target-task.js';
+import { classifyPath, PATH_CLASSES_FILE, readPathClasses } from '../path-classes.js';
 import { type DenyFix, denyResult as deny } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
 import { installRoot, pluginName, posixBasename, posixDirname, TMB_STATE_HOST_DIR } from './lib/project-env.js';
@@ -77,6 +88,9 @@ function field(input: string, ...paths: string[][]): string {
 
 const SWE_TASK_FIX: DenyFix = { allowed: 'task_create_batch for the change, then the same edit from swe in the task worktree' };
 const PROMPT_TASK_FIX: DenyFix = { allowed: 'task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree' };
+const BRO_NO_CODE_FIX: DenyFix = {
+  allowed: "task_provision with task.no_code_class 'docs' or 'prompts', then the same edit in that task's worktree; a code path goes to swe",
+};
 
 function dbDenied(env: NodeJS.ProcessEnv): GateResult {
   return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
@@ -130,17 +144,18 @@ function manifestName(manifest: string): string {
   }
 }
 
+/** The nearest dir that exists at or above <path>'s parent. */
+function nearestExistingDir(path: string): string {
+  let dir = posixDirname(path);
+  while (!isDir(dir) && dir !== '/') dir = posixDirname(dir);
+  return dir;
+}
+
 /** _target_is_plugin_source_repo: the target's git root carries a manifest named like the running plugin's. */
 async function targetIsPluginSourceRepo(target: string, input: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   const pluginRoot = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath(import.meta.url))) || '';
   const running = `${pluginRoot}/.claude-plugin/plugin.json`;
-  let start: string;
-  if (target.startsWith('/')) {
-    start = posixDirname(target);
-    while (!isDir(start) && start !== '/') start = posixDirname(start);
-  } else {
-    start = posixDirname(`${payloadCwd(input, env)}/${target}`);
-  }
+  const start = target.startsWith('/') ? nearestExistingDir(target) : posixDirname(`${payloadCwd(input, env)}/${target}`);
   const root = await repoGitRoot(start, env);
   if (root === '') return false;
   const repoManifest = `${root}/.claude-plugin/plugin.json`;
@@ -193,12 +208,102 @@ async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
   return ALLOW;
 }
 
+function broDenied(why: string, fix: DenyFix = BRO_NO_CODE_FIX): GateResult {
+  return deny(`BLOCKED: bro edits a repo file only inside the worktree of a running no-code task, on a path .config/tmb/path-classes.json at the task's base_sha classes docs or prompts. ${why}`, fix);
+}
+
+interface BroTask {
+  id: string;
+  status: string;
+  noCodeClass: string;
+  baseSha: string;
+}
+
+/** A DB below v72 has no no_code_class column, so every task in it reads as unclassed. */
+function broTaskRow(db: string, taskId: string, env: NodeJS.ProcessEnv): BroTask | null {
+  const column = gateRead(db, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'no_code_class';", env);
+  if (column === GATE_READ_ERROR) return null;
+  const classExpr = column === '1' ? "COALESCE(no_code_class, '')" : "''";
+  const row = gateRead(
+    db,
+    `SELECT status || '|' || ${classExpr} || '|' || COALESCE(base_sha, '') FROM tasks WHERE id = ${Number(taskId)} LIMIT 1;`,
+    env,
+  );
+  if (row === GATE_READ_ERROR) return null;
+  const [status = '', noCodeClass = '', baseSha = ''] = row.split('|');
+  return { id: taskId, status, noCodeClass, baseSha };
+}
+
+/**
+ * GH 3075: bro writes in a task worktree only on a docs or prompts path of a running
+ * no-code task, judged by the path classes committed at the task's base_sha so the
+ * task's own commits cannot widen them.
+ */
+async function broWorktreeEdit(target: string, canonical: string, db: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
+  if (dbState(env) === 'error') return dbDenied(env);
+  const repos = reposTable(db, env);
+  if (repos === 'error') return dbDenied(env);
+  if (repos === 'absent') return broDenied('The trajectory DB has no repos table, so no task can be proven to own this worktree.');
+  const worktree = worktreeRootForTarget(canonical);
+  if (worktree === '' || canonical === worktree) return broDenied(`${target} is not a file inside a task worktree.`);
+  const toplevel = capture(pathCanonical(await gitOut(worktree, ['rev-parse', '--show-toplevel'], env)));
+  if (toplevel !== worktree) return broDenied(`${worktree} is not a git worktree.`);
+  const taskId = await resolveTaskIdForTarget(canonical, '', db, env);
+  if (taskId === '') return broDenied(`No task owns the worktree ${worktree}.`);
+  const task = broTaskRow(db, taskId, env);
+  if (task === null) return dbDenied(env);
+  if (task.status !== 'running') return broDenied(`Task #${task.id} is ${task.status || 'missing'}, not running.`);
+  if (task.noCodeClass === '') return broDenied(`Task #${task.id} has no no_code_class, so it is a code task for swe.`, SWE_TASK_FIX);
+  if (task.baseSha === '') return broDenied(`Task #${task.id} has no base_sha to read its path classes at.`, SWE_TASK_FIX);
+  const read = readPathClasses(worktree, task.baseSha);
+  if ('error' in read) return broDenied(`${PATH_CLASSES_FILE} at ${task.baseSha} cannot be read: ${read.error}.`, SWE_TASK_FIX);
+  const rel = canonical.slice(worktree.length + 1);
+  if (read.classes === null) return broDenied(`${PATH_CLASSES_FILE} is absent at ${task.baseSha}, so every path, ${rel} too, is code for swe.`, SWE_TASK_FIX);
+  if (classifyPath(rel, read.classes) === 'code') return broDenied(`${rel} is a code path at ${task.baseSha}; code changes go to swe.`, SWE_TASK_FIX);
+  return ALLOW;
+}
+
+function reposTable(db: string, env: NodeJS.ProcessEnv): 'present' | 'absent' | 'error' {
+  const count = gateRead(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'repos';", env);
+  if (count === GATE_READ_ERROR) return 'error';
+  return count === '1' ? 'present' : 'absent';
+}
+
+/**
+ * The bro decision on <canonical>, the target with `.` and `..` resolved; null keeps the
+ * rule every role gets. A path under .claude/worktrees/ in a git repo needs the DB to
+ * prove its task, so it fails closed. Outside a worktree only a registered repo's file
+ * that git does not ignore is decided here; a DB without a repos table leaves the main
+ * checkout to the shared rule.
+ */
+async function broEdit(target: string, canonical: string, input: string, db: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
+  const dir = nearestExistingDir(canonical);
+  const root = await repoGitRoot(dir, env);
+  if (root === '') return null;
+  if (inWorktreeDir(canonical)) return await broWorktreeEdit(target, canonical, db, env);
+  if (dbState(env) === 'error') return dbDenied(env);
+  const repos = reposTable(db, env);
+  if (repos === 'error') return dbDenied(env);
+  if (repos === 'absent' || repoNameForRoot(db, root, env) === '') return null;
+  if (await gitOk(dir, ['check-ignore', '-q', '--', canonical], env)) return null;
+  if (isEnforcementSurface(canonical) && await targetIsPluginSourceRepo(canonical, input, env)) return deny(SURFACE_REASON, SWE_TASK_FIX);
+  return allowlisted(canonical) ? broDenied(`${target} is in the main checkout.`) : deny(sourceReason(env), SWE_TASK_FIX);
+}
+
 async function editRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
   if (db === null) return ALLOW;
 
-  const target = field(input, ['tool_input', 'file_path'], ['tool_input', 'notebook_path']);
-  if (target === '' || inWorktreeDir(target) || inScratch(target, input, env)) return ALLOW;
+  const raw = field(input, ['tool_input', 'file_path'], ['tool_input', 'notebook_path']);
+  if (raw === '' || inScratch(raw, input, env)) return ALLOW;
+  const isBro = agentRole(input) === 'bro';
+  const target = isBro ? capture(pathCanonical(raw.startsWith('/') ? raw : `${payloadCwd(input, env)}/${raw}`)) : raw;
+  if (isBro) {
+    const broDecision = await broEdit(raw, target, input, db, env);
+    if (broDecision !== null) return broDecision;
+  }
+  // bro's resolved target can land in a worktree dir its raw path never named (a relative path from a worktree cwd).
+  if (inWorktreeDir(raw) && inWorktreeDir(target)) return ALLOW;
 
   if (dbState(env) === 'error') return dbDenied(env);
 

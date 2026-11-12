@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 71`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 72`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -15,7 +15,7 @@ The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of tru
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and who writes it is in the tools under `mcp/trajectory-server/src/tools/` (`world_model_search` finds the writer).
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 71`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 72`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -167,6 +167,7 @@ erDiagram
         TEXT workflow_mode "CHECK workflow_mode IS NULL OR workflow_mode IN ('truest','agile')"
         TEXT base_sha
         TEXT wm_commit
+        TEXT no_code_class "CHECK no_code_class IS NULL OR no_code_class IN ('docs','prompts')"
     }
 
     audit {
@@ -669,6 +670,7 @@ Table constraints:
 | `workflow_mode` | TEXT | nullable |  | CHECK `workflow_mode IS NULL OR workflow_mode IN ('truest','agile')` |
 | `base_sha` | TEXT | nullable |  |  |
 | `wm_commit` | TEXT | nullable |  |  |
+| `no_code_class` | TEXT | nullable |  | CHECK `no_code_class IS NULL OR no_code_class IN ('docs','prompts')` |
 
 ### `audit`
 

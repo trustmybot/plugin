@@ -180,6 +180,8 @@ export interface TaskProvisionInput {
   prompt_bearing?: number;
   /** low | medium | high; omitted → plugin_config.swe_default_effort (medium when unset). */
   effort?: string;
+  /** docs | prompts: bro authors the task itself in its worktree (GH 3075); omitted → a code task for swe. */
+  no_code_class?: string | null;
 }
 
 export interface PluginConfigRow {

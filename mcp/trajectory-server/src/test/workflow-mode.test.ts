@@ -209,6 +209,7 @@ describe('SC4: the v65 -> v66 migration', () => {
       INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'o', 'open', '${NOW}', '${NOW}');
       INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at)
         VALUES (7, 1, 'feat/a', 'd', 'closed', '${NOW}', '${NOW}'), (8, 1, 'feat/b', 'd', 'running', '${NOW}', '${NOW}');
+      ALTER TABLE tasks DROP COLUMN no_code_class;
       ALTER TABLE tasks DROP COLUMN wm_commit;
       ALTER TABLE tasks DROP COLUMN base_sha;
       ALTER TABLE tasks DROP COLUMN workflow_mode;
@@ -220,16 +221,16 @@ describe('SC4: the v65 -> v66 migration', () => {
     const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
     const fresh = new TrajectoryDB(join(dir, 'fresh.db'));
     try {
-      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 71);
+      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 72);
       const cols = (d: TrajectoryDB) =>
         d.all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(tasks)')
           .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }));
       assert.deepEqual(cols(migrated), cols(fresh), 'the migrated tasks table matches a fresh one');
-      assert.deepEqual(cols(migrated).slice(-3, -2), [{ name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null }]);
+      assert.deepEqual(cols(migrated).slice(-4, -3), [{ name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null }]);
       const after = migrated.all<Record<string, unknown>>('SELECT * FROM tasks ORDER BY id').map((r) => ({ ...r }));
       assert.deepEqual(
         after,
-        before.map((r) => ({ ...r, workflow_mode: null, base_sha: null, wm_commit: null })),
+        before.map((r) => ({ ...r, workflow_mode: null, base_sha: null, wm_commit: null, no_code_class: null })),
         'tasks closed before v66 carry no recorded mode',
       );
       assert.throws(() => migrated.run(`UPDATE tasks SET workflow_mode = 'fast' WHERE id = 7`), /CHECK/);
@@ -238,11 +239,11 @@ describe('SC4: the v65 -> v66 migration', () => {
       fresh.close();
     }
 
-    const backups = () => readdirSync(dir).filter((f) => f.startsWith('trajectory.db.pre-v71.') && f.endsWith('.bak')).length;
+    const backups = () => readdirSync(dir).filter((f) => f.startsWith('trajectory.db.pre-v72.') && f.endsWith('.bak')).length;
     assert.equal(backups(), 1);
     const again = new TrajectoryDB(dbFile, undefined, { migrate: true });
     try {
-      assert.equal(again.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 71);
+      assert.equal(again.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 72);
       assert.equal(
         again.all<{ name: string }>('PRAGMA table_info(tasks)').filter((c) => c.name === 'workflow_mode').length,
         1,
