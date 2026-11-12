@@ -3,6 +3,8 @@
 //   1. The top `## vX.Y.Z` section of CHANGELOG.md matches plugin.json.
 //   2. Every changelog.d/ fragment is well formed (changelog.d/README.md).
 //   3. On a feature branch (diff against origin/<TMB_PR_TARGET>, default dev):
+//      - a redaction-only CHANGELOG.md edit (no net added lines, no `#` line
+//        touched) is not a changelog entry, so the next two rules skip it;
 //      - editing CHANGELOG.md and adding a fragment fails — pick one;
 //      - after CUTOVER, any direct CHANGELOG.md edit fails, except on a version
 //        bump branch and on the branches already in flight at the cut-over
@@ -68,6 +70,15 @@ function hasFragmentFor(root, n) {
   if (!existsSync(dir)) return false;
   const prefix = `${n}-`;
   return readdirSync(dir).some((name) => name.startsWith(prefix) && name.endsWith('.md') && name.length >= prefix.length + 3);
+}
+
+/** The CHANGELOG.md diff since mergeBase adds no more lines than it removes and touches no `#` line. */
+function isRedactionOnly(git, mergeBase) {
+  const [added, removed] = git('diff', '--numstat', mergeBase, '--', 'CHANGELOG.md').stdout.trim().split('\t').map(Number);
+  if (!Number.isInteger(added) || !Number.isInteger(removed) || added > removed) return false;
+  const diff = outputLines(git('diff', '-U0', mergeBase, '--', 'CHANGELOG.md').stdout);
+  const hunks = diff.slice(diff.findIndex((line) => line.startsWith('@@')));
+  return !hunks.some((line) => /^[+-]#/.test(line));
 }
 
 export function changelogCurrent(rootDir, { today, baseBranch, env } = {}) {
@@ -170,6 +181,8 @@ export function changelogCurrent(rootDir, { today, baseBranch, env } = {}) {
 
     if (bumpBranch) {
       out.push(`  ⊘ version bump branch (${baseVersion} → ${CANON}) — CHANGELOG.md is assembled here`);
+    } else if (changelogEdited && isRedactionOnly(git, MB)) {
+      out.push('  ⊘ redaction-only CHANGELOG.md edit');
     } else {
       if (changelogEdited && branchFragments !== '') {
         fail(`branch ${BRANCH} edits CHANGELOG.md and adds fragment(s):${branchFragments} — pick one (a fragment)`);

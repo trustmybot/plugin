@@ -949,7 +949,7 @@ Pre-release audit pass — 9 audit-fix MRs (!178-!187) plus 1 ENUMS framing foll
 
 ### Added (#2886 — capability catalog + junction-based analytics)
 
-- 📚 **Catalog enrichment**: the trajectory DB now carries a portable catalog of every capability (skills + rules + commands) plus per-invocation junction rows. Designed so the enterprise LangGraph runtime can adopt the same schema with the DB as source-of-truth, while in the plugin the catalog acts as an analytics overlay on top of the file system.
+- 📚 **Catalog enrichment**: the trajectory DB now carries a portable catalog of every capability (skills + rules + commands) plus per-invocation junction rows. In the plugin the catalog acts as an analytics overlay on top of the file system.
   - **`skills.scope`** column add (`global` / `template` / `project-local`, mirrors `agents.scope`). Plugin-shipped `tmb_*` skills schema-seeded as `global`; `skill_register` defaults new entries to `project-local`.
   - **`rules`** table (new) — first-class registry for `<project>/.claude/rules/*.md`. Severity enum captures enforcement weight (`advisory` / `warning` / `blocking`). MCP tools: `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list`.
   - **`commands`** table (new) — first-class registry for slash commands. Schema-seeds the 4 plugin-shipped commands (`/scan`, `/onboard`, `/monitor`, `/roundtable`). MCP tools: `command_register`, `command_list`.

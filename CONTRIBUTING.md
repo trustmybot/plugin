@@ -71,7 +71,7 @@ Not a changelog line, a banner or the file name restated. `purpose-header.test.m
 
 ### Changelog fragments
 
-A user-visible change adds one file under [`changelog.d/`](changelog.d/README.md) and never edits `CHANGELOG.md` (`changelog-current.test.mjs` fails that outside a version bump). At release, `bump-version.ts` folds the fragments into the version's section.
+A user-visible change adds one file under [`changelog.d/`](changelog.d/README.md) and never edits `CHANGELOG.md` (`changelog-current.test.mjs` fails that outside a version bump; a redaction-only edit passes, even beside a fragment). At release, `bump-version.ts` folds the fragments into the version's section.
 
 ### Generated files
 

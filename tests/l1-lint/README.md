@@ -14,7 +14,7 @@ node --test tests/l1-lint/link-check.test.mjs
 | Script | Catches |
 |---|---|
 | [`version-sync.test.mjs`](./version-sync.test.mjs) | Version drift across manifest/package files |
-| [`changelog-current.test.mjs`](./changelog-current.test.mjs) | CHANGELOG missing the current version; a malformed `changelog.d/` fragment; a feature branch that edits `CHANGELOG.md` alongside a fragment or (after the cut-over) at all, or cites a `GH <n>` with no fragment or entry |
+| [`changelog-current.test.mjs`](./changelog-current.test.mjs) | CHANGELOG missing the current version; a malformed `changelog.d/` fragment; a feature branch that edits `CHANGELOG.md` (other than a redaction: no net added lines, no `#` line touched) alongside a fragment or (after the cut-over) at all, or cites a `GH <n>` with no fragment or entry |
 | [`dist-bundles.test.mjs`](./dist-bundles.test.mjs) | `dist/index.js` or `dist/run-scan.js` not an esbuild bundle (no `var __` prelude, or a relative `import`/`export ... from` line as plain `tsc` emits); every run self-tests `fixtures/dist-bundles/` |
 | [`build-tsc-bundles.test.mjs`](./build-tsc-bundles.test.mjs) | `mcp/trajectory-server`'s `build:tsc` not ending with `build:bundle`, so tests exec stale `dist/hooks.js`, `dist/cli.js` or `dist/index.js`, or `build` calling `build:bundle` a second time (GH 2694); every run self-tests the checker on drifted scripts |
 | [`tsc-noemit.test.mjs`](./tsc-noemit.test.mjs) | TypeScript type errors (no emit) in `mcp/trajectory-server` and `dashboard` |
