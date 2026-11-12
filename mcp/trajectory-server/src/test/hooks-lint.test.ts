@@ -364,3 +364,28 @@ describe('code-quality-lint: main guard, sync spawn timeout, home path (GH 3087)
     });
   });
 });
+
+describe('naming-lint: skipped directories are judged below the project root (GH 3099)', () => {
+  const root = '/work/fixtures/proj';
+  const lint = (file_path: string, projectDir?: string) => {
+    const env = projectDir === undefined ? { LC_ALL: 'C' } : { LC_ALL: 'C', CLAUDE_PROJECT_DIR: projectDir };
+    const out = namingLint(JSON.stringify({ tool_name: 'Write', tool_input: { file_path } }), env).stdout;
+    return out === '' ? '' : context(out).text;
+  };
+  const KEBAB = /ts modules use kebab-case/;
+
+  it('flags a badly named source file whose project root sits under a fixtures/ folder', () => {
+    assert.match(lint(`${root}/src/BadName.ts`, root), KEBAB);
+    assert.match(lint(`${root}/src/BadName.ts`, `${root}/`), KEBAB);
+  });
+
+  it('skips fixture directories inside the root', () => {
+    assert.equal(lint(`${root}/fixtures/BadName.ts`, root), '');
+  });
+
+  it('matches the absolute path with no root or outside it', () => {
+    assert.equal(lint('/elsewhere/fixtures/BadName.ts'), '');
+    assert.equal(lint('/elsewhere/fixtures/BadName.ts', root), '');
+    assert.match(lint('/elsewhere/src/BadName.ts', root), KEBAB);
+  });
+});

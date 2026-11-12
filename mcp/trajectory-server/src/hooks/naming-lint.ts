@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs';
 import { ALLOW, type SyncGate } from './gate.js';
 import { anyLine, jqPath, jqRawOr, preToolContext, shellCapture } from './lib/lint-shell.js';
-import { posixBasename } from './lib/project-env.js';
+import { pathInProject, posixBasename } from './lib/project-env.js';
 
 export const GATE_NAME = 'naming-lint';
 
@@ -33,6 +33,12 @@ const PASCAL = /^[A-Z][A-Za-z0-9]*$/;
 function basename(path: string): string {
   if (path.length > 1 && path.startsWith('-')) return '';
   return shellCapture(posixBasename(path));
+}
+
+/** Inside the project root only the path below it counts, so a checkout under a `fixtures/` folder still gets linted. */
+function isSkippedDir(target: string, projectDir: string | undefined): boolean {
+  const judged = pathInProject(target, projectDir) || target;
+  return SKIPPED_DIRS.some((d) => judged.includes(d));
 }
 
 function violationFor(ext: string, name: string): string {
@@ -69,7 +75,7 @@ export const namingLint: SyncGate = (payload, env) => {
   const name = dot < 0 ? base : base.slice(0, dot);
   const ext = dot < 0 ? base : base.slice(dot + 1);
   if (FIXED_NAMES.has(base) || FIXED_PREFIXES.some((p) => base.startsWith(p))) return ALLOW;
-  if (SKIPPED_DIRS.some((d) => target.includes(d))) return ALLOW;
+  if (isSkippedDir(target, env.CLAUDE_PROJECT_DIR)) return ALLOW;
 
   const violation = violationFor(ext, name);
   if (violation === '') return ALLOW;

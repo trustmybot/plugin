@@ -80,6 +80,12 @@ export function claudeProjectDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.CLAUDE_PROJECT_DIR ?? '';
 }
 
+/** The target's path below the project root with its leading `/`, or '' when there is no root or the target lies outside it. */
+export function pathInProject(target: string, projectDir: string | undefined): string {
+  const root = (projectDir ?? '').replace(/\/+$/, '');
+  return root !== '' && target.startsWith(`${root}/`) ? target.slice(root.length) : '';
+}
+
 /** $HOME, or "" when unset. */
 export function homeDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.HOME ?? '';

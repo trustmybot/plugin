@@ -19,6 +19,7 @@ import {
   jqRawOr,
   preToolContext,
 } from './lib/lint-shell.js';
+import { pathInProject } from './lib/project-env.js';
 
 export const GATE_NAME = 'code-quality-lint';
 
@@ -103,12 +104,6 @@ function argumentList(content: string, open: number): string {
 
 function hasUnboundedSyncSpawn(content: string): boolean {
   return [...content.matchAll(SYNC_SPAWN_CALL)].some((m) => !/\btimeout\b/.test(argumentList(content, m.index + m[0].length - 1)));
-}
-
-/** The target's path below the project root with its leading `/`, or '' when there is no root or the target lies outside it. */
-function pathInProject(target: string, projectDir: string | undefined): string {
-  const root = (projectDir ?? '').replace(/\/+$/, '');
-  return root !== '' && target.startsWith(`${root}/`) ? target.slice(root.length) : '';
 }
 
 /** Directory names are judged below the project root only, so a checkout under a `tests/` folder still gets linted. */
