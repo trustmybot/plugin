@@ -85,6 +85,6 @@ Never edit these by hand. All but the last are git-ignored and built by `bun run
 | `dashboard/dist/**` | `bun run build` in `dashboard` |
 | the `audit.event_type` section of `docs/contributing/ENUMS.md` (committed) | `gen-enums-doc.mjs --doc`; rerun and commit after a merge changes `audit-events.ts` |
 
-## Scope, security, license
+## Security and license
 
-Enterprise features (SSO, RBAC, SOC2, multi-tenant) wait for paying-customer demand; the focus is the solo and small-team workflow. Report vulnerabilities privately per [`SECURITY.md`](SECURITY.md), never in a public issue. Contributions are MIT-licensed.
+Report vulnerabilities privately per [`SECURITY.md`](SECURITY.md), never in a public issue. Contributions are MIT-licensed.
