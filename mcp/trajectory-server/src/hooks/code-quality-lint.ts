@@ -16,6 +16,7 @@ import {
   jqRawOr,
   preToolContext,
 } from './lib/lint-shell.js';
+import { pathInProject } from './lib/project-env.js';
 
 export const GATE_NAME = 'code-quality-lint';
 
@@ -63,6 +64,68 @@ function newContent(payload: string): string {
   ]);
 }
 
+const ARGV_OPERAND = String.raw`(?:(?:path\.)?resolve\(\s*)?process\.argv\[1\]\s*\)?`;
+const MODULE_OPERAND = String.raw`(?:fileURLToPath\(\s*)?import\.meta\.url\s*\)?`;
+const MAIN_GUARD = new RegExp(`${ARGV_OPERAND}\\s*[!=]==\\s*${MODULE_OPERAND}|${MODULE_OPERAND}\\s*[!=]==\\s*${ARGV_OPERAND}`);
+const MAIN_GUARD_MESSAGE =
+  'process.argv[1] compared with import.meta.url — an npm bin symlink or a symlinked checkout makes it false; compare realpathSync of both sides';
+
+const SYNC_SPAWN_CALL = /\b(?:spawnSync|execSync|execFileSync)\(/g;
+const SYNC_SPAWN_MESSAGE = 'spawnSync/execSync/execFileSync without a timeout option — a hung child blocks forever; pass { timeout: <ms> }';
+
+const STRING_LITERAL = /(['"`])((?:\\.|(?!\1)[^\\])*)\1/g;
+const HOME_PATH = /\/(?:Users|home)\/[A-Za-z0-9._-]+\//;
+const TEST_FILE_NAME = /(?:\.(?:test|spec)\.[^/]+|(?:^|\/)test_[^/]*\.py|_test\.py)$/;
+const TEST_DIR = /\/tests?\//;
+const HOME_PATH_MESSAGE = 'hardcoded home path (/Users/<name>/ or /home/<name>/) in a string — derive it from the home dir or config';
+
+function hasUnsafeMainGuard(content: string): boolean {
+  return content.split('\n').some((line) => MAIN_GUARD.test(line) && !line.includes('realpathSync'));
+}
+
+/** The text between the `(` at `open` and its matching `)`, skipping quoted strings; the rest of `content` when unclosed. */
+function argumentList(content: string, open: number): string {
+  let depth = 0;
+  let quote = '';
+  for (let i = open; i < content.length; i++) {
+    const ch = content[i];
+    if (quote !== '') {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = '';
+    } else if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return content.slice(open + 1, i);
+  }
+  return content.slice(open + 1);
+}
+
+function hasUnboundedSyncSpawn(content: string): boolean {
+  return [...content.matchAll(SYNC_SPAWN_CALL)].some((m) => !/\btimeout\b/.test(argumentList(content, m.index + m[0].length - 1)));
+}
+
+/** Directory names are judged below the project root only, so a checkout under a `tests/` folder still gets linted. */
+function isTestFile(target: string, projectDir: string | undefined): boolean {
+  return TEST_FILE_NAME.test(target) || TEST_DIR.test(pathInProject(target, projectDir));
+}
+
+/** Inside the project root only the path below it counts, so a checkout under a `build/` folder still gets linted. */
+function isSkippedDir(target: string, projectDir: string | undefined): boolean {
+  const judged = pathInProject(target, projectDir) || target;
+  return SKIPPED_DIRS.some((d) => judged.includes(d));
+}
+
+function hasHomePath(content: string, target: string, projectDir: string | undefined): boolean {
+  if (isTestFile(target, projectDir)) return false;
+  return content.split('\n').some((line) => [...line.matchAll(STRING_LITERAL)].some((m) => HOME_PATH.test(m[2])));
+}
+
+function tsFindings(content: string, multibyte: boolean): string[] {
+  const found = TS_CHECKS.filter((c) => anyLine(content, regex(c.pattern, multibyte))).map((c) => c.message);
+  if (hasUnsafeMainGuard(content)) found.push(MAIN_GUARD_MESSAGE);
+  if (hasUnboundedSyncSpawn(content)) found.push(SYNC_SPAWN_MESSAGE);
+  return found;
+}
+
 function pythonFindings(content: string, multibyte: boolean): string[] {
   const found = PY_CHECKS.filter((c) => anyLine(content, regex(c.pattern, multibyte))).map((c) => c.message);
   const call = regex('subprocess\\.run\\([^)]*\\)', multibyte);
@@ -77,7 +140,7 @@ export const codeQualityLint: SyncGate = (payload, env) => {
   if (!TOOLS.has(jqRawOr(payload, [jqPath('tool_name')]))) return ALLOW;
   const target = jqRawOr(payload, [jqPath('tool_input', 'file_path')]);
   if (target === '' || !SOURCE_EXTS.some((ext) => target.endsWith(ext))) return ALLOW;
-  if (SKIPPED_DIRS.some((d) => target.includes(d))) return ALLOW;
+  if (isSkippedDir(target, env.CLAUDE_PROJECT_DIR)) return ALLOW;
   const content = newContent(payload);
   if (content === '') return ALLOW;
 
@@ -85,7 +148,8 @@ export const codeQualityLint: SyncGate = (payload, env) => {
   const multibyte = grepMultibyte(env);
   const findings: string[] = [];
   if (ext === 'py') findings.push(...pythonFindings(content, multibyte));
-  else if (TS_EXTS.has(ext)) findings.push(...TS_CHECKS.filter((c) => anyLine(content, regex(c.pattern, multibyte))).map((c) => c.message));
+  else if (TS_EXTS.has(ext)) findings.push(...tsFindings(content, multibyte));
+  if ((ext === 'py' || TS_EXTS.has(ext)) && hasHomePath(content, target, env.CLAUDE_PROJECT_DIR)) findings.push(HOME_PATH_MESSAGE);
   if (anyLine(content, regex(MARKER_CHECK.pattern, multibyte))) findings.push(MARKER_CHECK.message);
   if (findings.length === 0) return ALLOW;
 
