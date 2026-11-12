@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { jqCompact, jqContentStrings, jqIndex, jqLiteralNumbers, jqMap, jqRawElements, jsonStream, jsonValues } from '../hooks/lib/jq.js';
-import { jqInput, jqRaw } from '../hooks/lib/jq-raw.js';
+import { jqAlternatives, jqCompact, jqContentStrings, jqFieldOr, jqIndex, jqLiteralNumbers, jqMap, jqRawElements, jsonStream, jsonValues } from '../hooks/lib/jq.js';
+import { jqCapture, jqInput, jqRaw } from '../hooks/lib/jq-raw.js';
 import { jqRawText } from '../hooks/lib/project-env.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -102,6 +102,67 @@ describe('lib/jq.ts key order', () => {
     const depth = 200_000;
     const input = `${'['.repeat(depth)}{"2":1,"1":2}${']'.repeat(depth)}`;
     assert.equal(jsonValues(input).length, 1);
+  });
+});
+
+/** Whether jq, when on PATH, stops <input> with a parse error after printing <printed>. */
+function assertJqStops(input: string, printed: string): void {
+  if (!HAVE_JQ) return;
+  const r = spawnSync('jq', ['-c', '.'], { input, encoding: 'utf8' });
+  assert.notEqual(r.status, 0, r.stdout);
+  assert.match(r.stderr, /parse error/);
+  assert.equal(r.stdout, printed);
+}
+
+describe('lib/jq.ts surrogate escapes and number literals match jq 1.7.1 (GH 2042)', () => {
+  for (const lone of ['"\\ud800"', '"\\ud800x"', '"\\ud800A"', '"\\uDBFF\\u0041"', '"\\ud800\\ud800"', '"x\\udbff"', '"\\ud83d\\ude00\\ud800"', '{"\\ud800":1}']) {
+    it(`a lone high-surrogate escape ends the stream: 1 ${lone} 2`, () => {
+      const input = `1 ${lone} 2`;
+      assertJqStops(input, '1\n');
+      assert.deepEqual(jsonValues(input), [1]);
+      assert.deepEqual(jsonStream(input), { values: [1], complete: false });
+      assert.deepEqual(jqInput(input).values.map((v) => jqRaw(v)), ['1']);
+      assert.equal(jqInput(input).complete, false);
+      assert.equal(jqFieldOr(`{"id":"a"} {"id":${lone}} {"id":"b"}`, 'id'), 'a');
+      assert.equal(jqCapture(jqInput(`{"id":"a"} {"id":${lone}} {"id":"b"}`), ['id']), 'a');
+    });
+  }
+
+  it('an escaped backslash before u is no surrogate escape', () => {
+    const input = '"\\\\ud800"';
+    assertMatchesJq(jqRawText(jsonValues(input)[0]), '\\ud800', input, '-r', '.');
+    assert.equal(jsonStream(input).complete, true);
+  });
+
+  it('a lone low-surrogate escape reads as U+FFFD, in values and keys', () => {
+    const input = '"a\\udc00b"';
+    assertMatchesJq(jqRawText(jsonValues(input)[0]), 'a�b', input, '-r', '.');
+    assert.deepEqual(jsonStream(input), { values: ['a�b'], complete: true });
+    assert.equal(jqCapture(jqInput(`{"k":${input}}`), ['k']), 'a�b');
+    assertMatchesJq(jqCompact(jsonValues('{"\\uDFFF":"\\udc00\\udc00"}')[0]), '{"�":"��"}', '{"\\uDFFF":"\\udc00\\udc00"}', '-c', '.');
+  });
+
+  it('a surrogate pair escape reads as its character', () => {
+    const input = '"\\ud83d\\ude00"';
+    assertMatchesJq(jqRawText(jsonValues(input)[0]), '\u{1F600}', input, '-r', '.');
+    assert.equal(jqCapture(jqInput(`{"k":${input}}`), ['k']), '\u{1F600}');
+    assert.equal(jqFieldOr(`{"k":${input}}`, 'k'), '\u{1F600}');
+  });
+
+  for (const [literal, printed] of [['1.0', '1.0'], ['1e1000', '1E+1000'], ['1e2', '1E+2'], ['-0', '-0'], ['100', '100'], ['12345678901234567890', '12345678901234567890']]) {
+    it(`jq -r .id // "" prints the number literal ${literal} as ${printed}`, () => {
+      const input = `{"id":${literal}}`;
+      assertMatchesJq(jqFieldOr(input, 'id'), printed, input, '-r', '.id // ""');
+      assertMatchesJq(jqAlternatives(input, [['id']]), printed, input, '-r', '.id // empty');
+    });
+  }
+
+  it('jqFieldOr keeps strings, nested numbers and the fallback as before', () => {
+    assert.equal(jqFieldOr('{"id":"1.0"}', 'id'), '1.0');
+    assert.equal(jqFieldOr('{"id":null}', 'id', 'none'), 'none');
+    assert.equal(jqFieldOr('5 {"id":"x"}', 'id'), 'x');
+    const input = '{"id":[1.0,{"a":1e2}]}';
+    assertMatchesJq(jqFieldOr(input, 'id'), '[\n  1.0,\n  {\n    "a": 1E+2\n  }\n]', input, '-r', '.id // ""');
   });
 });
 

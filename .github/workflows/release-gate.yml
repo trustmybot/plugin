@@ -183,18 +183,40 @@ jobs:
         run: node --experimental-strip-types tests/l5-l6/probes/sandbox-network-probe.ts --check-recorded
 
   install-smoke:
-    name: L0 docker install-smoke
-    # L0 is the installation test layer: contributors run it locally with Docker
-    # before a PR; release-gate also runs it on rc tags and dispatch.
+    name: L0 install-smoke (${{ matrix.os }})
+    # L0 is the installation test layer: contributors run it locally before a PR;
+    # release-gate also runs it on rc tags and dispatch. Linux runs the driver
+    # inside the Docker image; macOS and Windows run it host-native (GH 1749).
     needs: verdict-check
     if: ${{ needs.verdict-check.outputs.short_circuit != 'true' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
 
-      - name: Run install-smoke
+      - name: Run install-smoke in Docker
+        if: matrix.os == 'ubuntu-latest'
         run: node --experimental-strip-types tests/l0-install/run-docker.ts install
+
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.os != 'ubuntu-latest'
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install Claude Code CLI
+        if: matrix.os != 'ubuntu-latest'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run install-smoke host-native
+        if: matrix.os != 'ubuntu-latest'
+        run: node --experimental-strip-types tests/l0-install/install-smoke.ts

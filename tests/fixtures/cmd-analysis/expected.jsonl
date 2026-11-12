@@ -1785,3 +1785,10 @@
 {"cmd":"python3 -c \"import re, os; p='docs/a.md'; t=re.sub('a', os.remove, 's'); open(p,'w').write(t)\"","cwd":"/w","lines":["UNRESOLVED:$(alias-write):$(alias-write)","/w/docs/a.md"]}
 {"cmd":"python3 -c \"p='docs/a.md'; s=open(p).read().replace('~/.x','y'); open('/etc/q','w').write(s)\"","cwd":"/w","lines":["/etc/q"]}
 {"cmd":"python3 -c \"import foo; p='docs/a.md'; foo.bar('~/.jobduck'); open(p,'w').write('x')\"","cwd":"/w","lines":["/w/docs/a.md","<R>/home/.jobduck"]}
+{"cmd":"perl -i -pe 'BEGIN{open(F,\"agents/a.md\")}' src/a.ts","cwd":"/w","lines":["/w/src/a.ts"]}
+{"cmd":"perl -e 'open(F,\">agents/a.md\")'","cwd":"/w","lines":["/w/agents/a.md"]}
+{"cmd":"perl -e 'open(F,\">>agents/a.md\")'","cwd":"/w","lines":["/w/agents/a.md"]}
+{"cmd":"perl -e 'open(F,\"+<agents/a.md\")'","cwd":"/w","lines":["/w/agents/a.md"]}
+{"cmd":"perl -e 'open(my $f,\" >agents/a.md\")'","cwd":"/w","lines":["/w/agents/a.md"]}
+{"cmd":"python3 -c 'open(\"a.txt\",\"a\")'","cwd":"/w","lines":["/w/a.txt"]}
+{"cmd":"python3 -c 'open(\"a.txt\", mode=\"w\")'","cwd":"/w","lines":["/w/a.txt"]}

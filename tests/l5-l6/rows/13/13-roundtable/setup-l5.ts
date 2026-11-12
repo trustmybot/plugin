@@ -5,7 +5,7 @@
 //
 // Bro convenes a roundtable on storage choice (JSON vs SQLite vs backend
 // service). Both consultants write analyses + votes.
-import { gitCommit, PLUGIN_ROOT, setupArgs, sql, writeFile } from '../../../lib/setup-helpers.ts';
+import { gitCommit, setupArgs, sql, writeFile } from '../../../lib/setup-helpers.ts';
 import { seedAgents } from './seed-agents.ts';
 
 const { project } = setupArgs(import.meta.dirname);
@@ -39,7 +39,7 @@ gitCommit(project, ['src/cli.py'], 'feat: todo CLI');
 
 // Pre-seed the roundtable panel (cto + data-engineer) via the shared seed so
 // L5 and L6 (step-11 chain_setup_command) convene the identical panel.
-seedAgents(project, process.env.PLUGIN_ROOT || PLUGIN_ROOT);
+seedAgents(project);
 
 // Pre-seed an open storage-scaling issue for the roundtable to cite. (L5-only:
 // in the L6 chain this issue already exists from the prior steps' discussion.)

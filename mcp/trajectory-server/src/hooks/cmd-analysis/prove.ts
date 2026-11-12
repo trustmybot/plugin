@@ -20,7 +20,8 @@
  * program unproven for this pass and is loaded before the command is analyzed
  * again (index.ts). perl and ruby are lexed against an identifier allowlist,
  * judged writes included; perl's `select` is proven only as the 4-argument
- * sleep `select(undef,undef,undef,<number or $scalar>)` (GH 1887).
+ * sleep `select(undef,undef,undef,<number or $scalar>)` (GH 1887), and an
+ * unjudged `open` only as a 2-argument read of a plain path literal (GH 2024).
  */
 import { builtinModules } from 'node:module';
 import type { Node } from 'web-tree-sitter';
@@ -1469,6 +1470,22 @@ function perlSleepSelect(toks: readonly Token[], k: number): number {
   return SLEEP_SELECT.length + 2;
 }
 
+// A plain path, neither a mode prefix (`>`, `+<`, `<&`), a pipe (`|cmd`, `cmd|`), `-` (stdin) nor text interpolation or escapes could turn into one.
+const PERL_READ_PATH = /^\s*<?\s*[A-Za-z0-9_./~][^|<>&$@\\\n]*$/;
+
+/** The token count of perl's 2-argument read `open(F, "path")` / `open(my $f, "path")` at `k`, or 0 for any other form (GH 2024). */
+function perlReadOpen(toks: readonly Token[], k: number): number {
+  if (toks[k - 1]?.text === '->' || toks[k].text !== 'open' || toks[k + 1]?.text !== '(') return 0;
+  let j = k + 2;
+  if (toks[j]?.t === 'w' && toks[j].text === 'my') j++;
+  const handle = toks[j];
+  const bareword = handle?.t === 'w' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(handle.text);
+  if (!(bareword || (handle?.t === 'v' && /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(handle.text)))) return 0;
+  const path = toks[j + 2];
+  if (toks[j + 1]?.text !== ',' || path?.t !== 'lit' || !/^(['"]).*\1$/s.test(path.text) || toks[j + 3]?.text !== ')') return 0;
+  return PERL_READ_PATH.test(path.text.slice(1, -1)) ? j + 4 - k : 0;
+}
+
 /** perl / ruby: every bareword, method name and `&:symbol` is in the allowlist, a judged write, a ruby local, a ruby constant receiver or a hash key. */
 function proveScript(lang: Lang, src: string): { ok: boolean; judged: boolean } {
   const perl = lang === 'perl';
@@ -1529,9 +1546,9 @@ function proveScript(lang: Lang, src: string): { ok: boolean; judged: boolean } 
       if (toks[j + 1]?.text === '=') return fail;
     }
     if (SCRIPT_WORDS.has(name)) continue;
-    const sleep = perl ? perlSleepSelect(toks, k) : 0;
-    if (sleep) {
-      k += sleep - 1;
+    const safeForm = perl ? perlSleepSelect(toks, k) || perlReadOpen(toks, k) : 0;
+    if (safeForm) {
+      k += safeForm - 1;
       continue;
     }
     let dotted = name;

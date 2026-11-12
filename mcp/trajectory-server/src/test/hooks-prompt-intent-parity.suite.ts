@@ -100,6 +100,8 @@ export function buildSandbox(s: string): void {
     db.prepare(
       "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES (1, 'feat/next', 'bro', 'planning_complete', 'planned', '{}', ?)",
     ).run(T1);
+    const consultant = db.prepare("INSERT INTO agents (name, kind, file_path) VALUES (?, 'consultant', ?)");
+    for (const name of ['architect', 'pm']) consultant.run(name, `project:.claude/agents/${name}.md`);
   });
   trajectoryDb(join(s, 'fresh/.claude/tmb/trajectory.db'), () => {});
   trajectoryDb(join(s, 'enforced/.claude/tmb/trajectory.db'), (db) => {

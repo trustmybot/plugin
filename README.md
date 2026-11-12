@@ -93,15 +93,14 @@ Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ## Roster on disk
 
-The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two backbone subagents (`swe`, `code-reviewer`) ship globally in `agents/` and are available in every project the moment the plugin is installed — no copy step required. Consultant agents are templates that get copied into `<project>/.claude/agents/` on demand:
+The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two backbone subagents (`swe`, `code-reviewer`) ship globally in `agents/` and are available in every project the moment the plugin is installed — no copy step required:
 
 | Agent | Where | When available |
 |---|---|---|
 | `swe.md` | `agents/swe.md` (global) | Always — backbone executor |
 | `code-reviewer.md` | `agents/code-reviewer.md` (global) | Always — push gate |
-| `architect.md`, `cto.md`, `ceo.md`, `pm.md` | `templates/agents/` (copied on demand) | First time you ask for that consultant |
 
-Domain consultants outside this set are drafted on demand via `/tmb:agent-create`. Override any agent by dropping a project-local file — local wins over the global.
+Consultants are drafted on demand via `/tmb:agent-create` and live in `<project>/.claude/agents/`. Override any agent by dropping a project-local file — local wins over the global.
 
 ---
 

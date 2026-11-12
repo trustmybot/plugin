@@ -95,7 +95,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 ## CI (GitHub Actions)
 
 `.github/workflows/release-gate.yml` is **not** wired to dev pushes or PRs — it runs only on:
-- **rc tags (`vX.Y.Z-rc.N`) + manual dispatch from `rc` or `main`** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.ts`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
+- **rc tags (`vX.Y.Z-rc.N`) + manual dispatch from `rc` or `main`** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.ts`) **+ L0 install-smoke** (Linux in Docker, macOS and Windows host-native). Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
 
 `.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`). Its `stamp` job stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)); it publishes and is not a gate. Its `l1` job reruns the L1 tier (`tests/run-all.ts --l1-only`) on every push to `dev`, so a merge that breaks an L1 rule turns `dev` red (GH 2651).
 

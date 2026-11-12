@@ -179,6 +179,13 @@ export const KEYS = [
     effect: 'The model and effort a risk-tier review runs at (GH 2932): when `reviewer_effort_tiers` or the `tiered` arm of `reviewer_effort_ab` assigns the tier, `review_handoff` takes the entry for the tier\'s reason, its `effort` replacing the tier effort and its `model` recorded as `model` in the `reviewer_effort_assigned` row and returned in `reviewer_spawn` (for example `{"docs_tests": {"model": "sonnet", "effort": "high"}}`). A reason with no entry, or with no `model`, keeps the tier effort and the code-reviewer\'s own model; the fixed `reviewer_effort` path never gets a model. `require-spawn-effort` admits a code-reviewer spawn only with the assigned model, or with no model when none is assigned. Unset or malformed applies no overrides.',
   },
   {
+    name: 'bro_compact_nudge_tokens',
+    type: 'non-negative integer',
+    defaultText: 'unset (read as `80000`)',
+    setBy: 'bro via `config_set` (anything but a non-negative integer is refused)',
+    effect: 'The bro context, in tokens, past which `activation-routine` nudges a /compact (GH 3029): on a bro turn whose transcript\'s last main-thread call took more input context (input, cache-creation and cache-read tokens) than this, the hook appends one advisory line asking bro to have the Human run /compact at the next natural break, at most once per session (its `bro_compact_nudged` audit row is the once-marker). It never blocks. `0` turns it off; malformed reads as the default.',
+  },
+  {
     name: 'workflow_mode',
     type: 'string: `truest` \\| `agile`',
     defaultText: 'unset (read as `truest`)',

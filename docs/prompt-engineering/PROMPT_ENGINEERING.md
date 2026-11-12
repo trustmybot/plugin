@@ -70,6 +70,7 @@ Agentic prompts add tool use, autonomy, and multi-turn state:
 - **One place per rule.** Tables for routing; merge sections that say the same thing. Duplicated rules drift into conflict.
 - **Fix model misbehavior structurally.** A hook, a `requireRoles` gate, or a schema beats another sentence in the prompt.
 - **Core prompts stay minimal; depth is a cheatcode.** Each shipped prompt (`CLAUDE.md`, an agent, a skill) carries one idea: the wiring that makes TMB work. Rubrics, checklists, persona and style guidance, and domain heuristics arrive as cheatcodes ([`CHEATCODES.md`](../architecture/CHEATCODES.md)); a paragraph that teaches a technique instead of wiring a role belongs in one.
+- **A prompt matches its place in the flows.** Each prompt fits its agent's place in [`FLOWS.md`](../architecture/FLOWS.md) and its row of the Quality layers table (read that table first). It asks only for the checks that layer owns, hands over that layer's stated contract, and never asks the agent to redo a check another layer owns: overlapping layers duplicate work and blur who owns a leak. Where the flow and a prompt disagree, fix one of them in the same change so they don't drift.
 
 ---
 
@@ -96,6 +97,7 @@ Agentic prompts add tool use, autonomy, and multi-turn state:
 - [ ] Scope and escalation boundaries stated, with no conflicting rules.
 - [ ] Lean: optional detail pushed to a skill or command.
 - [ ] No duplication, no stale references, no citation noise.
+- [ ] Matches its layer in FLOWS.md: owns only that layer's checks and hands over its contract.
 - [ ] Tested against representative cases.
 
 [`GOLDEN_PROMPTS.md`](GOLDEN_PROMPTS.md) turns this checklist into scored criteria with examples.

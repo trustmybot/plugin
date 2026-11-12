@@ -1785,3 +1785,10 @@
 {"cmd":"python3 -c \"import re, os; p='docs/a.md'; t=re.sub('a', os.remove, 's'); open(p,'w').write(t)\"","cwd":"/w"}
 {"cmd":"python3 -c \"p='docs/a.md'; s=open(p).read().replace('~/.x','y'); open('/etc/q','w').write(s)\"","cwd":"/w"}
 {"cmd":"python3 -c \"import foo; p='docs/a.md'; foo.bar('~/.jobduck'); open(p,'w').write('x')\"","cwd":"/w"}
+{"cmd":"perl -i -pe 'BEGIN{open(F,\"agents/a.md\")}' src/a.ts","cwd":"/w"}
+{"cmd":"perl -e 'open(F,\">agents/a.md\")'","cwd":"/w"}
+{"cmd":"perl -e 'open(F,\">>agents/a.md\")'","cwd":"/w"}
+{"cmd":"perl -e 'open(F,\"+<agents/a.md\")'","cwd":"/w"}
+{"cmd":"perl -e 'open(my $f,\" >agents/a.md\")'","cwd":"/w"}
+{"cmd":"python3 -c 'open(\"a.txt\",\"a\")'","cwd":"/w"}
+{"cmd":"python3 -c 'open(\"a.txt\", mode=\"w\")'","cwd":"/w"}

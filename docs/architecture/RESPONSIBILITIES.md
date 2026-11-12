@@ -1,6 +1,6 @@
 # Agent responsibilities
 
-What each plugin-shipped agent is for, what it may and may not do, and why the roles are split this way. Exact tools, skills and model settings live in each agent's frontmatter (`agents/*.md`, `templates/agents/*.md`); the server-side role checks live in `mcp/trajectory-server/src/` (`requireRoles` in `middleware/agent-scope.ts`, called by each tool family). This page does not repeat them.
+What each plugin-shipped agent is for, what it may and may not do, and why the roles are split this way. Exact tools, skills and model settings live in each agent's frontmatter (`agents/*.md`, `templates/agents/template.md`); the server-side role checks live in `mcp/trajectory-server/src/` (`requireRoles` in `middleware/agent-scope.ts`, called by each tool family). This page does not repeat them.
 
 ## Agent layer model
 
@@ -8,7 +8,7 @@ Two layers determine which agents are available in a project.
 
 **Layer 1 — Workflow backbone (always global):** `swe` and `code-reviewer` ship in the plugin's `agents/` directory and are available without any copy or onboarding step. When bro spawns one, Claude Code dispatches by name: a project-local `.claude/agents/<name>.md` wins if present, the global file is the fallback.
 
-**Layer 2 — Consultants (templates, opt-in per project):** `architect`, `cto`, `ceo` and `pm` ship in `templates/agents/` and are instantiated per project on first use through `/tmb:agent-create`. From then on the project-local copy serves the consultant.
+**Layer 2 — Consultants (opt-in per project):** no named consultant ships with the plugin. `/tmb:agent-create` drafts each one per project from `templates/agents/template.md`, and the project-local file serves the consultant from then on.
 
 The runtime registry of known agents is the `agents` table in the trajectory DB.
 
@@ -70,7 +70,7 @@ Source: `agents/code-reviewer.md`.
 
 ## Consultants
 
-Templates in `templates/agents/<name>.md`, instantiated per project on demand via `/tmb:agent-create`.
+Drafted per project on demand via `/tmb:agent-create` from `templates/agents/template.md`; no named consultant templates ship.
 
 - **Cannot write workflow state** — issues, tasks, status changes and verdicts are refused by the server.
 - **Can write analyses** as discussion rows.
