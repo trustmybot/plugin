@@ -81,6 +81,26 @@ describe('git-push-guard refspec l3: the refspec decides the commits, not HEAD (
   it('a refspec that names no commit → BLOCKED as unresolvable', () =>
     has(run('git push origin feat/nonexistent'), 'cannot resolve the refspec `feat/nonexistent`', 'an unknown source must fail closed'));
 
+  it('a branch created earlier in the same command → BLOCKED, told to push in its own command', () => {
+    const out = run('git checkout -b feat/new && git push -u origin feat/new');
+    has(out, 'cannot resolve the refspec `feat/new`', 'the ref does not exist when the gate runs');
+    has(out, 'run the push as its own command once the ref exists', 'the deny names the remedy');
+  });
+
+  describe('the `tag <name>` shorthand pushes refs/tags/<name>', () => {
+    beforeEach(() => {
+      git(f.sb.env, f.repo, 'tag', '-a', '-m', 'v1', 'v1', FEATURE);
+      insertTask(f.db, 1, f.sha);
+    });
+
+    it('an unreviewed tagged commit → BLOCKED', () => has(run('git push origin tag v1'), 'task_id=1', 'the tag names the unreviewed commit'));
+
+    it('a reviewed tagged commit → allowed', () => {
+      signTask(f.db, 1);
+      hasNot(run('git push origin tag v1'), DENY, '`tag v1` is refs/tags/v1, a resolvable refspec');
+    });
+  });
+
   it('a refspec built from an expansion of an unreviewed feature → BLOCKED', () => {
     insertTask(f.db, 1, f.sha);
     has(run(`B=${FEATURE}; git push origin "$B"`), DENY, 'a refspec read through an expansion must not fail open');

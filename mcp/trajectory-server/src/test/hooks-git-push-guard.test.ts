@@ -378,6 +378,8 @@ describe('git-push-guard: GH 3102 pushArgs reads the remote and refspecs a push 
     ['push origin -- -weird', { remote: 'origin', refspecs: ['-weird'], deletes: false, refSets: [] }],
     ['push --all --tags origin', { remote: 'origin', refspecs: [], deletes: false, refSets: ['refs/heads/', 'refs/tags/'] }],
     ['push --mirror origin', { remote: 'origin', refspecs: [], deletes: false, refSets: ['refs/'] }],
+    ['push origin tag v1', { remote: 'origin', refspecs: ['refs/tags/v1:refs/tags/v1'], deletes: false, refSets: [] }],
+    ['push origin feat/a tag v1 tag', { remote: 'origin', refspecs: ['feat/a', 'refs/tags/v1:refs/tags/v1', 'tag'], deletes: false, refSets: [] }],
   ];
   for (const [sub, want] of cases) {
     it(`\`${sub}\``, () => assert.deepEqual({ ...pushArgs(sub) }, want));

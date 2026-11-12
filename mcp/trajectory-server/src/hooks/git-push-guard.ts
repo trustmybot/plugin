@@ -78,8 +78,8 @@ const opaqueReason = (what: string): string =>
 const OPAQUE_FIX: DenyFix = { allowed: "the code itself, or bash -c '<literal code>', or PS4='<literal>'" };
 const INTEGRATE_FIX: DenyFix = { allowed: 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>' };
 const unresolvedRefspecReason = (refspec: string, what: string, dir: string): string =>
-  `BLOCKED: the push gate cannot resolve the refspec \`${refspec}\` of \`${what}\` to a commit in ${dir}, so it cannot tell which commits the push sends and refuses to fail open.`;
-const UNRESOLVED_REFSPEC_FIX: DenyFix = { allowed: 'git -C <repo> push <remote> <src>[:<dst>], its <src> a local branch, HEAD, a full ref or a commit' };
+  `BLOCKED: the push gate cannot resolve the refspec \`${refspec}\` of \`${what}\` to a commit in ${dir}, so it cannot tell which commits the push sends and refuses to fail open. The gate reads the refs before the command runs, so a ref an earlier statement of the same command creates (\`git checkout -b X && git push -u origin X\`) does not exist yet: run the push as its own command once the ref exists.`;
+const UNRESOLVED_REFSPEC_FIX: DenyFix = { allowed: 'git -C <repo> push <remote> <src>[:<dst>] as its own command, its <src> an existing local branch, HEAD, a full ref or a commit' };
 const SHA_LIST_REASON = 'BLOCKED: the push gate read a pushed commit that is not a full SHA, so it cannot match it against task commits and refuses to fail open.';
 
 function pushVerb(sub: string): boolean {
@@ -127,7 +127,22 @@ export function pushArgs(sub: string): PushArgs {
       }
     }
   }
-  return { remote: operands[0] ?? repoOption, refspecs: operands.slice(1), deletes, refSets: [...refSets] };
+  return { remote: operands[0] ?? repoOption, refspecs: expandTagShorthand(operands.slice(1)), deletes, refSets: [...refSets] };
+}
+
+/** <refspecs> with git's `tag <name>` shorthand written out as `refs/tags/<name>:refs/tags/<name>`. */
+function expandTagShorthand(refspecs: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < refspecs.length; i++) {
+    const name = refspecs[i + 1];
+    if (refspecs[i] === 'tag' && name !== undefined) {
+      out.push(`refs/tags/${name}:refs/tags/${name}`);
+      i++;
+    } else {
+      out.push(refspecs[i]);
+    }
+  }
+  return out;
 }
 
 /** One refspec of a push: its source and destination as written ('' when left out), and whether it is a delete, which sends no commits. */
