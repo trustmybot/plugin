@@ -1,6 +1,6 @@
 # Golden Prompts
 
-What makes a TMB prompt "golden", as a checklist of yes/no criteria with real examples. Each criterion maps to a rule in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md) and carries that rule's evidence tier.
+The guide for writing and checking a TMB prompt (`CLAUDE.md`, `agents/*.md`, skills, commands): a checklist of yes/no criteria with real examples. The evidence behind each criterion lives in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md), the research reference; each criterion names its rule there and carries that rule's evidence tier.
 
 ---
 
@@ -14,28 +14,49 @@ Golden is earned, not a style. The eval set is required because rule 7 is the on
 
 ## Criteria
 
-The criteria follow the order in which you write or read a prompt: who the agent is and what it owns, which rules it carries, how they are worded, its examples and output, consistency across the whole file, and last the eval.
+The criteria follow the order in which you write or read a prompt, one category at a time:
+
+| Category | Asks |
+|---|---|
+| Identity | Who is the agent, and what one job does it own? |
+| Content | What belongs in the prompt, and how is it laid out? |
+| Wording | How is each rule phrased? |
+| Output | What does the agent produce, and what shows the shape? |
+| Consistency | Does the whole file agree with itself, other prompts, hooks and code? |
+| Validation | Did an eval show no regression? |
 
 `Rule` is the rule number in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md#core-rules), or the section of [`ENFORCEMENT.md`](ENFORCEMENT.md) that holds the TMB-specific rule. `Tier` copies that rule's tier. `How checked` is `deterministic` when a grep, lint or script could check it, `judgment` when a reader has to.
 
-| ID | Check | Rule | Tier | How checked |
-|---|---|---|---|---|
-| G1 | The role and objective are in the first lines. | 5 | T1 | judgment |
-| G2 | The prompt does only its agent's job: it names what it receives, hands its output over in the shape the next agent expects, and redoes no check another agent owns. | ENFORCEMENT.md, Each prompt owns one job | none (convention) | judgment |
-| G3 | Situational or optional detail lives in a skill or command, not the always-loaded prompt. | 2 | T1 | judgment |
-| G4 | The rules are few, and the most important come first. | 1 | T1 | judgment |
-| G5 | The prompt uses one structure style throughout, and a prompt that mixes instructions, context, examples, and inputs tags each part. | 3 | T1; T3 for tags | judgment |
-| G6 | Tool output, fetched pages, files, and comments sit in named tags marked as data, and what the agent may do with them is enforced in a hook or gate. | 14 | T2 boundary; T3 tags | judgment |
-| G7 | Each prohibition names what to do instead, and none names a word only to forbid it. | 9 | T2 (mixed) | judgment |
-| G8 | Each non-obvious rule gives its reason. | 13 | T3 | judgment |
-| G9 | No emphasis words (CRITICAL, MUST, ALL CAPS, ALWAYS, NEVER) appear outside true invariants. | 12 | T3 | deterministic |
-| G10 | There is no expert persona, "think step by step", tip, threat, flattery, or urgency boilerplate. | 4, 5, 6 | T1 | deterministic |
-| G11 | Examples match the wanted output format, and there are 3 to 5 varied ones where a format needs them. | 8 | T2 | judgment |
-| G12 | The output shape is stated (a schema, a section layout, a table). | 10 | T2 | judgment |
-| G13 | No rule contradicts another rule, another prompt, or a hook; where two can collide, the precedence is stated. | 10 | T2 | judgment |
-| G14 | No rule is duplicated across sections. | 10 | T2 | judgment |
-| G15 | Tool and skill descriptions match the code they describe. | 11 | T2 | judgment |
-| G16 | An eval set of representative cases exists and was re-run after the last wording change. | 7 | T1 | deterministic |
+| Category | ID | Check | Rule | Tier | How checked |
+|---|---|---|---|---|---|
+| Identity | G1 | The role and objective are in the first lines. | 5 | T1 | judgment |
+| Identity | G2 | The prompt does only its agent's job: it names what it receives, hands its output over in the shape the next agent expects, and redoes no check another agent owns. | ENFORCEMENT.md, Each prompt owns one job | none (convention) | judgment |
+| Content | G3 | Situational or optional detail lives in a skill or command, not the always-loaded prompt. | 2 | T1 | judgment |
+| Content | G4 | The rules are few and concrete, and the most important come first; "use good judgment" with no criteria is not a rule. | 1, 10 | T1 | judgment |
+| Content | G5 | The prompt uses one structure style throughout, and a prompt that mixes instructions, context, examples, and inputs tags each part. | 3 | T1; T3 for tags | judgment |
+| Content | G6 | Tool output, fetched pages, files, and comments sit in named tags marked as data, and what the agent may do with them is enforced in a hook or gate. | 14 | T2 boundary; T3 tags | judgment |
+| Wording | G7 | Each prohibition names what to do instead, and none names a word only to forbid it. | 9 | T2 (mixed) | judgment |
+| Wording | G8 | Each non-obvious rule gives its reason. | 13 | T3 | judgment |
+| Wording | G9 | No emphasis words (CRITICAL, MUST, ALL CAPS, ALWAYS, NEVER) appear outside true invariants. | 12 | T3 | deterministic |
+| Wording | G10 | There is no expert persona, "think step by step", tip, threat, flattery, or urgency boilerplate. | 4, 5, 6 | T1 | deterministic |
+| Output | G11 | Examples match the wanted output format, and there are 3 to 5 varied ones where a format needs them. | 8 | T2 | judgment |
+| Output | G12 | The output shape is stated (a schema, a section layout, a table). | 10 | T2 | judgment |
+| Consistency | G13 | No rule contradicts another rule, another prompt, or a hook; where two can collide, the precedence is stated. | 10 | T2 | judgment |
+| Consistency | G14 | No rule is duplicated across sections. | 10 | T2 | judgment |
+| Consistency | G15 | Tool and skill descriptions match the code they describe. | 11 | T2 | judgment |
+| Validation | G16 | An eval set of representative cases exists and was re-run after the last wording change. | 7 | T1 | deterministic |
+
+---
+
+## Agent prompts
+
+A prompt is a contract, not a wish: it states the role, the inputs, the steps, the output, and the boundaries. An agent's prompt adds tool use, autonomy, and multi-turn state, so it also covers these. They are vendor practice with no tier of their own.
+
+- **Name the loop.** Make the cycle explicit: orient, verify context, act, verify the result, report.
+- **Verify before finalizing.** Tell the agent to check its work against the spec or success criteria before it declares done, and to surface failures.
+- **Ground claims and allow "unknown".** Give the agent a retrieval path and an explicit route to ask or say "unknown" instead of guessing.
+- **Set autonomy boundaries.** Say what the agent may do unprompted and what needs confirmation (irreversible, outward-facing, or destructive actions). Tell it to surface disagreement, then yield to the human.
+- **Use what the harness gives.** When identity, state, or context arrive each turn, tell the agent to use them instead of fetching them again.
 
 ---
 

@@ -1,8 +1,8 @@
 # Prompt Engineering
 
-How we write prompts for agents in TMB: personas (`CLAUDE.md`, `agents/*.md`), skills, and commands. Each rule below names how strong its evidence is and where the evidence comes from.
+The research reference behind TMB's prompt rules. Each rule below names how strong its evidence is and where the evidence comes from. To write or check a prompt, use [`GOLDEN_PROMPTS.md`](GOLDEN_PROMPTS.md), the guide built on these rules.
 
-> Rule of thumb: a prompt is a contract, not a wish. State the role, the inputs, the steps, the output, and the boundaries.
+The rules are ordered by evidence tier, strongest first, so a reader sees which claims rest on controlled studies; the guide orders the same rules the way a prompt is written.
 
 ---
 
@@ -48,37 +48,6 @@ Source keys in square brackets point to [References](#references).
 - **More examples are always better.** Examples mostly teach format, gains level off after a few, and their order changes results [Min] [Lu].
 - **Delimiters keep injected instructions out.** They fail under adaptive attack; only out-of-band checks held [Narisetty].
 - **The "26 principles".** The study reports no significance tests [Bsharat].
-
----
-
-## Prompting agents specifically
-
-Agentic prompts add tool use, autonomy, and multi-turn state:
-
-- **Name the loop.** Make the cycle explicit: orient, verify context, act, verify the result, report.
-- **Verify before finalizing.** Tell the agent to check its work against the spec or success criteria before it declares done, and to surface failures.
-- **Ground claims and allow "unknown".** Give the agent a retrieval path and an explicit route to ask or say "unknown" instead of guessing.
-- **Set autonomy boundaries.** Say what the agent may do unprompted and what needs confirmation (irreversible, outward-facing, or destructive actions). Tell it to surface disagreement, then yield to the human.
-- **Use what the harness gives.** When identity, state, or context arrive each turn, tell the agent to use them instead of fetching them again.
-
----
-
-## Anti-patterns
-
-- The same instruction repeated in several sections.
-- Vague directives ("be smart", "use good judgment") with no criteria.
-- A prohibition with no "do this instead", or one that names a word only to forbid it.
-- Emphasis words on ordinary rules; persona, tip, or threat boilerplate.
-- Situational or optional content in the always-loaded prompt.
-- Tool or section descriptions that contradict the code they describe.
-- Examples that do not match the requested output format.
-- Tool output or fetched text pasted untagged next to instructions.
-
----
-
-## Before shipping
-
-Score the prompt against the [Golden Prompts criteria](GOLDEN_PROMPTS.md#criteria): each maps to a rule above and says whether a lint or a reader checks it.
 
 ---
 

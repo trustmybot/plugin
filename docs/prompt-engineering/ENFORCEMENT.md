@@ -230,7 +230,7 @@ An L3 hook test checks this order for the activation-routine hook only; the othe
 
 ## See also
 
-- [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md) — how we author personas, skills, and commands.
+- [`GOLDEN_PROMPTS.md`](GOLDEN_PROMPTS.md) — how we write and check personas, skills, and commands; its evidence is in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md).
 - [`RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md) — agent roles and boundaries.
 - [`FLOWS.md`](../architecture/FLOWS.md) — workflows: who acts, what each step guarantees, and the state each flow leaves.
 - [`ERD.md`](../architecture/ERD.md) — schema.
