@@ -6,7 +6,7 @@
  *
  * Run by bro from the main checkout, after bro's own verify and the code-reviewer
  * pass; on exit 0 bro pushes the printed SHA, because the pass carries over
- * to it (GH 2082).
+ * to it (GH 2082); on exit 5 the printed SHA needs a new review first (GH 3108).
  * The task's repo, branch_id, commit_sha and verification[] come from the
  * trajectory DB (TRAJECTORY_DB_PATH, else CLAUDE_PROJECT_DIR, else a walk
  * up from cwd).
@@ -34,6 +34,15 @@
  *      squash-merged parent branch's, is skipped), both over every path, must
  *      match, else exit 2. No rebased commit left means the task's patch is
  *      already in <base> → exit 2.
+ *      The pass then carries only when the base moved past the task's diff
+ *      (GH 3108): the paths `git diff --name-only <merge-base(commit_sha,
+ *      base)> <base>` lists must miss the paths the picks of commit_sha
+ *      change and their world-model dependents (files importing a symbol of
+ *      those paths, and files holding a caller or table reader of one, tests
+ *      excluded, from wm_symbols and wm_edges of the task's repo). An
+ *      overlap, or a world model that cannot answer (a read error, or no
+ *      wm_symbols rows for the repo: "world model unavailable"), does not stop
+ *      the run; it only withholds the carried pass below.
  *      Each tracked dir holding a lockfile whose main-checkout counterpart has
  *      a node_modules dir is an install root for the package dirs nearest
  *      beneath it; the install runs per installed lockfile root whose
@@ -60,8 +69,12 @@
  *      commit_sha, base, run_id), the review anchor HAS_PASS_SQL reads. Its
  *      review_anchor_at is the anchor the reviewed SHA's pass was judged
  *      against, so that pass covers the integrated head (Gerrit's
- *      TRIVIAL_REBASE copyCondition: same patch-ids, passing run); then it
- *      prints the SHA. When that
+ *      TRIVIAL_REBASE copyCondition: same patch-ids, passing run, a base that
+ *      missed the diff); then it prints the SHA. When the pass does not carry,
+ *      the transaction sets tasks.commit_sha alone, with no task_integrated
+ *      row, so no review is anchored to the rebased SHA and git-push-guard
+ *      denies its push; integrate prints the SHA, names the reason and up to
+ *      10 overlapping paths on stderr, and exits 5. When that
  *      write fails the branch has moved but the task row still names the
  *      reviewed SHA → exit 4, and code-reviewer-preflight denies a review of
  *      the rebased SHA (sha_mismatch).
@@ -79,7 +92,9 @@
  * overrides it), capped at 1800 s.
  * stdout carries only the SHA; progress and failures go to stderr.
  * Exit 0 = integrated, 1 = verification or a close lint failed, 2 = conflict or patch drift,
- * 3 = no passing review, 4 = usage error or a precondition not met.
+ * 3 = no passing review, 4 = usage error or a precondition not met,
+ * 5 = rebased, verified and moved, but the pass does not carry: a new
+ * code-reviewer pass is needed for the printed SHA.
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
@@ -88,11 +103,12 @@ import { join } from 'node:path';
 import { auditSql, dbWrite, nowIso } from '../hooks/lib/audit.js';
 import { dbPath, GATE_READ_ERROR, gateRead, sqliteRo, sqlInt, sqlQuote } from '../hooks/lib/db.js';
 import { describeFailures, lintBaseSha, runCloseLints, runLabel } from '../hooks/lib/close-lints.js';
+import { fileDependents } from '../hooks/lib/downstream.js';
 import { isDir } from '../hooks/lib/git.js';
 import { keysInOrder } from '../hooks/lib/jq-key-order.js';
 import { jsonStream } from '../hooks/lib/jq.js';
 import { commandSubstitution, posixDirname } from '../hooks/lib/project-env.js';
-import { repoGitRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.js';
+import { repoGitRoot, repoNameForRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.js';
 import { runCommandSql, runFinishSql, runStartSql } from '../hooks/lib/verification-runs.js';
 import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { HAS_PASS_SQL, REVIEW_ANCHOR_AT_SQL } from '../review-sql.js';
@@ -103,9 +119,11 @@ import type { CliIo } from './fallback-db.js';
 const FINISH_ATTEMPTS = 3;
 const TAIL_LINES = 20;
 const TIMED_OUT_CODE = 124;
+const UNCARRIED_CODE = 5;
 const FETCH_TIMEOUT_MS = 60_000;
 const RECORD_ENV = { TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10000' } as const;
 const MAX_BUFFER = 256 * 1024 * 1024;
+const OVERLAP_SHOWN = 10;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
 
 class Exit extends Error {
@@ -158,6 +176,7 @@ class Integration {
   private baseSha = '';
   private baseLabel = '';
   private repoRoot = '';
+  private repoName = '';
   private tip = '';
   private wt = '';
   private runId = '';
@@ -214,9 +233,18 @@ class Integration {
     return { ok: r.ok, stdout: r.stdout };
   }
 
-  /** Points tasks.commit_sha at <newSha> and writes its task_integrated anchor, both or neither; false when the task moved off the reviewed SHA. */
-  private recordIntegrated(newSha: string): boolean {
+  /**
+   * Points tasks.commit_sha at <newSha> and, when the pass carries, writes its
+   * task_integrated anchor, both or neither; false when the task moved off the
+   * reviewed SHA. With no anchor row no pass covers <newSha>.
+   */
+  private recordIntegrated(newSha: string, carry: boolean): boolean {
     const now = nowIso();
+    const pointAtNewSha = `UPDATE tasks SET commit_sha = '${sqlQuote(newSha)}', updated_at = '${now}' WHERE id = ${this.taskId} AND commit_sha = '${sqlQuote(this.reviewedSha)}';`;
+    if (!carry) {
+      const r = this.record(`${pointAtNewSha}\nSELECT changes();`);
+      return r.ok && commandSubstitution(r.stdout) === '1';
+    }
     const content = JSON.stringify({
       task_id: Number(this.taskId),
       reviewed_sha: this.reviewedSha,
@@ -242,7 +270,7 @@ class Integration {
       return false;
     }
     const r = this.record(
-      `UPDATE tasks SET commit_sha = '${sqlQuote(newSha)}', updated_at = '${now}' WHERE id = ${this.taskId} AND commit_sha = '${sqlQuote(this.reviewedSha)}';
+      `${pointAtNewSha}
 ${audit.sql}
 SELECT changes();`,
     );
@@ -438,6 +466,45 @@ SELECT changes();`,
     );
   }
 
+  /** The NUL-separated paths a `git -z` listing prints, read raw because this.git drops NULs; null when git fails. */
+  private pathList(args: readonly string[], input = ''): string[] | null {
+    const r = spawnSync('git', ['-C', this.wt, ...args], { encoding: 'utf8', env: this.env, input, maxBuffer: MAX_BUFFER });
+    return r.status === 0 ? r.stdout.split('\0').filter((path) => path !== '') : null;
+  }
+
+  /** The world-model dependents of <paths>, or why the world model cannot name them. */
+  private worldModelDependents(paths: readonly string[]): string[] | { unavailable: string } {
+    if (this.repoName === '') return { unavailable: `no repos row names ${this.repoRoot}` };
+    const indexed = gateRead(this.db, `SELECT EXISTS (SELECT 1 FROM wm_symbols WHERE repo = '${sqlQuote(this.repoName)}');`, this.env);
+    if (indexed === GATE_READ_ERROR) return { unavailable: 'the wm_symbols read failed' };
+    if (indexed !== '1') return { unavailable: `no wm_symbols rows for repo '${this.repoName}'` };
+    return fileDependents(this.db, this.repoName, paths, this.env) ?? { unavailable: 'the wm_symbols or wm_edges read failed' };
+  }
+
+  /**
+   * Why the reviewed commit's pass does not carry to its rebase (GH 3108): the
+   * paths the base commits it was rebased over change that the task's own
+   * commits (the rebase's picks) or their world-model dependents hold, and a
+   * world model that cannot name the dependents; '' when it carries.
+   */
+  private uncarriedReason(): string {
+    const oldBase = this.git(this.wt, ['merge-base', this.commitSha, this.baseSha]).out;
+    const picks = this.rebasePicks(this.commitSha);
+    const baseFiles = oldBase === '' ? null : this.pathList(['diff', '--name-only', '--no-renames', '-z', oldBase, this.baseSha]);
+    const diffFiles = this.pathList(['diff-tree', '--stdin', '-r', '--root', '--no-commit-id', '--name-only', '--no-renames', '-z'], picks === '' ? '' : `${picks}\n`);
+    if (baseFiles === null || diffFiles === null) return 'git could not list the files the base or the task changed';
+    const dependents = this.worldModelDependents(diffFiles);
+    const held = new Set([...diffFiles, ...(Array.isArray(dependents) ? dependents : [])]);
+    const overlap = [...new Set(baseFiles)].filter((path) => held.has(path)).sort();
+    const reasons: string[] = [];
+    if (!Array.isArray(dependents)) reasons.push(`world model unavailable (${dependents.unavailable})`);
+    if (overlap.length > 0) {
+      const more = overlap.length > OVERLAP_SHOWN ? ` and ${overlap.length - OVERLAP_SHOWN} more` : '';
+      reasons.push(`the base commits it was rebased over change ${overlap.length} path(s) the task's diff or its dependents hold: ${overlap.slice(0, OVERLAP_SHOWN).join(', ')}${more}`);
+    }
+    return reasons.join('; ');
+  }
+
   async run(argv: readonly string[]): Promise<number> {
     if (argv.length !== 2) this.die(4, 'usage: cli.js integrate <task_id> <base>');
     this.taskId = sqlInt(argv[0]);
@@ -470,6 +537,7 @@ SELECT changes();`,
       taskRepo !== '' ? repoPathByName(db, taskRepo, this.env) || `${wsRoot}/${taskRepo}` : repoSinglePath(db, this.env) || wsRoot;
     this.repoRoot = await repoGitRoot(repoDir, this.env);
     if (this.repoRoot === '' || !isDir(repoDir)) this.die(4, `task ${this.taskId}'s repo is not a git checkout: ${repoDir || '<unresolved>'}`);
+    this.repoName = taskRepo || repoNameForRoot(db, this.repoRoot, this.env);
 
     this.commitSha = this.revParse(this.repoRoot, `${commitSha}^{commit}`);
     if (this.commitSha === '') this.die(4, `commit_sha of task ${this.taskId} is not a commit in ${this.repoRoot}`);
@@ -533,6 +601,7 @@ SELECT changes();`,
         `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.baseLabel}..reviewed differs from ${this.baseLabel}..rebased); ${branch} and the DB are unchanged`,
       );
     }
+    const uncarried = this.uncarriedReason();
 
     const deps = await prepareWorktreeDeps(this.repoRoot, this.wt, { env: { ...this.env, PATH: toolchainPath } });
     for (const s of deps.skipped) this.io.err(`worktree-deps: ${s.dir}: ${s.reason}\n`);
@@ -602,7 +671,7 @@ SELECT changes();`,
     if (!this.g(['update-ref', '-m', `cli.js integrate: task ${this.taskId} onto ${this.base}`, `refs/heads/${branch}`, newSha, this.tip]).ok) {
       this.die(4, `git update-ref of ${branch} failed; the rebased commit is ${newSha} (run #${this.runId})`);
     }
-    if (!this.recordIntegrated(newSha)) {
+    if (!this.recordIntegrated(newSha, uncarried === '')) {
       this.die(
         4,
         `${branch} moved to ${newSha} (run #${this.runId} passed), but recording it on task ${this.taskId} failed; tasks.commit_sha still names the reviewed ${this.reviewedSha}, so code-reviewer-preflight denies a review of ${newSha} until it is recorded`,
@@ -610,7 +679,9 @@ SELECT changes();`,
     }
     this.say(`${branch} -> ${newSha} (verification run #${this.runId} passed)`);
     this.io.out(`${newSha}\n`);
-    return 0;
+    if (uncarried === '') return 0;
+    this.say(`the review of ${this.reviewedSha} does not carry to ${newSha}: ${uncarried}; a new code-reviewer pass is needed for ${newSha}`);
+    return UNCARRIED_CODE;
   }
 }
 

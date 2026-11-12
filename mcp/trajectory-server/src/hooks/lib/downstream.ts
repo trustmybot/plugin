@@ -4,7 +4,8 @@
  * (calls, instantiates, runs, sources, as symbolCard counts them) of the
  * symbols plus the readers of the tables they write (a table among them
  * counts as written), tests excluded. A stub until GH 1988 exports the
- * world model's own walk.
+ * world model's own walk. The same reads, plus the files importing them,
+ * give the file dependents `cli.js integrate` checks a rebase against (GH 3108).
  *
  * Also the hooks' side of the downstream-context A/B: the task's arm through
  * enrollDownstreamContextAb over the trajectory DB, and the
@@ -66,13 +67,23 @@ function idList(ids: readonly number[]): string {
 
 const SYMBOL_JSON = "json_group_array(json_object('id', id, 'qualified_name', qualified_name, 'kind', kind, 'path', path, 'line', start_line))";
 
-/** The indexed symbols of one repo-relative file; null on a read error. */
-export function symbolsInFile(db: string, repo: string, path: string, env: NodeJS.ProcessEnv = process.env): IndexedSymbol[] | null {
+function pathList(paths: readonly string[]): string {
+  return [...new Set(paths)].map((p) => `'${sqlQuote(p)}'`).join(', ');
+}
+
+/** The indexed symbols of repo-relative files, module rows included, by path and line; null on a read error. */
+export function symbolsInFiles(db: string, repo: string, paths: readonly string[], env: NodeJS.ProcessEnv = process.env): IndexedSymbol[] | null {
+  if (paths.length === 0) return [];
   return jsonRows<IndexedSymbol>(
     db,
-    `SELECT ${SYMBOL_JSON} FROM (SELECT * FROM wm_symbols WHERE repo = '${sqlQuote(repo)}' AND path = '${sqlQuote(path)}' ORDER BY start_line, id);`,
+    `SELECT ${SYMBOL_JSON} FROM (SELECT * FROM wm_symbols WHERE repo = '${sqlQuote(repo)}' AND path IN (${pathList(paths)}) ORDER BY path, start_line, id);`,
     env,
   );
+}
+
+/** The indexed symbols of one repo-relative file; null on a read error. */
+export function symbolsInFile(db: string, repo: string, path: string, env: NodeJS.ProcessEnv = process.env): IndexedSymbol[] | null {
+  return symbolsInFiles(db, repo, [path], env);
 }
 
 /**
@@ -117,7 +128,7 @@ interface Hit {
 }
 
 /** The lane the scan stored for the hit's file; a path with no wm_files row falls back to the default rules. */
-function inTestLane(h: Hit): boolean {
+function inTestLane(h: { readonly path: string; readonly lane: Lane | null }): boolean {
   return h.lane === null || h.lane === undefined ? isDefaultTestPath(h.path) : h.lane === 'test';
 }
 
@@ -166,6 +177,37 @@ SELECT json_group_array(json_object('id', id, 'qualified_name', qualified_name, 
   }
   const refs = [...merged.values()].map(({ ref, of }) => ({ ...ref, of }));
   return { refs, total: refs.length };
+}
+
+/** The files of <repo> outside <paths> that import a symbol of one of <paths>, tests excluded, sorted; null on a read error. */
+export function importingFiles(db: string, repo: string, paths: readonly string[], env: NodeJS.ProcessEnv = process.env): string[] | null {
+  if (paths.length === 0) return [];
+  const r = `'${sqlQuote(repo)}'`;
+  const list = pathList(paths);
+  const rows = jsonRows<{ path: string; lane: Lane | null }>(
+    db,
+    `SELECT json_group_array(json_object('path', path, 'lane', lane)) FROM (
+  SELECT DISTINCT o.path, f.lane FROM wm_edges e JOIN wm_symbols d ON d.id = e.dst_id JOIN wm_symbols o ON o.id = e.src_id
+    LEFT JOIN wm_files f ON f.repo = o.repo AND f.path = o.path
+   WHERE e.kind = 'imports' AND d.repo = ${r} AND d.path IN (${list}) AND o.repo = ${r} AND o.path NOT IN (${list})
+   ORDER BY o.path);`,
+    env,
+  );
+  return rows === null ? null : rows.filter((row) => typeof row.path === 'string' && !inTestLane(row)).map((row) => row.path);
+}
+
+/**
+ * The files of <repo> outside <paths> that depend on them, tests excluded,
+ * sorted: those importing a symbol of <paths> and those holding a direct
+ * downstream ref (directDownstream) of one; null on a read error.
+ */
+export function fileDependents(db: string, repo: string, paths: readonly string[], env: NodeJS.ProcessEnv = process.env): string[] | null {
+  const symbols = symbolsInFiles(db, repo, paths, env);
+  if (symbols === null) return null;
+  const downstream = directDownstream(db, repo, symbols.map((s) => s.id), env, paths);
+  const importers = importingFiles(db, repo, paths, env);
+  if (downstream === null || importers === null) return null;
+  return [...new Set([...downstream.refs.map((ref) => ref.path), ...importers])].sort();
 }
 
 function refLine(r: DownstreamRef): string {
