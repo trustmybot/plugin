@@ -89,7 +89,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
 6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the touched tests, `bun run build:tsc` and touched L1 lints locally + code-reviewer + pr-check (L1 + dashboard); the full L1–L4 sweep runs at the rc release gate. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
 7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
-8. **Prompt engineering follows [`docs/prompt-engineering/ENFORCEMENT.md`](docs/prompt-engineering/ENFORCEMENT.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
+8. **Prompt engineering follows [`docs/prompt-engineering/`](docs/prompt-engineering/README.md)** — move every rule a check can decide into the [deterministic layer](docs/prompt-engineering/DETERMINISTIC_LAYER.md), and grade every new or changed prompt **A** on the [judgment-layer rubric](docs/prompt-engineering/JUDGMENT_LAYER.md#grading-a-prompt).
 9. **Prompt surfaces freeze during autonomous batches.** While a batch of issues is being worked autonomously, `agents/`, `skills/`, `commands/`, `templates/` and `CLAUDE.md` are frozen: prefer a hook, MCP or schema fix; if only a prompt change will do, file an issue for maintainer review instead.
 
 ## CI (GitHub Actions)
@@ -124,7 +124,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 ### Filing issues
 
 - **Validate every new defect against `dev`, not the installed plugin cache** (which lags `dev`). Replay it against the `dev` source with an isolated `HOME`/`TMPDIR`, search `git log origin/dev` for an existing fix, and check open local tasks. Classify it VALID, FIXED_ON_DEV, FALSE_ALARM or NEEDS_DECISION, with file:line or commit evidence.
-- **Workflow breaches get an issue.** When any agent (bro included) breaks a documented workflow rule, file an issue whose title starts `workflow-violation:`, naming the rule, what happened, and a fix that moves enforcement into a hook or the MCP server.
+- **Workflow breaches get an issue.** When any agent (bro included) breaks a documented workflow rule, file an issue whose title starts `workflow-violation:`, naming the rule, what happened, and a fix that moves the rule into a hook or the MCP server.
 
 ## Release
 
@@ -159,7 +159,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 - Self-documenting code; prefer deletion over addition; match the file's existing patterns. Emoji + Conventional Commit messages.
 - Don't write new shell: hooks, scripts and tools are TypeScript unless nothing else can run (GH 1692).
-- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → a node:test suite `mcp/trajectory-server/src/test/<name>-l3.test.ts` (see `tests/README.md`); new enforcement → a lint in `tests/l1-lint/`.
+- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → a node:test suite `mcp/trajectory-server/src/test/<name>-l3.test.ts` (see `tests/README.md`); new deterministic check → a lint in `tests/l1-lint/`.
 - Prompt / skill / doc changes have no automated test — they rely on PR review, then the rc-time CI release-gate (L0–L6), for sign-off.
 - A task's `verification[]` exercises the layer that guards the surface it touches: hooks → their `*-l3.test.ts` suites (`cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/<name>-l3.test.js`); migrations and destructive SQL → the L1 lints; `scripts/` or `mcp/trajectory-server/src/` → the whole `tests/l1-lint/` loop, not a hand-picked subset; MCP `dist/` bundles → `dist-bundles.test.mjs` and `bundle-whitespace-safety.test.mjs`. Use at most one L3 runner per task, because the verification gate has one time budget (`verification_timeout_s`).
 - MCP unit tests run via `cd mcp/trajectory-server && bun run test`, never bare `bun test` (bun's runner cannot load `node:sqlite`).
@@ -182,7 +182,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 2. **No bypass.** Every code change runs Human → bro → SWE, with bro as the task gate (verifies SWE's return) and code-reviewer as the push gate (fires at `git push`). Bro never edits source.
 3. **Two-layer agents.** bro is a CLAUDE.md persona; `swe` / `code-reviewer` ship globally in `agents/`; consultants are templates instantiated per project. A local `.claude/agents/<name>.md` overrides the global.
 4. **Lego layering.** Agent file = identity (immutable); the `skills:` array = capabilities (extend via `tmb_skill-creator`); spawn prompt = per-call context. Add behavior through skills, not by editing the template body.
-5. **Server-enforced chain.** `requireRoles` in the MCP server rejects out-of-role calls — doctrine is wire-enforced, not prompt discipline.
+5. **Server-checked chain.** `requireRoles` in the MCP server rejects out-of-role calls — doctrine is deterministic at the wire, not prompt discipline.
 6. **Dev rules stay in dev docs.** Rules about developing TMB itself (release flow, L0–L6 harness, milestones, contributor workflow) live in `CONTRIBUTING.md`, `docs/`, the test-level READMEs and the tests themselves. Shipped surfaces (`CLAUDE.md`, `agents/`, `skills/`, `commands/`, `hooks/`, `templates/`) carry only what a user's project needs; TMB's own developers use TMB like any other user. See [`PHILOSOPHY.md` §2](docs/architecture/PHILOSOPHY.md#2-dev-vs-user-runtime-boundary).
 
 ## Scope

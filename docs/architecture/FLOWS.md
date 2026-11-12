@@ -4,7 +4,7 @@ The decision chain is **Human → bro → swe** with two distinct gates:
 - **bro is the task gate** — writes each task's spec, hands the returned work to review, and judges its fit to the design at task close.
 - **code-reviewer is the push gate** — reviews each completed task before bro closes it; no task commit reaches the remote without a passing review.
 
-Consultants are project-local consultants, created with `/tmb:agent-create`; they advise but never write workflow state. Roles live in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md); the memory model every flow follows, which the brand workflow hero takes its memory story from, in [`MEMORY.md`](MEMORY.md).
+Consultants are project-local consultants, created with `/tmb:agent-create`; they advise but never write workflow state. Roles live in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); deterministic layers in [`DETERMINISTIC_LAYER.md`](../prompt-engineering/DETERMINISTIC_LAYER.md); schema in [`ERD.md`](ERD.md); the memory model every flow follows, which the brand workflow hero takes its memory story from, in [`MEMORY.md`](MEMORY.md).
 
 This file is the ground truth for the workflow, including the brand workflow hero and its animations. It describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its section here in the same PR.
 
