@@ -1,12 +1,12 @@
-# Golden Prompts
+# Judgment layer
 
-The guide for writing and checking a TMB prompt (`CLAUDE.md`, `agents/*.md`, skills, commands): a checklist of yes/no criteria with real examples. The evidence behind each criterion lives in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md), the research reference; each criterion names its rule there and carries that rule's evidence tier.
+The rules for writing and grading a TMB prompt (`CLAUDE.md`, `agents/*.md`, skills, commands), the layer 6 that holds only what needs judgment: a checklist of yes/no criteria, a grading rubric, and real examples. Which rules belong in code instead is in [`DETERMINISTIC_LAYER.md`](DETERMINISTIC_LAYER.md). Each criterion names its rule in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md), the research reference, and carries that rule's evidence tier.
 
 ---
 
 ## Definition
 
-A prompt is golden when it passes every criterion below, grades A on the rubric in [`ENFORCEMENT.md`](ENFORCEMENT.md) ("Grading a prompt surface"), and has a representative eval set showing no regression after its last wording change.
+A prompt is golden when it passes every criterion below, grades A on the rubric in [Grading a prompt](#grading-a-prompt), and has a representative eval set showing no regression after its last wording change.
 
 Golden is earned, not a style. The eval set is required because rule 7 is the only T1-backed way to call one wording better than another; the other criteria only make a prompt a strong candidate.
 
@@ -25,12 +25,12 @@ The criteria follow the order in which you write or read a prompt, one category 
 | Consistency | Does the whole file agree with itself, other prompts, hooks and code? |
 | Validation | Did an eval show no regression? |
 
-`Rule` is the rule number in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md#core-rules), or the section of [`ENFORCEMENT.md`](ENFORCEMENT.md) that holds the TMB-specific rule. `Tier` copies that rule's tier. `How checked` is `deterministic` when a grep, lint or script could check it, `judgment` when a reader has to.
+`Rule` is the rule number in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md#core-rules), or the section below that holds the TMB-specific rule. `Tier` copies that rule's tier. `How checked` is `deterministic` when a grep, lint or script could check it, `judgment` when a reader has to.
 
 | Category | ID | Check | Rule | Tier | How checked |
 |---|---|---|---|---|---|
 | Identity | G1 | The role and objective are in the first lines. | 5 | T1 | judgment |
-| Identity | G2 | The prompt does only its agent's job: it names what it receives, hands its output over in the shape the next agent expects, and redoes no check another agent owns. | ENFORCEMENT.md, Each prompt owns one job | none (convention) | judgment |
+| Identity | G2 | The prompt does only its agent's job: it names what it receives, hands its output over in the shape the next agent expects, and redoes no check another agent owns. | [Each prompt owns one job](#each-prompt-owns-one-job) | none (convention) | judgment |
 | Content | G3 | Situational or optional detail lives in a skill or command, not the always-loaded prompt. | 2 | T1 | judgment |
 | Content | G4 | The rules are few and concrete, and the most important come first; "use good judgment" with no criteria is not a rule. | 1, 10 | T1 | judgment |
 | Content | G5 | The prompt uses one structure style throughout, and a prompt that mixes instructions, context, examples, and inputs tags each part. | 3 | T1; T3 for tags | judgment |
@@ -45,6 +45,64 @@ The criteria follow the order in which you write or read a prompt, one category 
 | Consistency | G14 | No rule is duplicated across sections. | 10 | T2 | judgment |
 | Consistency | G15 | Tool and skill descriptions match the code they describe. | 11 | T2 | judgment |
 | Validation | G16 | An eval set of representative cases exists and was re-run after the last wording change. | 7 | T1 | deterministic |
+
+---
+
+## Each prompt owns one job
+
+Each prompt does only its agent's job. It names what the agent receives, hands its output over in the shape the next agent expects, and never asks the agent to redo a check another agent owns: overlapping jobs duplicate work and blur who owns a miss. This holds for every agent, a new one included. An agent in TMB's code flow also matches its place in [`FLOWS.md`](../architecture/FLOWS.md) and its row of the Quality layers table; where the flow and its prompt disagree, fix one of them in the same change so they do not drift.
+
+Each shipped prompt carries only the wiring that makes TMB work: who the agent is, what it does every turn, and pointers to the skills and commands that hold procedures. Rubrics, checklists, persona and style guidance, and domain heuristics arrive as cheatcodes ([`CHEATCODES.md`](../architecture/CHEATCODES.md)); a paragraph that teaches a technique instead of wiring a role belongs in one.
+
+---
+
+## Grading a prompt
+
+### The six tests
+
+| Test | Pass condition |
+|---|---|
+| **(A) Mechanism test** | Sequencing, defaulting, constraining, or measuring migrates to layers 1–5 ([`DETERMINISTIC_LAYER.md`](DETERMINISTIC_LAYER.md)). Only judgment stays. |
+| **(B) If/else test** | Anything you can write as an if/else statement lives in hooks/MCP, never in prompt prose. |
+| **(C) Natural-language test** | If the Human cannot read a prompt line as natural language, it is machine-spec in disguise — migrate it or rewrite it. |
+| **(D) Placement test** | 100%-required judgment belongs in the always-loaded body; optional judgment in trigger-loaded skills; deterministic logic in code. |
+| **(E) Persona test** | Every agent opens with a plain-language sentence naming its job, not an expert title ("You execute one task spec assigned by bro."). |
+| **(F) Load-bearing test** | Every line drives a judgment, names a call, or states a constraint the reader acts on. No line sells the concept, narrates the skill's own purpose, restates the frontmatter, or repeats a point for emphasis. |
+
+### Every line earns its place
+
+A prompt loads into the agent's context every time its trigger fires, so every line is a recurring cost. Cut these four exposition patterns on sight:
+
+- **Concept-selling** — persuading the agent a skill is worth using after it already loaded it.
+- **Self-narration** — a skill describing what kind of skill it is.
+- **Frontmatter restatement** — the body re-explaining the when/why already in the `description`.
+- **Rhetorical repetition** — one point stretched across three sentences for emphasis.
+
+### Line disposition
+
+| What the line does | Action |
+|---|---|
+| Encodeable as if/else AND enforced by a gate | **DELETE** — the gate already guarantees the behavior. |
+| Encodeable as if/else, NOT yet enforced | **KEEP** as readable prose, rewrite naturally, file a migration issue. |
+| Required judgment (100% of runs) | **BODY** — move to the always-loaded agent file. |
+| Optional/situational judgment | **SKILL** — trigger-loaded, not burned on every turn. |
+| Explains, motivates, or restates rather than directing | **DELETE** — exposition, not judgment. |
+
+A line is deletable only when its gate actually guarantees the behavior: grade the system, not the prose. If deleting a line would let an agent act before any gate catches it, strengthen the gate first, then delete the line. Gates teach their recovery in the deny message.
+
+### A–F rubric
+
+| Grade | What it means |
+|---|---|
+| **A** | Every line passes all six tests. |
+| **B** | Compliant architecture, but carries residual machine-spec, exposition, or minor duplication. |
+| **C** | Procedures wearing a prompt costume — readable but enforceable; or so padded with exposition the judgment core is buried. |
+| **D** | Prompt is doing enforcement's job for at least one workflow step. |
+| **F** | Agent can act against policy before any gate fires. |
+
+### Size discipline
+
+A skill over about 200 lines is a signal it is doing too much. In order: apply the boundary test and migrate what it flags; move judgment used on every run into the agent body and keep situational judgment in the skill; split into several skills only when neither suffices. Measure density, not just length.
 
 ---
 

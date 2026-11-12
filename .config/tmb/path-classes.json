@@ -5,6 +5,6 @@
   },
   "prompts": {
     "paths": ["CLAUDE.md", "AGENTS.md", "agents/**/*.md", "skills/**/*.md", "commands/**/*.md", "templates/**/*.md"],
-    "rubric": ["docs/prompt-engineering/PROMPT_ENGINEERING.md", "docs/prompt-engineering/GOLDEN_PROMPTS.md"]
+    "rubric": ["docs/prompt-engineering/PROMPT_ENGINEERING.md", "docs/prompt-engineering/JUDGMENT_LAYER.md"]
   }
 }

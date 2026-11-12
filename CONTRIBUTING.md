@@ -89,7 +89,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
 6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the touched tests, `bun run build:tsc` and touched L1 lints locally + code-reviewer + pr-check (L1 + dashboard); the full L1–L4 sweep runs at the rc release gate. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
 7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
-8. **Prompt engineering follows [`docs/prompt-engineering/ENFORCEMENT.md`](docs/prompt-engineering/ENFORCEMENT.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
+8. **Prompt engineering follows [`docs/prompt-engineering/`](docs/prompt-engineering/README.md)** — move every rule a check can decide into the [deterministic layer](docs/prompt-engineering/DETERMINISTIC_LAYER.md), and grade every new or changed prompt **A** on the [judgment-layer rubric](docs/prompt-engineering/JUDGMENT_LAYER.md#grading-a-prompt).
 9. **Prompt surfaces freeze during autonomous batches.** While a batch of issues is being worked autonomously, `agents/`, `skills/`, `commands/`, `templates/` and `CLAUDE.md` are frozen: prefer a hook, MCP or schema fix; if only a prompt change will do, file an issue for maintainer review instead.
 
 ## CI (GitHub Actions)

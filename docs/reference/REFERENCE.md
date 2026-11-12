@@ -14,7 +14,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## Other docs
 
-- **Prompt-engineering guide (authoring agent prompts)** — [`GOLDEN_PROMPTS.md`](../prompt-engineering/GOLDEN_PROMPTS.md), with its evidence in [`PROMPT_ENGINEERING.md`](../prompt-engineering/PROMPT_ENGINEERING.md)
+- **Prompt-engineering guide (authoring agent prompts)** — [`JUDGMENT_LAYER.md`](../prompt-engineering/JUDGMENT_LAYER.md), with its evidence in [`PROMPT_ENGINEERING.md`](../prompt-engineering/PROMPT_ENGINEERING.md)
 - **Agent layer model + override rules** — [`architecture/RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md)
 - **plugin_config keys** — [`CONFIG_KEYS.md`](./CONFIG_KEYS.md)
 - **Full architecture** — `docs/architecture/FLOWS.md`

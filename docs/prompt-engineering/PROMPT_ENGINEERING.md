@@ -1,6 +1,6 @@
 # Prompt Engineering
 
-The research reference behind TMB's prompt rules. Each rule below names how strong its evidence is and where the evidence comes from. To write or check a prompt, use [`GOLDEN_PROMPTS.md`](GOLDEN_PROMPTS.md), the guide built on these rules.
+The research reference behind TMB's prompt rules. Each rule below names how strong its evidence is and where the evidence comes from. To write or check a prompt, use [`JUDGMENT_LAYER.md`](JUDGMENT_LAYER.md), the rules built on this evidence.
 
 The rules are ordered by evidence tier, strongest first, so a reader sees which claims rest on controlled studies; the guide orders the same rules the way a prompt is written.
 
@@ -48,12 +48,6 @@ Source keys in square brackets point to [References](#references).
 - **More examples are always better.** Examples mostly teach format, gains level off after a few, and their order changes results [Min] [Lu].
 - **Delimiters keep injected instructions out.** They fail under adaptive attack; only out-of-band checks held [Narisetty].
 - **The "26 principles".** The study reports no significance tests [Bsharat].
-
----
-
-## Deeper doctrine
-
-**[`ENFORCEMENT.md`](ENFORCEMENT.md)** applies these rules to TMB and is required reading before you write load-bearing prompt logic. It carries the six enforcement layers (MCP server → hooks → frontmatter → schema → skill paths → **prompts**), the rule that *a step the LLM can forget, misorder, or misunderstand does not belong in a prompt*, the boundary test with its compound-failure math, the coverage matrix, the grading rubric, why core prompts stay minimal, why each prompt owns one job, and the prompt cache zones. Its "Positive prompts as the floor" section applies the negation rule (rule 9) to the prompt layer.
 
 ---
 

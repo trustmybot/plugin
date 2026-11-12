@@ -1,10 +1,8 @@
-# Enforcement layers
+# Deterministic layer
 
-How TMB doctrine is enforced at runtime — what is structurally guaranteed by code, what depends on prompt discipline, which layer covers which interaction — and how to decide where a new rule belongs.
+The rules for enforcing TMB doctrine in code: the layers, what each guarantees, which layer covers which interaction, and how to move a rule out of a prompt. How to write the prompts that stay in layer 6 is in [`JUDGMENT_LAYER.md`](JUDGMENT_LAYER.md).
 
 > **If a step could fail because the LLM forgot, misordered, or misunderstood it, that step does not belong in a prompt. It belongs in a deterministic layer.**
-
-Skills, CLAUDE.md, and agent files are reserved for the irreducibly judgment-bound parts of the workflow. Everything else sits on one of the harder layers below.
 
 ## The 6 layers (hardest → softest)
 
@@ -15,7 +13,7 @@ Skills, CLAUDE.md, and agent files are reserved for the irreducibly judgment-bou
 | 3 | **Frontmatter** | The `tools:` allowlist in agent `.md` files. | Host-enforced at spawn. |
 | 4 | **Schema constraints** | `CHECK`, `UNIQUE`, `NOT NULL`, FK on the trajectory DB. | Rejects malformed writes at the storage layer, including raw-SQL bypasses of MCP handlers. |
 | 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context. | Soft — reduces prompt noise; the model can still ignore loaded content. |
-| 6 | **Prompts** | CLAUDE.md, agent prompts, skill prose. | None — accept the compliance ceiling. |
+| 6 | **Prompts** | CLAUDE.md, agent prompts, skill prose: the judgment layer. | None — accept the compliance ceiling. |
 
 **Doctrine: prefer the hardest layer that fits.** Layer 6 is the fallback, not the default. Promote a constraint up the stack as soon as the soft layer below misses it.
 
@@ -159,70 +157,6 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 6. Update the coverage matrix. A layer 6 row notes that it may need promotion.
 7. **If demoting from a harder layer to a softer one, justify in the PR.**
 
-## Positive prompts as the floor
-
-Layer 6 is the floor of the stack. State the action you want when a positive form exists. Keep a prohibition only when it is the clearest statement of a hard limit, pair it with what to do instead, and avoid naming a word or topic only to forbid it. If the constraint is load-bearing, promote it to a deterministic layer instead of bracing the prompt.
-
-The evidence on negative instructions is mixed, and no controlled study supports a blanket ban on frontier models. The negation rule in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md) gives the sources.
-
-## Grading a prompt surface
-
-### The six tests
-
-| Test | Pass condition |
-|---|---|
-| **(A) Mechanism test** | Sequencing, defaulting, constraining, or measuring migrates to layers 1–5. Only judgment stays. |
-| **(B) If/else test** | Anything you can write as an if/else statement lives in hooks/MCP, never in prompt prose. |
-| **(C) Natural-language test** | If the Human cannot read a prompt line as natural language, it is machine-spec in disguise — migrate it or rewrite it. |
-| **(D) Placement test** | 100%-required judgment belongs in the always-loaded body; optional judgment in trigger-loaded skills; deterministic logic in code. |
-| **(E) Persona test** | Every agent opens with a plain-language sentence naming its job, not an expert title ("You execute one task spec assigned by bro."). |
-| **(F) Load-bearing test** | Every line drives a judgment, names a call, or states a constraint the reader acts on. No line sells the concept, narrates the skill's own purpose, restates the frontmatter, or repeats a point for emphasis. |
-
-### Every line earns its place
-
-A prompt is not documentation. It loads into the agent's context every time its trigger fires, so every line is a recurring tax. Four exposition patterns, cut on sight:
-
-- **Concept-selling** — persuading the agent a skill is worth using after it already loaded it.
-- **Self-narration** — a skill describing what kind of skill it is. Do the thing; don't annotate its shape.
-- **Frontmatter restatement** — the body re-explaining the when/why already in the `description`.
-- **Rhetorical repetition** — one point stretched across three sentences for emphasis.
-
-### Line disposition
-
-| What the line does | Action |
-|---|---|
-| Encodeable as if/else AND enforced by a gate | **DELETE** — the gate already guarantees the behavior. |
-| Encodeable as if/else, NOT yet enforced | **KEEP** as readable prose, rewrite naturally, file a migration issue. |
-| Required judgment (100% of runs) | **BODY** — move to the always-loaded agent file. |
-| Optional/situational judgment | **SKILL** — trigger-loaded, not burned on every turn. |
-| Explains, motivates, or restates rather than directing | **DELETE** — exposition, not judgment. |
-
-### A–F rubric
-
-| Grade | What it means |
-|---|---|
-| **A** | Every line passes all six tests. |
-| **B** | Compliant architecture, but carries residual machine-spec, exposition, or minor duplication. |
-| **C** | Procedures wearing a prompt costume — readable but enforceable; or so padded with exposition the judgment core is buried. |
-| **D** | Prompt is doing enforcement's job for at least one workflow step. |
-| **F** | Agent can act against policy before any gate fires. |
-
-### The gate-strength principle
-
-**A prompt line is only deletable when its gate actually guarantees the behavior — grade the system, not the prose.** If deleting a line would let an agent act before any gate catches it, strengthen the gate first, then delete the line. Gates teach their recovery in the deny message.
-
-### Size discipline
-
-A skill over about 200 lines is a signal it is doing too much. In order: apply the boundary test and migrate what it flags; move judgment used on every run into the agent body and keep situational judgment in the skill; split into several skills only when neither suffices. Measure density, not just length.
-
-## Core prompts stay minimal; depth is a cheatcode
-
-Each shipped prompt (`CLAUDE.md`, an agent, a skill) carries the wiring that makes TMB work: who the agent is, what it does every turn, and pointers to the skills and commands that hold procedures. Rubrics, checklists, persona and style guidance, and domain heuristics arrive as cheatcodes ([`CHEATCODES.md`](../architecture/CHEATCODES.md)); a paragraph that teaches a technique instead of wiring a role belongs in one.
-
-## Each prompt owns one job
-
-Each prompt does only its agent's job. It names what the agent receives, hands its output over in the shape the next agent expects, and never asks the agent to redo a check another agent owns: overlapping jobs duplicate work and blur who owns a miss. This holds for every agent, a new one included. An agent in TMB's code flow also matches its place in [`FLOWS.md`](../architecture/FLOWS.md) and its row of the Quality layers table; where the flow and its prompt disagree, fix one of them in the same change so they do not drift.
-
 ## Prompt cache zones
 
 Claude Code's prompt cache matches from the start of the assembled prompt and stops at the first byte that differs. TMB orders its context in three zones so the stable prefix stays as long as possible:
@@ -239,7 +173,7 @@ An L3 hook test checks this order for the activation-routine hook only; the othe
 
 ## See also
 
-- [`GOLDEN_PROMPTS.md`](GOLDEN_PROMPTS.md) — how we write and check personas, skills, and commands; its evidence is in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md).
+- [`JUDGMENT_LAYER.md`](JUDGMENT_LAYER.md) — how to write and grade the layer 6 prompts.
 - [`RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md) — agent roles and boundaries.
 - [`FLOWS.md`](../architecture/FLOWS.md) — workflows: who acts, what each step guarantees, and the state each flow leaves.
 - [`ERD.md`](../architecture/ERD.md) — schema.
