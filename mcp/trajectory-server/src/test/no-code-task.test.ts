@@ -395,6 +395,35 @@ describe('SC2: bro edits only no-code paths of a running classed task', () => {
     assert.deepEqual(await edit(f, join(f.checkout, '.claude/notes.md')), ALLOWED, '.claude/ is in info/exclude');
   });
 
+  it('resolves `..` first, so a path escaping a worktree into main-checkout files is judged there', async () => {
+    const f = fixture();
+    const escape = (path: string) => `${f.worktree}/docs/../../../../${path}`;
+    assert.match(denyReason(await edit(f, escape('src/a.ts'))), /source edits from the main checkout are denied/);
+    assert.match(denyReason(await edit(f, escape('README.md'))), /is in the main checkout/);
+    const relative = { hook_event_name: 'PreToolUse', cwd: f.checkout, tool_name: 'Write', tool_input: { file_path: `.claude/worktrees/${SLUG}/../../../src/a.ts`, content: 'x' } };
+    assert.match(denyReason(await noSourceEditFromMain(JSON.stringify(relative), f.env)), /source edits from the main checkout are denied/);
+    assert.deepEqual(await edit(f, `${f.checkout}/src/../.claude/worktrees/${SLUG}/docs/guide.md`), ALLOWED, 'a `..` path that lands in the worktree is judged there');
+  });
+
+  it('fails closed on a worktree path when the DB has no repos table, and keeps non-repo writes', async () => {
+    const f = fixture();
+    const bare = join(dirname(f.db), 'no-repos.db');
+    const d = new DatabaseSync(bare);
+    d.exec('CREATE TABLE meta (k TEXT)');
+    d.close();
+    const env = { ...f.env, TRAJECTORY_DB_PATH: bare };
+    const payload = (file_path: string) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd: f.checkout, tool_name: 'Write', tool_input: { file_path, content: 'x' } });
+    assert.match(denyReason(await noSourceEditFromMain(payload(join(f.worktree, 'docs/guide.md')), env)), /no repos table/);
+    assert.match(denyReason(await noSourceEditFromMain(payload(join(f.checkout, '.claude/worktrees/missing/docs/a.md')), env)), /no repos table/);
+    assert.deepEqual(await noSourceEditFromMain(payload(join(f.env.HOME ?? '', '.claude/projects/p/memory/a.md')), env), ALLOWED);
+  });
+
+  it('fails closed on a worktree path when the DB cannot be read', async () => {
+    const f = fixture();
+    writeFileSync(f.db, 'not a database');
+    assert.match(denyReason(await edit(f, join(f.worktree, 'docs/guide.md'))), /trajectory DB unavailable/);
+  });
+
   it('a DB below v72 reads every task as unclassed, not as a DB failure', async () => {
     const f = fixture();
     const d = new DatabaseSync(f.db);

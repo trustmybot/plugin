@@ -8,11 +8,13 @@
  * own enforcement surfaces (scripts/hooks/, hooks/hooks.json of the repo whose
  * manifest names the running plugin) are denied even for a swe.
  * TMB_ALLOW_SOURCE_EDIT=1 lifts Rule 1. A DB that cannot be read denies.
- * For bro (GH 3075) neither the worktree dir nor the allowlist admits a write
- * to a repo file: it is allowed only inside the worktree of a running task
- * with a no_code_class, on a path the task's base_sha path classes call docs
- * or prompts. A write that is no repo file (scratch, outside every registered
- * repo, or ignored by git) keeps the decision every other role gets.
+ * For bro (GH 3075) every check runs on the target with `.` and `..` resolved,
+ * and neither the worktree dir nor the allowlist admits a write to a repo file:
+ * it is allowed only inside the worktree of a running task with a
+ * no_code_class, on a path the task's base_sha path classes call docs or
+ * prompts. A worktree path inside a git repo fails closed when the DB cannot
+ * prove its task. A write that is no repo file (scratch, outside every
+ * registered repo, or ignored by git) keeps the decision every other role gets.
  *
  * Rule 2, Bash, with or without a DB: a write the cmd-analysis analyzer finds
  * to a prompt-surface path outside a worktree is denied for every identity.
@@ -236,6 +238,10 @@ function broTaskRow(db: string, taskId: string, env: NodeJS.ProcessEnv): BroTask
  * task's own commits cannot widen them.
  */
 async function broWorktreeEdit(target: string, canonical: string, db: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
+  if (dbState(env) === 'error') return dbDenied(env);
+  const repos = reposTable(db, env);
+  if (repos === 'error') return dbDenied(env);
+  if (repos === 'absent') return broDenied('The trajectory DB has no repos table, so no task can be proven to own this worktree.');
   const worktree = worktreeRootForTarget(canonical);
   if (worktree === '' || canonical === worktree) return broDenied(`${target} is not a file inside a task worktree.`);
   const toplevel = capture(pathCanonical(await gitOut(worktree, ['rev-parse', '--show-toplevel'], env)));
@@ -255,42 +261,47 @@ async function broWorktreeEdit(target: string, canonical: string, db: string, en
   return ALLOW;
 }
 
-/**
- * <canonical> is a file of a registered repo that git does not ignore; null when the
- * DB cannot say whether its repo is registered. A DB without a repos table registers none.
- */
-async function isRegisteredRepoFile(canonical: string, db: string, env: NodeJS.ProcessEnv): Promise<boolean | null> {
-  const dir = nearestExistingDir(canonical);
-  const root = await repoGitRoot(dir, env);
-  if (root === '') return false;
-  if (dbState(env) === 'error') return null;
-  const reposTable = gateRead(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'repos';", env);
-  if (reposTable === GATE_READ_ERROR) return null;
-  if (reposTable !== '1' || repoNameForRoot(db, root, env) === '') return false;
-  return !(await gitOk(dir, ['check-ignore', '-q', '--', canonical], env));
+function reposTable(db: string, env: NodeJS.ProcessEnv): 'present' | 'absent' | 'error' {
+  const count = gateRead(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'repos';", env);
+  if (count === GATE_READ_ERROR) return 'error';
+  return count === '1' ? 'present' : 'absent';
 }
 
-/** The bro decision on a repo file; null for any other target, which keeps the rule every role gets. */
-async function broRepoEdit(target: string, input: string, db: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
-  const canonical = capture(pathCanonical(target.startsWith('/') ? target : `${payloadCwd(input, env)}/${target}`));
-  const repoFile = await isRegisteredRepoFile(canonical, db, env);
-  if (repoFile === null) return dbDenied(env);
-  if (!repoFile) return null;
+/**
+ * The bro decision on <canonical>, the target with `.` and `..` resolved; null keeps the
+ * rule every role gets. A path under .claude/worktrees/ in a git repo needs the DB to
+ * prove its task, so it fails closed. Outside a worktree only a registered repo's file
+ * that git does not ignore is decided here; a DB without a repos table leaves the main
+ * checkout to the shared rule.
+ */
+async function broEdit(target: string, canonical: string, input: string, db: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
+  const dir = nearestExistingDir(canonical);
+  const root = await repoGitRoot(dir, env);
+  if (root === '') return null;
   if (inWorktreeDir(canonical)) return await broWorktreeEdit(target, canonical, db, env);
-  return allowlisted(target) ? broDenied(`${target} is in the main checkout.`) : null;
+  if (dbState(env) === 'error') return dbDenied(env);
+  const repos = reposTable(db, env);
+  if (repos === 'error') return dbDenied(env);
+  if (repos === 'absent' || repoNameForRoot(db, root, env) === '') return null;
+  if (await gitOk(dir, ['check-ignore', '-q', '--', canonical], env)) return null;
+  if (isEnforcementSurface(canonical) && await targetIsPluginSourceRepo(canonical, input, env)) return deny(SURFACE_REASON, SWE_TASK_FIX);
+  return allowlisted(canonical) ? broDenied(`${target} is in the main checkout.`) : deny(sourceReason(env), SWE_TASK_FIX);
 }
 
 async function editRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
   if (db === null) return ALLOW;
 
-  const target = field(input, ['tool_input', 'file_path'], ['tool_input', 'notebook_path']);
-  if (target === '' || inScratch(target, input, env)) return ALLOW;
-  if (agentRole(input) === 'bro') {
-    const broDecision = await broRepoEdit(target, input, db, env);
+  const raw = field(input, ['tool_input', 'file_path'], ['tool_input', 'notebook_path']);
+  if (raw === '' || inScratch(raw, input, env)) return ALLOW;
+  const isBro = agentRole(input) === 'bro';
+  const target = isBro ? capture(pathCanonical(raw.startsWith('/') ? raw : `${payloadCwd(input, env)}/${raw}`)) : raw;
+  if (isBro) {
+    const broDecision = await broEdit(raw, target, input, db, env);
     if (broDecision !== null) return broDecision;
   }
-  if (inWorktreeDir(target)) return ALLOW;
+  // bro's resolved target can land in a worktree dir its raw path never named (a relative path from a worktree cwd).
+  if (inWorktreeDir(raw) && inWorktreeDir(target)) return ALLOW;
 
   if (dbState(env) === 'error') return dbDenied(env);
 
