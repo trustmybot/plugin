@@ -14,25 +14,26 @@ Golden is earned, not a style. The eval set is required because rule 7 is the on
 
 ## Criteria
 
-`Rule` is the rule number in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md#core-rules), or the section name for a TMB convention. `Tier` copies that rule's tier. `How checked` is `machine` when a grep or lint could check it, `judgment` when a reader has to.
+`Rule` is the rule number in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md#core-rules), or the section of [`ENFORCEMENT.md`](ENFORCEMENT.md) that holds the TMB-specific rule. `Tier` copies that rule's tier. `How checked` is `machine` when a grep or lint could check it, `judgment` when a reader has to.
 
 | ID | Check | Rule | Tier | How checked |
 |---|---|---|---|---|
-| G1 | The role and objective are in the first lines. | 5; Pre-ship checklist | T1 | judgment |
+| G1 | The role and objective are in the first lines. | 5 | T1 | judgment |
 | G2 | The rules are few, and the most important come first. | 1 | T1 | judgment |
-| G3 | Situational or optional detail lives in a skill or command, not the always-loaded prompt. | 2; TMB conventions | T1 | judgment |
-| G4 | The prompt uses one structure style throughout. | 3 | T1 | judgment |
+| G3 | Situational or optional detail lives in a skill or command, not the always-loaded prompt. | 2 | T1 | judgment |
+| G4 | The prompt uses one structure style throughout, and a prompt that mixes instructions, context, examples, and inputs tags each part. | 3 | T1; T3 for tags | judgment |
 | G5 | There is no expert persona, "think step by step", tip, threat, flattery, or urgency boilerplate. | 4, 5, 6 | T1 | machine |
 | G6 | Examples match the wanted output format, and there are 3 to 5 varied ones where a format needs them. | 8 | T2 | judgment |
 | G7 | Each prohibition names what to do instead, and none names a word only to forbid it. | 9 | T2 (mixed) | judgment |
 | G8 | The output shape is stated (a schema, a section layout, a table). | 10 | T2 | judgment |
 | G9 | No rule contradicts another rule, another prompt, or a hook; where two can collide, the precedence is stated. | 10 | T2 | judgment |
-| G10 | No rule is duplicated across sections. | TMB conventions | none (convention) | judgment |
+| G10 | No rule is duplicated across sections. | 10 | T2 | judgment |
 | G11 | Tool and skill descriptions match the code they describe. | 11 | T2 | judgment |
 | G12 | No emphasis words (CRITICAL, MUST, ALL CAPS, ALWAYS, NEVER) appear outside true invariants. | 12 | T3 | machine |
 | G13 | Each non-obvious rule gives its reason. | 13 | T3 | judgment |
 | G14 | An eval set of representative cases exists and was re-run after the last wording change. | 7 | T1 | machine |
-| G15 | The prompt matches its agent's place in FLOWS.md and its Quality-layers row: it owns only that layer's checks, hands over that layer's contract, and redoes no other layer's check. | TMB conventions | none (convention) | judgment |
+| G15 | The prompt matches its agent's place in FLOWS.md and its Quality-layers row: it owns only that layer's checks, hands over that layer's contract, and redoes no other layer's check. | ENFORCEMENT.md, Prompts fit their quality layer | none (convention) | judgment |
+| G16 | Tool output, fetched pages, files, and comments sit in named tags marked as data, and what the agent may do with them is enforced in a hook or gate. | 14 | T2 boundary; T3 tags | judgment |
 
 ---
 
