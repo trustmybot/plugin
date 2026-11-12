@@ -75,6 +75,12 @@ The `spec_body` markdown carries the prose bro and swe reason from. Its sections
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
+Ground the spec in its sources, because code-reviewer judges from the task's `spec_body` through `task_brief`, not from the issue's discussion:
+
+- Each `SC<n>` names its source in its bullet: the Human's words, quoted, or `decision #<discussion id>`. A criterion with neither is an assumption: move it to the Assumptions bullets or ask the Human.
+- Every factual claim about the code cites its source: `file:line`, or the query or command that shows it.
+- Before `task_provision`, re-read the goal (the issue and its newest decision) against the finished spec: each part of the goal maps to an `SC<n>` or an `## Out of Scope` line, and no criterion reaches past the goal.
+
 When the task adds a column, field, enum value, tool-result key or file output, `## Success Criteria` names each one with its own `Writer: <tool, hook or function that sets it>` line and a `Populated: <verification[] command proving a non-null sample or a count above zero>` line, or a `Nullable: <reason>` line when empty is correct. The spawn gate checks schema-touching specs for these lines.
 
 A spec for a guard or gate (a hook, permission check or validator) states in `## Description` whether it is allowlist-based. A denylist design needs a recorded decision (in `decision_body`) naming why an allowlist does not fit, because it fails open on input it did not foresee.
