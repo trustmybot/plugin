@@ -1,7 +1,7 @@
 ---
 name: tmb_cheatcode
 description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls cheatcode_search for ranked candidates, judges which best fits this task and codebase, and recommends it for the Human to approve. Loaded when grabbing an external cheatcode beats grinding the capability out from scratch.
-allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, mcp__plugin_tmb_trajectory-server__cheatcode_vet, mcp__plugin_tmb_trajectory-server__cheatcode_list, AskUserQuestion
+allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, mcp__plugin_tmb_trajectory-server__cheatcode_vet, mcp__plugin_tmb_trajectory-server__cheatcode_list, mcp__plugin_tmb_trajectory-server__cheatcode_approve, mcp__plugin_tmb_trajectory-server__cheatcode_install, mcp__plugin_tmb_trajectory-server__cheatcode_activate, AskUserQuestion
 ---
 
 # cheatcode
@@ -57,9 +57,9 @@ Lead the chat with the rationale — what the cheatcode does, its tier, and the 
 
 ## Decide the consuming agent
 
-`target` is the agent that will USE the cheatcode. For a **skill** or a **tool-contributing plugin**, pass `target=<agent>`; a `kind=mcp` server (or pure-server plugin) needs no target — its registration is the attachment, callable by any agent.
+`target` is the agent that will use the cheatcode. For a **skill** or a **tool-contributing plugin**, pass `target=<agent>`; a `kind=mcp` server (or pure-server plugin) needs no target — its registration is the attachment, callable by any agent.
 
-If the Human named the agent — "install X for swe", "code-review for code-reviewer" — use it. Otherwise infer from the cheatcode's domain: coding / test / refactor / debug → `swe`; code-review / quality → `code-reviewer`; orchestration / routing / planning → `bro`; a consultant's domain → that consultant. Reach for AskUserQuestion only when it's genuinely ambiguous.
+If the Human named the agent — "install X for swe", "code-review for code-reviewer" — use it. Otherwise infer from the cheatcode's domain: coding / lint / test / refactor / debug → `swe`, because swe owns the deterministic checks; diff review (whether a change breaks other behaviour) → `code-reviewer`; orchestration / routing / planning → `bro`; a consultant's domain → that consultant. Reach for AskUserQuestion only when it's genuinely ambiguous.
 
 ## Approve, install, activate
 
@@ -68,14 +68,14 @@ When the Human has already named what to install and for whom — a direct "inst
 1. `cheatcode_approve(agent='bro', candidate={name, kind, source_url})`
 2. `cheatcode_install(agent='bro', candidate={…}, target=<agent>, scope=local)`
 
-Use the recommend / AskUserQuestion path only when the Human has NOT yet decided to install.
+Use the recommend / AskUserQuestion path only when the Human has not yet decided to install.
 
 Approval is a hard gate: `cheatcode_approve` records the per-candidate Human approval, and the install PreToolUse gate fails closed without it. Rejected → stop.
 
-Once approved, `cheatcode_install` runs the marketplace/MCP path (no seed/copy), idempotent on (name, source_url), recording the `cheatcodes` row + attachments + audit in one transaction. It materializes the attachment IN THE USER PROJECT (never the plugin repo). The plugin's global agent files are never edited to give an agent a capability — that path is the cheatcode install.
+Once approved, `cheatcode_install` runs the marketplace/MCP path (no seed/copy), idempotent on (name, source_url), recording the `cheatcodes` row + attachments + audit in one transaction. It materializes the attachment in the user's project, never the plugin repo. The plugin's global agent files are never edited to give an agent a capability — that path is the cheatcode install.
 
 - **skill** (or skill-contributing plugin): `target=bro` adds a reference to `<project>/.claude/CLAUDE.md`; any other target copies the global `agents/<target>.md` into `<project>/.claude/agents/<target>.md` (if absent) and adds the name to its `skills:` frontmatter. A skill with no resolved target is hard-rejected — no orphan can land.
 - **tool-contributing plugin** (e.g. an LSP plugin providing `LSP`): needs `target=<agent>`; the install grants its tool in the local copy's `tools:`.
-- **mcp / pure-server plugin**: its registration IS its attachment — the only kind with no target and no `skills:` or `tools:` entry.
+- **mcp / pure-server plugin**: its registration is its attachment — the only kind with no target and no `skills:` or `tools:` entry.
 
 Then `cheatcode_activate`: a skill is usable in-session immediately; an MCP/plugin returns `restart_required` and loads on the next cold start.

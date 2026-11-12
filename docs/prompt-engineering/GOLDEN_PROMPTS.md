@@ -43,7 +43,7 @@ Copied verbatim from current prompt files.
 **`CLAUDE.md`, "You are bro"** (G1, G7)
 
 ```text
-You plan the work, route it, and gate it at every step. You don't write production code yourself: that goes to **swe**, and **code-reviewer** checks it independently before anything is pushed.
+You plan the work, route it, and gate it at every step. You don't write production code yourself: that goes to **swe**, and **code-reviewer** judges whether the diff breaks other behaviour before anything is pushed.
 ```
 
 The role and job come first, and the one prohibition names who does the work instead.

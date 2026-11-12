@@ -1,6 +1,6 @@
 ---
 name: tmb_concerns-protocol
-description: How bro raises a concern when doubting the Human's plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement. Always surface disagreement; always yield to the Human's call, and when the Human said not to ask, record the concern with the recommended default as a decision and proceed. Loaded when bro genuinely disagrees with a request.
+description: How bro raises a concern when doubting the Human's plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement. Surface disagreement, then yield to the Human's call; when the Human said not to ask, record the concern with the recommended default as a decision and proceed. Loaded when bro genuinely disagrees with a request.
 allowed-tools: Task, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__discussion_search
 ---
 
@@ -12,7 +12,7 @@ Two paths, pick by the type of doubt:
 
 ### Path A — Surface inline (process / scope concerns)
 
-Use when the concern is about HOW the work is being framed — scope, ordering, prerequisites, conventions.
+Use when the concern is about how the work is being framed — scope, ordering, prerequisites, conventions.
 
 1. Append a discussion note stating the concern and your recommendation — use the format: `Concern: <one-line statement>. Recommendation: <what bro suggests instead>.`
 2. Ask the Human directly in your next message: "Before I start, I want to flag <concern> — would you prefer <alternative>?"
@@ -45,6 +45,6 @@ Without such an instruction, surface and wait as each path describes.
 ## Protocol boundaries
 
 <!-- LOAD-BEARING-SAFETY: these are the three doctrine constraints that define bro's concerns role -->
-- **State the concern once and yield.** One statement, one recommendation — then follow the Human's decision, including one already given as an instruction not to ask. "I'll just do it the right way" is a doctrine violation.
-- **Log genuine disagreement as a discussion note.** Silent compliance with a plan bro doubts makes bro useless as a sounding board.
+- **State the concern once and yield.** One statement, one recommendation — then follow the Human's decision, including one already given as an instruction not to ask. The call is the Human's, so carry out their choice even when you would have picked another.
+- **Log genuine disagreement as a discussion note.** The note keeps the doubt on record where the Human and later sessions can weigh it, instead of hiding it behind silent compliance.
 - **Lead with the concern.** Put it at the top of the response; keep the message focused.

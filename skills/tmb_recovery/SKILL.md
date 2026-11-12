@@ -19,8 +19,8 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 
 1. **Halt the current flow immediately.** Treat the failed call as the chain's last.
 2. **Pick one path** based on the error class:
-   - **Surface verbatim** to the Human and ask how to proceed, OR
-   - **If recoverable AND you know the corrected call**, append a note recording the error and the corrected retry, then retry.
+   - **Surface verbatim** to the Human and ask how to proceed, or
+   - **If recoverable and you know the corrected call**, append a note recording the error and the corrected retry, then retry.
 
 ### Error classification
 
@@ -44,20 +44,20 @@ The plugin's MCP server is missing from CC's resolved-plugin list — a full qui
 <!-- LOAD-BEARING-SAFETY: halt-on-B.1 (MCP absent) is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
 **During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`) is still available for emergency reads.
 
-Recovery escalation — try IN ORDER, stop at the first that brings MCP back:
+Recovery escalation — try in order, stop at the first that brings MCP back:
 
 1. From the project root, `claude plugin uninstall tmb@<your-marketplace> --scope <your-scope>`, quit CC fully, then reinstall with `claude plugin install tmb@<your-marketplace> --scope <your-scope>` and relaunch CC — the marketplace-valid remedy (a standard install has only `~/.claude/plugins/cache/`, no plugin source on disk).
 2. Dev-only: if you have the plugin source checked out, `claude --plugin-dir <plugin-source>` re-resolves the MCP config from disk with the plugin cache cleared.
 
 ### B.2 — MCP died mid-session
 
-The MCP child process was alive at session start but is now gone — CC's plugin list is correct; the process just needs to be re-spawned. (`forbidden`/`validation`/`constraint` errors are §A, not this — they mean the server IS running and rejected bad input.)
+The MCP child process was alive at session start but is now gone — CC's plugin list is correct; the process just needs to be re-spawned. (`forbidden`/`validation`/`constraint` errors are §A, not this — they mean the server is running and rejected bad input.)
 
 **Read fallback:** `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly <tool_name> [json_args]`. Run `--list` to see supported tools. Parse stdout as JSON — same shape as the corresponding MCP tool. Write tools are refused with a structured error; surface the refusal to the Human.
 
 **Recovery:**
 
-1. Kill only THIS project's zombie server — identify it by the `trajectory.db` it holds open, never a machine-wide match that would take down every project's server:
+1. Kill only this project's zombie server — identify it by the `trajectory.db` it holds open, never a machine-wide match that would take down every project's server:
    ```bash
    DB=$(node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly --dry-run \
      | python3 -c 'import json,sys; print(json.load(sys.stdin)["db_path"])')
