@@ -268,3 +268,52 @@ describe('lint hooks: the TypeScript gates', () => {
     assert.equal(normalizeFooter('', { LC_ALL: 'C' }), TMB_FOOTER);
   });
 });
+
+describe('code-quality-lint: main guard, sync spawn timeout, home path (GH 3087)', () => {
+  const env = { LC_ALL: 'C' };
+  const lint = (file_path: string, content: string) => {
+    const out = codeQualityLint(JSON.stringify({ tool_name: 'Write', tool_input: { file_path, content } }), env).stdout;
+    return out === '' ? '' : context(out).text;
+  };
+  const MAIN_GUARD = /compare realpathSync of both sides/;
+  const SYNC_SPAWN = /without a timeout option/;
+  const HOME_PATH = /hardcoded home path/;
+
+  it('warns on a main guard comparing argv[1] with the module URL, in either order', () => {
+    assert.match(lint('/w/a.ts', 'if (process.argv[1] === fileURLToPath(import.meta.url)) main();'), MAIN_GUARD);
+    assert.match(lint('/w/a.mjs', 'if (import.meta.url !== resolve(process.argv[1])) process.exit(0);'), MAIN_GUARD);
+    assert.match(lint('/w/a.js', 'const isMain = fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);'), MAIN_GUARD);
+  });
+
+  it('leaves a main guard that already resolves symlinks', () => {
+    const guard = 'if (realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) main();';
+    assert.doesNotMatch(lint('/w/a.ts', guard), MAIN_GUARD);
+    assert.doesNotMatch(lint('/w/a.ts', 'const here = fileURLToPath(import.meta.url);\nconst script = process.argv[1];'), MAIN_GUARD);
+  });
+
+  it('warns on a sync subprocess call without timeout, bare or as a member, across lines', () => {
+    assert.match(lint('/w/a.ts', "spawnSync('git', ['status'], { encoding: 'utf8' });"), SYNC_SPAWN);
+    assert.match(lint('/w/a.ts', "cp.execSync('ls')"), SYNC_SPAWN);
+    assert.match(lint('/w/a.ts', "execFileSync(\n  'git',\n  ['log', ')'],\n  { cwd },\n);\nconst o = { timeout: 5 };"), SYNC_SPAWN);
+  });
+
+  it('leaves a sync subprocess call whose options carry timeout', () => {
+    assert.equal(lint('/w/a.ts', "spawnSync('git', ['log', '(x'], {\n  encoding: 'utf8',\n  timeout: 10_000,\n});"), '');
+    assert.equal(lint('/w/a.ts', "execSync(`echo ${f(')')}`, { timeout })"), '');
+    assert.equal(lint('/w/a.ts', "import { spawnSync } from 'node:child_process';"), '');
+  });
+
+  it('warns on a hardcoded home path in a string literal of a Python or TS source', () => {
+    assert.match(lint('/w/src/a.ts', "const root = '/Users/user/Git/repo';"), HOME_PATH);
+    assert.match(lint('/w/src/a.py', 'ROOT = "/home/me/data/x.db"'), HOME_PATH);
+    assert.match(lint('/w/src/a.js', 'const p = `/Users/you/${dir}`;'), HOME_PATH);
+  });
+
+  it('leaves placeholders, comments and test files', () => {
+    assert.equal(lint('/w/src/a.ts', "const hint = 'e.g. /Users/<name>/project';"), '');
+    assert.equal(lint('/w/src/a.py', '# lives in /home/me/data\nx = 1'), '');
+    for (const path of ['/w/src/a.test.ts', '/w/src/a.spec.js', '/w/src/test_a.py', '/w/src/a_test.py', '/w/test/a.ts', '/w/tests/a.py']) {
+      assert.equal(lint(path, "ROOT = '/Users/user/x'"), '', path);
+    }
+  });
+});

@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/w/cli.ts",
+    "content": "if (process.argv[1] === fileURLToPath(import.meta.url)) main();"
+  },
+  "corpus_expect": "compare realpathSync of both sides"
+}

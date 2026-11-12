@@ -27,6 +27,20 @@
       "stdout": ""
     }
   },
+  "allow-home-path-test-file.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-main-guard-realpath.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
   "allow-markdown.json": {
     "C,UTF-8,en_US.UTF-8": {
       "calls": "",
@@ -42,6 +56,13 @@
     }
   },
   "allow-missing-fields.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-sync-spawn-timeout.json": {
     "C,UTF-8,en_US.UTF-8": {
       "calls": "",
       "code": 0,
@@ -76,6 +97,20 @@
       "stdout": ""
     }
   },
+  "generic/allow-home-path-test-file.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-main-guard-realpath.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
   "generic/allow-markdown.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
@@ -91,6 +126,13 @@
     }
   },
   "generic/allow-missing-fields.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-sync-spawn-timeout.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
@@ -128,6 +170,20 @@
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/a.py\\n - bare 'except:' — catch a specific exception or re-raise\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
     }
   },
+  "generic/warn-home-path.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/src/paths.py\\n - hardcoded home path (/Users/<name>/ or /home/<name>/) in a string — derive it from the home dir or config\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-main-guard.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/cli.ts\\n - process.argv[1] compared with import.meta.url — an npm bin symlink or a symlinked checkout makes it false; compare realpathSync of both sides\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+    }
+  },
   "generic/warn-multiedit-join.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
@@ -147,6 +203,13 @@
       "audit": [],
       "code": 0,
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/all.py\\n - 'except Exception' hides unrelated errors; catch the specific exception types the block handles.\\n - subprocess.run without timeout= — risk of indefinite hang\\n - f-string SQL — use parameterized queries to prevent injection\\n - datetime.utcnow() returns naive datetime — use datetime.now(timezone.utc)\\n - mutable default argument [] — use None and assign in body\\n - mutable default argument {} — use None and assign in body\\n - TODO/FIXME/HACK — finish the work or escalate; don't ship the marker\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-sync-spawn-no-timeout.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/run.ts\\n - spawnSync/execSync/execFileSync without a timeout option — a hung child blocks forever; pass { timeout: <ms> }\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
     }
   },
   "generic/warn-ts-all.json": {
@@ -187,6 +250,20 @@
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/a.py\\n - bare 'except:' â catch a specific exception or re-raise\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
     }
   },
+  "warn-home-path.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/src/paths.py\\n - hardcoded home path (/Users/<name>/ or /home/<name>/) in a string â derive it from the home dir or config\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-main-guard.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/cli.ts\\n - process.argv[1] compared with import.meta.url â an npm bin symlink or a symlinked checkout makes it false; compare realpathSync of both sides\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+    }
+  },
   "warn-multiedit-join.json": {
     "C,UTF-8,en_US.UTF-8": {
       "calls": "",
@@ -206,6 +283,13 @@
       "calls": "",
       "code": 0,
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/all.py\\n - 'except Exception' hides unrelated errors; catch the specific exception types the block handles.\\n - subprocess.run without timeout= â risk of indefinite hang\\n - f-string SQL â use parameterized queries to prevent injection\\n - datetime.utcnow() returns naive datetime â use datetime.now(timezone.utc)\\n - mutable default argument [] â use None and assign in body\\n - mutable default argument {} â use None and assign in body\\n - TODO/FIXME/HACK â finish the work or escalate; don't ship the marker\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-sync-spawn-no-timeout.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/run.ts\\n - spawnSync/execSync/execFileSync without a timeout option â a hung child blocks forever; pass { timeout: <ms> }\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
     }
   },
   "warn-ts-all.json": {
