@@ -59,7 +59,7 @@ const VALID_ROOTS = new Set<AgentRoot>(['plugin', 'project']);
 const RESERVED_NAME = 'bro';
 const BACKBONE_PLUGIN_ONLY = new Set(['swe', 'code-reviewer']);
 
-// Plugin root holds templates/agents/<name>.md. CC always sets
+// Plugin root holds agents/ and templates/agents/template.md. CC always sets
 // CLAUDE_PLUGIN_ROOT to the installed plugin's source root (L6 sets it via
 // --plugin-dir); prefer it. Fall back to walking up from this module until a
 // dir with .claude-plugin/plugin.json is found — correct for BOTH the tsc
@@ -91,8 +91,8 @@ function parseMarkedPath(filePath: string): { root: AgentRoot; rel: string } {
   if (!m) {
     throw new Error(
       `invalid_file_path: '${filePath}' carries no root marker. ` +
-      `Use 'plugin:<path under the plugin root>' (e.g. 'plugin:templates/agents/cto.md') ` +
-      `or 'project:<path under the workspace root>' (e.g. 'project:.claude/agents/cto.md').`,
+      `Use 'plugin:<path under the plugin root>' (e.g. 'plugin:agents/swe.md') ` +
+      `or 'project:<path under the workspace root>' (e.g. 'project:.claude/agents/legal-reviewer.md').`,
     );
   }
   return { root: m[1] as AgentRoot, rel: m[2]! };

@@ -32,18 +32,21 @@ const PLUGIN_ROOT = (() => {
 })();
 
 describe('agentTools', () => {
-  it('fresh DB has 6 seeded agents, every file_path under the plugin: root', () => {
+  it('fresh DB seeds only the two backbone agents, every file_path under the plugin: root', () => {
     const db = tempDB();
-    const rows = db.all<{ name: string; file_path: string }>('SELECT name, file_path FROM agents ORDER BY id');
-    assert.equal(rows.length, 6, 'Expected 6 seeded agents');
-    assert.deepEqual(rows.map((r) => r.file_path), [
-      'plugin:agents/swe.md',
-      'plugin:agents/code-reviewer.md',
-      'plugin:templates/agents/architect.md',
-      'plugin:templates/agents/cto.md',
-      'plugin:templates/agents/ceo.md',
-      'plugin:templates/agents/pm.md',
+    const rows = db.all<{ name: string; kind: string; file_path: string }>('SELECT name, kind, file_path FROM agents ORDER BY id');
+    assert.deepEqual(rows.map((r) => ({ ...r })), [
+      { name: 'swe', kind: 'backbone', file_path: 'plugin:agents/swe.md' },
+      { name: 'code-reviewer', kind: 'backbone', file_path: 'plugin:agents/code-reviewer.md' },
     ]);
+    db.close();
+  });
+
+  it('every plugin: file_path a fresh DB seeds names a file that ships with the plugin', () => {
+    const db = tempDB();
+    for (const { file_path } of db.all<{ file_path: string }>("SELECT file_path FROM agents WHERE file_path LIKE 'plugin:%'")) {
+      assert.ok(existsSync(join(PLUGIN_ROOT, file_path.slice('plugin:'.length))), `${file_path} must exist under the plugin root`);
+    }
     db.close();
   });
 
@@ -56,14 +59,14 @@ describe('agentTools', () => {
     db.close();
   });
 
-  it('agent_list returns all 6 seeded agents with resolved_path and no scope key', async () => {
+  it('agent_list returns both seeded agents with resolved_path and no scope key', async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
     const result = await call(tools.handlers, 'agent_list', { agent: 'bro' });
     const data = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
-    assert.equal(data.agents.length, 6, 'Expected 6 agents');
+    assert.equal(data.agents.length, 2, 'Expected 2 agents');
     for (const a of data.agents) {
       assert.ok(!('scope' in a), 'agent rows carry no scope key');
       assert.equal(a.resolved_path, join(PLUGIN_ROOT, a.file_path.slice('plugin:'.length)));
@@ -82,7 +85,7 @@ describe('agentTools', () => {
     const plugin = parseResult(await call(tools.handlers, 'agent_list', { agent: 'bro', root: 'plugin' }));
     assert.deepEqual(
       plugin.agents.map((a: { name: string }) => a.name),
-      ['architect', 'ceo', 'code-reviewer', 'cto', 'pm', 'swe'],
+      ['code-reviewer', 'swe'],
     );
 
     const project = parseResult(await call(tools.handlers, 'agent_list', { agent: 'bro', root: 'project' }));
@@ -115,7 +118,7 @@ describe('agentTools', () => {
     assert.equal(row.resolved_path, '/tmp/workspace/.claude/agents/legal-reviewer.md');
 
     const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
-    assert.equal(count!.cnt, 7, 'Expected 7 agents after registering one');
+    assert.equal(count!.cnt, 3, 'Expected 3 agents after registering one');
     db.close();
   });
 
@@ -139,6 +142,7 @@ describe('agentTools', () => {
 
   it('agent_register promotes a plugin: consultant row to its project: file_path', async () => {
     const db = tempDB();
+    db.run(`INSERT INTO agents (name, kind, file_path) VALUES ('cto', 'consultant', 'plugin:templates/agents/template.md')`);
     const tools = agentTools(db);
 
     const result = await call(tools.handlers, 'agent_register', {
@@ -152,12 +156,13 @@ describe('agentTools', () => {
     assert.equal(row.file_path, 'project:.claude/agents/cto.md', 'Promoted row must carry the project: file_path');
 
     const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
-    assert.equal(count!.cnt, 6, 'Row count must not grow on promotion');
+    assert.equal(count!.cnt, 3, 'Row count must not grow on promotion');
     db.close();
   });
 
   it('agent_register promotion emits exactly one tmb_agent_created audit; repeat call emits none', async () => {
     const db = tempDB();
+    db.run(`INSERT INTO agents (name, kind, file_path) VALUES ('cto', 'consultant', 'plugin:templates/agents/template.md')`);
     const tools = agentTools(db);
     const args = { agent: 'bro', name: 'cto', kind: 'consultant', file_path: 'project:.claude/agents/cto.md' };
 
@@ -345,18 +350,19 @@ describe('agent_resolve', () => {
     }
   });
 
-  it('Branch B — template-copy: returns mode=template-copy for a known template name', async () => {
-    const db = tempDB();
-    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
-    const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'architect' });
-    const data = parseResult(result);
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
-    assert.equal(data.mode, 'template-copy');
-    assert.equal(data.source_path, join(PLUGIN_ROOT, 'templates', 'agents', 'architect.md'));
-    assert.equal(data.file_path, 'project:.claude/agents/architect.md');
-    assert.equal(data.resolved_path, '/tmp/workspace/.claude/agents/architect.md');
-    db.close();
-  });
+  for (const name of ['architect', 'cto', 'ceo', 'pm']) {
+    it(`'${name}' resolves from-scratch: no consultant template ships for it`, async () => {
+      const db = tempDB();
+      const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+      const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name });
+      const data = parseResult(result);
+      assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+      assert.equal(data.mode, 'from-scratch');
+      assert.equal(data.scaffold_path, join(PLUGIN_ROOT, 'templates', 'agents', 'template.md'));
+      assert.equal(data.file_path, `project:.claude/agents/${name}.md`);
+      db.close();
+    });
+  }
 
   it('Branch C — from-scratch: returns mode=from-scratch for an unknown name', async () => {
     const db = tempDB();
@@ -375,13 +381,13 @@ describe('agent_resolve', () => {
     const db = tempDB();
     const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
     const result = await call(tools.handlers, 'agent_resolve', {
-      agent: 'bro', name: 'architect', file_path: 'plugin:templates/agents/architect.md',
+      agent: 'bro', name: 'template', file_path: 'plugin:templates/agents/template.md',
     });
     const data = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
     assert.equal(data.mode, 'collision', 'the plugin template already exists at that path');
-    assert.equal(data.file_path, 'plugin:templates/agents/architect.md');
-    assert.equal(data.resolved_path, join(PLUGIN_ROOT, 'templates', 'agents', 'architect.md'));
+    assert.equal(data.file_path, 'plugin:templates/agents/template.md');
+    assert.equal(data.resolved_path, join(PLUGIN_ROOT, 'templates', 'agents', 'template.md'));
     db.close();
   });
 

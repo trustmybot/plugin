@@ -701,7 +701,7 @@
       "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 42
+      "count": 41
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
