@@ -1,5 +1,5 @@
 // Symbol and reference extraction for the L1 structural layer (GH 1680):
-// TS/JS and bash through tree-sitter, SQL DDL (in .sql files and in TS string
+// TS/JS, bash and Python through tree-sitter, SQL DDL (in .sql files and in TS string
 // literals) and Perl subs and constants through regexes. Pure functions: a
 // file's text in, its symbols and outgoing references out. Adapted from the
 // GH 1680 MVP.
@@ -93,6 +93,7 @@ const EXTENSION_LANGUAGE: Record<string, SourceLanguage> = {
   sql: 'sql',
   pl: 'perl',
   pm: 'perl',
+  py: 'python',
 };
 
 const SH_BUILTINS = new Set(
@@ -864,6 +865,139 @@ function extractBash(root: Node, out: Collector, moduleSymbol: number): void {
   visit(root, moduleSymbol);
 }
 
+// The string a body opens with, Python's docstring; '' when it opens with
+// anything else.
+function pyDocstring(body: Node | null): string {
+  const first = body ? named(body).find((c) => c.type !== 'comment') : undefined;
+  const str = first?.type === 'expression_statement' ? first.namedChildren[0] : null;
+  if (str?.type !== 'string') return '';
+  const text = named(str)
+    .filter((c) => c.type === 'string_content')
+    .map((c) => c.text)
+    .join('');
+  return clip(oneLine(text), DOC_MAX);
+}
+
+const PY_RECEIVERS_OF_CLASS = new Set(['self', 'cls']);
+
+type PyPlace = 'module' | 'class' | 'nested';
+
+// Imports become module-level 'imports' edges whose hint is the dotted module
+// ('.a', '..', 'pkg.mod') and whose dst_name is the imported name, or the
+// module itself for `import pkg.mod`. Returns each `as` alias's original name
+// and every name the imports bind.
+function pyImports(root: Node, out: Collector, moduleSymbol: number): { aliases: Map<string, string>; bound: Set<string> } {
+  const aliases = new Map<string, string>();
+  const bound = new Set<string>();
+  for (const stmt of root.descendantsOfType(['import_statement', 'import_from_statement'])) {
+    if (!stmt) continue;
+    const line = stmt.startPosition.row + 1;
+    const from = stmt.type === 'import_from_statement' ? stmt.childForFieldName('module_name')?.text : undefined;
+    if (stmt.type === 'import_from_statement' && !from) continue;
+    for (const n of stmt.childrenForFieldName('name')) {
+      if (!n) continue;
+      const original = (n.type === 'aliased_import' ? n.childForFieldName('name') : n)?.text;
+      if (!original) continue;
+      const alias = n.type === 'aliased_import' ? n.childForFieldName('alias')?.text : undefined;
+      if (alias) aliases.set(alias, original);
+      bound.add(alias ?? original);
+      out.edge(moduleSymbol, 'imports', original, line, from ?? original);
+    }
+    if (from && named(stmt).some((c) => c.type === 'wildcard_import')) out.edge(moduleSymbol, 'imports', '*', line, from);
+  }
+  return { aliases, bound };
+}
+
+// Module-level classes, functions and `NAME = …` constants, methods of those
+// classes, and the calls each makes. A call of a class the file defines, or
+// of an imported CapWords name (PEP 8 class naming), is 'instantiates'; a
+// call on self/cls carries the enclosing class as its receiver hint.
+function extractPython(root: Node, src: string, out: Collector, moduleSymbol: number): void {
+  const moduleDocstring = pyDocstring(root);
+  const moduleRow = out.symbols[moduleSymbol];
+  if (moduleRow && moduleDocstring) moduleRow.doc = moduleDocstring;
+  const { aliases, bound } = pyImports(root, out, moduleSymbol);
+  const classes = new Set(
+    root
+      .descendantsOfType('class_definition')
+      .map((c) => c?.childForFieldName('name')?.text)
+      .filter((n): n is string => n !== undefined),
+  );
+  const target = (name: string): string => aliases.get(name) ?? name;
+  const isClass = (name: string): boolean => classes.has(name) || (bound.has(name) && /^[A-Z]/.test(target(name)));
+  const exportedName = (name: string): number => (name.startsWith('_') ? 0 : 1);
+  const definition = (node: Node, kind: SymbolKind, qualifiedName: string, exported: number): number => {
+    const anchor = node.parent?.type === 'decorated_definition' ? node.parent : node;
+    return out.symbol({
+      kind,
+      qualified_name: qualifiedName,
+      signature: signatureOf(node, src),
+      doc: pyDocstring(node.childForFieldName('body')) || docOf(anchor),
+      start_line: anchor.startPosition.row + 1,
+      end_line: node.endPosition.row + 1,
+      body_hash: normalizedHash(anchor),
+      exported,
+    });
+  };
+
+  const visit = (node: Node, scope: number, cls: string | null, place: PyPlace): void => {
+    let inner = scope;
+    let innerCls = cls;
+    let innerPlace = place;
+    const t = node.type;
+    if (t === 'import_statement' || t === 'import_from_statement' || t === 'future_import_statement') return;
+    if (t === 'class_definition') {
+      const n = node.childForFieldName('name')?.text;
+      innerPlace = 'nested';
+      innerCls = null;
+      if (n && place === 'module') {
+        inner = definition(node, 'class', n, exportedName(n));
+        innerCls = n;
+        innerPlace = 'class';
+        for (const base of named(node.childForFieldName('superclasses') ?? node).filter((c) => c.type === 'identifier')) {
+          out.edge(inner, 'instantiates', target(base.text), base.startPosition.row + 1);
+        }
+      }
+    } else if (t === 'function_definition') {
+      const n = node.childForFieldName('name')?.text;
+      innerPlace = 'nested';
+      if (n && place === 'module') inner = definition(node, 'function', n, exportedName(n));
+      else if (n && place === 'class' && cls) inner = definition(node, 'method', `${cls}.${n}`, 0);
+    } else if (t === 'expression_statement' && node.parent?.type === 'module') {
+      const assignment = node.namedChildren[0];
+      const hasValue = assignment?.type === 'assignment' && assignment.childForFieldName('right') !== null;
+      const left = hasValue ? assignment.childForFieldName('left') : null;
+      if (left?.type === 'identifier') {
+        inner = out.symbol({
+          kind: 'const',
+          qualified_name: left.text,
+          signature: clip(oneLine(src.slice(node.startIndex, Math.min(node.endIndex, node.startIndex + 140))), 200),
+          doc: docOf(node),
+          start_line: node.startPosition.row + 1,
+          end_line: node.endPosition.row + 1,
+          body_hash: normalizedHash(node),
+          exported: exportedName(left.text),
+        });
+      }
+    } else if (t === 'call') {
+      const fn = node.childForFieldName('function');
+      const line = node.startPosition.row + 1;
+      if (fn?.type === 'identifier') {
+        out.edge(scope, isClass(fn.text) ? 'instantiates' : 'calls', target(fn.text), line);
+      } else if (fn?.type === 'attribute') {
+        const callee = fn.childForFieldName('attribute')?.text;
+        const object = fn.childForFieldName('object');
+        if (callee && object) {
+          const ofClass = object.type === 'identifier' && PY_RECEIVERS_OF_CLASS.has(object.text) && cls;
+          out.edge(scope, 'calls', callee, line, ofClass ? cls : memberHint(target(object.text)));
+        }
+      }
+    }
+    for (const c of named(node)) visit(c, inner, innerCls, innerPlace);
+  };
+  visit(root, moduleSymbol, null, 'module');
+}
+
 // The '#' comment block whose last row is right above row `at` (0-based),
 // with no blank row between, from after its last banner line on; never the
 // shebang.
@@ -1058,7 +1192,7 @@ function extractPerl(src: string, out: Collector): void {
 
 function moduleDoc(lang: SourceLanguage, src: string): string {
   const out: string[] = [];
-  const comment = lang === 'bash' || lang === 'sql' || lang === 'perl' ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
+  const comment = lang === 'bash' || lang === 'python' || lang === 'sql' || lang === 'perl' ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
   for (const l of src.split('\n')) {
     if (/^#!/.test(l)) continue;
     const m = l.match(comment);
@@ -1096,6 +1230,7 @@ export function extractFile(parsers: Parsers | null, relPath: string, lang: Sour
   if (!tree) throw new Error(`tree-sitter returned no tree for ${relPath}`);
   try {
     if (lang === 'bash') extractBash(tree.rootNode, out, moduleSymbol);
+    else if (lang === 'python') extractPython(tree.rootNode, src, out, moduleSymbol);
     else extractTs(tree.rootNode, src, out, moduleSymbol, relPath);
   } finally {
     tree.delete();

@@ -59,7 +59,7 @@ const VALID_ROOTS = new Set<AgentRoot>(['plugin', 'project']);
 const RESERVED_NAME = 'bro';
 const BACKBONE_PLUGIN_ONLY = new Set(['swe', 'code-reviewer']);
 
-// Plugin root holds templates/agents/<name>.md. CC always sets
+// Plugin root holds agents/ and templates/agents/template.md. CC always sets
 // CLAUDE_PLUGIN_ROOT to the installed plugin's source root (L6 sets it via
 // --plugin-dir); prefer it. Fall back to walking up from this module until a
 // dir with .claude-plugin/plugin.json is found — correct for BOTH the tsc
@@ -91,8 +91,8 @@ function parseMarkedPath(filePath: string): { root: AgentRoot; rel: string } {
   if (!m) {
     throw new Error(
       `invalid_file_path: '${filePath}' carries no root marker. ` +
-      `Use 'plugin:<path under the plugin root>' (e.g. 'plugin:templates/agents/cto.md') ` +
-      `or 'project:<path under the workspace root>' (e.g. 'project:.claude/agents/cto.md').`,
+      `Use 'plugin:<path under the plugin root>' (e.g. 'plugin:agents/swe.md') ` +
+      `or 'project:<path under the workspace root>' (e.g. 'project:.claude/agents/legal-reviewer.md').`,
     );
   }
   return { root: m[1] as AgentRoot, rel: m[2]! };
@@ -163,7 +163,7 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'agent_resolve',
       description:
-        'Read-only: validates the name and returns the /tmb:agent-create mode: "collision" (resolved_path exists: bro runs the collision dialog), "template-copy" (plugin template found) or "from-scratch" (bro scaffolds from templates/agents/template.md). ' +
+        'Read-only: validates the name and returns the /tmb:agent-create mode: "collision" (resolved_path exists: bro runs the collision dialog) or "from-scratch" (bro scaffolds from templates/agents/template.md). ' +
         'Returns file_path, to pass to agent_register, and the absolute resolved_path. bro owns the file Write and the agent_register call.',
       inputSchema: {
         type: 'object',
@@ -276,11 +276,6 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
 
         if (resolvedPath && existsSync(resolvedPath)) {
           return ok({ mode: 'collision', ...target });
-        }
-
-        const templatePath = join(PLUGIN_ROOT, 'templates', 'agents', `${name}.md`);
-        if (existsSync(templatePath)) {
-          return ok({ mode: 'template-copy', source_path: templatePath, ...target });
         }
 
         const scaffoldPath = join(PLUGIN_ROOT, 'templates', 'agents', 'template.md');

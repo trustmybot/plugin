@@ -63,17 +63,17 @@ const STAGING_STALE_MS = 60 * 60 * 1000;
 const INSTALLED_AT = '.installed-at';
 const STAGING_PREFIX = '.staging-';
 
-interface Installer {
+export interface Installer {
   readonly name: 'bun' | 'npm';
   readonly args: readonly string[];
 }
 
-const LEGACY_INSTALLERS: readonly Installer[] = [
+export const LEGACY_INSTALLERS: readonly Installer[] = [
   { name: 'bun', args: ['install', '--production', '--ignore-scripts', '--no-save'] },
   { name: 'npm', args: ['install', '--omit=dev', '--ignore-scripts', '--no-save', '--no-audit', '--no-fund'] },
 ];
 
-const DATA_INSTALLERS: readonly Installer[] = [
+export const DATA_INSTALLERS: readonly Installer[] = [
   { name: 'bun', args: ['install', '--frozen-lockfile', '--production', '--ignore-scripts'] },
   { name: 'npm', args: ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'] },
 ];
@@ -136,10 +136,91 @@ function onPath(name: string, env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
-function findInstaller(env: NodeJS.ProcessEnv, installers: readonly Installer[]): (Installer & { path: string }) | undefined {
+export interface ResolvedInstaller {
+  readonly installer: Installer;
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+export interface InstallerHost {
+  readonly platform?: NodeJS.Platform;
+  readonly execPath?: string;
+}
+
+const WIN32_DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
+// Node refuses to spawn .bat/.cmd without a shell (CVE-2024-27980), and this gate never uses one.
+const WIN32_SPAWNABLE_EXTS: ReadonlySet<string> = new Set(['.exe', '.com']);
+
+function win32EnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name);
+  return key === undefined ? undefined : env[key];
+}
+
+function win32PathDirs(env: NodeJS.ProcessEnv): string[] {
+  return (win32EnvValue(env, 'PATH') ?? '').split(';').filter((dir) => dir !== '');
+}
+
+function dirEntries(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+function win32Executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
+  const exts = (win32EnvValue(env, 'PATHEXT') || WIN32_DEFAULT_PATHEXT)
+    .split(';')
+    .map((ext) => ext.toLowerCase())
+    .filter((ext) => WIN32_SPAWNABLE_EXTS.has(ext));
+  for (const dir of win32PathDirs(env)) {
+    const entries = dirEntries(dir);
+    for (const ext of exts) {
+      const wanted = `${name}${ext}`;
+      const entry = entries.find((e) => e.toLowerCase() === wanted);
+      if (entry && isFile(join(dir, entry))) return join(dir, entry);
+    }
+  }
+  return undefined;
+}
+
+function npmCliBeside(dir: string): string {
+  return join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+}
+
+function win32NpmCli(env: NodeJS.ProcessEnv, execPath: string): string | undefined {
+  const npmDir = win32PathDirs(env).find((dir) => {
+    const entries = dirEntries(dir).map((e) => e.toLowerCase());
+    return entries.includes('npm.cmd') || entries.includes('npm');
+  });
+  const candidates = npmDir === undefined ? [npmCliBeside(dirname(execPath))] : [npmCliBeside(npmDir), npmCliBeside(dirname(execPath))];
+  return candidates.find(isFile);
+}
+
+function resolveWin32(installer: Installer, env: NodeJS.ProcessEnv, execPath: string): ResolvedInstaller | undefined {
+  if (installer.name === 'npm') {
+    const cli = win32NpmCli(env, execPath);
+    return cli ? { installer, command: execPath, args: [cli, ...installer.args] } : undefined;
+  }
+  const exe = win32Executable(installer.name, env);
+  return exe ? { installer, command: exe, args: installer.args } : undefined;
+}
+
+export function findInstaller(
+  env: NodeJS.ProcessEnv,
+  installers: readonly Installer[],
+  host: InstallerHost = {},
+): ResolvedInstaller | undefined {
+  const platform = host.platform ?? process.platform;
+  const execPath = host.execPath ?? process.execPath;
   for (const installer of installers) {
+    if (platform === 'win32') {
+      const resolved = resolveWin32(installer, env, execPath);
+      if (resolved) return resolved;
+      continue;
+    }
     const path = onPath(installer.name, env);
-    if (path) return { ...installer, path };
+    if (path) return { installer, command: path, args: installer.args };
   }
   return undefined;
 }
@@ -453,7 +534,7 @@ function ensureDeps(env: NodeJS.ProcessEnv): GateResult {
     releaseLock(lock, token);
   }
   const logNote = log.path ? ` Log: ${log.path}` : '';
-  return notice(`📦 Installing the MCP server's @huggingface/transformers in the background (${installer.name}); semantic search runs on FTS until then and embeddings go live on the next Claude Code restart.${logNote}`);
+  return notice(`📦 Installing the MCP server's @huggingface/transformers in the background (${installer.installer.name}); semantic search runs on FTS until then and embeddings go live on the next Claude Code restart.${logNote}`);
 }
 
 /** Every path exits 0, as the .sh does: a filesystem error leaves the session to start degraded. */
@@ -744,10 +825,10 @@ export function installRuntimeDeps(opts: InstallOptions): number {
     log(`staged ${manifest} in ${staging}`);
     const installer = findInstaller(opts.env, DATA_INSTALLERS);
     if (!installer) throw new Error('neither bun nor npm is on PATH');
-    log(`${commandLine(installer)} in ${staging}`);
-    const r = spawnSync(installer.path, installer.args, { cwd: staging, env: opts.env, stdio });
-    log(`${installer.name} exit ${r.status ?? r.signal}`);
-    if (r.error || r.status !== 0) throw new Error(`${installer.name} install failed${r.error ? `: ${r.error.message}` : ''}`);
+    log(`${commandLine(installer.installer)} in ${staging}`);
+    const r = spawnSync(installer.command, installer.args, { cwd: staging, env: opts.env, stdio });
+    log(`${installer.installer.name} exit ${r.status ?? r.signal}`);
+    if (r.error || r.status !== 0) throw new Error(`${installer.installer.name} install failed${r.error ? `: ${r.error.message}` : ''}`);
     writeSharpStub(staging);
     log(`wrote the sharp stub; node_modules ${megabytes(treeBytes(join(staging, 'node_modules')))} before prune`);
     pruneRuntimeDeps(staging, platform, arch);
@@ -779,8 +860,8 @@ function legacyInstall(ctx: Context, log: Logger): number {
     log('neither bun nor npm is on PATH');
     return 1;
   }
-  log(`${commandLine(installer)} in ${ctx.mcpDir}`);
-  const r = spawnSync(installer.path, installer.args, { cwd: ctx.mcpDir, env: ctx.env, stdio: ['ignore', 'inherit', 'inherit'] });
+  log(`${commandLine(installer.installer)} in ${ctx.mcpDir}`);
+  const r = spawnSync(installer.command, installer.args, { cwd: ctx.mcpDir, env: ctx.env, stdio: ['ignore', 'inherit', 'inherit'] });
   const rc = r.status ?? 1;
   log(`exit ${rc}`);
   return rc;

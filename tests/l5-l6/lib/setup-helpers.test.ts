@@ -162,7 +162,7 @@ describe('13-roundtable seed-agents.ts standalone', { skip: NO_SQLITE3 }, () => 
     const project = scratchProject();
     assert.equal(l5SeedDb(project, 'onboarding-named', { env: baseEnv }), 0);
     const script = join(ROWS, '13', '13-roundtable', 'seed-agents.ts');
-    const r = runSetup(script, [project, PLUGIN_ROOT]);
+    const r = runSetup(script, [project]);
     assert.equal(r.status, 0, r.stderr);
     assertRoundtablePanel(project);
     const usage = runSetup(script, []);
@@ -172,11 +172,8 @@ describe('13-roundtable seed-agents.ts standalone', { skip: NO_SQLITE3 }, () => 
 });
 
 function assertRoundtablePanel(project: string): void {
-  assert.deepEqual(readFileSync(join(project, '.claude', 'agents', 'cto.md')), readFileSync(join(PLUGIN_ROOT, 'templates', 'agents', 'cto.md')));
-  assert.deepEqual(
-    readFileSync(join(project, '.claude', 'agents', 'data-engineer.md')),
-    readFileSync(join(ROWS, '13', '13-roundtable', 'data-engineer.md')),
-  );
+  for (const name of ['cto', 'data-engineer'])
+    assert.deepEqual(readFileSync(join(project, '.claude', 'agents', `${name}.md`)), readFileSync(join(ROWS, '13', '13-roundtable', `${name}.md`)));
   assert.deepEqual(
     query(project, "SELECT name, file_path FROM agents WHERE name IN ('cto', 'data-engineer') ORDER BY name").map((r) => ({ ...r })),
     [
@@ -236,11 +233,8 @@ const ROW_EFFECTS: Record<string, Check> = {
     assert.deepEqual(readFileSync(join(p, 'app.py')), readFileSync(join(row, 'fixture', 'app.py')));
     assert.equal(lastSubject(p), 'seed app.py for architect review');
   },
-  '12.02-consultant-ad-hoc': (p) =>
-    assert.deepEqual(
-      readFileSync(join(p, '.claude', 'agents', 'architect.md')),
-      readFileSync(join(PLUGIN_ROOT, 'templates', 'agents', 'architect.md')),
-    ),
+  '12.02-consultant-ad-hoc': (p, row) =>
+    assert.deepEqual(readFileSync(join(p, '.claude', 'agents', 'architect.md')), readFileSync(join(row, 'architect.md'))),
   '03-multirepo-onboard-scan': (p) => {
     assert.deepEqual(
       query(p, "SELECT name, path, protected_branches FROM repos WHERE name IN ('repo-a', 'repo-b') ORDER BY name").map((r) => ({ ...r })),

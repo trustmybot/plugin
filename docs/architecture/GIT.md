@@ -1,6 +1,6 @@
 # Git workflow — actor states across a task lifecycle
 
-Where each actor's git state lives at every stage of a TMB task: "what branch am I on?", "what is bro looking at?", "where did swe put the work?". The guards that enforce it are the git hooks under `mcp/trajectory-server/src/hooks/`; the step-by-step chain is flow 2 in [`FLOWS.md`](./FLOWS.md).
+Where each actor's git state lives at every stage of a TMB task: "what branch am I on?", "what is bro looking at?", "where did swe put the work?". The guards that enforce it are the git hooks under `mcp/trajectory-server/src/hooks/`; the task chain they serve is flow 2 in [`FLOWS.md`](./FLOWS.md), at design level.
 
 ## Core principle: local is canonical, origin is downstream
 

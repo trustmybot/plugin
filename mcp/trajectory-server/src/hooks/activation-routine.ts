@@ -2,7 +2,9 @@
  * UserPromptSubmit hook (GH 1692): on a bro turn (the prompt says "bro" as a word and is not a harness turn,
  * or the transcript holds sticky bro mode) it pre-fetches the onboarded flag
  * and the newest open issue and injects them as additionalContext, prefixed
- * by a HALT notice when pgrep finds no trajectory-server. Never blocks.
+ * by a HALT notice when pgrep finds no trajectory-server. Once per session, when
+ * the last main-thread call's context passes bro_compact_nudge_tokens, it
+ * appends a /compact nudge (GH 3029). Never blocks.
  *
  * The word test is grep's: `\b` and -i under the locale grep would run in
  * (ASCII word bytes in C; letters, digits and _ under UTF-8, where a
@@ -11,8 +13,10 @@
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
+import { BRO_COMPACT_NUDGE_TOKENS_KEY, parseBroCompactNudgeTokens } from '../tools/config.js';
 import { isHarnessTurn } from './cmd-analysis/harness-turn.js';
 import { ALLOW, type GateResult } from './gate.js';
+import { auditAppend } from './lib/audit.js';
 import { dbPathAdvisory, haveSqlite, sqliteRo } from './lib/db.js';
 import { jqCompact, jqFieldOr } from './lib/jq.js';
 import { commandOnPath } from './lib/persona.js';
@@ -24,6 +28,9 @@ export const HALT_TEXT =
   '⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`) stays available for emergency reads.';
 const FIRST_RUN_LINE = 'onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>';
 export const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
+const ASSISTANT_MARKER = Buffer.from('"type":"assistant"');
+const NEWLINE = 0x0a;
+const SYNTHETIC_MODEL = '<synthetic>';
 
 /** A grep -E pattern run line by line under C (bytes) or UTF-8 (code points). */
 export class LocaleGrep {
@@ -119,6 +126,81 @@ export function activationContext(onboardedCount: string, pending: string): stri
   return `[tmb activation routine — pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${pendingLine}`;
 }
 
+/** The input context of one main-thread, non-synthetic assistant transcript line; null for any other line. */
+function callContext(line: string): number | null {
+  let entry: unknown;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (entry === null || typeof entry !== 'object') return null;
+  const { type, isSidechain, message } = entry as Record<string, unknown>;
+  if (type !== 'assistant' || isSidechain === true || message === null || typeof message !== 'object') return null;
+  const { model, usage } = message as Record<string, unknown>;
+  if (model === SYNTHETIC_MODEL || usage === null || typeof usage !== 'object') return null;
+  const count = (key: string): number => {
+    const value = (usage as Record<string, unknown>)[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  };
+  return count('input_tokens') + count('cache_creation_input_tokens') + count('cache_read_input_tokens');
+}
+
+/** The input context of the last main-thread assistant call in <transcript>; null with none. */
+export function lastCallContext(transcript: Buffer | null): number | null {
+  if (transcript === null) return null;
+  let end = transcript.length;
+  while (end > 0) {
+    const hit = transcript.lastIndexOf(ASSISTANT_MARKER, end - 1);
+    if (hit === -1) return null;
+    const start = transcript.lastIndexOf(NEWLINE, hit) + 1;
+    const newline = transcript.indexOf(NEWLINE, hit);
+    const context = callContext(transcript.toString('utf8', start, newline === -1 ? transcript.length : newline));
+    if (context !== null) return context;
+    end = start - 1;
+  }
+  return null;
+}
+
+export function compactNudgeLine(contextTokens: number, threshold: number): string {
+  return `TMB: this bro session's context is ${contextTokens} tokens, past ${BRO_COMPACT_NUDGE_TOKENS_KEY} (${threshold}). At the next natural break, ask the Human to run /compact; the PreCompact state note restores the issue, its tasks and the newest decision.`;
+}
+
+/** The /compact nudge for session <sessionId> the first time its context passes the threshold, recorded by its once-marker audit row; '' otherwise. */
+function compactNudge(db: string, sessionId: string, transcript: Buffer | null, env: NodeJS.ProcessEnv): string {
+  if (!SESSION_ID_LINE.test(sessionId)) return '';
+  const contextTokens = lastCallContext(transcript);
+  if (contextTokens === null) return '';
+  const threshold = parseBroCompactNudgeTokens(
+    sqliteRo(db, `SELECT value_json FROM plugin_config WHERE key='${BRO_COMPACT_NUDGE_TOKENS_KEY}';`, env),
+  );
+  if (threshold === 0 || contextTokens <= threshold) return '';
+  const nudged = sqliteRo(
+    db,
+    `SELECT COUNT(*) FROM audit WHERE event_type='bro_compact_nudged' AND json_valid(content_json) AND json_extract(content_json, '$.session_id')='${sessionId}';`,
+    env,
+  );
+  if (nudged !== '0') return '';
+  const written = auditAppend(
+    db,
+    {
+      issueId: '-1',
+      branchId: '',
+      fromNode: `hook:${GATE_NAME}`,
+      eventType: 'bro_compact_nudged',
+      summary: `Compact nudge: bro session ${sessionId} at ${contextTokens} context tokens (threshold ${threshold})`,
+      contentJson: JSON.stringify({ session_id: sessionId, context_tokens: contextTokens, threshold }),
+      dedupePaths: ['$.session_id'],
+    },
+    { caller: GATE_NAME, env },
+  );
+  if (!written.ok) {
+    if (written.error !== '') process.stderr.write(`${written.error}\n`);
+    return '';
+  }
+  return compactNudgeLine(contextTokens, threshold);
+}
+
 /** The issue of the handoff <sessionId> consumed, while that issue is open; '' otherwise. */
 function handoffPending(db: string, sessionId: string, env: NodeJS.ProcessEnv): string {
   if (!SESSION_ID_LINE.test(sessionId)) return '';
@@ -149,6 +231,8 @@ export function activationRoutine(payload: string, env: NodeJS.ProcessEnv): Gate
     let context = activationContext(onboarded, pending);
     if (halt !== '') context = `${halt} ${context}`;
     if (sessionId.split('\n').some((line) => SESSION_ID_LINE.test(line))) context = `${context} session_id=${sessionId}`;
+    const nudge = compactNudge(db, sessionId, transcript, env);
+    if (nudge !== '') context = `${context}\n${nudge}`;
     return emit(context);
   } catch {
     return ALLOW;

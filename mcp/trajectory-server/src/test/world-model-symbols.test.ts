@@ -937,7 +937,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 15);
+      assert.equal(EXTRACTOR_VERSION, 16);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1780,8 +1780,8 @@ describe('member calls skip named-import and sourced-file binding (GH 2472)', ()
     assert.deepEqual(callees('typed'), [['join', 'src/write-paths.ts:WritePaths.join']]);
   });
 
-  it('the extractor version is 15', () => {
-    assert.equal(EXTRACTOR_VERSION, 15);
+  it('the extractor version is 16', () => {
+    assert.equal(EXTRACTOR_VERSION, 16);
   });
 });
 
@@ -2221,15 +2221,13 @@ describe('table edges resolve exact when one non-test definition exists (GH 2523
     assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
   });
 
-  it('two non-test definitions, or only test definitions, keep the pick by name', () => {
-    assert.deepEqual({ ...tableEdge('readPairs') }, { path: 'src/other.sql', resolution: 'name' });
-    assert.deepEqual({ ...tableEdge('readLonely') }, { path: 'src/test/schema.sql', resolution: 'name' });
+  it('no-guess: two non-test definitions stay unlinked, a lone test definition links', () => {
+    assert.deepEqual({ ...tableEdge('readPairs') }, { path: null, resolution: 'unresolved' });
+    assert.deepEqual({ ...tableEdge('readLonely') }, { path: 'src/test/schema.sql', resolution: 'exact' });
   });
 
-  it('two real definitions plus a fixtures copy pick a real definition by name (GH 2527)', () => {
-    const edge = tableEdge('readDups')!;
-    assert.equal(edge.resolution, 'name');
-    assert.ok(['src/a/schema.sql', 'src/b/schema.sql'].includes(edge.path!), `bound to ${edge.path}`);
+  it('no-guess: two real definitions plus a fixtures copy stay unlinked (GH 2527)', () => {
+    assert.deepEqual({ ...tableEdge('readDups') }, { path: null, resolution: 'unresolved' });
   });
 
   it('a card whose only table edge resolves exact carries no found-by-name note', async () => {
@@ -2237,10 +2235,10 @@ describe('table edges resolve exact when one non-test definition exists (GH 2523
     assert.equal(await noteOf('readPairs'), 'found by name; not all callers');
   });
 
-  it('a second non-test definition turns the edge to name, and removing it turns it back to exact', async () => {
+  it('a second non-test definition unlinks the edge, and removing it links it back exact', async () => {
     write({ 'src/more.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n' });
     await scan(db, holder, ws);
-    assert.equal(tableEdge('readItems')!.resolution, 'name');
+    assert.deepEqual({ ...tableEdge('readItems') }, { path: null, resolution: 'unresolved' });
     assert.equal(await noteOf('readItems'), 'found by name; not all callers');
 
     write({ 'src/more.sql': 'CREATE TABLE extra (id INTEGER PRIMARY KEY);\n' });
@@ -2249,7 +2247,7 @@ describe('table edges resolve exact when one non-test definition exists (GH 2523
 
     write({ 'src/more.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n' });
     await scan(db, holder, ws);
-    assert.equal(tableEdge('readItems')!.resolution, 'name');
+    assert.equal(tableEdge('readItems')!.resolution, 'unresolved');
 
     rmSync(join(root, 'src/more.sql'));
     write({});
@@ -2358,5 +2356,42 @@ describe('inline self-naming tool handlers are tool:<name> symbols (GH 1970)', (
       out.results.some((r) => r['kind'] === 'symbol' && r['qualified_name'] === 'tool:task_reopen'),
       JSON.stringify(out.results),
     );
+  });
+});
+
+describe('references link only on proof (GH 3032)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-no-guess-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  before(async () => {
+    const files: Record<string, string> = {
+      'src/lonely.ts': 'export function uniquelyNamedHelper(): number {\n  return 1;\n}\n',
+      'src/caller.ts': 'export function callsWithoutImport(): number {\n  return uniquelyNamedHelper();\n}\n',
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('no-guess: a TS call to a uniquely named function in a non-imported file stays unlinked', () => {
+    const edge = db.get<{ dst_id: number | null; resolution: string }>(
+      `SELECT e.dst_id, e.resolution FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+        WHERE s.repo = 'app' AND s.qualified_name = 'callsWithoutImport' AND e.kind = 'calls' AND e.dst_name = 'uniquelyNamedHelper'`,
+    );
+    assert.deepEqual({ ...edge }, { dst_id: null, resolution: 'unresolved' });
   });
 });

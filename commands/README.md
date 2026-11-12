@@ -8,7 +8,7 @@ The plugin's slash commands — the Human-triggered entry points into TMB's work
 |---|---|---|
 | `onboard.md` | Configure or change identity, branching model, PR target, remotes, and issue-sync via a short AskUserQuestion ceremony. Auto-fires on bro's first turn when the project is not yet onboarded. | (none) |
 | `scan.md` | Refresh the world model — walk the session dir for git repos and write each project's directories, files and symbols to the world-model tables of the trajectory DB, with each directory's summary from its `README.md` or, without one, from its file names. | (none) |
-| `agent-create.md` | Create or copy an agent into `<project>/.claude/agents/` and optionally spawn it on a consultant question. User-created agents default to `kind='consultant'`. | `<kebab-case name>` plus optional question |
+| `agent-create.md` | Create an agent in `<project>/.claude/agents/` and optionally spawn it on a consultant question. User-created agents default to `kind='consultant'`. | `<kebab-case name>` plus optional question |
 | `roundtable.md` | Run a structured multi-agent deliberation: collect parallel positions, synthesize agreements and disagreements, ratify with the Human via AUQ, then close with decisions. | `<topic>` |
 | `dashboard.md` | Start the local dashboard (`dashboard/dist/server.mjs`: issues, tasks, agent runs, gates, audit, project map) in the background and report its URL. It can also edit and close issues, add comments and change config. | (none) |
 | `monitor.md` | Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them, via the `tmb_comment-triage` skill. | `<PR or MR number>` |
