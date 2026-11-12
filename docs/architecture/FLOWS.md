@@ -46,7 +46,7 @@ Every flow is built on two axes. The first is a responsibility boundary: each la
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a decision + blast radius, then flow 2 | + a decision record |
 | 6 | Push gate / PR review | Each completed task bro hands to review; any push | bro → code-reviewer (one per task, parallel) | a verdict per reviewed commit, with its findings |
 | 8 | SWE retry / escalation | A design misfit, a review fail, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
-| **M** | Monitor PR comments | `/monitor <PR_number>` | bro → swe per ratified comment group | stored comments, new tasks on the PR's issue, a fetch cursor |
+| **M** | PR comment triage | Review comments reach a PR bro owns | bro → swe per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
 | 33 | Multi-repo path discipline | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
 | | **Extending the team** | | | |
@@ -170,9 +170,9 @@ A design misfit at task close, a review fail, a refused reviewer spawn or an int
 - **Rework is bounded.** Two fails since the last pass stop further swe runs until bro records a root-cause analysis and makes the change it names; no run count denies on its own. Design drift ends the task, and bro redesigns it as a new one. Nothing waits on the Human.
 - **Long work hands back.** A swe out of turns commits and hands back a checkpoint instead of failing, and the next run resumes from what is left.
 
-### M. Monitor PR comments
+### M. PR comment triage
 
-`/monitor <PR_number>` (default: the current branch's PR) fetches the PR's review comments and stores each once on the PR's linked issue. bro groups the task-worthy ones, the Human ratifies a subset, and each group becomes a task on that issue through flow 2. A per-PR cursor means a re-run returns only newer comments.
+When review comments reach a PR bro owns (a PR-activity notification, a CI-monitor event, the Human pointing at the PR, or bro's own check of a PR it opened), bro fetches them and stores each once on the PR's linked issue. bro groups the task-worthy ones and sends every group to swe through flow 2 without waiting on the Human: it reopens the closed task that owns the touched surface, on the same branch, or opens a new task on that issue. A comment that would change the issue's intent or scope is not dispatched; bro records it on the issue and asks the Human. When the PR or its issue cannot be resolved, bro records the gap and skips the PR. A per-PR cursor means a re-fetch returns only newer comments.
 
 ### 33. Multi-repo path discipline
 

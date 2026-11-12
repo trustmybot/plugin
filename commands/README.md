@@ -11,8 +11,7 @@ The plugin's slash commands — the Human-triggered entry points into TMB's work
 | `agent-create.md` | Create an agent in `<project>/.claude/agents/` and optionally spawn it on a consultant question. User-created agents default to `kind='consultant'`. | `<kebab-case name>` plus optional question |
 | `roundtable.md` | Run a structured multi-agent deliberation: collect parallel positions, synthesize agreements and disagreements, ratify with the Human via AUQ, then close with decisions. | `<topic>` |
 | `dashboard.md` | Start the local dashboard (`dashboard/dist/server.mjs`: issues, tasks, agent runs, gates, audit, project map) in the background and report its URL. It can also edit and close issues, add comments and change config. | (none) |
-| `monitor.md` | Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them, via the `tmb_comment-triage` skill. | `<PR or MR number>` |
 
 ## How it fits
 
-Commands are how a Human steers the workflow that bro otherwise drives autonomously. Policy changes (`/onboard`), world-model refreshes (`/scan`), specialist creation (`/tmb:agent-create`), group decisions (`/roundtable`), and review triage (`/monitor`) each have a dedicated entry point so the same ceremony runs the same way every time.
+Commands are how a Human steers the workflow that bro otherwise drives autonomously. Policy changes (`/onboard`), world-model refreshes (`/scan`), specialist creation (`/tmb:agent-create`), and group decisions (`/roundtable`) each have a dedicated entry point so the same ceremony runs the same way every time.

@@ -392,7 +392,7 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
     {
       name: 'pr_monitor_runs_list',
       description:
-        "Read-only: pr_monitor_comments_get's polling cursors for /monitor, one row per (pr_number, repo) with last_fetched_at + last_comment_id.",
+        "Read-only: pr_monitor_comments_get's polling cursors for comment triage, one row per (pr_number, repo) with last_fetched_at + last_comment_id.",
       inputSchema: {
         type: 'object',
         properties: {
