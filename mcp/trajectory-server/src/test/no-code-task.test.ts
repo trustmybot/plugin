@@ -226,8 +226,20 @@ describe('SC1: tasks.no_code_class through task_provision', () => {
           ...extra,
         },
       })) as RawResult;
+    const retry = async (failedBranchId: string, newBranchId: string): Promise<RawResult> => {
+      db.run(`UPDATE tasks SET status = 'failed' WHERE branch_id = ?`, [failedBranchId]);
+      const failedId = db.get<{ id: number }>('SELECT id FROM tasks WHERE branch_id = ?', [failedBranchId])?.id;
+      return (await composites.handlers['task_retry']({
+        agent: 'bro',
+        failed_task_id: String(failedId),
+        new_branch_id: newBranchId,
+        corrected_spec_body: ['## Description', 'Edit `a.md` again.', '', '## Success Criteria', '- SC1: works'].join('\n'),
+        retry_rationale: 'retry the no-code task',
+        description: 'd',
+      })) as RawResult;
+    };
     const stored = (branchId: string) => db.get<{ no_code_class: string | null }>('SELECT no_code_class FROM tasks WHERE branch_id = ?', [branchId]);
-    return { provision, stored, cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); } };
+    return { provision, retry, stored, cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); } };
   }
 
   it("stores 'docs' and 'prompts' as given, and NULL when the class is omitted", async () => {
@@ -241,6 +253,24 @@ describe('SC1: tasks.no_code_class through task_provision', () => {
         const r = await s.provision(branch, extra);
         assert.ok(!r.isError, r.content[0]?.text);
         assert.equal(s.stored(branch)?.no_code_class, want);
+      }
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  it('SC6: task_retry carries the class to the new task, and NULL stays NULL', async () => {
+    const s = provisionSetup();
+    try {
+      for (const [failedBranch, extra, newBranch, want] of [
+        ['docs/e', { no_code_class: 'docs' }, 'docs/e-retry', 'docs'],
+        ['feat/f', {}, 'feat/f-retry', null],
+      ] as const) {
+        const p = await s.provision(failedBranch, extra);
+        assert.ok(!p.isError, p.content[0]?.text);
+        const r = await s.retry(failedBranch, newBranch);
+        assert.ok(!r.isError, r.content[0]?.text);
+        assert.equal(s.stored(newBranch)?.no_code_class, want);
       }
     } finally {
       s.cleanup();

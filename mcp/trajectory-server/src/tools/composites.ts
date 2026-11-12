@@ -3017,9 +3017,10 @@ export function compositeTools(
           verification: string;
           prompt_bearing: number;
           effort: Effort;
+          no_code_class: string | null;
         }>(
           `SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
-                  files, verification, prompt_bearing, effort
+                  files, verification, prompt_bearing, effort, no_code_class
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId],
         );
@@ -3135,8 +3136,8 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, no_code_class, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -3151,6 +3152,7 @@ export function compositeTools(
               effort,
               gate?.base_sha ?? null,
               gate?.wm_commit ?? null,
+              failed.no_code_class,
               now,
               now,
             ],
