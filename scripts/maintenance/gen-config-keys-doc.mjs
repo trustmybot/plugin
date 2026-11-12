@@ -272,7 +272,7 @@ export function keySetErrors(found, keys = KEYS) {
 export function renderSection(seeds, keys = KEYS) {
   const rows = keys.map((k) => {
     const dflt = seeds.has(k.name) ? `\`${seeds.get(k.name)}\` (schema seed)` : k.defaultText;
-    return `| \`${k.name}\` | ${k.type} | ${dflt.replace(/\|/g, '\\|')} | ${k.setBy} | ${k.effect} |`;
+    return `| \`${k.name}\` | ${k.type} | ${dflt.replace(/[\\|]/g, '\\$&')} | ${k.setBy} | ${k.effect} |`;
   });
   return [
     BEGIN,
