@@ -762,6 +762,89 @@ describe('scopeCheckCommit (#157)', () => {
     }
   });
 
+  it('a task branch that merged a newer target reports only its own paths, from a stale or diverged recorded base (GH 3105)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scopecheck-merged-'));
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-C', ws, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    const commit = (file: string, message = file): string => {
+      mkdirSync(join(ws, file, '..'), { recursive: true });
+      writeFileSync(join(ws, file), `${file}\n`);
+      git('add', '.');
+      git('commit', '-q', '-m', message);
+      return git('rev-parse', 'HEAD');
+    };
+    try {
+      git('init', '-q', '-b', 'dev');
+      git('config', 'user.email', 't@t.t');
+      git('config', 'user.name', 't');
+      const cut = commit('seed.txt');
+      git('branch', 'stale', cut);
+      git('checkout', '-q', '-b', 'parent');
+      const parentTip = commit('docs/parent.md');
+      git('checkout', '-q', '-b', 'work');
+      commit('src/a.ts');
+
+      git('checkout', '-q', 'dev');
+      git('merge', '-q', '--squash', 'parent');
+      git('commit', '-q', '-m', 'squash parent');
+      commit('docs/dev-gained.md');
+      const devTip = commit('scripts/dev-gained.sh');
+      git('update-ref', 'refs/remotes/origin/dev', devTip);
+
+      git('checkout', '-q', 'work');
+      git('merge', '-q', '--no-edit', 'origin/dev');
+      const sha = commit('src/b.ts');
+
+      const files = ['src/a.ts', 'src/b.ts'];
+      for (const [label, recordedRef, expectedRecorded] of [
+        ['stale', 'stale', cut],
+        ['diverged', 'parent', parentTip],
+      ] as const) {
+        const res = scopeCheckCommit(ws, 'origin/dev', sha, files, recordedRef);
+        assert.equal(res.checked, true);
+        assert.equal(res.mergeBase, devTip);
+        assert.equal(res.recordedBase, expectedRecorded);
+        assert.equal(res.baseMoved, true, `${label}: a recorded base that does not descend from the merge-base is a move`);
+        assert.deepEqual(res.changed, files, `${label}: dev-merged paths are not the task's own`);
+        assert.deepEqual(res.outOfScope, []);
+      }
+
+      const rogueSha = commit('rogue.ts');
+      const rogue = scopeCheckCommit(ws, 'origin/dev', rogueSha, files, 'parent');
+      assert.deepEqual(rogue.outOfScope, ['rogue.ts'], 'a genuine out-of-files[] path still counts');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a live stacked base still excludes the parent commits from changed (GH 3105)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scopecheck-stacked-'));
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-C', ws, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    const commit = (file: string): string => {
+      writeFileSync(join(ws, file), `${file}\n`);
+      git('add', '.');
+      git('commit', '-q', '-m', file);
+      return git('rev-parse', 'HEAD');
+    };
+    try {
+      git('init', '-q', '-b', 'dev');
+      git('config', 'user.email', 't@t.t');
+      git('config', 'user.name', 't');
+      commit('seed.txt');
+      git('checkout', '-q', '-b', 'stack');
+      commit('stack.txt');
+      git('checkout', '-q', '-b', 'work');
+      const sha = commit('work.txt');
+
+      const res = scopeCheckCommit(ws, 'dev', sha, ['work.txt'], 'stack');
+      assert.deepEqual(res.changed, ['work.txt'], 'the stacked parent commits are not the task\'s own');
+      assert.equal(res.baseMoved, false);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('returns checked:false with a reason when the repo/commit is unresolvable', () => {
     const ws = mkdtempSync(join(tmpdir(), 'scopecheck-nogit-'));
     try {
@@ -789,6 +872,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       staleParent?: string[];
       orphanParent?: boolean;
       missingParent?: string;
+      mergedDev?: { gained: string[]; ownAfter: string[] };
     } = {},
   ): Promise<{
     db: TrajectoryDB;
@@ -868,7 +952,21 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     // Put the work commit on a feature branch so the local `dev` ref stays at
     // the base — the remoteless fallback then diffs a real parent...work range.
     git(repoRoot, 'checkout', '-q', '-b', 'feat/work');
-    const sha = commitFiles(changedFiles, 'work');
+    let sha = commitFiles(changedFiles, 'work');
+
+    // The sibling squash-merges into dev, dev gains more, and the task branch
+    // merges the new dev before its own next commit: the recorded base (the
+    // sibling tip) and the target merge-base diverge (GH 3105).
+    if (opts.mergedDev) {
+      git(repoRoot, 'checkout', '-q', 'dev');
+      git(repoRoot, 'merge', '-q', '--squash', 'feat/sibling');
+      git(repoRoot, 'commit', '-q', '-m', 'squash sibling');
+      const devTip = commitFiles(opts.mergedDev.gained, 'dev gained');
+      if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', devTip);
+      git(repoRoot, 'checkout', '-q', 'feat/work');
+      git(repoRoot, 'merge', '-q', '--no-edit', 'dev');
+      sha = commitFiles(opts.mergedDev.ownAfter, 'work after merge');
+    }
 
     // dev advances with unrelated files after the task branched.
     if (opts.devAdvance) {
@@ -1154,6 +1252,49 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       assert.equal(out['merge_base'], baseSha);
       const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
       assert.deepEqual(brief['scope'], { files: ['src/a.ts'], extras: [], extras_accepted: [], base_moved: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a task branch that merged a newer dev closes without the dev-merged paths as extras; review_handoff scope agrees (GH 3105)', async () => {
+    const { db, composites, taskId, sha, siblingSha, cleanup } = await setup(['src/'], ['src/a.ts'], {
+      sibling: ['docs/sibling.md'],
+      mergedDev: { gained: ['docs/dev-gained.md', 'scripts/hooks/lib/dev.sh'], ownAfter: ['src/b.ts'] },
+    });
+    try {
+      const repoPath = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = 'app'`)!.path;
+      const devTip = execFileSync('git', ['-C', repoPath, 'rev-parse', 'origin/dev']).toString().trim();
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.ok(!r.isError, `dev-merged paths must not be extras, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r);
+      assert.equal(out['base_moved'], true);
+      assert.equal(out['recorded_base'], siblingSha);
+      assert.equal(out['merge_base'], devTip);
+      const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
+      assert.deepEqual(brief['scope'], { files: ['src/'], extras: [], extras_accepted: [], base_moved: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a task branch that merged a newer dev is still refused for its own out-of-files[] path, naming only that path (GH 3105)', async () => {
+    const { db, composites, taskId, sha, cleanup } = await setup(['src/'], ['src/a.ts'], {
+      sibling: ['docs/sibling.md'],
+      mergedDev: { gained: ['docs/dev-gained.md', 'scripts/hooks/lib/dev.sh'], ownAfter: ['src/b.ts', 'rogue.ts'] },
+    });
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.equal(r.isError, true);
+      const out = parse(r);
+      assert.match(out['error'] as string, /rogue\.ts/);
+      assert.doesNotMatch(out['error'] as string, /dev-gained|dev\.sh|sibling\.md/);
+      const row = db.get<{ status: string }>(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+      assert.equal(row!.status, 'completed', 'task stays open when the gate rejects');
     } finally {
       cleanup();
     }

@@ -248,10 +248,11 @@ function gitOut(repoPath: string, args: string[]): string {
 // its base to <commit>, returning the changed paths files[] does not cover.
 // `mergeBase` = merge-base(commit, targetRef), so commits the PR target
 // gained after the task branched never count. `recordedBaseRef` (the task's
-// cut base) gives `recordedBase` = merge-base(commit, recordedBaseRef); when
-// it resolves the diff starts there, so commits a local-ahead base carries
-// beyond the target never count either — unless the target merge-base is
-// strictly newer. `baseMoved` is true when recordedBase is null, or differs
+// cut base) gives `recordedBase` = merge-base(commit, recordedBaseRef). The
+// diff starts at recordedBase only when it strictly descends from mergeBase
+// (a live stacked or local-ahead base); in every other case it starts at
+// mergeBase, so a target merged into the task branch never counts (GH 3105).
+// `baseMoved` is true when recordedBase is null, or differs
 // from mergeBase without descending from it (the target merge-base is
 // strictly newer, or the two diverged); a recordedBase strictly descending
 // from mergeBase is a live stacked base, not a move. `checked:false` + a
@@ -280,7 +281,7 @@ export function scopeCheckCommit(
   }
 
   const diffBase =
-    recordedBase && !(recordedBase !== mergeBase && isAncestor(repoPath, recordedBase, mergeBase)) ? recordedBase : mergeBase;
+    recordedBase !== null && recordedBase !== mergeBase && isAncestor(repoPath, mergeBase, recordedBase) ? recordedBase : mergeBase;
   let diffOut: string;
   try {
     diffOut = gitOut(repoPath, ['diff', '--name-only', diffBase, commitSha]);
