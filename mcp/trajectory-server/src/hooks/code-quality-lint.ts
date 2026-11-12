@@ -2,10 +2,7 @@
  * PreToolUse lint (GH 1692): warns through additionalContext on the code-quality patterns a regex finds
  * in the new content of a Python or TS/JS source file (bare except, an
  * unbounded subprocess.run, string-built SQL, `catch (e: any)`, a TODO
- * marker, …). Bypass: TMB_SKIP_CQ_LINT=1.
- *
- * Messages and decisions are the .sh's, except the main-guard, sync-spawn-timeout
- * and home-path checks born in TypeScript (GH 3087); the lint also runs with no jq on PATH.
+ * marker, …). Bypass: TMB_SKIP_CQ_LINT=1. It needs no jq.
  */
 import { ALLOW, type SyncGate } from './gate.js';
 import {

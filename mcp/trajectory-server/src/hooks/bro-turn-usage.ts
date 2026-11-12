@@ -3,7 +3,7 @@
  * session's one bro agent_runs row (task_id and issue_id NULL) rewritten with
  * the sums of the transcript's main-loop assistant usage, inserted when
  * absent, in one tmb_db_write transaction. The transcript reduction follows
- * the .sh's jq program value for value: lines grouped by message id in jq's
+ * a jq program value for value: lines grouped by message id in jq's
  * order (last usage wins, tool_use blocks summed), numbers floored and
  * printed as jq prints them, the model with the most tokens, and no write
  * when jq would have stopped on an error. Bypass:
@@ -27,8 +27,7 @@
  * only by one at or past its offset unless it no longer fits the transcript as
  * it is at save time. A transcript read error writes nothing (GH 2711).
  *
- * Divergence: the .sh exits 0 without jq or the sqlite3 CLI; this gate needs
- * neither (node:sqlite writes the row).
+ * It needs neither jq nor the sqlite3 CLI (node:sqlite writes the row).
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -312,7 +311,7 @@ export function foldUsage(s: UsageFold, values: unknown[]): void {
   }
 }
 
-/** The row of a finished fold, null where the .sh prints nothing (or jq stops on an error). */
+/** The row of a finished fold, null where the jq program prints nothing (or stops on an error). */
 export function finishUsage(s: UsageFold): TurnUsage | null {
   if (s.failed) return null;
   const groups = [...s.groups.values()].sort((a, b) => jqCompare(a.id, b.id));
@@ -341,7 +340,7 @@ export function finishUsage(s: UsageFold): TurnUsage | null {
   };
 }
 
-/** The .sh's jq reduction of a transcript, null where it prints nothing (or stops on an error). */
+/** The jq reduction of a transcript, null where it prints nothing (or stops on an error). */
 export function turnUsage(transcript: string): TurnUsage | null {
   const { values, complete } = jsonStream(transcript);
   if (!complete) return null;

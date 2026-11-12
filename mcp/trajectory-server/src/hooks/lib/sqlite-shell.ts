@@ -1,7 +1,6 @@
 /**
- * One sqlite3 invocation as the shell hook libs make it (GH 1692): through
- * node:sqlite when this Node ships it unflagged, else through the sqlite3 CLI
- * with the exact args the .sh passes. The node path reproduces what the CLI
+ * One sqlite3 invocation (GH 1692): through node:sqlite when this Node ships
+ * it unflagged, else through the sqlite3 CLI. The node path reproduces what the CLI
  * prints in list mode (`|`-separated, no header), its exit codes (arg mode: the
  * primary error code of the first failure; stdin mode: 1 on any error) and the
  * first stderr line of a stdin-mode error, so callers read either path alike.

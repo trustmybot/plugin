@@ -1,9 +1,8 @@
 /**
  * SessionStart hook (GH 1692): samples pgrep for this plugin's trajectory-server, adds the once-per-session
  * install-scope notice and the duplicate-copies warning, and appends one
- * forensic line to <state dir>/logs/mcp-health.log. It never denies.
- *
- * Divergence: the .sh exits 0 silently without jq; this gate needs no jq.
+ * forensic line to <state dir>/logs/mcp-health.log. It never denies and
+ * needs no jq.
  */
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';

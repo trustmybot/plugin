@@ -9,8 +9,7 @@
  * (cmd-analysis) finds. Every denial writes one containment_denied audit row.
  * No trajectory DB → allow; a DB that cannot be read → deny.
  *
- * Deny messages, audit rows and the allow/deny decision are the .sh's, with
- * one exception: a target the analyzer reports as `$(parse)` (the command did
+ * A target the analyzer reports as `$(parse)` (the command did
  * not parse), `$(computed)` (a path built at run time) or `$(unproven)` (an
  * inline program or command the analyzer cannot prove, GH 1739) is always denied,
  * never through the literal-dir allowance. That deny, and the deny of a
@@ -19,15 +18,13 @@
  * router/records.ts matches the phrase (UNJUDGED_PHRASE) and keeps no
  * boundary-deny record for it, since no path was judged (GH 1750, GH 1772).
  *
- * A second exception (GH 1912): with no absolute TMPDIR in the hook env, a
- * Bash call the sandbox runs (not marked dangerouslyDisableSandbox) is judged
- * with the TMPDIR Claude Code's sandbox gives it, /tmp/claude-<uid>, when that
- * dir passes harnessTmp's check. The .sh keeps the hook env, so a `$TMPDIR`
- * target stays unresolved there and is denied. No corpus payload runs it.
+ * GH 1912: with no absolute TMPDIR in the hook env, a Bash call the sandbox
+ * runs (not marked dangerouslyDisableSandbox) is judged with the TMPDIR
+ * Claude Code's sandbox gives it, /tmp/claude-<uid>, when that dir passes
+ * harnessTmp's check. No corpus payload runs it.
  *
- * A third (GH 2443): an absolute analyzer line that is not UNRESOLVED is
- * judged as written, each `$` or backtick in it literal text (`'/etc/$x'`,
- * `/etc/a$`), where the .sh drops it unjudged.
+ * GH 2443: an absolute analyzer line that is not UNRESOLVED is judged as
+ * written, each `$` or backtick in it literal text (`'/etc/$x'`, `/etc/a$`).
  */
 import { lstatSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';

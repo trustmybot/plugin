@@ -31,14 +31,11 @@
  * over RETURN_BUDGET_CHARS also writes one advisory subagent_return_oversize
  * audit row (GH 1959); it changes no decision or output and fails open.
  *
- * The transcript reduction follows the .sh's `jq -rsc` program value for
- * value, `0|0|0|0|0|0||` wherever jq would have stopped on an error. The
- * recorders swe-stop-cause and tool-output-size run in-process, each with its
- * own env as the .sh's separate node processes have. Log lines go to
- * <state dir>/logs/mcp-health.log, rotated at 1 MB.
- *
- * Divergence (decision 703): the .sh exits 0 without jq or the sqlite3 CLI;
- * this gate needs neither.
+ * The transcript reduction follows a `jq -rsc` program value for value,
+ * `0|0|0|0|0|0||` wherever jq would have stopped on an error. The recorders
+ * swe-stop-cause and tool-output-size run in-process, each with its own env.
+ * Log lines go to <state dir>/logs/mcp-health.log, rotated at 1 MB. It needs
+ * neither jq nor the sqlite3 CLI.
  */
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync } from 'node:fs';
 import type { Gate } from './gate.js';
@@ -210,7 +207,7 @@ export function transcriptStats(path: string, since = ''): string {
   return transcriptStatsOf(text, since);
 }
 
-/** The stats of a transcript's text, as the .sh's jq program prints them. */
+/** The stats of a transcript's text, as the `jq -rsc` program prints them. */
 export function transcriptStatsOf(text: string, since = ''): string {
   const { values, complete } = jsonStream(text);
   if (!complete) return NO_STATS;

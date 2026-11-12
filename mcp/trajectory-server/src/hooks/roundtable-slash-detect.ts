@@ -4,7 +4,7 @@
  * signal roundtable_create's gate checks so a phrase trigger cannot fire the
  * ceremony. A harness turn quoting /roundtable is not the Human. Fail-open: a
  * write that fails after its retries prints a loud stderr line and exits 0.
- * Unlike the .sh, it needs neither jq nor the sqlite3 CLI (decision 703).
+ * It needs neither jq nor the sqlite3 CLI.
  */
 import { ALLOW, type GateResult } from './gate.js';
 import { isHarnessTurn } from './cmd-analysis/harness-turn.js';
@@ -18,14 +18,14 @@ export const SUMMARY_MAX_BYTES = 200;
 
 const WRITE_ENV = { TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10200' };
 
-/** The .sh's `case`: /roundtable at the start, after a newline or after a space. */
+/** /roundtable at the start, after a newline or after a space. */
 export function slashInvoked(prompt: string): boolean {
   return prompt.startsWith('/roundtable') || prompt.includes('\n/roundtable') || prompt.includes(' /roundtable');
 }
 
 /**
  * `printf '%s' "$PROMPT" | head -c 200` as a `$(...)` capture. A multibyte
- * character cut at byte 200 decodes to U+FFFD, where the .sh kept its bytes.
+ * character cut at byte 200 decodes to U+FFFD.
  */
 export function promptSummary(prompt: string): string {
   return commandSubstitution(Buffer.from(prompt, 'utf8').subarray(0, SUMMARY_MAX_BYTES).toString('utf8'));

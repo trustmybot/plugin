@@ -7,10 +7,8 @@
  * (lib/change-impact-line.ts).
  * It never starts a scan: on a cold world model with tracked source files the
  * note points at the trajectory server's startup catch-up. Without jq it
- * prints only the Tooling line; any failure exits 0 silently.
- *
- * Divergence: the .sh exits 0 silently without the sqlite3 CLI; this gate
- * reads the DB through node:sqlite.
+ * prints only the Tooling line; any failure exits 0 silently. The DB is read
+ * through node:sqlite, with no sqlite3 CLI needed.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

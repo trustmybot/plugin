@@ -1,9 +1,7 @@
 /**
- * TypeScript port of scripts/hooks/lib/resolve-repo.sh's repo lookups (GH
- * 1692): a git dir's main checkout, its repos row and the sole registered
- * repo. Every read is tmb_sqlite_ro's ("" on error). Where the .sh needs the
- * sqlite3 CLI on PATH these need a working SQLite (haveSqlite), node:sqlite
- * included.
+ * The repo lookups (GH 1692): a git dir's main checkout, its repos row and
+ * the sole registered repo. Every read is a read-only query ("" on error) and
+ * needs a working SQLite (haveSqlite), node:sqlite or the sqlite3 CLI.
  */
 import { payloadCwd } from '../cmd-analysis/path.js';
 import { haveSqlite, realdir, repoPathAbs, sqliteRo, sqlQuote } from './db.js';
@@ -34,7 +32,7 @@ const CD_PREFIX = /^[ \t\v\f\r]*cd[ \t\v\f\r]+/;
 const CD_TARGETS: readonly RegExp[] = [/^"([^"]+)"/, /^'([^']+)'/, /^([^ \t\v\f\r&;]+)/];
 const GIT_C = /git -C ([^ \t\v\f\r]+)/;
 
-/** The target of a line's leading `cd` as the .sh's ERE reads it: the longest alternative, the earlier on a tie. */
+/** The target of a line's leading `cd` as a POSIX ERE reads it: the longest alternative, the earlier on a tie. */
 function cdTarget(line: string): string | null {
   const prefix = CD_PREFIX.exec(line);
   if (!prefix) return null;

@@ -1,7 +1,6 @@
 /**
- * The path-listing model of cmd-analysis.sh: _tmb_cmd_lister_bind with
- * _tmb_cmd_pat_matches and _tmb_cmd_excl_covers, judging prompt surfaces with
- * surface.ts's isPromptSurfaceUnder. A loop variable fed by a lister, and the placeholder of what find / fd run,
+ * The path-listing model: a lister's name patterns and exclusions, judging
+ * prompt surfaces with surface.ts's isPromptSurfaceUnder. A loop variable fed by a lister, and the placeholder of what find / fd run,
  * is bound to the paths the lister may list when every one lies in the run
  * root.
  */

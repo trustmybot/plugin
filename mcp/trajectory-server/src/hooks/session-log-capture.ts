@@ -3,8 +3,7 @@
  * <project>/.claude/<plugin>/logs/<UTC date>-<session_id>.jsonl, the session
  * id from the payload, else the .current-session-id sentinel, else
  * <UTC timestamp>-<pid>, and prints {"continue": true}. Silent in a project
- * with no trajectory DB. Unlike the .sh, which logs an empty file without jq,
- * it reads the payload itself (decision 703).
+ * with no trajectory DB. It reads the payload itself, with no jq.
  */
 import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { ALLOW, type GateResult } from './gate.js';
@@ -66,7 +65,7 @@ export function sessionLogCapture(payload: string, env: NodeJS.ProcessEnv): Gate
     try {
       appendFileSync(`${logDir}/${now.day}-${sessionId}.jsonl`, logLines(echoed, now.iso));
     } catch {
-      /* as the .sh: the log line is best effort */
+      /* the log line is best effort */
     }
     return { stdout: CONTINUE, code: 0 };
   } catch {

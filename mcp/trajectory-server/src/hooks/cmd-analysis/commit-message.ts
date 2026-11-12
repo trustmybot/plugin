@@ -1,6 +1,5 @@
 /**
- * tmb_git_commit_message of scripts/hooks/lib/cmd-analysis.sh (GH 1692): the
- * first `git commit` statement of a command's executable skeleton and the
+ * The commit message of a command (GH 1692): the first `git commit` statement of a command's executable skeleton and the
  * message its argv carries. git.ts keeps its statement listing private, so the
  * listing is repeated here on the same encode.ts / statements.ts skeleton.
  */

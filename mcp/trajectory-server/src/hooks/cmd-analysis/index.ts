@@ -1,6 +1,5 @@
 /**
- * The TypeScript write-path analyzer (GH 1692): tmb_cmd_write_paths of
- * scripts/hooks/lib/cmd-analysis.sh on tree-sitter-bash. Importing it loads no
+ * The write-path analyzer on tree-sitter-bash (GH 1692). Importing it loads no
  * parser; the first non-blank command loads bash, and the first inline
  * program in python or node loads its grammar, after which the command is
  * analyzed again (GH 1739).

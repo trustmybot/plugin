@@ -7,12 +7,11 @@
  * an explicit closing ref when no other task of it is live (else
  * issue_auto_close_deferred). Each closed issue's remote twin is then closed
  * while the sync gate is on; with it off, issue_auto_close_remote_skipped is
- * written instead. gh runs with the .sh's arguments, bounded to 10 s.
+ * written instead. gh runs bounded to 10 s.
  *
  * Advisory: it prints nothing on stdout and always exits 0. Bypasses:
  * TMB_DISABLE_CLOSE_ISSUE_ON_MERGE=1, and TMB_DISABLE_REMOTE_SYNC for the
- * remote close. Unlike the .sh it needs neither jq nor the sqlite3 CLI, so it
- * records the merge where the .sh skipped it (decision 703).
+ * remote close. It needs neither jq nor the sqlite3 CLI.
  */
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';

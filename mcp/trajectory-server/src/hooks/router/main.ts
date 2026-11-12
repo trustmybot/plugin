@@ -123,7 +123,7 @@ function servesCall(root: string, event: string, part: string | undefined, tool:
 }
 
 /**
- * The --shim yield, as the retired dispatch.sh --shim had it: CLAUDE_PROJECT_DIR is another project than
+ * The --shim yield: CLAUDE_PROJECT_DIR is another project than
  * TMB_SHIM_PROJECT (physical paths), or the plugin's SessionStart hook left
  * <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks for the
  * payload's session_id, so the plugin's own hooks judge this session.

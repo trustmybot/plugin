@@ -2,10 +2,8 @@
  * PreToolUse lint (GH 1692): when
  * Edit / Write / MultiEdit / NotebookEdit creates a file, warns through
  * additionalContext when its basename breaks the language's convention
- * (snake_case .py / .sql, kebab-case .sh / .ts / .js, kebab-case or
- * PascalCase .tsx / .jsx). Bypass: TMB_SKIP_NAMING_LINT=1.
- *
- * Messages and decisions are the .sh's; the lint also runs with no jq on PATH.
+ * (snake_case .py / .sql, kebab-case shell scripts / .ts / .js, kebab-case or
+ * PascalCase .tsx / .jsx). Bypass: TMB_SKIP_NAMING_LINT=1. It needs no jq.
  */
 import { existsSync } from 'node:fs';
 import { ALLOW, type SyncGate } from './gate.js';

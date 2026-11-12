@@ -1,8 +1,7 @@
 /**
- * TypeScript port of the install readers of the former shell lib
- * resolve-install.sh (GH 1692): this plugin's installs recorded in installed_plugins.json, by
- * scope, and the enabled copies of it that apply to a project. The .sh's jq
- * filters keep jq 1.7's stream semantics (each JSON value of a file runs on
+ * The install readers (GH 1692): this plugin's installs recorded in installed_plugins.json, by
+ * scope, and the enabled copies of it that apply to a project. The readers
+ * keep jq 1.7's stream semantics (each JSON value of a file runs on
  * its own; an index error ends that value's rows), its rows stay @tsv-escaped
  * as `read -r` leaves them, and its sorts compare bytes (LC_ALL=C order).
  */

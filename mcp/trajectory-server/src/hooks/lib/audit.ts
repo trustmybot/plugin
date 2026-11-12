@@ -1,8 +1,7 @@
 /**
- * TypeScript port of scripts/hooks/lib/db-write.sh (GH 1692): the single write
- * path from a hook into the trajectory DB and the audit-row builders on top of
- * it. Where the .sh prints one stderr line and exits non-zero, these return
- * `{ ok: false, code, error }` with that line as `error`.
+ * The single write path from a hook into the trajectory DB and the audit-row
+ * builders on top of it (GH 1692). A failure returns
+ * `{ ok: false, code, error }` with one stderr-style line as `error`.
  */
 import { accessSync, constants, readFileSync, statSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
@@ -29,7 +28,7 @@ export interface WriteResult {
 }
 
 export interface WriteOptions {
-  /** The hook name the .sh derives from $0; defaults to this process's gate name. */
+  /** The calling hook's name; defaults to this process's gate name. */
   caller?: string;
   env?: NodeJS.ProcessEnv;
 }
@@ -252,8 +251,8 @@ export function dedupeGuard(
 }
 
 /**
- * tmb_audit_sql: one validated INSERT INTO audit statement (without the
- * trailing newline the .sh prints), conditional on <guardSql> when given.
+ * One validated INSERT INTO audit statement, with no trailing newline,
+ * conditional on <guardSql> when given.
  */
 export function auditSql(row: AuditRow, guardSql = '', opts: AuditOptions = {}): SqlResult {
   const caller = opts.caller ?? defaultCaller();
