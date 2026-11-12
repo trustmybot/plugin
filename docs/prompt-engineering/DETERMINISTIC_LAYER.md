@@ -1,6 +1,6 @@
 # Deterministic layer
 
-The rules for enforcing TMB doctrine in code: the layers, what each guarantees, which layer covers which interaction, and how to move a rule out of a prompt. How to write the prompts that stay in layer 6 is in [`JUDGMENT_LAYER.md`](JUDGMENT_LAYER.md).
+The rules for moving TMB doctrine out of prompts and into code: the layers, what each guarantees, which layer covers which interaction, and how to add a deterministic check. How to write the prompts that stay in layer 6 is in [`JUDGMENT_LAYER.md`](JUDGMENT_LAYER.md).
 
 > **If a step could fail because the LLM forgot, misordered, or misunderstood it, that step does not belong in a prompt. It belongs in a deterministic layer.**
 
@@ -10,7 +10,7 @@ The rules for enforcing TMB doctrine in code: the layers, what each guarantees, 
 |---|---|---|---|
 | 1 | **MCP server** | Role-bound tool access, input validation, server-side defaults for omitted args, and atomic composite tools that run a multi-step workflow as one call in one DB transaction. | Wire-level rejection (`is_error: true`) regardless of prompt content; a composite's steps land together or not at all. |
 | 2 | **Hooks** | Gates fired by the host on lifecycle events: PreToolUse blocks a call until its prerequisite holds; PostToolUse emits follow-up side effects; SessionStart and UserPromptSubmit inject context. | A block or side effect runs outside the LLM's context and cannot be skipped. Injected context is advisory: it reaches the model but compliance stays at layer 6. |
-| 3 | **Frontmatter** | The `tools:` allowlist in agent `.md` files. | Host-enforced at spawn. |
+| 3 | **Frontmatter** | The `tools:` allowlist in agent `.md` files. | The host grants only the listed tools at spawn. |
 | 4 | **Schema constraints** | `CHECK`, `UNIQUE`, `NOT NULL`, FK on the trajectory DB. | Rejects malformed writes at the storage layer, including raw-SQL bypasses of MCP handlers. |
 | 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context. | Soft — reduces prompt noise; the model can still ignore loaded content. |
 | 6 | **Prompts** | CLAUDE.md, agent prompts, skill prose: the judgment layer. | None — accept the compliance ceiling. |
@@ -48,7 +48,7 @@ Recognizable by mechanism. **Anything that is *sequencing*, *defaulting*, *const
 | "Probe the environment for X, Y, Z" | Layer 1 tool that runs deterministic code |
 | "Don't proceed until Z has happened" | Layer 2 PreToolUse block |
 | "After A, also do B" | Layer 2 PostToolUse side effect |
-| "Enforce file naming / commit format" | Layer 2 lint hook |
+| "Use this file naming / commit format" | Layer 2 lint hook |
 
 ## The boundary test (apply this to any prompt line)
 
@@ -76,7 +76,8 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 | Interaction | Layer |
 |---|---|
 | Activation routine (onboarded marker + pending issue injection) | 2 |
-| Bro never edits source code (every code change → SWE) | 2 |
+| Bro edits only docs and prompts paths (per `.config/tmb/path-classes.json`), and only in a running no-code task's worktree; every code change goes to SWE | 2 |
+| A bro-authored no-code change signed off before push | 6 only (open: GH 3077) |
 | Project `.gitignore` excludes `.claude/` | 2 |
 | Only provisioning creates task branches and worktrees (SWE may not invent, abbreviate, or detach a branch) | 1 + 2 |
 | Branch up to date with the remote target branch before SWE attach | 2 |
@@ -130,6 +131,8 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 
 | Interaction | Layer |
 |---|---|
+| Uses only the tools its frontmatter grants; the user may grant write tools (e.g. pm writing SVGs) | 3 |
+| Its file writes pass the same edit gates as every role: outside a worktree, only docs, config and scratch paths | 2 |
 | Cannot write workflow state (task_*, validation_record, issue_*) | 1 |
 | Records its analysis on the issue before it stops | 2 |
 | Return analyses, never decisions | 6 only |
@@ -147,15 +150,15 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 | Roundtable capture-surface verification on close | 2 |
 | Task close, SWE retry, and `branch_id` derivation as atomic composites | 1 |
 
-## How to add a new enforcement
+## How to add a deterministic check
 
 1. Identify the failure mode. What's the bad thing if the LLM doesn't comply?
-2. Pick the hardest layer that fits (table at top).
+2. Pick the hardest layer that fits ([The 6 layers](#the-6-layers-hardest--softest)).
 3. Implement it in that layer's source (see above) with a test; a layer 4 change to an existing table also needs its migration.
 4. If the guard covers version-control commands, match git, gh and glab at a command boundary — so `gh pr merge` and `glab mr merge` are both caught, while a match inside a quoted string or a longer word is not — and add a test case for each CLI.
 5. Hooks that compare role names normalize them first: the host passes roles with or without a `<plugin>:` prefix, and a hook that silently skips a prefixed role is a disabled safety gate.
 6. Update the coverage matrix. A layer 6 row notes that it may need promotion.
-7. **If demoting from a harder layer to a softer one, justify in the PR.**
+7. **Moving a rule to a softer layer needs its reason in the PR.**
 
 ## Prompt cache zones
 

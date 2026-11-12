@@ -1,6 +1,6 @@
 # Cheatcode Integration
 
-Architecture-of-record for the discover → vet → install → hot-load pipeline that lets bro acquire cheatcodes (skills, MCP toolkits, plugins) on demand. Which layer enforces each stage follows [DETERMINISTIC_LAYER.md](../prompt-engineering/DETERMINISTIC_LAYER.md). The tools that implement the stages are the `cheatcode_*` family in `mcp/trajectory-server/src/tools/` (`cheatcode.ts`, `cheatcode-search.ts`); the user-side procedure is the `tmb_cheatcode` skill, and the lifecycle at design level is flow 10 in [`FLOWS.md`](./FLOWS.md).
+Architecture-of-record for the discover → vet → install → hot-load pipeline that lets bro acquire cheatcodes (skills, MCP toolkits, plugins) on demand. Which deterministic layer covers each stage follows [DETERMINISTIC_LAYER.md](../prompt-engineering/DETERMINISTIC_LAYER.md). The tools that implement the stages are the `cheatcode_*` family in `mcp/trajectory-server/src/tools/` (`cheatcode.ts`, `cheatcode-search.ts`); the user-side procedure is the `tmb_cheatcode` skill, and the lifecycle at design level is flow 10 in [`FLOWS.md`](./FLOWS.md).
 
 ## Principle
 

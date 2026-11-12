@@ -34,7 +34,7 @@ The criteria follow the order in which you write or read a prompt, one category 
 | Content | G3 | Situational or optional detail lives in a skill or command, not the always-loaded prompt. | 2 | T1 | judgment |
 | Content | G4 | The rules are few and concrete, and the most important come first; "use good judgment" with no criteria is not a rule. | 1, 10 | T1 | judgment |
 | Content | G5 | The prompt uses one structure style throughout, and a prompt that mixes instructions, context, examples, and inputs tags each part. | 3 | T1; T3 for tags | judgment |
-| Content | G6 | Tool output, fetched pages, files, and comments sit in named tags marked as data, and what the agent may do with them is enforced in a hook or gate. | 14 | T2 boundary; T3 tags | judgment |
+| Content | G6 | Tool output, fetched pages, files, and comments sit in named tags marked as data, and what the agent may do with them is decided in a hook or gate. | 14 | T2 boundary; T3 tags | judgment |
 | Wording | G7 | Each prohibition names what to do instead, and none names a word only to forbid it. | 9 | T2 (mixed) | judgment |
 | Wording | G8 | Each non-obvious rule gives its reason. | 13 | T3 | judgment |
 | Wording | G9 | No emphasis words (CRITICAL, MUST, ALL CAPS, ALWAYS, NEVER) appear outside true invariants. | 12 | T3 | deterministic |
@@ -82,8 +82,8 @@ A prompt loads into the agent's context every time its trigger fires, so every l
 
 | What the line does | Action |
 |---|---|
-| Encodeable as if/else AND enforced by a gate | **DELETE** — the gate already guarantees the behavior. |
-| Encodeable as if/else, NOT yet enforced | **KEEP** as readable prose, rewrite naturally, file a migration issue. |
+| Encodeable as if/else AND a gate already checks it | **DELETE** — the gate already guarantees the behavior. |
+| Encodeable as if/else, no gate checks it yet | **KEEP** as readable prose, rewrite naturally, file a migration issue. |
 | Required judgment (100% of runs) | **BODY** — move to the always-loaded agent file. |
 | Optional/situational judgment | **SKILL** — trigger-loaded, not burned on every turn. |
 | Explains, motivates, or restates rather than directing | **DELETE** — exposition, not judgment. |
@@ -96,8 +96,8 @@ A line is deletable only when its gate actually guarantees the behavior: grade t
 |---|---|
 | **A** | Every line passes all six tests. |
 | **B** | Compliant architecture, but carries residual machine-spec, exposition, or minor duplication. |
-| **C** | Procedures wearing a prompt costume — readable but enforceable; or so padded with exposition the judgment core is buried. |
-| **D** | Prompt is doing enforcement's job for at least one workflow step. |
+| **C** | Procedures wearing a prompt costume — readable, but a check could decide them; or so padded with exposition the judgment core is buried. |
+| **D** | Prompt does the deterministic layer's job for at least one workflow step. |
 | **F** | Agent can act against policy before any gate fires. |
 
 ### Size discipline
