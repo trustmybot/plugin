@@ -3,11 +3,12 @@
 //   1. The top `## vX.Y.Z` section of CHANGELOG.md matches plugin.json.
 //   2. Every changelog.d/ fragment is well formed (changelog.d/README.md).
 //   3. On a feature branch (diff against origin/<TMB_PR_TARGET>, default dev):
+//      - a redaction-only CHANGELOG.md edit (no net added lines, no `#` line
+//        touched) is not a changelog entry, so the next two rules skip it;
 //      - editing CHANGELOG.md and adding a fragment fails — pick one;
 //      - after CUTOVER, any direct CHANGELOG.md edit fails, except on a version
-//        bump branch, on the branches already in flight at the cut-over
-//        (every GH issue its commits cite is in TRANSITION), and for a
-//        redaction-only edit (no net added lines, no `#` line touched);
+//        bump branch and on the branches already in flight at the cut-over
+//        (every GH issue its commits cite is in TRANSITION);
 //      - each `GH <n>` cited in a branch commit subject needs a fragment
 //        changelog.d/<n>-*.md or an entry in CHANGELOG.md.
 //
@@ -180,15 +181,15 @@ export function changelogCurrent(rootDir, { today, baseBranch, env } = {}) {
 
     if (bumpBranch) {
       out.push(`  ⊘ version bump branch (${baseVersion} → ${CANON}) — CHANGELOG.md is assembled here`);
+    } else if (changelogEdited && isRedactionOnly(git, MB)) {
+      out.push('  ⊘ redaction-only CHANGELOG.md edit');
     } else {
       if (changelogEdited && branchFragments !== '') {
         fail(`branch ${BRANCH} edits CHANGELOG.md and adds fragment(s):${branchFragments} — pick one (a fragment)`);
       }
       if (changelogEdited && TODAY > CUTOVER) {
         const inFlight = cited.length > 0 && cited.every((n) => TRANSITION.includes(n));
-        if (!inFlight && isRedactionOnly(git, MB)) {
-          out.push('  ⊘ redaction-only CHANGELOG.md edit');
-        } else if (!inFlight) {
+        if (!inFlight) {
           fail(
             `branch ${BRANCH} edits CHANGELOG.md directly; since ${CUTOVER} a change adds changelog.d/<gh-issue>-<slug>.md instead (changelog.d/README.md)`,
           );

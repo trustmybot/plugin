@@ -177,6 +177,29 @@ test('a CHANGELOG.md edit that adds a line or touches a heading still fails afte
   assert.match(droppedOut.output, /edits CHANGELOG\.md directly/, 'removed heading names the rule');
 });
 
+test('a redaction-only CHANGELOG.md edit beside a fragment passes the pick-one rule', () => {
+  const r = newRepo('redaction-with-fragment');
+  write(join(r, 'changelog.d/2008-trim.md'), '### Fixed\n- **Trim** (GH 2008): trim.\n');
+  edit(join(r, 'CHANGELOG.md'), '- **First** (GH 1): hi.\n', '- **First** (GH 1): hi, trimmed.\n');
+  commitAll(r, '🐛 fix: trim a released entry (GH 2008)');
+  for (const day of [CUTOVER_DAY, AFTER_CUTOVER]) {
+    const out = lint(r, day);
+    assert.equal(out.code, 0, out.output);
+    assert.doesNotMatch(out.output, /pick one/, 'pick-one skipped');
+    assert.match(out.output, /redaction-only/, 'names the exception');
+  }
+});
+
+test('a CHANGELOG.md edit that adds a line beside a fragment still fails the pick-one rule', () => {
+  const r = newRepo('net-add-with-fragment');
+  write(join(r, 'changelog.d/2009-more.md'), '### Fixed\n- **More** (GH 2009): more.\n');
+  edit(join(r, 'CHANGELOG.md'), '- **First** (GH 1): hi.\n', '- **First** (GH 1): hi.\n- **More** (GH 2009): more.\n');
+  commitAll(r, '🐛 fix: more (GH 2009)');
+  const out = lint(r, CUTOVER_DAY);
+  assert.equal(out.code, 1, 'net +1 plus fragment → FAIL');
+  assert.match(out.output, /pick one/, 'says pick one');
+});
+
 test('an in-flight branch (every cited issue in the transition list) may still edit CHANGELOG.md', () => {
   const r = newRepo('in-flight');
   edit(join(r, 'CHANGELOG.md'), '### Fixed\n', '### Fixed\n- **Runner** (GH 1245): runner.\n');
