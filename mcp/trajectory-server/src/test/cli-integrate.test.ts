@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { gitGuards } from '../hooks/git-guards.js';
+import { gitPushGuard } from '../hooks/git-push-guard.js';
 import { installRoot } from '../hooks/lib/project-env.js';
 import { HAS_PASS_SQL } from '../review-sql.js';
 
@@ -133,6 +134,29 @@ function setup(move: Move, verification = PASSING): void {
     ).run(JSON.stringify({ task_id: 1, commit_sha: commit }));
     d.exec(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
       VALUES (1, 1, 'code-reviewer', 'pass', 1, 'LGTM', '2026-10-19T02:00:00.000Z');`);
+  } finally {
+    d.close();
+  }
+  wmSymbol('README.md', 'README.md', 'module');
+}
+
+// A world-model symbol of repo 'repo'; returns its id.
+function wmSymbol(path: string, name: string, kind = 'function'): number {
+  const d = new DatabaseSync(db);
+  try {
+    const r = d
+      .prepare(`INSERT INTO wm_symbols (repo, path, kind, qualified_name, start_line, end_line, body_hash) VALUES ('repo', ?, ?, ?, 1, 1, 'h')`)
+      .run(path, kind, name);
+    return Number(r.lastInsertRowid);
+  } finally {
+    d.close();
+  }
+}
+
+function wmEdge(src: number, dst: number, kind: 'imports' | 'calls'): void {
+  const d = new DatabaseSync(db);
+  try {
+    d.prepare(`INSERT INTO wm_edges (src_id, dst_id, dst_name, kind, resolution) VALUES (?, ?, 'd', ?, 'exact')`).run(src, dst, kind);
   } finally {
     d.close();
   }
@@ -915,6 +939,128 @@ describe('cli.js integrate', () => {
     assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
     assertNotIntegrated();
     assertNoTempWorktree();
+  });
+
+  // GH 3108: the pass carries only when the base commits the rebase moved over
+  // miss the task's diff and its world-model dependents; else integrate still
+  // verifies and moves the branch, records no carried anchor and exits 5.
+  describe('the pass carries only when the moved base misses the diff (GH 3108)', () => {
+    function twentyLines(line: number, value: string): void {
+      const lines = Array.from({ length: 20 }, (_, i) => (i + 1 === line ? value : `l${i + 1}`));
+      writeFileSync(join(repo, 's.txt'), `${lines.join('\n')}\n`);
+    }
+
+    // The task changes line 1 of s.txt and adds a.txt; main then changes line 20
+    // of s.txt, out of the task hunk's context, and adds m.txt.
+    function setupSharedFile(): void {
+      setup('none');
+      git('branch', '-q', '-D', 'feat/x-1');
+      twentyLines(0, '');
+      git('add', 's.txt');
+      git('commit', '-qm', 'chore: s.txt');
+      git('checkout', '-q', '-b', 'feat/x-1');
+      twentyLines(1, 'task');
+      writeFileSync(join(repo, 'a.txt'), 'task\n');
+      git('add', 's.txt', 'a.txt');
+      git('commit', '-qm', 'feat: task');
+      commit = rev('HEAD');
+      git('checkout', '-q', 'main');
+      twentyLines(20, 'base');
+      writeFileSync(join(repo, 'm.txt'), 'moved\n');
+      git('add', 's.txt', 'm.txt');
+      git('commit', '-qm', 'feat: main moves');
+      pointTaskAt(commit);
+    }
+
+    function assertUncarried(r: Run, why: RegExp): string {
+      assert.equal(r.code, 5, r.err);
+      const next = r.out;
+      assert.match(next, /^[0-9a-f]{40}$/, 'stdout carries the rebased SHA');
+      assert.notEqual(next, commit, 'the printed SHA is the rebased commit');
+      assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 moved to the verified rebased SHA');
+      assert.equal(rev(`${next}^`), rev('main'), "the rebased commit's parent is main");
+      assert.equal(
+        q(`SELECT source || '|' || exit_code || '|' || timed_out FROM verification_runs WHERE commit_sha = '${next}'`),
+        'manual|0|0',
+        'the passing run on the rebased SHA is recorded',
+      );
+      assert.equal(q('SELECT commit_sha FROM tasks WHERE id = 1'), next, 'tasks.commit_sha names the rebased SHA');
+      assert.equal(q("SELECT COUNT(*) FROM audit WHERE event_type = 'task_integrated'"), '0', 'no carried anchor is recorded');
+      assert.equal(hasPass(), '0', 'no pass covers the rebased SHA');
+      assert.match(r.err, why);
+      assert.ok(r.err.includes(`a new code-reviewer pass is needed for ${next}`), 'stderr asks for a new review of the rebased SHA');
+      assertNoTempWorktree();
+      return next;
+    }
+
+    async function pushDecision(): Promise<string> {
+      const env = { ...GIT_ENV, TRAJECTORY_DB_PATH: db, PWD: repo };
+      const command = `git -C ${repo} push origin feat/x-1`;
+      return (await gitPushGuard(JSON.stringify({ cwd: repo, tool_input: { command } }), env)).stdout;
+    }
+
+    it('a base commit changing a file the diff changes: exit 5 naming it, branch moved, no carried pass', () => {
+      setupSharedFile();
+      assertUncarried(integrate('main'), /change 1 path\(s\) the task's diff or its dependents hold: s\.txt;/);
+    });
+
+    it('a base commit changing only a file that imports a diff file: exit 5 naming the importer', () => {
+      setup('clean');
+      wmEdge(wmSymbol('m.txt', 'm.txt', 'module'), wmSymbol('a.txt', 'a.txt', 'module'), 'imports');
+      assertUncarried(integrate('main'), /hold: m\.txt;/);
+    });
+
+    it('a base commit changing only a file that calls a symbol the diff defines: exit 5 naming the caller', () => {
+      setup('clean');
+      wmEdge(wmSymbol('m.txt', 'useTask'), wmSymbol('a.txt', 'task'), 'calls');
+      assertUncarried(integrate('main'), /hold: m\.txt;/);
+    });
+
+    it('dependents the base did not touch: the pass carries, exit 0', () => {
+      setup('clean');
+      const task = wmSymbol('a.txt', 'task');
+      wmEdge(wmSymbol('x.txt', 'useTask'), task, 'calls');
+      wmEdge(wmSymbol('y.txt', 'y.txt', 'module'), task, 'imports');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(q("SELECT json_extract(content_json, '$.commit_sha') FROM audit WHERE event_type = 'task_integrated'"), r.out, 'the carried anchor names the rebased SHA');
+      assert.equal(hasPass(), '1', 'the reviewed pass covers the rebased SHA');
+      assert.doesNotMatch(r.err, /does not carry/);
+    });
+
+    it('no world-model rows for the repo: exit 5, world model unavailable', () => {
+      setup('clean');
+      exec("DELETE FROM wm_symbols WHERE repo = 'repo'; INSERT INTO wm_symbols (repo, path, kind, qualified_name, body_hash) VALUES ('other', 'a.txt', 'module', 'a.txt', 'h');");
+      assertUncarried(integrate('main'), /world model unavailable \(no wm_symbols rows for repo 'repo'\)/);
+    });
+
+    it('unreadable world-model tables: exit 5, world model unavailable', () => {
+      setup('clean');
+      exec('DROP TABLE wm_edges;');
+      assertUncarried(integrate('main'), /world model unavailable \(the wm_symbols or wm_edges read failed\)/);
+    });
+
+    it('a base that has not moved still prints the reviewed SHA with no world model', () => {
+      setup('none');
+      exec('DELETE FROM wm_symbols;');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(r.out, commit, 'printed SHA');
+      assertNotIntegrated();
+    });
+
+    it('git-push-guard denies a push of the SHA an exit 5 printed, and allows a carried one', async () => {
+      setupSharedFile();
+      const uncarried = assertUncarried(integrate('main'), /s\.txt/);
+      const denied = await pushDecision();
+      assert.match(denied, /"permissionDecision":"deny"/, `a push of ${uncarried}`);
+      assert.match(denied, /lack a code-reviewer pass verdict/, 'the deny names the missing review');
+
+      rmSync(repo, { recursive: true, force: true });
+      setup('clean');
+      assert.equal(integrate('main').code, 0);
+      assert.doesNotMatch(await pushDecision(), /"permissionDecision":"deny"/, 'a push of a carried integration');
+    });
   });
 
   // git-guards denies a rebase in the main checkout; the temporary worktree
