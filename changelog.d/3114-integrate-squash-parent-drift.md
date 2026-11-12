@@ -1,0 +1,2 @@
+### Fixed
+- **A task stacked on a squash-merged parent branch integrates again** (GH 3114): when the parent branch had two or more commits and reached the base as one squash merge, `cli.js integrate` reported patch drift (exit 2), because it still counted the parent's commits that the rebase drops as already in the base. It now leaves those dropped commits out of the drift check and out of the files that decide whether the review pass carries. Real drift in the task's own commits still exits 2.

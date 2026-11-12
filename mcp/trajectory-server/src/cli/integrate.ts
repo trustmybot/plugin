@@ -31,12 +31,16 @@
  *   4. The `git patch-id --stable` lists of the commits a rebase picks from
  *      commit_sha and from <rebased> (`rev-list --cherry-pick --right-only
  *      <base>...<sha>`: a commit whose patch is already in <base>, such as a
- *      squash-merged parent branch's, is skipped), both over every path, must
- *      match, else exit 2. No rebased commit left means the task's patch is
- *      already in <base> → exit 2.
+ *      single-commit squash-merged parent branch's, is skipped), both over
+ *      every path, must match in count and order, else exit 2. A pick of
+ *      commit_sha that no pick of <rebased> shares author name, email, date
+ *      and message with was dropped by the rebase as already in <base> (the
+ *      commits of a parent branch squash-merged from two or more, GH 3114) and
+ *      is left out of both checks. No rebased commit left means the task's
+ *      patch is already in <base> → exit 2.
  *      The pass then carries only when the base moved past the task's diff
  *      (GH 3108): the paths `git diff --name-only <merge-base(commit_sha,
- *      base)> <base>` lists must miss the paths the picks of commit_sha
+ *      base)> <base>` lists must miss the paths the kept picks of commit_sha
  *      change and their world-model dependents (files importing a symbol of
  *      those paths, and files holding a caller or table reader of one, tests
  *      excluded, from wm_symbols and wm_edges of the task's repo). An
@@ -445,16 +449,49 @@ SELECT changes();`,
     return this.revParse(this.repoRoot, `${this.base}^{commit}`);
   }
 
-  private rebasePicks(sha: string): string {
-    return this.git(this.wt, ['rev-list', '--reverse', '--no-merges', '--cherry-pick', '--right-only', `${this.baseSha}...${sha}`]).out;
+  private rebasePicks(sha: string): string[] {
+    return this.git(this.wt, ['rev-list', '--reverse', '--no-merges', '--cherry-pick', '--right-only', `${this.baseSha}...${sha}`])
+      .out.split('\n')
+      .filter((pick) => pick !== '');
   }
 
-  private patchIds(sha: string): string {
-    const picks = this.rebasePicks(sha);
+  /** What a rebase keeps of a commit: author name, email, raw date and raw message; null when git cannot read it. */
+  private rebaseIdentity(sha: string): string | null {
+    const r = spawnSync('git', ['-C', this.wt, 'show', '-s', '--date=raw', '--format=%an%x00%ae%x00%ad%x00%B', sha], {
+      encoding: 'utf8',
+      env: this.env,
+      maxBuffer: MAX_BUFFER,
+    });
+    return r.status === 0 ? r.stdout : null;
+  }
+
+  /**
+   * The picks of commit_sha the rebase to <newSha> kept, in order. A pick no
+   * rebased pick shares an identity with was dropped as already in the base,
+   * as a squash-merged parent branch's commits are (GH 3114); a pick whose
+   * identity git cannot read counts as kept.
+   */
+  private keptPicks(newSha: string): string[] {
+    const rebased = new Map<string, number>();
+    for (const pick of this.rebasePicks(newSha)) {
+      const identity = this.rebaseIdentity(pick);
+      if (identity !== null) rebased.set(identity, (rebased.get(identity) ?? 0) + 1);
+    }
+    return this.rebasePicks(this.commitSha).filter((pick) => {
+      const identity = this.rebaseIdentity(pick);
+      if (identity === null) return true;
+      const left = rebased.get(identity) ?? 0;
+      if (left === 0) return false;
+      rebased.set(identity, left - 1);
+      return true;
+    });
+  }
+
+  private patchIds(picks: readonly string[]): string {
     const diff = spawnSync('git', ['-C', this.wt, 'diff-tree', '--stdin', '-p', '-r', '--root'], {
       encoding: 'utf8',
       env: this.env,
-      input: picks === '' ? '' : `${picks}\n`,
+      input: picks.length === 0 ? '' : `${picks.join('\n')}\n`,
       maxBuffer: MAX_BUFFER,
     });
     const ids = this.git(this.wt, ['patch-id', '--stable'], { input: diff.stdout ?? '' });
@@ -484,14 +521,16 @@ SELECT changes();`,
   /**
    * Why the reviewed commit's pass does not carry to its rebase (GH 3108): the
    * paths the base commits it was rebased over change that the task's own
-   * commits (the rebase's picks) or their world-model dependents hold, and a
+   * commits (the <kept> picks) or their world-model dependents hold, and a
    * world model that cannot name the dependents; '' when it carries.
    */
-  private uncarriedReason(): string {
+  private uncarriedReason(kept: readonly string[]): string {
     const oldBase = this.git(this.wt, ['merge-base', this.commitSha, this.baseSha]).out;
-    const picks = this.rebasePicks(this.commitSha);
     const baseFiles = oldBase === '' ? null : this.pathList(['diff', '--name-only', '--no-renames', '-z', oldBase, this.baseSha]);
-    const diffFiles = this.pathList(['diff-tree', '--stdin', '-r', '--root', '--no-commit-id', '--name-only', '--no-renames', '-z'], picks === '' ? '' : `${picks}\n`);
+    const diffFiles = this.pathList(
+      ['diff-tree', '--stdin', '-r', '--root', '--no-commit-id', '--name-only', '--no-renames', '-z'],
+      kept.length === 0 ? '' : `${kept.join('\n')}\n`,
+    );
     if (baseFiles === null || diffFiles === null) return 'git could not list the files the base or the task changed';
     const dependents = this.worldModelDependents(diffFiles);
     const held = new Set([...diffFiles, ...(Array.isArray(dependents) ? dependents : [])]);
@@ -592,16 +631,18 @@ SELECT changes();`,
       sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", this.env);
     const timeoutS = parseBudget(budgetRaw).timeoutS;
 
-    if (this.rebasePicks(newSha) === '') {
+    const rebased = this.rebasePicks(newSha);
+    if (rebased.length === 0) {
       this.die(2, `task ${this.taskId}'s patch is already in ${this.baseLabel}; nothing to integrate, ${branch} and the DB are unchanged`);
     }
-    if (this.patchIds(this.commitSha) !== this.patchIds(newSha)) {
+    const kept = this.keptPicks(newSha);
+    if (kept.length !== rebased.length || this.patchIds(kept) !== this.patchIds(rebased)) {
       this.die(
         2,
         `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.baseLabel}..reviewed differs from ${this.baseLabel}..rebased); ${branch} and the DB are unchanged`,
       );
     }
-    const uncarried = this.uncarriedReason();
+    const uncarried = this.uncarriedReason(kept);
 
     const deps = await prepareWorktreeDeps(this.repoRoot, this.wt, { env: { ...this.env, PATH: toolchainPath } });
     for (const s of deps.skipped) this.io.err(`worktree-deps: ${s.dir}: ${s.reason}\n`);

@@ -287,6 +287,87 @@ describe('cli.js integrate', () => {
     assertNoTempWorktree();
   });
 
+  // GH 3114: a parent branch of two or more commits squash-merged into main.
+  // The squash's patch-id matches none of the parent's commits, so
+  // --cherry-pick keeps them on the reviewed side while the rebase drops them
+  // as empty; they are left out of the drift check and the GH 3108 carry check.
+  describe('stacked on a parent squash-merged from two commits (GH 3114)', () => {
+    function sevenLines(line: number, value: string): void {
+      const lines = [1, 2, 3, 4, 5, 6, 7].map((i) => (i === line ? value : `l${i}`));
+      writeFileSync(join(repo, 's.txt'), `${lines.join('\n')}\n`);
+    }
+
+    // feat/parent adds p1.txt then p2.txt; feat/x-1 on top adds a.txt and sets
+    // line 4 of s.txt; main gets the parent as one squash commit, then m.txt
+    // (and, with drift, line 2 of s.txt inside the task hunk's context).
+    function setupSquashedParent(drift = false): void {
+      setup('none');
+      git('branch', '-q', '-D', 'feat/x-1');
+      sevenLines(0, '');
+      git('add', 's.txt');
+      git('commit', '-qm', 'chore: s.txt');
+      git('checkout', '-q', '-b', 'feat/parent');
+      commitFile('p1.txt', 'parent one');
+      commitFile('p2.txt', 'parent two');
+      git('checkout', '-q', '-b', 'feat/x-1');
+      sevenLines(4, 'l4-task');
+      writeFileSync(join(repo, 'a.txt'), 'task\n');
+      git('add', 's.txt', 'a.txt');
+      git('commit', '-qm', 'feat: task');
+      commit = rev('HEAD');
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--squash', 'feat/parent');
+      git('commit', '-qm', 'feat: parent (squash)');
+      commitFile('m.txt', 'moved');
+      if (drift) commitFile('s.txt', ['l1', 'l2-base', 'l3', 'l4', 'l5', 'l6', 'l7'].join('\n'), 'feat: main sets line 2');
+      pointTaskAt(commit);
+    }
+
+    it('not drift: exit 0, the rebased commit changes only the task files', () => {
+      setupSquashedParent();
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.doesNotMatch(r.err, /source patches/, 'no patch drift');
+      const next = r.out;
+      assert.equal(rev(`${next}^`), rev('main'), "the rebased commit's parent is main");
+      assert.equal(git('diff', `${next}^`, next, '--name-only'), 'a.txt\ns.txt', 'the rebased commit changes only the task files');
+      assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
+      assert.equal(q(`SELECT source || '|' || exit_code FROM verification_runs WHERE commit_sha = '${next}'`), 'manual|0', 'a passing manual run on the printed SHA');
+      assertNoTempWorktree();
+    });
+
+    it("the dropped parent commits' files do not withhold the pass: it carries with the world model available", () => {
+      setupSquashedParent();
+      wmSymbol('p1.txt', 'p1.txt', 'module');
+      wmSymbol('p2.txt', 'p2.txt', 'module');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.doesNotMatch(r.err, /does not carry/);
+      assert.equal(q("SELECT json_extract(content_json, '$.commit_sha') FROM audit WHERE event_type = 'task_integrated'"), r.out, 'the carried anchor names the rebased SHA');
+      assert.equal(hasPass(), '1', 'the reviewed pass covers the rebased SHA');
+    });
+
+    it('a dropped parent file that depends on the task diff still withholds the pass: exit 5 naming it', () => {
+      setupSquashedParent();
+      wmEdge(wmSymbol('p1.txt', 'p1.txt', 'module'), wmSymbol('a.txt', 'a.txt', 'module'), 'imports');
+      const r = integrate('main');
+      assert.equal(r.code, 5, r.err);
+      assert.match(r.err, /change 1 path\(s\) the task's diff or its dependents hold: p1\.txt;/);
+      assert.equal(q("SELECT COUNT(*) FROM audit WHERE event_type = 'task_integrated'"), '0', 'no carried anchor is recorded');
+    });
+
+    it('genuine drift in the task commit is still drift: exit 2, nothing recorded', () => {
+      setupSquashedParent(true);
+      const r = integrate('main');
+      assert.equal(r.code, 2, r.err);
+      assert.match(r.err, /source patches/, 'stderr names the patch-id mismatch');
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
+      assertNotIntegrated();
+      assertNoTempWorktree();
+    });
+  });
+
   for (const [cap, want] of [
     ['10', 'abcdefghij'],
     ['0', '0123456789abcdefghij'],
