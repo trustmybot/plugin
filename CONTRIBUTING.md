@@ -23,7 +23,7 @@ A maintainer reviews and merges. Nobody pushes to `dev` or `main` directly: bran
 - One concern per branch. Delete it on merge (`--delete-branch`).
 - All integration goes through PRs; never `git merge` into `dev` or `main` locally.
 - `dev` merges through the merge queue once checks are green; GitHub auto-merge is off. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) also need a maintainer's review of the PR itself.
-- New or changed prompts are graded against [`docs/prompt-engineering/ENFORCEMENT.md`](docs/prompt-engineering/ENFORCEMENT.md); nothing ships below A-. While a batch of issues is worked autonomously, prompt surfaces freeze: prefer a hook, MCP or schema fix, or file an issue for maintainer review.
+- Prompt engineering follows [`docs/prompt-engineering/`](docs/prompt-engineering/README.md): move every rule a check can decide into the [deterministic layer](docs/prompt-engineering/DETERMINISTIC_LAYER.md), and grade every new or changed prompt A on the [judgment-layer rubric](docs/prompt-engineering/JUDGMENT_LAYER.md#grading-a-prompt). While a batch of issues is worked autonomously, prompt surfaces freeze: prefer a hook, MCP or schema fix, or file an issue for maintainer review.
 
 ## CI
 
@@ -41,13 +41,13 @@ A maintainer reviews and merges. Nobody pushes to `dev` or `main` directly: bran
 
 - Use an issue form (Bug, Improvement, Feature, Research); blank issues are disabled. Every issue carries one type, one priority and one area ([LABELS.md](docs/contributing/LABELS.md)); triage adds `needs-triage` until it does.
 - Validate a defect against `dev`, not the installed plugin, which lags it: replay it on the `dev` source with an isolated `HOME`/`TMPDIR`, search `git log origin/dev` for a fix, and classify it VALID, FIXED_ON_DEV, FALSE_ALARM or NEEDS_DECISION with file:line or commit evidence.
-- When an agent breaks a documented workflow rule, file an issue titled `workflow-violation: …` naming the rule, what happened, and a fix that moves enforcement into a hook or the MCP server.
+- When an agent breaks a documented workflow rule, file an issue titled `workflow-violation: …` naming the rule, what happened, and a fix that moves the rule into a hook or the MCP server.
 
 ## Writing code & tests
 
 - Self-documenting code; prefer deletion over addition; match the file's patterns. Emoji + Conventional Commit messages. Prose lines are not hard-wrapped.
 - No new shell: hooks, scripts and tools are TypeScript unless nothing else can run (GH 1692).
-- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → a node:test suite `mcp/trajectory-server/src/test/<name>-l3.test.ts` ([tests/README.md](tests/README.md)); new enforcement → a lint in `tests/l1-lint/`. Prompt and doc changes rely on review and the rc gate.
+- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → a node:test suite `mcp/trajectory-server/src/test/<name>-l3.test.ts` ([tests/README.md](tests/README.md)); new deterministic check → a lint in `tests/l1-lint/`. Prompt and doc changes rely on review and the rc gate.
 - Run MCP unit tests with `cd mcp/trajectory-server && bun run test`, never bare `bun test` (bun's runner cannot load `node:sqlite`).
 - A task's `verification[]` exercises the layer guarding what it touches: hooks → their `*-l3.test.ts` suites; migrations and destructive SQL → the L1 lints; `scripts/` or `mcp/trajectory-server/src/` → the whole `tests/l1-lint/` loop. Use at most one L3 runner per task (the gate has one `verification_timeout_s` budget).
 - A migration task's `files[]` covers every test asserting the schema version or table set and every reader of a changed key or column. A schema change also rebuilds `docs/architecture/ERD.md` and sets the tool's `requireRoles(...)` list.
