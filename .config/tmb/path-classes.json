@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "docs": {
+    "paths": ["docs/**/*.md", "README.md", "CONTRIBUTING.md", "SECURITY.md", "changelog.d/**", "**/README.md"]
+  },
+  "prompts": {
+    "paths": ["CLAUDE.md", "AGENTS.md", "agents/**/*.md", "skills/**/*.md", "commands/**/*.md", "templates/**/*.md"],
+    "rubric": ["docs/prompt-engineering/PROMPT_ENGINEERING.md", "docs/prompt-engineering/GOLDEN_PROMPTS.md"]
+  }
+}

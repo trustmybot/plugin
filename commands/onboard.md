@@ -80,6 +80,12 @@ Then call `onboard_get_questions(agent='bro', round='verification_defaults', rep
 
 The apply writes the file to the repo's working tree only, never commits, and never replaces an existing file with other content (`refused: true`). When the result's `verification_defaults.commit_needed` is true, tell the Human to commit the file to the PR target: until then `task_provision` does not see it.
 
+### Round 7 — No-code path classes (per repo)
+
+`.config/tmb/path-classes.json` names which paths of a repo are docs and which are prompts; every other path stays code. It is read from the PR target branch. For each repo `<name>`, call `onboard_get_questions(agent='bro', round='path_classes', repo=<name>)`. When it returns a question, show its evidence lines (the detected globs) and feed it into `AskUserQuestion`, then call `onboard_apply(agent='bro', path_classes=<answer>, repo=<name>)` on its own. When it returns none, show its `notes` in chat and move on.
+
+The apply writes the file to the repo's working tree only, never commits, and never replaces an existing file with other content (`refused: true`). When the result's `path_classes.commit_needed` is true, tell the Human to commit the file to the PR target: until then it does not take effect.
+
 ## 3. Apply (transactional)
 
 Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(shape=<shape>, repo=<name>, ...)` per repo, each writing only that repo's row).

@@ -69,6 +69,14 @@ import {
   writeVerificationDefaults,
   type VerificationDefaultCandidate,
 } from './verification-defaults.js';
+import {
+  hasPathClasses,
+  PATH_CLASSES_FILE,
+  proposePathClassesAt,
+  readPathClasses,
+  writePathClasses,
+  type PathClasses,
+} from '../path-classes.js';
 
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
@@ -651,6 +659,32 @@ function verificationDefaultsQuestions(repo: string, ref: string, candidates: Ve
   });
 }
 
+const PATH_CLASSES_OPTIONS: QuestionOption[] = [
+  { label: 'Use the detected classes', description: 'Bro edits docs and prompts directly; code still goes through review.', wire: 'proposed' },
+  { label: 'Keep everything as code', description: 'Every change goes through swe and code review.', wire: 'code' },
+];
+
+function classesEvidence(classes: PathClasses): string[] {
+  return [
+    ...(classes.docs ? [`docs: ${classes.docs.paths.join(', ')}`] : []),
+    ...(classes.prompts ? [`prompts: ${classes.prompts.paths.join(', ')}`] : []),
+  ];
+}
+
+function pathClassesQuestion(repo: string, ref: string, proposal: PathClasses, onRef: boolean): BuiltQuestion {
+  const advice: Advice = { evidence: [], reason: `Detected from the files on ${ref}.`, wire: 'proposed' };
+  return {
+    question: `Which ${repo} files are docs or prompts rather than code? They go into ${PATH_CLASSES_FILE}.`,
+    header: 'Path classes',
+    multiSelect: false,
+    ...assemble(keepOption(PATH_CLASSES_FILE, onRef), PATH_CLASSES_OPTIONS, advice, null),
+    evidence: [
+      ...(onRef ? [`${repo} already has ${PATH_CLASSES_FILE} on ${ref}.`] : []),
+      ...classesEvidence(proposal),
+    ],
+  };
+}
+
 // ---- Label → wire resolution -----------------------------------------------
 
 // Resolve a caller-supplied value against a set of options.
@@ -720,6 +754,19 @@ function parseVerificationDefaultsAnswer(raw: unknown): string[] {
   return [...new Set(commands)];
 }
 
+type PathClassesAnswer = 'proposed' | 'code' | typeof KEEP_SENTINEL;
+
+function parsePathClassesAnswer(raw: unknown): PathClassesAnswer {
+  const resolved = typeof raw === 'string' ? resolveOption(raw, PATH_CLASSES_OPTIONS) : null;
+  if (resolved !== 'proposed' && resolved !== 'code' && resolved !== KEEP_SENTINEL) {
+    throw new Error(`path_classes must be 'proposed', 'code' or '${KEEP_SENTINEL}' (got ${JSON.stringify(raw)})`);
+  }
+  return resolved;
+}
+
+// Answers that each write one repo's .config/tmb file; with no shape they are applied alone.
+const REPO_FILE_KEYS = ['verification_defaults', 'path_classes'] as const;
+
 const ISSUE_SYNC_OPTIONS: QuestionOption[] = [
   { label: 'Auto — sync to the remote you picked', description: '', wire: 'auto' },
   { label: 'Off — issues stay on this computer', description: '', wire: 'off' },
@@ -787,14 +834,14 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           },
           round: {
             type: 'string',
-            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults'],
+            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults', 'path_classes'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep). 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record).",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep). 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record). 'path_classes' = one repo's no-code path classes (any shape): one question whose evidence[] lists the docs and prompts globs detected from the files on its PR target, with options proposed (recommended), code (every path stays code) and Keep when the PR target already has " + PATH_CLASSES_FILE + "; nothing detected, an invalid file or an unresolvable PR target gives no questions and notes[] says why.",
           },
           repo: {
             type: 'string',
             description:
-              "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Valid with round='main', for either shape, and with round='verification_defaults' (required there when the workspace has several repos). Must match an existing repos.name. Omit for workspace-wide questions.",
+              "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Valid with round='main', for either shape, and with round='verification_defaults' or 'path_classes' (required there when the workspace has several repos). Must match an existing repos.name. Omit for workspace-wide questions.",
           },
         },
         required: ['round'],
@@ -864,6 +911,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             items: { type: 'string' },
             description:
               "Optional. The 'verification_defaults' round answers: the chosen commands, for repo (or the sole repo). Writes {\"version\":1,\"commands\":[...]} to " + VERIFICATION_DEFAULTS_FILE + " in the repo's working tree and never commits; result verification_defaults {path, commands, written, refused, commit_needed, message}: it takes effect once committed to the PR target. An existing file with other commands is refused and left as it is; the rest of the apply still lands. Accepted alone (no shape), with repo.",
+          },
+          path_classes: {
+            type: 'string',
+            description:
+              "Optional. The 'path_classes' round answer for repo (or the sole repo): 'proposed' writes the classes detected from the files on its PR target to " + PATH_CLASSES_FILE + " in the repo's working tree and never commits; 'code' and '__keep__' write nothing. Result path_classes {path, choice, classes, written, refused, commit_needed, message}: it takes effect once committed to the PR target. An existing file with other classes is refused and left as it is; the rest of the apply still lands. Accepted alone (no shape), with repo, and together with verification_defaults.",
           },
           repo: {
             type: 'string',
@@ -1060,14 +1112,14 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     return { removed, refused };
   };
 
-  const verificationDefaultsRepo = (name: string | undefined): { name: string; path: string } => {
+  const repoFileTarget = (answer: string, name: string | undefined): { name: string; path: string } => {
     const repo = resolveSoleRepo(db, name);
     if (repo) return repo;
-    throw new Error(name ? `unknown repo '${name}' — no matching repos row` : 'verification_defaults needs repo unless the workspace has exactly one repo');
+    throw new Error(name ? `unknown repo '${name}' — no matching repos row` : `${answer} needs repo unless the workspace has exactly one repo`);
   };
 
   const verificationDefaultsRound = (repoName: string | undefined): Record<string, unknown> => {
-    const target = verificationDefaultsRepo(repoName);
+    const target = repoFileTarget('verification_defaults', repoName);
     const ref = verificationDefaultsBaseRef(db, target.name, target.path);
     if (ref === null) return { questions: [], notes: [`${target.name}: its PR target branch does not resolve in git`] };
     const defaults = readVerificationDefaults(target.path, ref);
@@ -1096,6 +1148,48 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       };
     }
     return { ...writeVerificationDefaults(target.name, target.path, verificationDefaultsBaseRef(db, target.name, target.path), commands) };
+  };
+
+  // The classes file is read at the same PR-target base as the verification defaults.
+  const pathClassesRound = (repoName: string | undefined): Record<string, unknown> => {
+    const target = repoFileTarget('path_classes', repoName);
+    const ref = verificationDefaultsBaseRef(db, target.name, target.path);
+    if (ref === null) return { questions: [], notes: [`${target.name}: its PR target branch does not resolve in git`] };
+    const current = readPathClasses(target.path, ref);
+    if ('error' in current) return { questions: [], notes: [`${PATH_CLASSES_FILE} on ${ref} is invalid: ${current.error}`] };
+    const proposal = proposePathClassesAt(target.path, ref);
+    if ('error' in proposal) return { questions: [], notes: [proposal.error] };
+    if (!hasPathClasses(proposal.classes)) {
+      return { questions: [], notes: [`no docs or prompt files detected on ${ref}; ${target.name}'s path classes stay as they are`] };
+    }
+    return { questions: [pathClassesQuestion(target.name, ref, proposal.classes, current.classes !== null)] };
+  };
+
+  const applyPathClasses = (target: { name: string; path: string }, choice: PathClassesAnswer): Record<string, unknown> => {
+    const path = join(target.path, PATH_CLASSES_FILE);
+    const nothing = (message: string): Record<string, unknown> => ({
+      repo: target.name,
+      path,
+      choice,
+      written: false,
+      refused: false,
+      commit_needed: false,
+      message,
+    });
+    if (choice === KEEP_SENTINEL) return nothing(`${PATH_CLASSES_FILE} kept as it is`);
+    if (choice === 'code') {
+      return nothing(
+        existsSync(path)
+          ? `nothing written; the existing ${PATH_CLASSES_FILE} was left in place, remove it to keep every path as code`
+          : 'nothing written; every path stays code',
+      );
+    }
+    const ref = verificationDefaultsBaseRef(db, target.name, target.path);
+    if (ref === null) return nothing(`nothing written: ${target.name}'s PR target branch does not resolve in git`);
+    const proposal = proposePathClassesAt(target.path, ref);
+    if ('error' in proposal) return nothing(`nothing written: ${proposal.error}`);
+    if (!hasPathClasses(proposal.classes)) return nothing(`nothing written: no docs or prompt files detected on ${ref}`);
+    return { choice, ...writePathClasses(target.name, target.path, ref, proposal.classes) };
   };
 
   const handlers: Record<string, Fn> = {
@@ -1150,10 +1244,19 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       ['bro'],
       wrapHandler(async (args) => {
         const shape = args['shape'] as 'local' | 'remote' | undefined;
-        const round = args['round'] as 'shape' | 'main' | 'remote' | 'sync' | 'sandbox' | 'bug_report' | 'verification_defaults';
+        const round = args['round'] as
+          | 'shape'
+          | 'main'
+          | 'remote'
+          | 'sync'
+          | 'sandbox'
+          | 'bug_report'
+          | 'verification_defaults'
+          | 'path_classes';
         const repo = args['repo'] as string | undefined;
 
         if (round === 'verification_defaults') return ok(verificationDefaultsRound(repo));
+        if (round === 'path_classes') return ok(pathClassesRound(repo));
 
         const git = probeGit(probeDir());
 
@@ -1256,17 +1359,24 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         }
         const chosenDefaults =
           args['verification_defaults'] === undefined ? null : parseVerificationDefaultsAnswer(args['verification_defaults']);
-        const defaultsTarget = chosenDefaults === null ? null : verificationDefaultsRepo(args['repo'] as string | undefined);
-        const defaultsField = (): { verification_defaults?: Record<string, unknown> } =>
-          defaultsTarget && chosenDefaults ? { verification_defaults: applyVerificationDefaults(defaultsTarget, chosenDefaults) } : {};
-        if (defaultsTarget && args['shape'] === undefined) {
+        const chosenClasses = args['path_classes'] === undefined ? null : parsePathClassesAnswer(args['path_classes']);
+        const repoFileAnswers = REPO_FILE_KEYS.filter((k) => args[k] !== undefined).join(' and ');
+        const fileTarget = repoFileAnswers === '' ? null : repoFileTarget(repoFileAnswers, args['repo'] as string | undefined);
+        const repoFileFields = (): { verification_defaults?: Record<string, unknown>; path_classes?: Record<string, unknown> } =>
+          fileTarget === null
+            ? {}
+            : {
+                ...(chosenDefaults ? { verification_defaults: applyVerificationDefaults(fileTarget, chosenDefaults) } : {}),
+                ...(chosenClasses ? { path_classes: applyPathClasses(fileTarget, chosenClasses) } : {}),
+              };
+        if (fileTarget && args['shape'] === undefined) {
           const others = Object.keys(args).filter(
-            (k) => !['verification_defaults', 'repo', 'agent'].includes(k) && args[k] !== undefined,
+            (k) => !([...REPO_FILE_KEYS, 'repo', 'agent'] as string[]).includes(k) && args[k] !== undefined,
           );
           if (others.length > 0) {
-            throw new Error(`verification_defaults without shape is applied alone — drop ${others.join(', ')}, or pass shape for the full apply`);
+            throw new Error(`${repoFileAnswers} without shape is applied alone — drop ${others.join(', ')}, or pass shape for the full apply`);
           }
-          return ok({ ok: true, ...defaultsField() });
+          return ok({ ok: true, ...repoFileFields() });
         }
         const rawStray = args['remove_stray_dbs'];
         if (rawStray !== undefined && (!Array.isArray(rawStray) || rawStray.some((p) => typeof p !== 'string'))) {
@@ -1375,7 +1485,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
               protected_branches: protectedRepo,
               ...(remoteRepo.length > 0 ? { remote: remoteRepo } : {}),
             },
-            ...defaultsField(),
+            ...repoFileFields(),
           });
         }
 
@@ -1592,7 +1702,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             bug_report_consent,
             ...(warning ? { warning } : {}),
           },
-          ...defaultsField(),
+          ...repoFileFields(),
         });
       }),
     ),
