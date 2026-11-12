@@ -77,7 +77,8 @@ const SYNC_SPAWN_MESSAGE = 'spawnSync/execSync/execFileSync without a timeout op
 
 const STRING_LITERAL = /(['"`])((?:\\.|(?!\1)[^\\])*)\1/g;
 const HOME_PATH = /\/(?:Users|home)\/[A-Za-z0-9._-]+\//;
-const TEST_FILE = /(?:\.(?:test|spec)\.[^/]+|(?:^|\/)test_[^/]*\.py|_test\.py)$|\/tests?\//;
+const TEST_FILE_NAME = /(?:\.(?:test|spec)\.[^/]+|(?:^|\/)test_[^/]*\.py|_test\.py)$/;
+const TEST_DIR = /\/tests?\//;
 const HOME_PATH_MESSAGE = 'hardcoded home path (/Users/<name>/ or /home/<name>/) in a string — derive it from the home dir or config';
 
 function hasUnsafeMainGuard(content: string): boolean {
@@ -104,8 +105,19 @@ function hasUnboundedSyncSpawn(content: string): boolean {
   return [...content.matchAll(SYNC_SPAWN_CALL)].some((m) => !/\btimeout\b/.test(argumentList(content, m.index + m[0].length - 1)));
 }
 
-function hasHomePath(content: string, target: string): boolean {
-  if (TEST_FILE.test(target)) return false;
+/** The target's path below the project root with its leading `/`, or '' when there is no root or the target lies outside it. */
+function pathInProject(target: string, projectDir: string | undefined): string {
+  const root = (projectDir ?? '').replace(/\/+$/, '');
+  return root !== '' && target.startsWith(`${root}/`) ? target.slice(root.length) : '';
+}
+
+/** Directory names are judged below the project root only, so a checkout under a `tests/` folder still gets linted. */
+function isTestFile(target: string, projectDir: string | undefined): boolean {
+  return TEST_FILE_NAME.test(target) || TEST_DIR.test(pathInProject(target, projectDir));
+}
+
+function hasHomePath(content: string, target: string, projectDir: string | undefined): boolean {
+  if (isTestFile(target, projectDir)) return false;
   return content.split('\n').some((line) => [...line.matchAll(STRING_LITERAL)].some((m) => HOME_PATH.test(m[2])));
 }
 
@@ -139,7 +151,7 @@ export const codeQualityLint: SyncGate = (payload, env) => {
   const findings: string[] = [];
   if (ext === 'py') findings.push(...pythonFindings(content, multibyte));
   else if (TS_EXTS.has(ext)) findings.push(...tsFindings(content, multibyte));
-  if ((ext === 'py' || TS_EXTS.has(ext)) && hasHomePath(content, target)) findings.push(HOME_PATH_MESSAGE);
+  if ((ext === 'py' || TS_EXTS.has(ext)) && hasHomePath(content, target, env.CLAUDE_PROJECT_DIR)) findings.push(HOME_PATH_MESSAGE);
   if (anyLine(content, regex(MARKER_CHECK.pattern, multibyte))) findings.push(MARKER_CHECK.message);
   if (findings.length === 0) return ALLOW;
 

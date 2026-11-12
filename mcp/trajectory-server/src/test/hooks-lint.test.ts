@@ -271,8 +271,9 @@ describe('lint hooks: the TypeScript gates', () => {
 
 describe('code-quality-lint: main guard, sync spawn timeout, home path (GH 3087)', () => {
   const env = { LC_ALL: 'C' };
-  const lint = (file_path: string, content: string) => {
-    const out = codeQualityLint(JSON.stringify({ tool_name: 'Write', tool_input: { file_path, content } }), env).stdout;
+  const lint = (file_path: string, content: string, projectDir?: string) => {
+    const gateEnv = projectDir === undefined ? env : { ...env, CLAUDE_PROJECT_DIR: projectDir };
+    const out = codeQualityLint(JSON.stringify({ tool_name: 'Write', tool_input: { file_path, content } }), gateEnv).stdout;
     return out === '' ? '' : context(out).text;
   };
   const MAIN_GUARD = /compare realpathSync of both sides/;
@@ -313,7 +314,31 @@ describe('code-quality-lint: main guard, sync spawn timeout, home path (GH 3087)
     assert.equal(lint('/w/src/a.ts', "const hint = 'e.g. /Users/<name>/project';"), '');
     assert.equal(lint('/w/src/a.py', '# lives in /home/me/data\nx = 1'), '');
     for (const path of ['/w/src/a.test.ts', '/w/src/a.spec.js', '/w/src/test_a.py', '/w/src/a_test.py', '/w/test/a.ts', '/w/tests/a.py']) {
-      assert.equal(lint(path, "ROOT = '/Users/user/x'"), '', path);
+      assert.equal(lint(path, "ROOT = '/Users/user/x'", '/w'), '', path);
     }
+  });
+
+  describe('test directories are judged below the project root', () => {
+    const root = '/work/tests/proj';
+    const literal = "const p = '/Users/user/x';";
+
+    it('warns on a source file whose project root sits under a tests/ folder', () => {
+      assert.match(lint(`${root}/src/a.ts`, literal, root), HOME_PATH);
+      assert.match(lint(`${root}/src/a.ts`, literal, `${root}/`), HOME_PATH);
+    });
+
+    it('leaves test directories and test file names inside the root', () => {
+      for (const path of [`${root}/tests/a.ts`, `${root}/pkg/test/a.ts`, `${root}/src/a.test.ts`]) {
+        assert.equal(lint(path, literal, root), '', path);
+      }
+    });
+
+    it('applies only the file-name patterns with no root or outside it', () => {
+      assert.match(lint('/elsewhere/tests/a.ts', literal), HOME_PATH);
+      assert.match(lint('/elsewhere/tests/a.ts', literal, root), HOME_PATH);
+      assert.match(lint(`${root}-other/tests/a.ts`, literal, root), HOME_PATH);
+      assert.equal(lint('/elsewhere/a.test.ts', literal), '');
+      assert.equal(lint('/elsewhere/a.test.ts', literal, root), '');
+    });
   });
 });
