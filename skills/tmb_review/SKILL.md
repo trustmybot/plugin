@@ -30,7 +30,7 @@ Give each finding a `class` and a `severity`:
 
 ## Verdicts
 
-- `pass` — no finding is blocking. `validation_record` refuses a pass (`verification_run_required`) unless the gate's newest verification run at this commit exited 0 without timing out, so escalate when that run is missing, failed or timed out. It carries your probes (see Recording a pass) and the nit and pre_existing findings you found; bro routes the findings after the push.
+- `pass` — no finding is blocking. `validation_record` refuses a pass (`verification_run_required`) unless the gate's newest verification run at this commit exited 0 without timing out, so escalate when that run is missing, failed or timed out, and bro sends the check back to swe. It carries your probes (see Recording a pass) and the nit and pre_existing findings you found; bro routes the findings after the push.
 - `fail` — at least one finding is blocking; the rework swe fixes each one.
 - `escalate` — the commit cannot be judged: the spec is ambiguous or contradicts itself, or evidence you need is unavailable, so bro, the owner of the spec and the design, decides. It needs at least one finding: `expected` states the open question and its basis, `observed` what you found. Grade such a finding `nit` unless a probe shows a defect, because every blocking finding gates later closes (see Recording findings). The task cannot close until a later pass.
 
@@ -52,7 +52,7 @@ Work in this order:
 
 1. Find the base with `git -C <repo_path> merge-base <commit_sha> origin/<target>`, where `<target>` is the repo's PR target branch, the one the task branch merges into. Run `git -C <repo_path> diff <base>..<commit_sha> --stat`, then the full diff. Cite line numbers for every finding.
 2. For each changed or removed symbol the target branch already has, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` for its callers, importers, table readers and tests: the dependents the diff does not show. swe owns the caller check — each one still compiles, is called right and passes its tests — and names them in `completion_report`; leave that list to swe. You own their behaviour: whether the changed behaviour breaks what a dependent relies on (a return shape, a row it reads, an order, an error it catches), shown by a probe. A dependent the change breaks, or a test of the changed behaviour the diff leaves stale, is a finding. When it returns no callers or readers, or every changed symbol is new on the branch, skip the deeper walk and say so in `wm_feedback`.
-3. Read only the code those results point to. For "where does X live", call `world_model_search`, and fall back to Grep when the world model misses. Read a symbol the world model lacks with git.
+3. Read only the code those results point to, because code outside the diff and its dependents cannot change the verdict. For "where does X live", call `world_model_search`, and fall back to Grep when the world model misses. Read a symbol the world model lacks with git.
 
 Then judge whether the diff breaks behaviour beyond its own checks:
 
@@ -81,7 +81,7 @@ Before recording a `fail`, take each blocking finding's class and search the dif
 | `class` | A short name for the defect kind, e.g. `unquoted-sql-literal`; siblings share it |
 | `severity` | `blocking`, `nit` or `pre_existing`, as graded above |
 | `criterion_id` | The `SC<n>` id the defect breaks; omit it when it breaks no single criterion |
-| `probe_cmd` | A self-contained bash command, run from the worktree root, that exits 0 once the defect is fixed and non-zero while it stands — inline `node -e`, `bash -c` or a heredoc, reading only files in the worktree |
+| `probe_cmd` | Required on every finding. A self-contained bash command, run from the worktree root, reading only files in the worktree — inline `node -e`, `bash -c` or a heredoc. For a blocking finding it exits 0 once the defect is fixed and non-zero while it stands; for a nit, pre_existing or escalate finding it is the command that shows what `observed` reports |
 | `expected` | What correct behaviour looks like — what the probe checks for — and its basis: an `SC<n>` id, a spec line, or base behaviour at file:line on the parent commit |
 | `observed` | What you saw instead, with the file:line or output that shows it |
 
@@ -91,11 +91,11 @@ Before recording a `fail`, take each blocking finding's class and search the dif
 - A count that exits non-zero while the defect stands: `test "$(grep -cF 'it.only(' test/store.test.js)" -eq 0`
 - One check across every site of a class, printing each site still missing the guard: `! grep -L 'assertSafePath(' src/routes/*.js | grep .`
 
-Run each probe in a `pr_monitor_worktree` checkout of the commit under review before recording it, and confirm it exits non-zero. The close gate re-runs the probe of every blocking finding not marked `wontfix` on each later close attempt, so a probe that passes on broken code waves the defect through; nit and pre_existing findings are not probed. You record probes; the rework swe commits each one as a test.
+Run each blocking finding's probe on the commit under review (see Worktree discipline) before recording it, and confirm it exits non-zero. The close gate re-runs the probe of every blocking finding not marked `wontfix` on each later close attempt, so a probe that passes on broken code waves the defect through; it never re-runs the probes of other findings. You record probes; the rework swe commits each one as a test.
 
 ## Recording a pass
 
-A `pass` records `probes[]`: your own checks of dependents' behaviour from step 2, each run in a `pr_monitor_worktree` checkout of the commit under review. Each entry carries `target` (the dependent or behaviour checked, with its path), `probe_cmd` (the command you ran, self-contained like a finding's) and `observed` (what it showed). When the diff has no dependents, probe the changed behaviour itself.
+A `pass` records `probes[]`: your own checks of dependents' behaviour from step 2, each run on the commit under review. Each entry carries `target` (the dependent or behaviour checked, with its path), `probe_cmd` (the command you ran, self-contained like a finding's) and `observed` (what it showed). When the diff has no dependents, probe the changed behaviour itself.
 
 ## Worktree discipline
 
@@ -113,4 +113,4 @@ When `validation_history` shows an earlier `fail` for this task, review the find
 
 Record the verdict with `validation_record`, using the spawn prompt's `attempt_n` and `mcp_available: true`, plus `wm_feedback {answered, missed, wrong}`: what the world model answered, missed or got wrong in this review, including a skipped walk and each miss that sent you to Grep or git.
 
-When `validation_record` is unavailable (the MCP server is down), write the row through the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback`, which records it with `mcp_available = 0` (`--help` shows the argument shape, including `subagent_session_id`). It takes `pass` or `fail` only and has no `wm_feedback` slot. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]` (omit it, or pass `[]`, when there are none). Its optional seventh argument is a pass's `probes[]` as a JSON array of the same `{target, probe_cmd, observed}` entries; a pass with no findings passes `[]` as the sixth. A fail written through it does not reopen the task, so say so in your final message. To escalate while the server is down, write no row and give the escalation and its reasons in your final message. The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`; with no row, use `row=-` and `verdict=escalate`.
+When `validation_record` is unavailable (the MCP server is down), write the row through the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback`, which records it with `mcp_available = 0` (`--help` shows the argument shape, including `subagent_session_id`). It takes `pass` or `fail` only, refuses a pass without a passing verification run just as `validation_record` does, and has no `wm_feedback` slot. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]` (omit it, or pass `[]`, when there are none). Its optional seventh argument is a pass's `probes[]` as a JSON array of the same `{target, probe_cmd, observed}` entries; a pass with no findings passes `[]` as the sixth. A fail written through it does not reopen the task, so say so in your final message. To escalate while the server is down, write no row and give the escalation and its reasons in your final message. The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`; with no row, use `row=-` and `verdict=escalate`.
