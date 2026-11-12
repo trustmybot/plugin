@@ -9,10 +9,10 @@ The rules for moving TMB doctrine out of prompts and into code: the layers, what
 | # | Layer | What it is for | What it guarantees |
 |---|---|---|---|
 | 1 | **MCP server** | Role-bound tool access, input validation, server-side defaults for omitted args, and atomic composite tools that run a multi-step workflow as one call in one DB transaction. | Wire-level rejection (`is_error: true`) regardless of prompt content; a composite's steps land together or not at all. |
-| 2 | **Hooks** | Gates fired by the host on lifecycle events: PreToolUse blocks a call until its prerequisite holds; PostToolUse emits follow-up side effects; SessionStart and UserPromptSubmit inject context. | A block or side effect runs outside the LLM's context and cannot be skipped. Injected context is advisory: it reaches the model but compliance stays at layer 6. |
+| 2 | **Hooks** | Gates fired by the host on lifecycle events: PreToolUse blocks a call until its prerequisite holds; PostToolUse emits follow-up side effects; SessionStart and UserPromptSubmit inject context. | A block or side effect runs outside the LLM's context, whatever the prompt says. A fail-closed gate also denies when it errors or runs out of time; a fail-open gate lets the call through then. Injected context is advisory: it reaches the model but compliance stays at layer 6. |
 | 3 | **Frontmatter** | The `tools:` allowlist in agent `.md` files. | The host grants only the listed tools at spawn. |
 | 4 | **Schema constraints** | `CHECK`, `UNIQUE`, `NOT NULL`, FK on the trajectory DB. | Rejects malformed writes at the storage layer, including raw-SQL bypasses of MCP handlers. |
-| 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context. | Soft — reduces prompt noise; the model can still ignore loaded content. |
+| 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context. | Soft — reduces prompt noise; the model can still ignore loaded content. No shipped skill uses it yet. |
 | 6 | **Prompts** | CLAUDE.md, agent prompts, skill prose: the judgment layer. | None — accept the compliance ceiling. |
 
 **Doctrine: prefer the hardest layer that fits.** Layer 6 is the fallback, not the default. Promote a constraint up the stack as soon as the soft layer below misses it.
@@ -77,7 +77,10 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 |---|---|
 | Activation routine (onboarded marker + pending issue injection) | 2 |
 | Bro edits only docs and prompts paths (per `.config/tmb/path-classes.json`), and only in a running no-code task's worktree; every code change goes to SWE | 2 |
-| A bro-authored no-code change signed off before push | 6 only (open: GH 3077) |
+| Bro's no-code task commits pass the same push gate as code; a lighter no-code sign-off is open (GH 3077) | 2 |
+| The main checkout never switches onto a branch an open task owns | 2 |
+| A cheatcode installs only after the Human approves that candidate (fails closed) | 2 |
+| Bro's state restored from the DB after Claude Code compacts the session | 2 (injection) |
 | Project `.gitignore` excludes `.claude/` | 2 |
 | Only provisioning creates task branches and worktrees (SWE may not invent, abbreviate, or detach a branch) | 1 + 2 |
 | Branch up to date with the remote target branch before SWE attach | 2 |
@@ -144,7 +147,8 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 | Force-push and direct commits to protected branches blocked | 2 |
 | Remote-write text citing a local issue id whose remote id differs blocked | 2 |
 | Issue a merged PR resolved auto-closed on a successful merge | 2 (side effect) |
-| Naming conventions, conventional-commit subjects, mechanical code-quality patterns | 2 |
+| Naming conventions, conventional-commit subjects, mechanical code-quality patterns | 2 (fail-open) |
+| Plans, specs and drafts never written as prose files in scratch; they live in the trajectory DB | 2 |
 | bro's persona injected in every session | 2 |
 | Project inventory at session start | 2 |
 | Roundtable capture-surface verification on close | 2 |
