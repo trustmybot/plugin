@@ -27,7 +27,7 @@ Otherwise the change is code, and the code review alone applies.
 4. **Scan for contradictions.** For each rule the change adds, changes or removes, grep for other statements of it, by its key terms and the tool, flag or path it names, in two places: the files the changed prompt references (skills it loads, files and tools it names) and the other prompt-class files at `<commit>` (`git -C <repo_path> grep -n -e '<term>' <commit> -- <globs>`, with the `prompts.paths` globs from step 1, or the repository's agent, skill, command and `CLAUDE.md` files when there is no config). Two statements that cannot both hold contradict, unless one of them states which wins. Record one probe per rule scanned, `{target, probe_cmd, observed}`, whether or not it found a contradiction.
 5. **Write the verdict.** Apply the fail bar below to the results of steps 2–4.
 
-bro runs steps 1–4 on its own no-code change before it asks for review, and swe runs them before it closes; each fixes every blocking result first. code-reviewer runs all five.
+bro runs steps 1–4 on its own no-code change before it asks for review, and swe runs them before it closes and records their results in `report.case_sweep`; each fixes every blocking result first. code-reviewer reads that `case_sweep` and runs step 5 on it and on its own probes of the diff's dependents. It re-runs a step 1–4 check only to spot-check a claim swe recorded no probe for, or one it doubts, because each check has one owner and steps 1–4 are swe's.
 
 ## The fail bar
 
@@ -52,4 +52,4 @@ Each finding carries:
 | `expected` | What the line should say, citing the rubric id, the source `file:line` or the other file's line |
 | `observed` | The changed line, with its `file:line` |
 
-code-reviewer records these findings in the same `validation_record` verdict as the rest of its review, and on a pass records each step 3 and step 4 probe in `probes[]`.
+code-reviewer records these findings in the same `validation_record` verdict as the rest of its review, and on a pass records in `probes[]` each probe it ran itself, its spot-checks included.
