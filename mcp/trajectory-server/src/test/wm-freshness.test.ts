@@ -253,7 +253,7 @@ describe('the git-range reindex on every ref move (SC2)', () => {
     }
   });
 
-  it('a rename that leaves its callers unchanged links them by name when the name is unique', async () => {
+  it('no-guess: a rename that leaves its callers importing the old path unlinks them, though the name is unique', async () => {
     const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
     try {
       fx.git('mv', 'src/a.ts', 'src/c.ts');
@@ -261,7 +261,7 @@ describe('the git-range reindex on every ref move (SC2)', () => {
       await fx.fresh();
       assert.equal(rows(fx.db).at(-1)!.mode, 'incremental');
       const left = callEdge(fx.db, 'beta', 'alpha')!;
-      assert.deepEqual({ ...left }, { dst_id: symbol(fx.db, 'alpha')!.id, resolution: 'name', dst_path: 'src/c.ts' });
+      assert.deepEqual({ ...left }, { dst_id: null, resolution: 'unresolved', dst_path: null });
       assert.equal(danglingEdges(fx.db), 0);
     } finally {
       fx.cleanup();
