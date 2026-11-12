@@ -82,7 +82,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 
 ### Branching & merging
 
-1. **Feature branches come from `dev`** and are named by git convention (`feat/`, `fix/`, `docs/`, `chore/`, `test/` + slug). One concern per branch. Fetch in the same step you branch: `git fetch origin dev && git switch -c <branch> origin/dev`. A stale `origin/dev` makes `dist/` and CHANGELOG conflict at merge, and since local merges are blocked the only fix is redoing the work on a fresh branch.
+1. **Feature branches come from `dev`** and are named by git convention (`feat/`, `fix/`, `docs/`, `chore/`, `test/` + slug). One concern per branch. Fetch in the same step you branch: `git fetch origin dev && git switch -c <branch> origin/dev`.
 2. **Nothing merges to `main` except `dev`** — and only when `dev` carries an rc tag whose release-gate CI passed (Phases B–C of Release). Promotion is a **merge commit** (Phase D). *Exception:* docs-only changes that need no functionality test may merge to `main` directly — and must be mirrored back to `dev` in the same sitting so the branches never drift.
 3. **Typical feature workflow:** branch from `dev` → implement → touched tests green locally → PR (pr-check runs L1 + dashboard) → `dev`. If your branch is the **last one planned before a release**, also run the local L6 chain — at that point you're in the Release workflow (Phase B); follow it.
 4. **All integration goes through GitHub PRs** — `gh pr create` / `gh pr merge`. Never `git merge` locally, never push directly to `dev` or `main`. Rule 5's merge-on-green is carried out by hand: GitHub auto-merge is disabled on this repo, so `--auto` merges at once instead of waiting. Wait for green checks, then merge without `--auto`.
@@ -120,9 +120,6 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 - Open it from one of the issue forms (Bug, Improvement, Feature, Research); blank issues are disabled. The form sets the type and asks for the area.
 - Every issue carries exactly one type, one priority and one area. The triage workflow adds `needs-triage` until it does. The labels and the rule live in [`docs/contributing/LABELS.md`](docs/contributing/LABELS.md); this taxonomy governs TMB development only.
-
-### Filing issues
-
 - **Validate every new defect against `dev`, not the installed plugin cache** (which lags `dev`). Replay it against the `dev` source with an isolated `HOME`/`TMPDIR`, search `git log origin/dev` for an existing fix, and check open local tasks. Classify it VALID, FIXED_ON_DEV, FALSE_ALARM or NEEDS_DECISION, with file:line or commit evidence.
 - **Workflow breaches get an issue.** When any agent (bro included) breaks a documented workflow rule, file an issue whose title starts `workflow-violation:`, naming the rule, what happened, and a fix that moves enforcement into a hook or the MCP server.
 
@@ -132,7 +129,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 **Phase A — candidate**
 1. Land everything intended for the release on `dev` via the normal PR flow (auto-merge policy applies). A contributor's feature PR never sets a `-rc.N` or other prerelease suffix in a version bump; release identity is the maintainer's call.
-2. Bump PR on a branch off `dev`: `bump-version.ts X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
+2. Bump PR on a branch off `dev`: `bump-version.ts X.Y.Z-rc.N` (it writes the `## vX.Y.Z-rc.N` CHANGELOG section from the fragments) → PR → `dev`.
 
 **Phase B — local pre-flight**
 3. Run the full local L6 chain (`node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts`) on the exact `dev` tree you intend to tag. **15/15 green clears you to cut the rc tag** — this is pre-flight to keep the tagged CI gate from going red, not the sign-off itself (that's Phase C, step 8). Then fast-forward `rc` to that same `dev` commit, dispatch the gate from it (`gh workflow run release-gate.yml --ref rc`), and tag that commit only on green; the tag push inherits the green same-SHA verdict (within 48h) instead of re-running it.
@@ -163,16 +160,54 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 - Prompt / skill / doc changes have no automated test — they rely on PR review, then the rc-time CI release-gate (L0–L6), for sign-off.
 - A task's `verification[]` exercises the layer that guards the surface it touches: hooks → their `*-l3.test.ts` suites (`cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/<name>-l3.test.js`); migrations and destructive SQL → the L1 lints; `scripts/` or `mcp/trajectory-server/src/` → the whole `tests/l1-lint/` loop, not a hand-picked subset; MCP `dist/` bundles → `dist-bundles.test.mjs` and `bundle-whitespace-safety.test.mjs`. Use at most one L3 runner per task, because the verification gate has one time budget (`verification_timeout_s`).
 - MCP unit tests run via `cd mcp/trajectory-server && bun run test`, never bare `bun test` (bun's runner cannot load `node:sqlite`).
-- Verify the committed bundle with `git show <sha>:mcp/trajectory-server/dist/<file>.js` before any probe that rebuilds, since a rebuild overwrites the working-tree copy.
-- A migration task's `files[]` covers every test that asserts the schema version or table set, the whole `mcp/trajectory-server/dist/` dir, and every reader of a changed key or column.
+- A migration task's `files[]` covers every test that asserts the schema version or table set and every reader of a changed key or column.
 - Prose and comment lines are not hard-wrapped at 80 columns.
+- DB vocabularies (task status, audit event types and the rest) are listed in [`docs/contributing/ENUMS.md`](docs/contributing/ENUMS.md); a new value goes in the code and that doc in the same PR, and `enums-stable.test.mjs` fails when they disagree.
+
+### Naming: one stem per feature
+
+A feature has one name stem, and every surface that implements, tests, documents or audits it uses that stem in its own case: `skills/tmb_<stem>/` for a skill, `<stem>_<verb>` for MCP tools and audit event types, `<stem>[-<verb>]` for TypeScript source and test files, `TMB_<STEM>_*` for env vars. `cheatcode` is the model: the `tmb_cheatcode` skill, the `cheatcode_*` tools and events, `src/tools/cheatcode-*.ts` and `src/test/cheatcode-*.test.ts`. One stem makes the feature greppable; a split one (the `cheatcode` skill once sat over a `resource_search` tool) makes every reader learn two names.
+
+- Pick a short, vivid stem for one concept (`cheatcode` over `resource`), not a word the codebase already uses generically.
+- The stem names the feature, not a domain word: generic uses ("resource" for per-spawn resource tracking) are not renamed. Scope a rename to the feature's identifiers, never a blanket `s/<word>/<stem>/`.
+- `onboard` has no skill: the `/onboard` command drives the `onboard_*` tools.
+
+Review holds the stem rule. Two lints hold skill names: `skill-frontmatter.test.mjs` (a `SKILL.md` `name` equals its directory) and `skill-catalog-sync.test.mjs` (the skill directories match the builtin-skill seed rows in `schema.sql`).
+
+### File headers
+
+A new `*.ts`, `*.tsx` or `*.sh` file opens with a one-line comment saying what the file is for. The world model reads that line as the file's purpose, so it is what an agent sees when it looks for where something lives.
+
+```ts
+// Ranks cheatcode hits by embedding similarity and recency.
+```
+
+The header is not a changelog line ("Added for GH 1234"), a banner (license block, author) or the file name restated (`// utils`). `purpose-header.test.mjs` checks files a branch adds under `src/`, `mcp/*/src/`, `dashboard/web/`, `dashboard/server/`, `scripts/` and `skills/*/scripts/`; tests, fixtures, `dist/`, `.d.ts` and generated files are exempt.
+
+### Changelog fragments
+
+A branch adds one file under [`changelog.d/`](changelog.d/README.md) (format and checks there) and never edits `CHANGELOG.md`, so parallel branches don't conflict on its `## Unreleased` block. `changelog-current.test.mjs` fails a direct `CHANGELOG.md` edit except on a version bump branch; at release `bump-version.ts` folds the fragments into the version's section and deletes them.
+
+### Generated files
+
+Generated files are never edited by hand, and all but one are git-ignored, so they never conflict in a merge or rebase. `bun run build:payload` builds them (worktrees and `tests/run-all.ts` build first; CI builds the published payload):
+
+| File | Generated by |
+|---|---|
+| `mcp/trajectory-server/dist/**` | `npm run build` in `mcp/trajectory-server` |
+| `scripts/hooks/lib/audit-events.txt` | `npm run build` (`gen-enums-doc.mjs --txt`) |
+| `scripts/hooks/lib/data-contracts.json` | `emit-data-contracts.mjs` |
+| `dashboard/dist/**` | `bun run build` in `dashboard` |
+| the `audit.event_type` section of `docs/contributing/ENUMS.md` (committed) | `gen-enums-doc.mjs --doc` |
+
+`ENUMS.md` stays text-merged because only one section is generated: when a merge changes `audit-events.ts`, rebuild `mcp/trajectory-server`, run `node scripts/maintenance/gen-enums-doc.mjs --doc` and commit the result.
 
 ## Pre-PR checklist
 
 - [ ] Touched tests, `bun run build:tsc` and touched L1 lints green locally (pr-check runs L1 + dashboard; the full L1–L4 sweep runs at the rc release gate).
 - [ ] Tests added or updated.
 - [ ] Workflow state (issues, tasks, discussions, validation) goes through MCP tools into SQLite — never onto disk.
-- [ ] `CHANGELOG.md` updated for user-visible changes.
+- [ ] A [changelog fragment](#changelog-fragments) for user-visible changes.
 - [ ] Schema change → rebuild `docs/architecture/ERD.md` + set the role list at the tool's `requireRoles(...)` call in `mcp/trajectory-server/src/tools/` (the check lives in `middleware/agent-scope.ts`).
 - [ ] PR names the issue (`Closes #N`).
 
