@@ -5,8 +5,6 @@ description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workfl
 
 # Docs Conventions — Editing Discipline
 
-When editing prompt files or user-visible docs, follow these rules.
-
 ## Three layers of knowledge
 
 Every fact about the codebase lives in exactly one layer.
@@ -19,11 +17,11 @@ A fact in the wrong layer moves to the right one; it is never copied. The one ex
 
 ## Docs-update expectation
 
-When functionality changes, the same PR updates the user-visible docs that describe it. The code-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?).
+When functionality changes, the same PR updates the user-visible docs that describe it. A doc is user-visible when it names the changed command, option, flag or behaviour.
 
 ## When docs and code disagree
 
-If a doc you're updating contradicts the code, halt and surface it — pick the side that matches the intended behaviour, update the other, and flag the discrepancy first. Ground in the code itself (and the world model), not in the prose that describes it.
+Ground in the code itself and the world model, not in the prose that describes it. When the spec says which side is intended, update the other and name the discrepancy in the report; otherwise change neither and close `failed`, naming the conflict.
 
 ## Editing prompt files (agents, skills, CLAUDE.md, workflow markdown)
 
@@ -36,6 +34,8 @@ If a doc you're updating contradicts the code, halt and surface it — pick the 
 
 ### Escalation
 
-- Ambiguous rewrite request → ask specific questions.
-- Target file has internal contradictions → quote them, flag to the caller.
-- Change would break files that reference this one → flag the ripple before proceeding.
+In each case below, swe closes `failed` and quotes the question in its final message; bro resolves it in the spec, asking the Human only for a decision the Human owns.
+
+- The rewrite request is ambiguous — quote the ambiguous part.
+- The target file contradicts itself — quote the contradiction.
+- The change would break files that reference this one — name each file.
