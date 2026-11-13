@@ -47,7 +47,7 @@ Refresh after upstream changes: `claude plugin marketplace update trustmybot`, t
 @bro write a todo cli
 ```
 
-Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code-touching asks route through bro → SWE → code-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
+Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code tasks route through bro → SWE → code-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
 
 Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
