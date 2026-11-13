@@ -12,6 +12,24 @@ TMB's memory works like a computer's:
 
 **The DB is the only source of truth. Context is a disposable cache of it, written through and never the only copy. Every agent loads the smallest page it needs, and ends at a task boundary.**
 
+One agent session moves memory between the tiers like this:
+
+```mermaid
+flowchart TD
+    A[Session starts: the pinned tier loads persona, tool schemas and skill listing] --> B[The work needs a fact]
+    B --> C[Find it through an index: the world model or ranked search]
+    C --> D{Read often in this session?}
+    D -- yes --> E[Load the smallest page from the DB into context, hot]
+    D -- no --> F[Read it once or in a subagent; only the conclusion enters context]
+    E --> G[Work and decide]
+    F --> G
+    G --> H[Write each decision to the trajectory DB as it is made]
+    H --> I{Dispatched work returned and closed or parked?}
+    I -- no --> B
+    I -- yes --> J[End the session: context is evicted and nothing is lost]
+    J -. the next session loads from cold .-> A
+```
+
 ## Where the analogy breaks
 
 These differences from real hardware are where the design decisions sit.
