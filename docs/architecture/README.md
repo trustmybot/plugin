@@ -19,14 +19,12 @@ This rule is how TMB develops itself. It comes from our experience of design and
 New to TMB? Read in this order:
 
 1. [PHILOSOPHY.md](PHILOSOPHY.md) — why TMB is built the way it is.
-2. [FLOWS.md](FLOWS.md) — what happens, one ideal-case chart per flow, and which design wins when a prompt and a hook disagree.
+2. [FLOWS.md](FLOWS.md) — the starting point for every flow: what happens, one ideal-case chart each, and a link to its detail page.
 3. [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — who does each step.
 4. [TASKS.md](TASKS.md) — every case of a task, from ask to merge, and why one gets stuck.
 5. [MEMORY.md](MEMORY.md) and [WORLD_MODEL.md](WORLD_MODEL.md) — what agents remember and how they find their way around a project.
 6. [GIT.md](GIT.md) — where the work sits at every stage of a task.
 7. [CONTAINMENT.md](CONTAINMENT.md), [CHEATCODES.md](CHEATCODES.md) and [EXTENDING.md](EXTENDING.md) — the safety boundary, and how TMB extends itself inside it.
-
-Each flow in FLOWS.md links to its detail page, which charts every case, failures included, and how to debug them.
 
 Looking for one answer instead?
 
@@ -52,7 +50,7 @@ Looking for one answer instead?
 ## Index
 
 - [PHILOSOPHY.md](PHILOSOPHY.md) — The principles behind the design: how an idea becomes tasks, the dev-vs-user-runtime boundary, one owner per quality check, code over prompts for enforcement, clean removal, and hot and cold memory.
-- [FLOWS.md](FLOWS.md) — One ideal-case chart per flow, from install to bug reports, plus the quality layers every flow is built on.
+- [FLOWS.md](FLOWS.md) — The starting point for every flow: the index of all flows from install to bug reports, one ideal-case chart each linking to its detail page, and the quality layers every flow is built on.
 - [INSTALL.md](INSTALL.md) — Install, upgrade and session start in every case, and what to check when the plugin is missing or degraded.
 - [ONBOARD.md](ONBOARD.md) — First contact: its rounds, what each records, and how a re-run keeps what still stands.
 - [ENVIRONMENT.md](ENVIRONMENT.md) — How bro learns and caches a repo's install, test and lint commands, with the repo as the source of truth.
