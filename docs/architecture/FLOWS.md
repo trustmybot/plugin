@@ -22,44 +22,9 @@ Flows are grouped by when they run, and numbered within their group.
 | 4. Extending the team | 4.5 | [Roundtable](#45-roundtable) | The Human types `/roundtable <topic>` | bro orchestrates 2–5 consultants | the table, its votes and the ratified decision |
 | 5. Reporting TMB bugs | 5.1 | [Bug report](#51-bug-report) | bro hits a real TMB bug and the Human opted in | bro (Human approves each report) | a record of each filed report |
 
-This file is the starting point for every flow: one chart each for its ideal case, a short description, and a link to the detail page that holds every other case, failures included, and how to debug them. A flow whose chart says everything has no detail page. The quality layers below are the design every flow is built on.
+This file is the starting point for every flow: one chart each for its ideal case, a short description, and a link to the detail page that holds every other case, failures included, and how to debug them. A flow whose chart says everything has no detail page. Who owns each quality check, and how a change hands from one owner to the next, is in [TASKS.md](TASKS.md#quality-layers).
 
 It is the ground truth for the workflow: it describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its chart here, and its detail page, in the same PR. Neither names a hook, gate, tool or symbol: what enforces a step is the world model's answer, and the logic is the code's.
-
-## Quality layers
-
-Every flow is built on two axes. The first is a responsibility boundary: each layer owns one level of quality and hands the next a ready state. The second is method: deterministic or judgment. bro, swe and code-reviewer never overlap in responsibility or work, because overlap wastes resources: each check has exactly one owner, and no layer redoes another layer's check.
-
-A change is reviewed as code or as non-code. Each kind has its own layers.
-
-### Code review
-
-| Layer, in handoff order | Owns | Method | Hands over (contract) |
-|---|---|---|---|
-| **Human** | intent. The Human is the outer layer and merges each PR, unless the project's merge policy delegates merging | judgment | a requirement |
-| **bro (environment)** | a ready-to-work environment: a clean worktree cut from the latest base, a passing build, and a world model indexed at that base | deterministic | the worktree, the base commit and the world-model commit |
-| **bro (spec)** | an actionable requirement: intent, files, checks and success criteria. bro's architecture judgment enters here | judgment | the spec |
-| **swe** | functionality-level quality: every deterministic check in its scope passes (lint, word and size limits, type checks, unit tests, changelog fragment), and the world model shows no downstream caller breaks (planned, GH 3069). It does not rebuild the environment bro handed over or rewrite the spec | deterministic | ready-to-review: a passing check run recorded on the commit, plus a report against every success criterion |
-| **code-reviewer (probes)** | diff-level quality: whether the diff breaks other behavior, probed through the world model's dependents of the diff (diff-level reviewer prompt planned, GH 3059). It does not re-run swe's checks | deterministic | the probes and their results |
-| **code-reviewer (verdict)** | whether a behavior change the probes show is a bug | judgment | a recorded verdict with its findings and probes |
-| **bro (architecture)** | architecture-level quality: whether the change fits the design and the spec's intent, judged at task close. It re-runs no checks and re-reviews no diff | judgment | a decision, then the push |
-
-### Non-code review
-
-A change to prompt or docs files, or a task marked prompt-bearing, also gets a doc review: one checklist that author and reviewer load from the same base ref, so a change that passes the author's check passes review for the same reasons. Docs are the only non-code kind today; other kinds will arrive as more review skills for code-reviewer, on the same layers.
-
-| Layer, in handoff order | Owns | Method | Hands over (contract) |
-|---|---|---|---|
-| **bro** | its own specs and no-code changes pass the checklist's checks before review | deterministic | the checked change |
-| **swe** | before closing: each rubric criterion the change touches is graded, each claim about the code is checked against the source (another doc is not evidence), and the other prompt files hold no contradiction | deterministic | the results, one probe per claim and per rule, recorded in its report |
-| **code-reviewer** | the verdict on swe's results and its own probes; it spot-checks only a claim swe recorded no probe for, or one it doubts | judgment | a recorded verdict. It fails only on a rubric fail, a false or unverifiable claim, or a contradiction; anything else is a nit |
-
-### Rules for both
-
-- **Gated handoffs.** Every handoff carries its typed contract, and a gate refuses the handoff when the artifact is missing.
-- **Leaks point upstream.** When a later layer or CI catches a cheap check, the fix is to move that check into the layer that owns it, not to do more rework. The leak rate per layer is the health metric (planned, GH 3053).
-- **CI confirms; it does not discover.**
-- **Failures return to their owner.** A failed check goes back to swe, a review finding goes back to swe at higher effort, and a design misfit goes back to bro's spec. None of these waits on the Human.
 
 ## 1. Install
 

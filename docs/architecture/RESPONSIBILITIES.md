@@ -13,7 +13,7 @@ The roles are split by what each can be trusted to do without marking its own ho
   3. **Subagents are fragile.** swe runs with a narrow tool allowlist and a fresh context, and a hook deny or server error can end its run. Critical state writes stay with bro, the most permissioned and most resilient layer.
 - **code-reviewer** is an independent third party at the push gate, with no edit tools. Its verdict is the only one the push gate accepts.
 
-Each layer owns one level of quality, and no layer repeats another's check: the Human owns intent, bro the environment, spec and architecture, swe functionality, and code-reviewer the diff. [FLOWS.md](FLOWS.md#quality-layers) shows how the layers fit together and which wins when a prompt and a hook disagree.
+Each layer owns one level of quality, and no layer repeats another's check: the Human owns intent, bro the environment, spec and architecture, swe functionality, and code-reviewer the diff. [TASKS.md](TASKS.md#quality-layers) shows how the layers hand off to each other.
 
 ## Which agents a project has
 

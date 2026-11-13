@@ -1,6 +1,6 @@
 # Agent task handling
 
-Every case of flows 3.1 to 3.5 in [FLOWS.md](FLOWS.md): what each step of a task guarantees, where a task goes when a step fails, and how to tell why a task is stuck. [GIT.md](GIT.md) covers where the task's work sits at each stage.
+Every case of flows 3.1 to 3.5 in [FLOWS.md](FLOWS.md): the quality layers every task is built on, what each step of a task guarantees, where a task goes when a step fails, and how to tell why a task is stuck. [GIT.md](GIT.md) covers where the task's work sits at each stage.
 
 ```mermaid
 flowchart TD
@@ -34,6 +34,40 @@ flowchart TD
     P -. review comments .-> T[3.5 PR comment triage]
     T --> C
 ```
+
+## Quality layers
+
+Every task is built on two axes. The first is a responsibility boundary: each layer owns one level of quality and hands the next a ready state. The second is method: deterministic or judgment. bro, swe and code-reviewer never overlap in responsibility or work, because overlap wastes resources: each check has exactly one owner, and no layer redoes another layer's check.
+
+A change is reviewed as code or as non-code. Each kind has its own layers.
+
+### Code review
+
+| Layer, in handoff order | Owns | Method | Hands over (contract) |
+|---|---|---|---|
+| **Human** | intent. The Human is the outer layer and merges each PR, unless the project's merge policy delegates merging | judgment | a requirement |
+| **bro (environment)** | a ready-to-work environment: a clean worktree cut from the latest base, a passing build, and a world model indexed at that base | deterministic | the worktree, the base commit and the world-model commit |
+| **bro (spec)** | an actionable requirement: intent, files, checks and success criteria. bro's architecture judgment enters here | judgment | the spec |
+| **swe** | functionality-level quality: every deterministic check in its scope passes (lint, word and size limits, type checks, unit tests, changelog fragment), and the world model shows no downstream caller breaks (planned, GH 3069). It does not rebuild the environment bro handed over or rewrite the spec | deterministic | ready-to-review: a passing check run recorded on the commit, plus a report against every success criterion |
+| **code-reviewer (probes)** | diff-level quality: whether the diff breaks other behavior, probed through the world model's dependents of the diff (diff-level reviewer prompt planned, GH 3059). It does not re-run swe's checks | deterministic | the probes and their results |
+| **code-reviewer (verdict)** | whether a behavior change the probes show is a bug | judgment | a recorded verdict with its findings and probes |
+| **bro (architecture)** | architecture-level quality: whether the change fits the design and the spec's intent, judged at task close. It re-runs no checks and re-reviews no diff | judgment | a decision, then the push |
+
+### Non-code review
+
+A change to prompt or docs files, or a task marked prompt-bearing, also gets a doc review: one checklist that author and reviewer load from the same base ref, so a change that passes the author's check passes review for the same reasons. Docs are the only non-code kind today; other kinds will arrive as more review skills for code-reviewer, on the same layers.
+
+| Layer, in handoff order | Owns | Method | Hands over (contract) |
+|---|---|---|---|
+| **author: bro or swe** | the change passes the checklist before review. bro authors its own specs and no-code changes; swe authors a prompt-bearing task. Each rubric criterion the change touches is graded, each claim about the code is checked against the source (another doc is not evidence), and the other prompt files hold no contradiction | deterministic | the checked change, with one probe per claim and per rule in the report |
+| **code-reviewer** | the verdict on the author's results and its own probes; it spot-checks only a claim the author recorded no probe for, or one it doubts | judgment | a recorded verdict. It fails only on a rubric fail, a false or unverifiable claim, or a contradiction; anything else is a nit |
+
+### Rules for both
+
+- **Gated handoffs.** Every handoff carries its typed contract, and a gate refuses the handoff when the artifact is missing.
+- **Leaks point upstream.** When a later layer or CI catches a cheap check, the fix is to move that check into the layer that owns it, not to do more rework. The leak rate per layer is the health metric (planned, GH 3053).
+- **CI confirms; it does not discover.**
+- **Failures return to their owner.** A failed check goes back to swe, a review finding goes back to swe at higher effort, and a design misfit goes back to bro's spec. None of these waits on the Human.
 
 ## 3.1 Code-touching task
 
