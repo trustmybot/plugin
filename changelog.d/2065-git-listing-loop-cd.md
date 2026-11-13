@@ -1,2 +1,0 @@
-### Fixed
-- **The git guards judge a git command in a loop in every directory a pass can run it in** (GH 2065): in `cd /tmp; while :; do git push origin dev; cd /etc; done` the second push runs in `/etc`, but the guards judged it in `/tmp` alone. A git statement inside or after a `while`, `until`, `for` or `select` loop is now checked in each directory the loop's `cd` can leave it in, and a `cd` that keeps drifting is denied as an unresolved directory.

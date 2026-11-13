@@ -1,2 +1,0 @@
-### Fixed
-- **New and edited issues get their labels again** (GH 2610): the issue triage and label sync workflows failed on every run because the label script loaded the bug-report form from the built server, which those workflows never build. It now loads the form from source, so an issue form's Area answer becomes its label and `needs-triage` toggles as before. A new lint fails any workflow that runs a script needing the built server without building it first.

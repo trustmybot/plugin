@@ -1,4 +1,0 @@
-{
-  "version": 1,
-  "commands": ["node --experimental-strip-types tests/run-all.ts --l1-local"]
-}

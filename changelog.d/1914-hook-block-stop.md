@@ -1,2 +1,0 @@
-### Changed
-- **bro is told when a swe run stops on a hook block without reporting** (GH 1914): a swe run whose last tool call was denied by a PreToolUse hook is recorded as `stop_cause` `hook_block` only when the run made no completion report. A successful `task_update_status` call with status `completed` now clears the flag, and a `failed` call does not. When the flag is set, the SubagentStop hook tells bro the run ended on a hook block, quotes the deny, and asks bro to name the block in the rework `spawn_note` so the next swe uses the allowed form and keeps going.

@@ -1,2 +1,0 @@
-### Fixed
-- **The dashboard README's API table is whole and says when `/api/health` is unhealthy** (GH 2668, GH 2672): a blank line in `dashboard/README.md` cut the API table short, so the `/api/concepts` rows showed as plain text; it is gone. The `/api/health` row said `healthy` is false only when an `error`-severity contract fails; it now also names an `error`-severity DB contract that can't run because the schema is too old for it, its query throws or it runs past the statement timeout, as the trajectory doctor does.

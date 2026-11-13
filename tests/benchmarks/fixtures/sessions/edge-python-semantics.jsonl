@@ -1,7 +1,0 @@
-{not json
-{"type":"user","uuid":"u1","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>héllo 😀</system-reminder>"},{"type":"text","text":"no reminder"}]}}
-
-   
-{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01Té","message":{"usage":{"input_tokens":2},"content":[{"type":"tool_use","id":"t","name":"Tööl😀\"\\"},{"type":"tool_use","id":"t","name":"Read"},{"type":"tool_use","id":"t","name":""},{"type":"tool_use"},"x",{"type":"tool_use","id":"t","name":"TaskCreate"},{"type":"tool_use","id":"t","name":"TaskCreate"},{"type":"tool_use","id":"t","name":"TaskCreate"},{"type":"tool_use","id":"t","name":"TaskCreate"},{"type":"tool_use","id":"t","name":"TaskCreate"},{"type":"tool_use","id":"t","name":"TaskCreate"},{"type":"tool_use","id":"t","name":"TaskCreate"},{"type":"tool_use","id":"t","name":"TaskCreate"}]}}
-{"type":"assistant","uuid":"a2","parentUuid":"u1","message":{"usage":{},"content":"TaskCreate"}}{"type":"system","uuid":"s1"}
-{"type":"assistant","uuid":"a3","parentUuid":"missing","message":{"usage":{"input_tokens":3,"output_tokens":0,"cache_read_input_tokens":7},"content":[]}}

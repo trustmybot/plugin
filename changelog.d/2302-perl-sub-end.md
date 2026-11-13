@@ -1,2 +1,0 @@
-### Fixed
-- **A Perl sub ends on the line of its own closing brace** (GH 2302): a sub closed by a brace after code on the same line (`  return $x; }`) got the end line of a later sub's brace or the file's end. The extractor now counts the sub's braces, skipping `#` comments, quoted strings and backslash-escaped characters, and ends the sub where they balance; a sub whose braces never balance keeps the old indent rule. The extractor version is bumped, so the next scan re-parses every file once.

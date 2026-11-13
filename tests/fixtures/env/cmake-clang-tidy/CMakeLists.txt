@@ -1,6 +1,0 @@
-cmake_minimum_required(VERSION 3.20)
-project(sample CXX)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-add_executable(sample src/main.cpp)
-enable_testing()
-add_test(NAME sample COMMAND sample)

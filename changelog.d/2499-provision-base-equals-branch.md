@@ -1,2 +1,0 @@
-### Fixed
-- **`task_provision` refuses a base that is the task's own branch** (GH 2499): a call whose `base` was the same branch as `branch_id` (or `origin/<branch_id>`, `refs/heads/<branch_id>`) used to create the task anyway, and the base-branch guard then blocked every commit on it. It now returns an error naming both values and suggesting a different base such as the PR target, before any branch, worktree or task row is created.

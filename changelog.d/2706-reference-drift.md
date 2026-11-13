@@ -1,2 +1,0 @@
-### Changed
-- **The reference docs drop unshipped-version notes and the "hooks are bash" claim** (GH 2706): `INSTALL.md` no longer says hooks are bash (they are TypeScript gates run by node), and `UPGRADE.md` drops the v1.0.3, v1.0.0 and unreleased v1.2.0 notes, the references to a dead tracker issue (2888) and its maintainer section, pointing at `CONTRIBUTING.md` for releasing and `mcp/trajectory-server/src/db.ts` for migrations.

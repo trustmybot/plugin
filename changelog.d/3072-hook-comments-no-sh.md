@@ -1,2 +1,0 @@
-### Fixed
-- **The TMB DEGRADED banner names only the tools the hooks need** (GH 3072): the SessionStart preflight no longer reports a missing `jq`, since no hook runs it, and reports `sqlite3` missing only when node:sqlite cannot load either. The offline note now shows whenever a SQLite engine is available, with no `jq` or `sqlite3` CLI on PATH. Hook source comments and `scripts/hooks/README.md` no longer describe the removed shell hooks and helpers.

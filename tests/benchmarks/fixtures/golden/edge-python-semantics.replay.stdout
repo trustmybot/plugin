@@ -1,2 +1,0 @@
-{"turn_index": 1, "timestamp": "2026-01-01T\u00e9", "input_tokens": 2, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "hook_injected_bytes": 42, "tool_calls": ["T\u00f6\u00f6l\ud83d\ude00\u007f\"\\", "Read", "TaskCreate", "TaskCreate", "TaskCreate", "TaskCreate", "TaskCreate", "TaskCreate", "TaskCreate", "TaskCreate"]}
-{"turn_index": 2, "timestamp": "", "input_tokens": 3, "output_tokens": 0, "cache_read_tokens": 7, "cache_creation_tokens": 0, "hook_injected_bytes": 0, "tool_calls": []}

@@ -1,2 +1,0 @@
-### Added
-- **The dashboard server can compare Token Efficiency across two periods** (GH 2069): `/api/insights/efficiency/compare` returns tokens per changed line by task type and by week for Period 1 and Period 2, chosen as date ranges or task ranges, plus how many tasks the two periods share. `/api/insights/efficiency` also gains an `overall` row that pools every code type, so one number shows whether token use per line is going down.

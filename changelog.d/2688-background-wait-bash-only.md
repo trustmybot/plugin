@@ -1,2 +1,0 @@
-### Fixed
-- **A SWE task no longer waits on a background command that was only quoted** (GH 2688): `swe-atomic-close` counted the `Command running in background with ID: <id>` and `moved to the background (ID: <id>)` markers in any tool result, so a Read, Grep or MCP result that quoted one (a test fixture, a log, a spec) held the task open as if a live background run were pending. A start now counts only from the result of a `Bash` tool call; completion notifications and `TaskStop` still end a run as before.

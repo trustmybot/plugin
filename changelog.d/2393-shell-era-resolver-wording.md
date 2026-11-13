@@ -1,2 +1,0 @@
-### Fixed
-- **Docs name the TypeScript DB resolver the hooks run** (GH 2393): `CONTAINMENT.md`, `TRAJECTORY_DB_LOCATION.md`, `scripts/hooks/README.md` and the `platform.ts` doc comment now name `dbPath` / `dbPathAdvisory` / `taskIdFromTranscript` in `src/hooks/lib/db.ts` instead of the shell `query-task.sh` helpers, and `ERD.md` no longer describes a third pinned `HAS_PASS` copy: every close path imports the shared `HAS_PASS_SQL`.

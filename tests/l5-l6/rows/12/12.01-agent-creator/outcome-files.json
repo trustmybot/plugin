@@ -1,9 +1,0 @@
-{
-  "files": [
-    {
-      "path": ".claude/agents/architect.md",
-      "must_exist": true,
-      "min_bytes": 100
-    }
-  ]
-}

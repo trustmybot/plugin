@@ -1,2 +1,0 @@
-### Added
-- **Insights compares Token Efficiency too** (GH 2069): with Compare Periods on, Efficiency shows first-pass tokens per line, first-pass rate, rework share and cache-hit rate for Period 1 and Period 2 with the change between them, paired bars of tokens per line by task type, and a by-week table that lists both periods' weeks, so you can see whether each changed line is getting cheaper. The note that Compare skipped Efficiency is gone.

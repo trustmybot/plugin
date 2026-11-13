@@ -1,2 +1,0 @@
-### Changed
-- **Architecture docs stay at architecture level** (GH 2706): the architecture decision records, `UI.md` and `TYPED_RAILS.md` are gone, and `WORLD_MODEL.md` now covers the world model's purpose, layers and design reasons, pointing at the code and `schema.sql` for the detail. `REFERENCE.md` points at `schema.sql` for the typed task fields, and the `docs/` indexes list only the files that exist.

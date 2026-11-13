@@ -1,5 +1,0 @@
-{
-  "expected_writes": {
-    "cheatcodes WHERE kind = 'skill' AND scope = 'project-local'": ">=1"
-  }
-}

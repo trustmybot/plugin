@@ -1,1 +1,0 @@
-@bro install feature-dev for swe and code-review for code-reviewer in local scope. I know they're caution-tier plugins that ship hooks — I accept the code-execution, network, and filesystem access. Approved; don't ask questions.

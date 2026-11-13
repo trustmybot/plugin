@@ -1,6 +1,0 @@
-{
-  "expected_writes": {
-    "discussions WHERE kind = 'decision'": ">=1",
-    "tasks": ">=1"
-  }
-}

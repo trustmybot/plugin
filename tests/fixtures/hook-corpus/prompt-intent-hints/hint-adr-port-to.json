@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"port the parser to rust","corpus_expect":"architectural-change hint: the user's prompt contains 'port ... to'"}

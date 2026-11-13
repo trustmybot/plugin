@@ -1,2 +1,0 @@
-### Fixed
-- **swe waits on a long command in the foreground instead of leaving a watcher behind** (GH 2204): swe sent a long test run to the background and polled it with `tail -f`, and that watcher kept running after the run it waited on had finished. The swe agent prompt now has swe run a long command in the foreground with a Bash `timeout` of up to 600000 ms (ten minutes), and split a suite that runs longer into smaller runs, such as one test file per call.

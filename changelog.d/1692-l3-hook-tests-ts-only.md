@@ -1,2 +1,0 @@
-### Changed
-- The l3 hook suites and `tests/hooks/orphan-scan.test.sh` now test only the TypeScript gates, through the `tests/lib/ts-hooks/<gate>.sh` shims or `node mcp/trajectory-server/dist/hooks.js <gate>`, with the bash mode dropped and every assertion kept (GH 1692). `tests/l3-integration/hooks/dispatch.test.sh` is gone: `scripts/hooks/dispatch.sh` has no runtime caller left, and `router.test.ts` covers the router.

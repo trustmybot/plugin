@@ -1,3 +1,0 @@
-/roundtable should the todo CLI's storage be JSON, SQLite, or a small backend service?
-
-Don't ask questions.

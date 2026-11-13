@@ -1,2 +1,0 @@
-### Added
-- **The dashboard shows PR open-to-merge time per issue label** (GH 2513): `issue_reconcile_remote` now also reads each synced GitHub repo's PRs with `gh pr list` (read-only, never a remote write) into new `prs` and `pr_closes` tables, and returns their counts under `prs`. The Issues page's Label stats panel gains PR merge median and mean tiles over the merged PRs that close the label's issues, each PR counted once; they show `—` below 3 merged PRs. The trajectory DB moves to schema v61 on the next session start.

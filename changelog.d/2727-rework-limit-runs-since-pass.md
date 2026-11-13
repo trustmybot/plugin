@@ -1,2 +1,0 @@
-### Fixed
-- **Merge-only catch-ups no longer trip the rework limit** (GH 2727): the six-run limit counted every swe run of a task since the Human's latest waiver, so a task that had already passed review hit it after a few runs that only merged dev into its branch, and was stuck with nothing but passing reviews. The limit now counts only the swe runs started since the task's last passing review (budget handbacks aside, still since the latest waiver); a task with no passing review counts as before.

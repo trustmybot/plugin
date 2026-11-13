@@ -1,2 +1,0 @@
-### Fixed
-- **The write-path guard no longer denies a read-only command whose `$`-word follows an unquoted substitution** (GH 1903): `echo $(echo a) $B` or `git diff $(git merge-base a $b) $b` printed `UNRESOLVED:$(unproven):$B`, because the words after `$(…)` or a backtick came out as a statement of their own with a variable for its command word. Those words are now arguments of the statement the substitution sits in. A real command word that is a variable or a substitution (`$CMD x`, `$(echo rm) x`, `x=$(echo a) $B y`, `timeout $(echo 5) $B x`) still fails closed.

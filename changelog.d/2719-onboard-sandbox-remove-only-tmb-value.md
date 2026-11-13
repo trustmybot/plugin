@@ -1,2 +1,0 @@
-### Fixed
-- **`/onboard` sandbox removal keeps a key the Human changed after TMB set it** (GH 2719): `removeProjectSandbox` now deletes `sandbox.network.allowLocalBinding` and `sandbox.enableWeakerNetworkIsolation` only when TMB recorded setting them and they are still `true`, the same rule the `env` block already follows. A value the Human flipped to `false` stays, and the `network` and `sandbox` objects are pruned only when nothing is left in them.

@@ -1,2 +1,0 @@
-### Fixed
-- **A transcript read error no longer surfaces from bro's token-usage hook** (GH 2711): since the incremental transcript read (GH 2699), an error while reading the session transcript escaped the Stop hook that records bro's row in `agent_runs` and showed up as a failed hook. The hook again skips that turn quietly and writes nothing. A slower Stop run that finishes after a newer one also no longer moves the hook's read position back, so the next turn does not re-read what the newer run already covered.

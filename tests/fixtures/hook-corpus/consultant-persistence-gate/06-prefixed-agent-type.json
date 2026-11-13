@@ -1,5 +1,0 @@
-{
-  "agent_type": "tmb:cto",
-  "agent_transcript_path": "@SANDBOX@/transcripts/spawned-after-the-rows.jsonl",
-  "corpus_expect": "agent='cto'"
-}

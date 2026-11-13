@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_input":{"subagent_type":"swe","prompt":"task_id=14"},"corpus_expect":"ensure-swe-worktree: '@SANDBOX@/project/plugin/.claude/worktrees/squat' exists but is not a registered worktree — skipping"}

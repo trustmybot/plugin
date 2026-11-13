@@ -1,1 +1,0 @@
-{"hook_event_name":"PermissionDenied","tool_name":"Agent","tool_use_id":"toolu_11","tool_input":{"subagent_type":"swe","prompt":"task_id=11"},"reason":"auto mode refused","corpus_expect":"\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":\"swept_orphan\",\"usage_source\":\"unmeasured\",\"completed_at\":\"<now>\",\"duration_ms\":\"window\""}

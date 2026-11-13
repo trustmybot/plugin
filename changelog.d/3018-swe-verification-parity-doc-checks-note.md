@@ -1,2 +1,0 @@
-### Fixed
-- **The swe-verification gate parity suite passes again** (GH 3018): seven corpus cases failed in both locales because the TypeScript gate now adds the GH 2866 note that missing_changelog and stale_doc_ref were skipped when a worktree has no `.config/tmb/doc-checks.json`, and the bash-era recordings predate that note. Those cases now declare the note as an allowed divergence; stored recordings stay unchanged.

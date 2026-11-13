@@ -1,2 +1,0 @@
-### Fixed
-- **Bro closes an unattached cheatcode through the install, not by editing global agents** (GH 2122): asked whether a tool plugin was installed for swe or code-reviewer, bro treated "installed" as done and reached for the plugin's global agent files. The `tmb_cheatcode` skill now treats a cheatcode the consuming agent can't use as a gap, closed by approve then install with a target; covers tool-contributing plugins, whose install grants the tool in the project's local agent copy's `tools:`; and states that global agents are never edited to grant a capability.

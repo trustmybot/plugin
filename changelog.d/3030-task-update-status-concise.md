@@ -1,2 +1,0 @@
-### Fixed
-- **`task_update_status` returns a short result instead of the whole task row** (GH 3030): a successful call now returns only `task_id`, `status`, `commit_sha` and `return_line`, so each status write costs well under 300 bytes, about 100 tokens, instead of about 1.5k tokens for the echoed spec, verification, files and completion report. `return_line` is unchanged, and errors read as before.

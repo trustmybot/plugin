@@ -1,2 +1,0 @@
-### Fixed
-- **`gen-config-keys-doc.mjs`, `gen-erd-doc.mjs` and `labels.mjs` run when invoked through a symlinked directory** (GH 2533): their entry guard compared `import.meta.url` (the realpath) with the unresolved `process.argv[1]`, so through a symlink each script exited 0 without doing anything, and `--check` passed without checking. The guard now compares the realpaths of both, the same form PR 2543 uses.

@@ -1,2 +1,0 @@
-### Fixed
-- **The live manifest strict validate no longer fails on local clutter or CLI notes** (GH 2815, GH 2485): `tests/l1-lint/manifest-shape.test.mjs` validated the working folder, so an untracked, gitignored `.DS_Store` raised `ARCHIVE_OS_METADATA_FILE`, and it read Claude Code 2.1.316's informational "About these checks" note as a finding. It now validates a `git archive HEAD` export and stops reading findings at the CLI's notes block.

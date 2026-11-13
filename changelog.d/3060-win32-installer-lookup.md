@@ -1,2 +1,0 @@
-### Fixed
-- **The MCP server's semantic-search dependency now installs on Windows** (GH 3060): the SessionStart dependency check looked for a bare `bun` or `npm` on PATH, which misses `bun.exe` and cannot run npm's script shim without a shell, so `@huggingface/transformers` never installed. On Windows it now finds `bun.exe` through PATHEXT and runs npm as `node npm-cli.js`; macOS and Linux behave as before.

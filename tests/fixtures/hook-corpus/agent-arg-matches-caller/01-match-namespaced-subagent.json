@@ -1,9 +1,0 @@
-{
-  "tool_name": "mcp__plugin_tmb_trajectory-server__task_get",
-  "agent_type": "tmb:swe",
-  "tool_input": {
-    "agent": "swe",
-    "task_id": 42
-  },
-  "corpus_expect": "empty"
-}

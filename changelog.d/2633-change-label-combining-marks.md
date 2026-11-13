@@ -1,2 +1,0 @@
-### Fixed
-- **Change impact subjects keep their accents and Indic vowel signs** (GH 2633): the SessionStart Change impact line turned every combining mark into a space, so an NFD accent (`e` + U+0301) or a Hindi vowel sign or virama split words apart. The label is now normalized to NFC and keeps up to 3 combining marks on each letter; a mark not attached to a letter, or past the third, is dropped instead of becoming a space.

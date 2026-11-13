@@ -1,2 +1,0 @@
-### Fixed
-- **The world-model call log now records impact walks and source reads** (GH 1986): `wm_tool_called` rows for `world_model_symbol` kept no `impact` or `source` argument, so a plain card looked the same as an impact walk. Both are now logged as passed. The `world_model_symbol` and `task_brief` descriptions also name the caller totals added in GH 1985 (`total` on each card list; `id`, `caller_count`, `callers_truncated` and `callers_hint` on brief symbol locations).

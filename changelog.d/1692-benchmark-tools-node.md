@@ -1,2 +1,0 @@
-### Changed
-- **The transcript benchmark tools run on Node, not bash and python3** (GH 1692): `replay-session`, `tokens-per-turn`, `cache-stability` and `spawn-reads` under `tests/benchmarks/` are now `.mjs` scripts with the same arguments, output and exit codes, checked byte for byte against the Python output saved in `tests/benchmarks/fixtures/golden/`; the benchmark selftest is now `node --test tests/benchmarks/selftest.test.mjs`, so the harness no longer needs `python3`.

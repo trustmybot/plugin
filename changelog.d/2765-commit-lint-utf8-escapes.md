@@ -1,2 +1,0 @@
-### Fixed
-- **commit-msg-lint checks subjects spelled in byte escapes** (GH 2765): `git commit -m $'\xe2\x9c\xa8 bad subject'` (or the octal `$'\342\234\250 …'`) passed unchecked, because every `\x` or octal byte above 0x7F read as computed text. The commit-message reader now decodes each run of adjacent byte escapes as UTF-8, as bash writes it in a UTF-8 locale, and lints the subject git records. A run that is not valid UTF-8 still reads as computed text, and every other guard reads `$'…'` words as before.

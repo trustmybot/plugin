@@ -1,2 +1,0 @@
-### Changed
-- The db-lookup-no-walkup, db-probe-readonly and db-walkup-nest checks of the hook trajectory-DB resolver are now one node:test file, `mcp/trajectory-server/src/test/db-resolver-l3.test.ts`, that runs in `npm test` against the TypeScript resolver the hooks use, with every assertion kept (GH 1692). The read-only probe checks run on both the node:sqlite and the `sqlite3` CLI backends. The three `tests/l3-integration/hooks/*.test.sh` files are gone.

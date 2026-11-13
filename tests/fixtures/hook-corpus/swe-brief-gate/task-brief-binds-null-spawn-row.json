@@ -1,1 +1,0 @@
-{"hook_event_name":"PreToolUse","agent_type":"swe","agent_id":"agent-15","tool_name":"mcp__tmb__trajectory-server__task_brief","tool_input":{"agent":"swe","task_id":15},"corpus_expect":"\"task_id\":15,\"spawn_id\":\"agent-15\""}

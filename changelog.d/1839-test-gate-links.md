@@ -1,2 +1,0 @@
-### Fixed
-- **The world model lists the hook tests that run a gate** (GH 1839): an l3 hook test runs its gate as a child process (`node dist/hooks.js <gate>`) and never imports it, so `world_model_symbol` on a gate listed none of those tests. A test file now gets one `runs` edge to `src/hooks/<gate>.ts` for each gate it names through `runGate('<gate>', ...)`, `const GATE = '<gate>'` or a `dist/hooks.js <gate>` mention, and the gate's card lists it under `tests`. The extractor version is bumped, so the next scan re-parses every file once.

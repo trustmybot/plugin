@@ -1,2 +1,0 @@
-### Changed
-- **Every pull request now runs the full L1–L4 test sweep before merge** (GH 2497): pr-check gains a `suite` job that builds the payload, fetches the bge-small embedding model and runs `tests/run-all.ts`, so L2–L4 no longer wait for the rc release-gate. The model cache and fetch moved into the `.github/actions/fetch-bge-model` composite action, which release-gate's `tests` job now uses too. Locally, a change runs the tests for the paths it touches plus `bun run build:tsc` and the L1 lints it touches; CONTRIBUTING.md and tests/README.md say so.

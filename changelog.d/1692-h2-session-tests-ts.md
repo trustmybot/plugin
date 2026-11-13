@@ -1,2 +1,0 @@
-### Changed
-- The session-log-capture, session-start-persona, session-start-prescan and user-prompt-persona hook tests are now node:test files under `mcp/trajectory-server/src/test/` that run in `npm test`, with every assertion kept (GH 1692). Each runs `node dist/hooks.js <hook>` in a sandbox with its own HOME and no inherited `CLAUDE_*` or `TMB_*` variable, and builds the PATH without jq in TypeScript. The four `tests/l3-integration/hooks/*.test.sh` files are gone.

@@ -1,2 +1,0 @@
-### Fixed
-- **A command tree-sitter cannot parse no longer writes prose into scratch** (GH 2469): the no-prose-in-scratch gate let `tr a b 2>/dev/null <<< "plan" | sort > $TMPDIR/x.txt` through, because a here-string after a stderr redirect does not parse and the gate allowed what it could not parse. It now fails closed: a prose file in a scratch zone that such a command names is denied, unless `bash -n` finds a syntax error, so the command never runs. The same change checks every piped command (GH 2470, its own fragment).

@@ -1,8 +1,0 @@
-TURN  IN_TOK   OUT_TOK  CACHE_RD   CACHE_CR   HOOK_B   TOOLS
-------------------------------------------------------------
-1     120      85       0          4800       102      mcp__plugin_tmb_trajectory-server__task_list
-2     95       32       4920       0          0        -
-3     210      62       5015       0          101      mcp__plugin_tmb_trajectory-server__task_brief
-4     180      24       5077       0          0        -
-5     240      55       5101       0          99       mcp__plugin_tmb_trajectory-server__task_update_status
-6     165      12       5156       0          0        -

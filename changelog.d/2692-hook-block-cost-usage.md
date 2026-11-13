@@ -1,2 +1,0 @@
-### Fixed
-- **Hook-block token cost is no longer always 0** (GH 2692): `agent_runs.hook_block_tokens` priced each PreToolUse block at the first assistant-role transcript entry after it, which in current Claude Code transcripts is an `api-request-blob` entry with no `usage`, so every block cost 0. A block is now priced at the first assistant entry after it that carries `usage`; a block with none after it still adds 0. Past rows are not backfilled.

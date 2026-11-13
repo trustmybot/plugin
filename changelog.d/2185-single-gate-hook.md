@@ -1,2 +1,0 @@
-### Fixed
-- **The world model names single-gate hook entries by their gate** (GH 2185): a `hooks.json` entry that runs one gate through `dist/hooks.js <gate>` (such as the Stop `liveness-sentinel` entry) was indexed as a bare `<Event>#<pos>:hook<n>` with no line and no `runs` edge. It is now named `<Event>#<pos>:<gate>`, sits on its command line and has one `runs` edge to the gate's TypeScript module. The extractor version is bumped, so the next scan re-parses every file once.

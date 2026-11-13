@@ -1,7 +1,0 @@
-{
-  "tool_name": "AskUserQuestion",
-  "tool_input": {
-    "questions": []
-  },
-  "corpus_expect": "empty"
-}

@@ -1,3 +1,0 @@
-### Changed
-- **A spec whose commit subject the commit lint would deny is refused when it is written** (GH 2667): `task_provision`, `task_update_spec` and `task_create_batch` now check the `## Commit` subject against the same `<emoji> <type>(<scope>): <msg>` rule and 72-code-point limit that commit-msg-lint enforces, and return `commit_subject_invalid` naming the subject and the rule it breaks. The swe no longer spends a turn rewording a commit the lint denies. A spec with no `## Commit` section is unaffected, `task_create_batch` still takes `waive_spec_shape` with a reason, and `TMB_SKIP_COMMIT_MSG_LINT=1` lifts the check.
-Metric: hook_block_tokens_per_run lower

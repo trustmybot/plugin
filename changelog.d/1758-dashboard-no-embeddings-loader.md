@@ -1,2 +1,0 @@
-### Fixed
-- **The dashboard never loads the embedding model** (GH 1758): since GH 1748 the trajectory server imports `@huggingface/transformers` through a computed path, which the dashboard bundle's build-time stub could no longer replace, so a dashboard started with `CLAUDE_PLUGIN_DATA` set loaded the real model in-process. The dashboard now installs a loader at startup that refuses to load it: a comment you add there is stored without its embedding, and the trajectory server's backfill embeds it on its next start, as before.

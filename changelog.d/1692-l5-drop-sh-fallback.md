@@ -1,2 +1,0 @@
-### Changed
-- **`run-l5.ts` no longer falls back to a row's `setup-l5.sh`** (GH 1692). With every L5 row on `setup-l5.ts`, a row's setup is its `setup-l5.ts` run under node, or none; a stray `setup-l5.sh` is ignored. The runner's tests and the L5/L6 docs (`tests/l5-l6/README.md`, `tests/README.md`, `tests/EVALUATION.md`) name `setup-l5.ts` only, and a row that needs no extra state ships no setup script.

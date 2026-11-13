@@ -1,4 +1,0 @@
-{
-  "corpus_stdin": "{\"session_id\":\"log-session-0004\",\"prompt\":1.000,\"additionalContext\":[1E2,-0,{\"k\":null}]}",
-  "corpus_expect": "{\"continue\": true}"
-}

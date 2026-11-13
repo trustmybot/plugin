@@ -1,2 +1,0 @@
-### Changed
-- **Eight more L1 lints run on node:test** (GH 1692, the runtime hook TypeScript port): `agent-template-byte-identity`, `single-audit-write-path`, `valid-permission-decisions`, `symlink-targets`, `no-destructive-sql`, `tsc-noemit`, `rag-schema-invariants` and `config-keys-doc-fresh` move from bash to `tests/l1-lint/<name>.test.mjs` with the same checks and failure messages, each with a case proving it catches a violation.

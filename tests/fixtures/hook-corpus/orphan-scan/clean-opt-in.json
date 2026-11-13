@@ -1,1 +1,0 @@
-{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TMB_ORPHAN_SCAN_HOME":"@SANDBOX@/homes/all","TMB_ORPHAN_SCAN_CLEAN":"1","TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE":"9000404"},"corpus_expect":"--- cleaned ---\\nremoved stale DB: @SANDBOX@/homes/all/.claude/projects/@SLUG@/trajectory.db"}

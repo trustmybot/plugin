@@ -1,2 +1,0 @@
-### Changed
-- **pr-check runs its required checks in a merge queue** (GH 2820): `pr-check.yml` now also triggers on `merge_group` (`checks_requested`), so the `l1` and `dashboard` jobs report on merge-queue runs and dev can use a GitHub merge queue. The concurrency group falls back to `github.ref` when there is no pull request number, so queue runs no longer cancel each other, and the `pr-check-full-suite` L1 lint pins both.

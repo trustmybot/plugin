@@ -1,2 +1,0 @@
-### Changed
-- **One TypeScript runner for the L0 Docker images** (GH 1692): `run-install-smoke.sh`, `run-release-canary.sh` and `run-upgrade-smoke.sh` are replaced by `node --experimental-strip-types tests/l0-install/run-docker.ts <install|canary|upgrade>`, with the same images, tags and build arguments and no `jq` dependency. release-gate's install-smoke job and the hints printed by `scripts/release.ts` use the new command.

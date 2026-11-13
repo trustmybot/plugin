@@ -1,2 +1,0 @@
-### Fixed
-- **The deny-shape lint now catches deny JSON written with quoted keys** (GH 2537): the check in `mcp/trajectory-server/src/test/hook-deny-fix.test.ts` that fails any `src/hooks/` file other than `lib/deny.ts` building deny or block JSON itself matched only `permissionDecision: 'deny'` and `decision: 'block'`. It now also matches `"permissionDecision":"deny"`, `"decision": "block"` and their backslash-escaped forms inside a double-quoted string, and a new case checks that `allow`, `ask` and `approve` don't match.

@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"ok, push it","corpus_env":{"TMB_DISABLE_PUSH_INTENT_HINT":"1"},"corpus_expect":"empty"}

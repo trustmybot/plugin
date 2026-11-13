@@ -1,2 +1,0 @@
-### Fixed
-- **Only bro or a row's own author can supersede a discussion row** (GH 1759): `discussion_append` let swe, pr-reviewer or any consultant set `supersedes` on any row in the issue, and `task_brief` hides superseded rows, so a subagent could drop bro's decisions from every later brief. A `supersedes` from anyone other than bro or the row's author is now refused with `supersedes_forbidden` and writes nothing. `task_id` and `supersedes` also stop accepting values like `true`, `[5]` or `' 7 '`; they take a positive integer or a string of digits.

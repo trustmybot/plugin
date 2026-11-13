@@ -1,2 +1,0 @@
-### Fixed
-- **`world_model_get` stops listing merged branches under `unmerged_work`** (GH 1883): branches were judged against the local target branch, which lags `origin/<target>`, and by the task's pre-integrate commit, which differs from the pushed tip once integrate rebases. They are now judged by the live branch ref against `origin/<target>` (local target when no remote ref exists), and a squash merge that target edited afterwards is recognised by matching the branch's net diff against target's recent commits. Branch cleanup in `clean-merged-branch.sh` is unchanged.

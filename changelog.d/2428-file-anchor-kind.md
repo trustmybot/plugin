@@ -1,2 +1,0 @@
-### Fixed
-- **A read concept round-trips into `world_model_concept_upsert`** (GH 2428): a whole-file step written with the `kind: 'file'` shape that `world_model_concept_get` prints was rejected with `anchor not found`, because only an empty kind resolved to the file. Upsert now accepts `kind: 'file'` and stores it under the internal empty-kind file-anchor convention.

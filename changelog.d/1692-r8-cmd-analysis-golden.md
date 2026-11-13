@@ -1,2 +1,0 @@
-### Changed
-- The cmd-analysis differential test now checks the TypeScript write-path analyzer against `tests/fixtures/cmd-analysis/expected.jsonl`, the `tmb_cmd_write_paths` and `tmb_path_canonical` output of the shell lib frozen once per corpus row, instead of running every row through a bash process sourcing `scripts/hooks/lib/cmd-analysis.sh` (GH 1692). Every assertion is kept, `divergences.jsonl` is unchanged, and shard 1 also checks that the fixture covers each corpus row once and names no path from the recording machine.

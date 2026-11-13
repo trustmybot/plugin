@@ -1,3 +1,0 @@
-@bro write a scratch benchmark of "add" to /tmp/bench.py and run it.
-
-Don't ask questions.

@@ -1,7 +1,0 @@
-{
-  "session_id": "start-session-0009",
-  "corpus_env": {
-    "CLAUDE_PLUGIN_ROOT": "@SANDBOX@/plugin-empty"
-  },
-  "corpus_expect": "empty"
-}

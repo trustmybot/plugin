@@ -1,2 +1,0 @@
-### Removed
-- **`/tmb:dashboard` starts the dashboard with node directly** (GH 1692): the command now runs `node "${CLAUDE_PLUGIN_ROOT}/dashboard/dist/server.mjs"` in the background and `scripts/dashboard.sh` is gone, so the dashboard no longer needs bash. Run it by hand with `node dashboard/dist/server.mjs`. If the build is missing, the command tells you to run `(cd dashboard && bun install && bun run build)`.

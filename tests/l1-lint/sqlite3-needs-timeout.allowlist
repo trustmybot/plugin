@@ -1,2 +1,0 @@
-# Lines exempt from sqlite3-needs-timeout.test.mjs: <path><TAB><substring of the line><TAB><reason>.
-# Only a DB that is not the trajectory DB: a private copy or a scratch DB no other process opens.

@@ -1,3 +1,0 @@
-# Human-run repair tools that edit Claude Code's own config by design. Never a
-# hook, never the server.
-mcp/trajectory-server/src/cli/heal-mcp-cache.ts

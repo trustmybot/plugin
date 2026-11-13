@@ -1,3 +1,0 @@
-@bro that task on feat/seed-todo failed verification — review the feedback and retry with a corrected approach
-
-Don't ask questions.

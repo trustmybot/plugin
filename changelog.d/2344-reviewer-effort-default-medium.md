@@ -1,2 +1,0 @@
-### Changed
-- **code-reviewer runs at medium effort by default** (GH 2344): with no `reviewer_effort` set, every code-reviewer spawn now runs at `medium` instead of `high`, following an internal reviewer-effort study. The spawn gate, the code-reviewer `agent_runs` effort and the server all read the new default. A configured `reviewer_effort` (`low`, `medium` or `high`) still wins; set `config_set(key="reviewer_effort", value="high")` to keep the old behaviour.

@@ -1,1 +1,0 @@
-{"hook_event_name":"PermissionDenied","tool_name":"Agent","tool_input":{"subagent_type":"swe"},"corpus_expect":"\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null"}

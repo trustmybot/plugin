@@ -1,2 +1,0 @@
-### Fixed
-- **World-model feedback counts only real reports, written only by swe and code-reviewer** (GH 2421): a `wm_feedback` whose `answered`, `missed` and `wrong` are all absent or blank no longer writes a `wm_feedback` audit row, so `trajectory_doctor`'s `wm_feedback.reports` stops counting empty ones; swe's completion report still keeps the field as sent. `task_update_status` now accepts `report.wm_feedback` only from swe and refuses any other agent with `wm_feedback_invalid` before it writes anything.

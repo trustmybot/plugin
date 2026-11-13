@@ -1,0 +1,135 @@
+import { discussionTools } from './discussions.js';
+import { issueTools } from './issues.js';
+import { milestoneTools } from './milestones.js';
+import { taskTools } from './tasks.js';
+import { auditTools } from './audit.js';
+import { validationTools } from './validation.js';
+import { skillTools } from './skills.js';
+import { agentTools } from './agents.js';
+import { reportTools } from './reports.js';
+import { configTools, readTestLaneConfig } from './config.js';
+import { configureTestLane } from '../utils/test-paths.js';
+import { branchReportMdTools } from './branch_report_md.js';
+import { statsTools } from './stats.js';
+import { changeImpactTools } from './change-impact.js';
+import { roundtableTools } from './roundtable.js';
+import { prMonitorTools } from './pr_monitor.js';
+import { compositeTools } from './composites.js';
+import { onboardTools } from './onboard.js';
+import { scanTools } from './scan.js';
+import { repoTools } from './repos.js';
+import { cheatcodeTools } from './cheatcode.js';
+import { worldModelTools } from './world_model.js';
+import { agentRunsBackfillTools } from './agent-runs-backfill.js';
+import { trajectoryDoctorTools } from './trajectory-doctor.js';
+import { bugReportTools } from './bug-report.js';
+import { envTools } from './env.js';
+import { requireAgent } from '../middleware/agent-scope.js';
+export let toolDefinitions = [];
+export let toolHandlers = {};
+function decorateWithAgent(tools) {
+    return tools.map((t) => {
+        const existing = t.inputSchema.properties ?? {};
+        const existingAgent = existing['agent'];
+        const mergedAgent = {
+            type: 'string',
+            pattern: '^[a-z][a-z0-9_-]*$',
+            description: 'Calling agent: bro, swe, code-reviewer, or a consultant name.',
+            ...existingAgent,
+        };
+        return {
+            ...t,
+            inputSchema: {
+                ...t.inputSchema,
+                properties: {
+                    ...existing,
+                    agent: mergedAgent,
+                },
+            },
+        };
+    });
+}
+export function registerTools(server, db, dbPath = '', graphHolder = null) {
+    configureTestLane(readTestLaneConfig(db));
+    const discussions = discussionTools(db);
+    const issues = issueTools(db, dbPath);
+    const milestones = milestoneTools(db);
+    const tasks = taskTools(db);
+    const audit = auditTools(db);
+    const validation = validationTools(db);
+    const skills = skillTools(db);
+    const agents = agentTools(db, dbPath);
+    const reports = reportTools(db);
+    const config = configTools(db);
+    const branchReport = branchReportMdTools(db);
+    const stats = statsTools(db);
+    const changeImpact = changeImpactTools(db);
+    const roundtable = roundtableTools(db);
+    const prMonitor = prMonitorTools(db);
+    const composites = compositeTools(db, dbPath, graphHolder);
+    const onboard = onboardTools(db, dbPath);
+    const scan = scanTools(db, graphHolder, dbPath);
+    const repos = repoTools(db, graphHolder);
+    const cheatcode = cheatcodeTools(db);
+    const worldModel = worldModelTools(db, graphHolder);
+    const backfill = agentRunsBackfillTools(db, dbPath);
+    const doctor = trajectoryDoctorTools(db);
+    const bugReport = bugReportTools(db);
+    const env = envTools(db);
+    toolDefinitions = decorateWithAgent([
+        ...discussions.definitions,
+        ...issues.definitions,
+        ...milestones.definitions,
+        ...tasks.definitions,
+        ...audit.definitions,
+        ...validation.definitions,
+        ...skills.definitions,
+        ...agents.definitions,
+        ...reports.definitions,
+        ...config.definitions,
+        ...branchReport.definitions,
+        ...stats.definitions,
+        ...changeImpact.definitions,
+        ...roundtable.definitions,
+        ...prMonitor.definitions,
+        ...composites.definitions,
+        ...onboard.definitions,
+        ...scan.definitions,
+        ...repos.definitions,
+        ...cheatcode.definitions,
+        ...worldModel.definitions,
+        ...backfill.definitions,
+        ...doctor.definitions,
+        ...bugReport.definitions,
+        ...env.definitions,
+    ]);
+    const handlers = {
+        ...discussions.handlers,
+        ...issues.handlers,
+        ...milestones.handlers,
+        ...tasks.handlers,
+        ...audit.handlers,
+        ...validation.handlers,
+        ...skills.handlers,
+        ...agents.handlers,
+        ...reports.handlers,
+        ...config.handlers,
+        ...branchReport.handlers,
+        ...stats.handlers,
+        ...changeImpact.handlers,
+        ...roundtable.handlers,
+        ...prMonitor.handlers,
+        ...composites.handlers,
+        ...onboard.handlers,
+        ...scan.handlers,
+        ...repos.handlers,
+        ...cheatcode.handlers,
+        ...worldModel.handlers,
+        ...backfill.handlers,
+        ...doctor.handlers,
+        ...bugReport.handlers,
+        ...env.handlers,
+    };
+    toolHandlers = Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, requireAgent(name, handler)]));
+}
+//# sourceMappingURL=index.js.map

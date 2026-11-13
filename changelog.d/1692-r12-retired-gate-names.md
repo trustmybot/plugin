@@ -1,2 +1,0 @@
-### Fixed
-- **The docs name the TypeScript gates, not the deleted `.sh` gate files** (GH 1692): `RESPONSIBILITIES.md`, `ERD.md`, `ENUMS.md`, `CONFIG_KEYS.md`, `INSTALL.md`, `TRAJECTORY_DB_LOCATION.md`, `scripts/maintenance/README.md`, `tests/l1-lint/README.md`, `agents/README.md` and the `tmb_recovery` skill now cite each hook by its gate name (`session-start-persona`, `git-push-guard`, …) instead of the `<gate>.sh` script the TS router replaced, and `ERD.md` says the close paths share `HAS_PASS_SQL` from `review-sql.ts` rather than keep a shell copy of it.

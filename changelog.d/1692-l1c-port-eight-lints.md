@@ -1,2 +1,0 @@
-### Changed
-- **Eight more L1 lints run on node:test** (GH 1692, the runtime hook TypeScript port): `no-file-registry-refs`, `no-audit-log-kind`, `command-frontmatter`, `skill-frontmatter`, `bundle-whitespace-safety`, `tool-description-budget`, `dist-bundles` and `skill-catalog-sync` move from bash to `tests/l1-lint/<name>.test.mjs` with the same checks, exemptions and failure messages, each with a case proving it catches a violation. The `--self-test` runs of `no-audit-log-kind` and `dist-bundles` are now cases in the same file, reading the same fixtures.

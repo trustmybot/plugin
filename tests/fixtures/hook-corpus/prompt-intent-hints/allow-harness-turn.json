@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"<task-notification>\n<status>completed</status> keep going, push it\n</task-notification>","corpus_expect":"empty"}

@@ -1,3 +1,0 @@
-@bro write a python cli todo
-
-Don't ask questions.

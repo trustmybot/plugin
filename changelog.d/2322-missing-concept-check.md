@@ -1,2 +1,0 @@
-### Added
-- **The doctor now flags busy code areas no concept explains** (GH 2322): a new `concepts_cover_hot_areas` warning lists directories that 50 or more calls from other directories reach (test code excluded) but that no verified world-model concept has a step in, top 5 first. Write a concept for the area with `world_model_concept_upsert`, or raise the threshold with `TMB_CONCEPT_AREA_MIN_FAN_IN`.

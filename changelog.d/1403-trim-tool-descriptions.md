@@ -1,2 +1,0 @@
-### Changed
-- **MCP tool descriptions fit the 21,000-byte budget again** (GH 1403): the trajectory-server tool descriptions every agent loads shrank from 30,915 to 20,648 bytes. History, rationale, examples and repeats of the input-schema text are gone; every rule an agent acts on (who may call, refusals, waivers, side effects, result fields) stays, so each session starts with about 10 KB less tool text.

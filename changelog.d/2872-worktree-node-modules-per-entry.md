@@ -1,2 +1,0 @@
-### Fixed
-- **Running `npm ci` in a task worktree no longer wipes your main checkout's packages** (GH 2872): a task worktree's `node_modules` used to be one link to the main checkout's install, so a clean reinstall deleted the real packages through it. Each worktree `node_modules` is now its own directory of per-package links (older whole-directory links are converted on the next provision), so removing it only removes links.

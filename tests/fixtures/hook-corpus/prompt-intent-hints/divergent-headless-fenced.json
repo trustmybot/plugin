@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"here is the log:\n```\nclaude --print ok\n```\nall fine","corpus_divergent":"GH 1751: the .sh matches claude --print inside a fenced block; the TS gate skips fenced blocks","corpus_expect":{"bash":"headless-intent hint: the user's prompt contains 'claude --print'","ts":"empty"}}

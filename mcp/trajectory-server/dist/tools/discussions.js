@@ -1,0 +1,491 @@
+import { nowISO } from '../db.js';
+import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
+import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
+import { resolveIssueRepo } from './audit.js';
+import { toFtsQuery, withFtsGuard } from '../fts-query.js';
+const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
+const CROSS_ISSUE_TASK_KINDS = new Set(['note', 'analysis']);
+const MAX_BODY_BYTES = 65_536;
+const HUMAN_AUTHOR = 'human';
+export const HUMAN_AUTHOR_REFUSED = "author_forbidden: discussion_append never writes author='human'. Write the row under your own name and quote the Human verbatim.";
+function ok(data) {
+    return { content: [{ type: 'text', text: JSON.stringify(data) }] };
+}
+function err(message) {
+    return {
+        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+        isError: true,
+    };
+}
+function requireArg(args, name) {
+    if (args[name] === undefined || args[name] === null) {
+        throw new Error(`Missing required arg: ${name}`);
+    }
+    return args[name];
+}
+function optionalId(args, name) {
+    const raw = args[name];
+    if (raw === undefined || raw === null || raw === '')
+        return null;
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0)
+        return raw;
+    if (typeof raw === 'string' && /^[1-9][0-9]*$/.test(raw))
+        return Number(raw);
+    throw new Error(`${name} must be a positive integer id (got ${JSON.stringify(raw)})`);
+}
+function agentName(name) {
+    return typeof name === 'string' ? name.toLowerCase().replace(/^tmb:/, '') : '';
+}
+function wrapHandler(fn) {
+    return async (args) => {
+        try {
+            return await fn(args);
+        }
+        catch (e) {
+            return err(e.message);
+        }
+    };
+}
+export function resolveDefaultIssueId(db) {
+    const latest = db.get(`SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`);
+    return latest?.id ?? -1;
+}
+export function insertDiscussion(db, entry) {
+    const createdAt = entry.created_at ?? nowISO();
+    const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id, task_id, supersedes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`, [
+        entry.issue_id,
+        entry.author,
+        entry.kind,
+        entry.body,
+        createdAt,
+        repo,
+        entry.remote_comment_id ?? null,
+        entry.task_id ?? null,
+        entry.supersedes ?? null,
+    ]);
+    if (Number(res.changes) === 0)
+        return null;
+    const id = Number(res.lastInsertRowid);
+    void embedAndStore(db, 'discussions', id, entry.body).catch((e) => console.error('[embeddings] insertDiscussion embed failed:', e));
+    return id;
+}
+export function discussionTools(db) {
+    const definitions = [
+        {
+            name: 'discussion_search',
+            description: 'Search discussions, returning top-K ranked snippets rather than the full dump of issue_get_with_discussions.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    query: {
+                        type: 'string',
+                        description: 'Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language.',
+                    },
+                    mode: {
+                        type: 'string',
+                        enum: ['keyword', 'semantic', 'hybrid'],
+                        description: 'Search mode. Default: hybrid (RRF combines FTS5 + cosine + recency-decay).',
+                    },
+                    issue_id: { type: 'string', description: 'Optional — restrict to one issue.' },
+                    kind: {
+                        type: 'string',
+                        enum: ['intent', 'note', 'question', 'answer', 'decision', 'analysis'],
+                        description: 'Optional — restrict to one discussion kind.',
+                    },
+                    k: { type: 'number', description: 'Top-K rows to return. Default 5. Max 20.' },
+                    recency_alpha: {
+                        type: 'number',
+                        description: 'Recency weight 0–1 (hybrid/keyword only). Default 0.3.',
+                    },
+                },
+                required: ['agent', 'query'],
+            },
+        },
+        {
+            name: 'discussion_append',
+            description: 'Append an intent, question, answer, decision or note to an issue. issue_id defaults to the newest open issue other than -1, else -1. body is capped at 64 KB (a named error past it).',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string', description: 'Caller agent name' },
+                    issue_id: { type: 'string', description: 'The issue ID (integer as string). Optional — defaults to the newest open issue, else -1.' },
+                    author: { type: 'string', description: "Author of this entry: an agent name. 'human' is refused; quote the Human verbatim under your own name." },
+                    kind: {
+                        type: 'string',
+                        enum: ['intent', 'question', 'answer', 'decision', 'note', 'analysis'],
+                        description: 'Entry kind. Default: note',
+                    },
+                    body: { type: 'string', description: 'Markdown body of the discussion entry' },
+                    task_id: {
+                        type: 'string',
+                        description: "Optional — the task the entry belongs to, on this issue (a note or analysis row may name a task on another issue, e.g. world-model feedback). That task's task_brief carries its decision/intent rows; an entry without task_id is issue-level.",
+                    },
+                    supersedes: {
+                        type: 'string',
+                        description: 'Optional — id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it.',
+                    },
+                },
+                required: ['agent', 'author', 'body'],
+            },
+        },
+        {
+            name: 'discussion_list',
+            description: "An issue's discussion entries by created_at ASC.",
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    issue_id: { type: 'string' },
+                    limit: { type: 'number', description: 'Max rows to return. Capped at 200. When omitted, returns up to 200 rows (legacy bare-array shape); when provided, response includes next_cursor.' },
+                    offset: { type: 'number', description: 'Row offset for pagination. Default 0.' },
+                    cursor: { type: 'string', description: 'Opaque cursor from a previous response. When provided, overrides offset.' },
+                    fields: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Optional column projection. Allowed: id, issue_id, author, kind, body, created_at. Unknown fields return an error. Default: all columns.',
+                    },
+                },
+                required: ['agent', 'issue_id'],
+            },
+        },
+        {
+            name: 'issue_get_with_discussions',
+            description: "An issue row with its discussions and tasks in one call: by default counts + the last_n discussions, all with include_full. The description is redacted per the calling agent's scope.",
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    issue_id: { type: 'string' },
+                    include_full: {
+                        type: 'boolean',
+                        description: 'When true, return all discussions (no limit). Default false — compact mode returns last_n discussions + total_count.',
+                    },
+                    last_n: {
+                        type: 'number',
+                        description: 'In compact mode: number of most-recent discussions to return. Default 10. Max 200.',
+                    },
+                    limit: { type: 'number', description: 'Deprecated alias for last_n when include_full=false. When include_full=false and limit is provided, acts as last_n cap. Prefer last_n.' },
+                    cursor: { type: 'string', description: 'Opaque cursor for paginating beyond last_n. When provided, returns next page of discussions.' },
+                },
+                required: ['agent', 'issue_id'],
+            },
+        },
+    ];
+    function decodeCursor(cursor) {
+        try {
+            return JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+        }
+        catch {
+            return null;
+        }
+    }
+    function encodeCursor(row) {
+        return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString('base64');
+    }
+    const handlers = {
+        discussion_search: wrapHandler(async (args) => {
+            normalizeAgent(args['agent']);
+            const query = requireArg(args, 'query');
+            const mode = args['mode'] ?? 'hybrid';
+            const issueId = args['issue_id'] ?? null;
+            const kind = args['kind'] ?? null;
+            const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
+            const alpha = Math.min(1, Math.max(0, args['recency_alpha'] ?? 0.3));
+            await backfillMissing(db, 'discussions');
+            const ftsQuery = toFtsQuery(query);
+            const fetchFtsRows = (limitK) => withFtsGuard(() => db.all(`SELECT
+             d.id, d.issue_id, d.kind, d.author, d.created_at,
+             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
+             bm25(discussions_fts) AS bm25_score,
+             (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)
+           ORDER BY bm25(discussions_fts) ASC
+           LIMIT ?`, [ftsQuery, issueId, issueId, kind, kind, limitK]));
+            const fetchRowById = (id) => db.get(`SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
+                  '' AS snippet,
+                  0.0 AS bm25_score,
+                  (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions d
+           WHERE d.id = ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)`, [id, issueId, issueId, kind, kind]);
+            if (mode === 'keyword') {
+                const countRow = withFtsGuard(() => db.get(`SELECT COUNT(*) AS n
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)`, [ftsQuery, issueId, issueId, kind, kind]));
+                const total_matched = countRow?.n ?? 0;
+                const rows = withFtsGuard(() => db.all(`SELECT
+             d.id, d.issue_id, d.kind, d.author, d.created_at,
+             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
+             bm25(discussions_fts) AS bm25_score,
+             (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)
+           ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
+           LIMIT ?`, [ftsQuery, issueId, issueId, kind, kind, alpha, alpha, k]));
+                return ok({
+                    results: rows.map((r) => ({
+                        id: r.id,
+                        issue_id: r.issue_id,
+                        kind: r.kind,
+                        author: r.author,
+                        created_at: r.created_at,
+                        snippet: r.snippet,
+                        score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
+                    })),
+                    total_matched,
+                });
+            }
+            if (mode === 'semantic') {
+                const cosineResults = await topKByCosine(db, 'discussions', query, k);
+                if (cosineResults.length === 0) {
+                    return ok({ results: [], total_matched: 0, warning: 'semantic_unavailable' });
+                }
+                const results = [];
+                for (const cr of cosineResults) {
+                    const row = fetchRowById(cr.rowid);
+                    if (row) {
+                        results.push({
+                            id: row.id,
+                            issue_id: row.issue_id,
+                            kind: row.kind,
+                            author: row.author,
+                            created_at: row.created_at,
+                            snippet: row.snippet,
+                            score: cr.score,
+                        });
+                    }
+                }
+                return ok({ results, total_matched: results.length });
+            }
+            // hybrid: RRF over FTS5 + cosine + recency-decay
+            const RRF_K = 60;
+            const ftsRows = fetchFtsRows(k * 4);
+            const cosineResults = await topKByCosine(db, 'discussions', query, k * 4);
+            const semanticAvailable = cosineResults.length > 0;
+            const scoreMap = new Map();
+            ftsRows.forEach((r, rank) => {
+                const rrf = 1 / (RRF_K + rank + 1);
+                const existing = scoreMap.get(r.id);
+                if (existing) {
+                    existing.rrf += rrf;
+                }
+                else {
+                    scoreMap.set(r.id, { rrf, row: r });
+                }
+            });
+            cosineResults.forEach((cr, rank) => {
+                const rrf = 1 / (RRF_K + rank + 1);
+                const existing = scoreMap.get(cr.rowid);
+                if (existing) {
+                    existing.rrf += rrf;
+                }
+                else {
+                    const row = fetchRowById(cr.rowid);
+                    if (row)
+                        scoreMap.set(cr.rowid, { rrf, row });
+                }
+            });
+            const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => {
+                const ageDays = row.age_days;
+                const decayed = rrf * (Math.exp(-ageDays / 30) * alpha + (1 - alpha));
+                return { row, score: decayed };
+            });
+            combined.sort((a, b) => b.score - a.score);
+            const topRows = combined.slice(0, k);
+            const results = topRows.map(({ row, score }) => ({
+                id: row.id,
+                issue_id: row.issue_id,
+                kind: row.kind,
+                author: row.author,
+                created_at: row.created_at,
+                snippet: row.snippet,
+                score,
+            }));
+            const response = { results, total_matched: results.length };
+            if (!semanticAvailable)
+                response['warning'] = 'semantic_unavailable';
+            return ok(response);
+        }),
+        discussion_append: requireRoles('discussion_append', ['bro', 'swe', 'code-reviewer', 'consultant'], wrapHandler(async (args) => {
+            normalizeAgent(args['agent']);
+            const rawIssueId = args['issue_id'];
+            const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));
+            const author = requireArg(args, 'author');
+            if (String(author).trim().toLowerCase() === HUMAN_AUTHOR)
+                return err(HUMAN_AUTHOR_REFUSED);
+            const body = requireArg(args, 'body');
+            const kind = args['kind'] ?? 'note';
+            const bodyBytes = Buffer.byteLength(body, 'utf8');
+            if (bodyBytes > MAX_BODY_BYTES) {
+                return err(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
+            }
+            if (!ALLOWED_KINDS.has(kind)) {
+                return err(`Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(', ')}`);
+            }
+            if (!author.trim()) {
+                throw new Error('author must be a non-empty string');
+            }
+            const issue = db.get('SELECT id FROM issues WHERE id = ?', [issueId]);
+            if (!issue) {
+                throw new Error(`Not found: issue ${issueId}`);
+            }
+            const taskId = optionalId(args, 'task_id');
+            if (taskId !== null) {
+                const task = db.get('SELECT issue_id FROM tasks WHERE id = ?', [taskId]);
+                if (!task)
+                    throw new Error(`Not found: task ${taskId}`);
+                if (task.issue_id !== issue.id && !CROSS_ISSUE_TASK_KINDS.has(kind)) {
+                    throw new Error(`task_id ${taskId} belongs to issue ${task.issue_id}, not issue ${issue.id}`);
+                }
+            }
+            const supersedes = optionalId(args, 'supersedes');
+            if (supersedes !== null) {
+                const prior = db.get('SELECT issue_id, author FROM discussions WHERE id = ?', [supersedes]);
+                if (!prior)
+                    throw new Error(`Not found: discussion ${supersedes}`);
+                if (prior.issue_id !== issue.id) {
+                    throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue.id}`);
+                }
+                if (normalizeAgent(args['agent']) !== 'bro' && agentName(prior.author) !== agentName(args['agent'])) {
+                    throw new Error(`supersedes_forbidden: only bro or the row's author (${prior.author}) may supersede discussion ${supersedes}`);
+                }
+            }
+            const now = nowISO();
+            const id = insertDiscussion(db, {
+                issue_id: issueId,
+                author,
+                kind,
+                body,
+                created_at: now,
+                task_id: taskId,
+                supersedes,
+            });
+            const row = db.get('SELECT * FROM discussions WHERE id = ?', [id]);
+            return ok(row);
+        })),
+        discussion_list: wrapHandler(async (args) => {
+            normalizeAgent(args['agent']);
+            const issueId = requireArg(args, 'issue_id');
+            const limitArg = args['limit'];
+            const cursorArg = args['cursor'];
+            const rawOffset = args['offset'] ?? 0;
+            const fieldsArg = args['fields'];
+            const ALLOWED_DISCUSSION_FIELDS = new Set(['id', 'issue_id', 'author', 'kind', 'body', 'created_at']);
+            if (fieldsArg !== undefined) {
+                const unknown = fieldsArg.filter((f) => !ALLOWED_DISCUSSION_FIELDS.has(f));
+                if (unknown.length > 0) {
+                    return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(', ')}`);
+                }
+            }
+            function projectRow(row) {
+                if (!fieldsArg)
+                    return row;
+                const out = {};
+                for (const f of fieldsArg)
+                    out[f] = row[f];
+                return out;
+            }
+            const issue = db.get('SELECT id FROM issues WHERE id = ?', [issueId]);
+            if (!issue) {
+                return ok({ discussions: [], warning: 'issue not found' });
+            }
+            if (limitArg === undefined || limitArg === null) {
+                const offset = Math.max(0, rawOffset);
+                const rows = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200 OFFSET ?`, [issueId, offset]);
+                return ok(rows.map(projectRow));
+            }
+            const limit = Math.min(Math.max(1, limitArg), 200);
+            let cursorFilter = '';
+            let cursorParams = [];
+            if (cursorArg) {
+                const decoded = decodeCursor(cursorArg);
+                if (decoded) {
+                    cursorFilter =
+                        'AND (created_at > ? OR (created_at = ? AND id > ?))';
+                    cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+                }
+            }
+            const sql = 'SELECT * FROM discussions WHERE issue_id = ? ' +
+                cursorFilter +
+                ' ORDER BY created_at ASC, id ASC LIMIT ?';
+            const fetchedRows = db.all(sql, [issueId, ...cursorParams, limit + 1]);
+            const hasMore = fetchedRows.length > limit;
+            const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+            const last = rows[rows.length - 1];
+            const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
+            return ok({ rows: rows.map(projectRow), next_cursor });
+        }),
+        issue_get_with_discussions: wrapHandler(async (args) => {
+            const agent = normalizeAgent(args['agent']);
+            const issueId = requireArg(args, 'issue_id');
+            const includeFull = args['include_full'] ?? false;
+            const lastNArg = args['last_n'];
+            // legacy: `limit` acts as last_n when include_full=false
+            const limitArg = args['limit'];
+            const cursorArg = args['cursor'];
+            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!issue) {
+                throw new Error(`Not found: issue ${issueId}`);
+            }
+            const tasks = db.all(`SELECT id, branch_id, status, title FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`, [issueId]);
+            const redactedIssue = redactIssue(issue, agent);
+            if (includeFull) {
+                const discussions = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`, [issueId]);
+                return ok({ issue: redactedIssue, discussions, tasks });
+            }
+            // Compact mode: return counts + last N discussions
+            const totalCount = (db.get(`SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?`, [issueId]))?.n ?? 0;
+            const resolvedLastN = Math.min(Math.max(1, lastNArg ?? limitArg ?? 10), 200);
+            let cursorFilter = '';
+            let cursorParams = [];
+            if (cursorArg) {
+                const decoded = decodeCursor(cursorArg);
+                if (decoded) {
+                    // DESC pagination walks toward older rows, so the next page is
+                    // everything strictly older than the last row we returned.
+                    cursorFilter = 'AND (created_at < ? OR (created_at = ? AND id < ?))';
+                    cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+                }
+            }
+            const sql = 'SELECT * FROM discussions WHERE issue_id = ? ' +
+                cursorFilter +
+                ' ORDER BY created_at DESC, id DESC LIMIT ?';
+            const fetchedDisc = db.all(sql, [issueId, ...cursorParams, resolvedLastN + 1]);
+            const hasMore = fetchedDisc.length > resolvedLastN;
+            const sliced = hasMore ? fetchedDisc.slice(0, resolvedLastN) : fetchedDisc;
+            // fetchedDisc is DESC (newest first); the oldest returned row is the last
+            // element. Capture it for the next cursor BEFORE reversing for display.
+            const oldest = sliced[sliced.length - 1];
+            const next_cursor = hasMore && oldest ? encodeCursor(oldest) : undefined;
+            // Return in ascending order for readability (copy so the cursor above is
+            // not affected by the in-place reverse).
+            const discussions = sliced.slice().reverse();
+            return ok({
+                issue: redactedIssue,
+                discussions,
+                tasks,
+                total_discussion_count: totalCount,
+                returned_count: discussions.length,
+                ...(next_cursor !== undefined ? { next_cursor } : {}),
+            });
+        }),
+    };
+    return { definitions, handlers };
+}
+//# sourceMappingURL=discussions.js.map

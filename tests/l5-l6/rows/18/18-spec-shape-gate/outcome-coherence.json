@@ -1,7 +1,0 @@
-{
-  "expected_writes": {
-    "tasks": ">=1",
-    "audit WHERE event_type = 'spec_shape_gate_waived'": "=0",
-    "agent_runs WHERE agent_type = 'swe'": ">=1"
-  }
-}

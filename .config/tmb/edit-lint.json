@@ -1,6 +1,0 @@
-{
-  "version": 1,
-  "lints": [
-    { "glob": "**/*", "command": "node --experimental-strip-types tests/l1-lint/file-lint.ts" }
-  ]
-}

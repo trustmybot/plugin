@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"I ran `claude -p` yesterday.","corpus_divergent":"GH 1751: the .sh matches claude -p inside backticks; the TS gate skips quoted spans","corpus_expect":{"bash":"headless-intent hint: the user's prompt contains 'claude -p'","ts":"empty"}}

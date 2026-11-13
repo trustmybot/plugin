@@ -1,2 +1,0 @@
-### Changed
-- The agent-spawn-dispatch, require-spawn-effort, agent-arg-matches-caller, code-reviewer-no-worktree and normalize-role-prefix hook tests are now node:test files under `mcp/trajectory-server/src/test/` that run in `npm test`, with every assertion kept (GH 1692). New cases run `node dist/hooks.js <hook>` in a sandbox with its own HOME and build their trajectory DBs through node:sqlite; assertions the existing unit, parity and hook-corpus tests already prove are left to them. The five `tests/l3-integration/hooks/*.test.sh` files are gone.

@@ -1,2 +1,0 @@
-### Changed
-- **One enforcement doc with one layer model** (GH 2706): `docs/prompt-engineering/DETERMINISM.md` is merged into `ENFORCEMENT.md`, which now describes each enforcement layer at architecture level with a single numbering. Stale claims (a removed feedback CHECK, `scripts/hooks/`, the `pr_target` config, the /onboard settings.json claim, an uncited figure) are gone in favor of pointers to the source; `CONTRIBUTING.md` and `PROMPT_ENGINEERING.md` now link to `ENFORCEMENT.md`.

@@ -1,2 +1,0 @@
-### Changed
-- **Code comments no longer cite the deleted ADR 0001 and ADR 0002** (GH 2706): the trajectory server's world-model sources that describe the L1 symbol index and L2 concept layer now point at GH 1680, the issue that holds that design. Comments that describe earlier history (the schema v7 and v8 table drops, the search integration test and the L5/L6 world-model rows) drop the citation. Comments only; behavior is unchanged.

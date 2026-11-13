@@ -1,1 +1,0 @@
-audit.event_type 'ghost_event' used in mcp/trajectory-server/src/hooks/extra.ts but missing from ENUMS.md

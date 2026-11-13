@@ -1,2 +1,0 @@
-### Added
-- **A treemap and README drift markers on the dashboard's Project Map** (GH 1347): a List | Treemap switch shows the selected directory's subdirectories as a treemap sized by file count; click a cell to open that directory, hover it for its path, file count and drift. Directories whose README has drifted are marked in the listing, the tree and the treemap with "N commits behind" and "K dead refs" (the refs in a tooltip).

@@ -1,1 +1,0 @@
-{"type":"assistant","parentUuid":null,"message":{"usage":{"input_tokens":null,"output_tokens":5,"cache_read_input_tokens":1.5,"cache_creation_input_tokens":0.00001},"content":[{"type":"tool_use","name":"Read"}]}}

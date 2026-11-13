@@ -1,2 +1,0 @@
-### Fixed
-- **Framed section banners no longer become symbol docs** (GH 1954): a banner such as `# --- Install-scope notice ---` above a shell, TypeScript or Perl definition became its whole doc, or the head of the real doc glued under it. A symbol's doc now starts after the last banner line of its comment block (a rule line, or a title framed by three or more of one `-` or `=`), and is empty when nothing follows. The extractor version is bumped, so the next scan re-parses every file once.

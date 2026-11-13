@@ -1,2 +1,0 @@
-### Fixed
-- **`bun run build:tsc` now also rebuilds the esbuild bundles** (GH 2694): `build:tsc` ran only `tsc`, but about 60 tests exec `dist/hooks.js`, `dist/cli.js` and `dist/index.js`, which only `build:bundle` writes, so a verification of `npm run build:tsc && node --test dist/test/<x>.test.js` could pass or fail on stale bundles. `mcp/trajectory-server`'s `build:tsc` now ends with `bun run build:bundle`, and `build` no longer calls `build:bundle` a second time. A new lint, `tests/l1-lint/build-tsc-bundles.test.mjs`, keeps both scripts in that shape.

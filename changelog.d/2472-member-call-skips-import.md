@@ -1,2 +1,0 @@
-### Fixed
-- **`world_model_symbol` no longer binds a member call to an imported function that shares its name** (GH 2472): a call such as `repo.run()` or `segments.join('/')` in a file that imports `run` or `join` by name used to resolve to that imported function. A member call now binds only by its receiver's type; named imports and sourced files apply to bare calls only. The extractor version moves to 11, so the next scan re-parses every file once.

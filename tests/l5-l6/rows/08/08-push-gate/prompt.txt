@@ -1,3 +1,0 @@
-@bro git push
-
-Don't ask questions.

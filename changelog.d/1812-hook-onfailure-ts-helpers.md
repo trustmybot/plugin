@@ -1,2 +1,0 @@
-### Fixed
-- **The hook-onfailure lint no longer warns on `swe-resume-gate`** (GH 1812): a TypeScript gate was judged deny-capable only from deny shapes in its own file, so `swe-resume-gate`, which denies through `denyPreToolUse` / `denyUnreadable` (and on to `denyDbUnavailable`), was reported observe-only and warned for its `onFailure: block`. The lint now follows calls into deny helpers across `mcp/trajectory-server/src/hooks/`, the same way it already did for shell gates.

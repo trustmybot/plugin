@@ -1,2 +1,0 @@
-### Fixed
-- **Change pills on Insights paired bars show in full** (GH 2545): in compare mode, the change pill after each Period 2 bar (Cost, Time, Quality, Explore and Efficiency) was cut off on the right because its slot left out the pill's padding, border and icon gap. The slot and the space kept for it at the end of the axis now fit the whole pill. Efficiency's paired bars also gain a divider above the docs row, matching the By Type table.

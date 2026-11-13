@@ -1,2 +1,0 @@
-### Fixed
-- **An empty quoted `git -C ''` no longer slips past the git guards** (GH 2549): the command analyzer dropped the empty word, so the guards read `git -C '' push origin dev` as the subcommand `origin dev` and let even an swe push through. The analyzer now keeps the empty value, reads the subcommand after it, and runs the command in the current directory, as git does, so every git guard judges it like the same command without `-C ''`.

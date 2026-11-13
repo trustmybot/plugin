@@ -1,2 +1,0 @@
-### Fixed
-- **Prompt hints fire on long prompts again** (GH 1711): the prompt-intent hints hook checked for an all-whitespace prompt with a substitution that macOS bash 3.2 runs in quadratic time, so a prompt of about 8,000 characters or more, such as a compaction summary or a large paste, ran past the hook's 6 s timeout and its hints were lost without notice. The check is now a single pattern match, a 20,000-character prompt is handled in about 0.1 s, and the hints on long prompts fire as they do on short ones.

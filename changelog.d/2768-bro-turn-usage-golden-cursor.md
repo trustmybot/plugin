@@ -1,2 +1,0 @@
-### Fixed
-- **The bro-turn-usage hook golden recording lists the per-session cursor** (GH 2768): `tests/fixtures/hook-golden/bro-turn-usage.json` now records the `bro-turn-usage/<session_id>.json` cursor the Stop hook writes next to the DB (GH 2699), with its transcript path as `@SANDBOX@`. The main-loop-row, messages-without-ids, no-output-tokens, synthetic-only and update-existing-row cases of the `hooks-health-parity` shards pass again under both locales.

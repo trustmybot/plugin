@@ -1,2 +1,0 @@
-### Added
-- **`task_stats` shows how often hooks blocked a task's agents** (GH 1915): a task's stats now carry `hook_blocks` (`denials`, `gate_failures` for gates that timed out or crashed, and `by_reason`, highest count first), and each spawn carries its own `hook_blocks` count. Calling `task_stats` with `since` (an ISO date) and no `task_id` returns the same counts over every swe run started since then, with `runs`, `runs_with_blocks` and `blocks_per_run`. The counts are read from the existing audit log, so there is no schema change and past runs are covered too.

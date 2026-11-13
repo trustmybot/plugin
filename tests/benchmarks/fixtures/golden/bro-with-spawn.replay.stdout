@@ -1,4 +1,0 @@
-{"turn_index": 1, "timestamp": "2026-01-01T11:00:05.000Z", "input_tokens": 180, "output_tokens": 110, "cache_read_tokens": 0, "cache_creation_tokens": 6200, "hook_injected_bytes": 108, "tool_calls": ["TaskCreate"]}
-{"turn_index": 2, "timestamp": "2026-01-01T11:00:08.000Z", "input_tokens": 200, "output_tokens": 68, "cache_read_tokens": 6310, "cache_creation_tokens": 0, "hook_injected_bytes": 0, "tool_calls": ["TaskGet"]}
-{"turn_index": 3, "timestamp": "2026-01-01T11:00:50.000Z", "input_tokens": 310, "output_tokens": 95, "cache_read_tokens": 6378, "cache_creation_tokens": 0, "hook_injected_bytes": 0, "tool_calls": ["TaskCreate"]}
-{"turn_index": 4, "timestamp": "2026-01-01T11:00:55.000Z", "input_tokens": 290, "output_tokens": 22, "cache_read_tokens": 6473, "cache_creation_tokens": 0, "hook_injected_bytes": 0, "tool_calls": []}

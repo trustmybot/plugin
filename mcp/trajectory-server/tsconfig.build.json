@@ -1,7 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "noEmit": false
-  },
-  "exclude": ["src/index.ts", "src/run-scan.ts"]
-}

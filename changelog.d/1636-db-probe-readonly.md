@@ -1,2 +1,0 @@
-### Fixed
-- **Finding the trajectory DB no longer rewrites it** (GH 1636): when hooks located the DB from the project directory, the schema check opened it writable whenever its `-shm` file was missing (the MCP server down or restarting), and closing that connection folded the `-wal` into the main file before the read-only fallback could snapshot it. The check now opens the DB read-only and, when that cannot open it, reads it immutable; it never opens it writable, so the DB file and its `-wal` stay exactly as they were.
