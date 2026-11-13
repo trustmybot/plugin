@@ -8,42 +8,58 @@ Every record a task leaves (issue, intent, decision, task, runs, verdicts and fi
 
 Any change that touches code. bro plans and gates, swe implements, code-reviewer reviews, and the Human merges. An architectural change (a new boundary or module, a schema or public API change, or an external side effect) is a code task with one more record: the decision bro writes at provision names the change and its blast radius, and bro's design judgment at task close weighs the change against it.
 
+In the charts of 3.1 and 3.2, **DB insert** adds rows to the trajectory DB, **DB update** changes rows already there, and **WM** marks where the world model is brought forward, indexed or scanned. The world model indexes each repo at origin's copy of its PR target, so a task's own commit enters it only after the PR merges. Every issue, task and discussion write also syncs to the issue tracker when the project turns sync on.
+
+### Code task succeeds
+
 ```mermaid
 flowchart TD
-    A[Human asks] --> B[bro grounds in the world model]
-    B --> B1[Issue and intent recorded in the trajectory DB]
-    B1 --> C[Provision: decision and task recorded; branch, worktree, world model indexed at the base]
-    C -- architectural --> C1[Decision names the change and its blast radius]
-    C1 --> D
-    C -- any step fails --> X0[Nothing written; bro fixes the cause]
-    C --> D[swe implements]
-    D -- hook deny --> D1[swe fixes in the named form, same run]
-    D1 --> D
-    D -- out of turns --> D2[Checkpoint commit; next run resumes]
-    D2 --> D
-    D -- policy deny, spec contradiction or broken environment --> F0[Run ends failed, quoting the cause]
-    F0 --> R
-    D --> E{Close checks pass?}
-    E -- no --> D
-    E -- yes --> H[Hand off: passing run, report, out-of-list edits]
-    H --> G[3.3 Push gate]
-    G -- fail or refused --> R[3.4 Retry and escalation]
-    G -- pass --> K{Fits the design, and the decision if architectural?}
-    K -- no --> R
-    K -- yes --> L[bro closes the task, worktree removed]
-    L --> M{Base moved?}
-    M -- yes --> N{Rebase and re-verify clean?}
-    N -- conflict or verification fails --> R
-    N -- pass does not carry --> N2{One new review of the rebased commit}
-    N2 -- fail --> R
-    N2 -- pass --> P
-    N -- precondition fails --> X2[bro fixes the cause and reruns]
-    N -- yes --> P
-    M -- no --> P[Push and open the PR]
-    P --> Q[Human merges, or the merge policy does]
-    Q --> W[World model reindexes the moved base]
-    P -. required CI fails .-> R
-    P -. review comments .-> T[3.5 PR comment triage]
+    A[Human asks] --> B["bro reads the world model<br/>WM: a read brings a behind index forward"]
+    B --> C["bro records the goal<br/>DB insert: issue, the Human's words as intent, reuse-or-build note"]
+    C --> D["Provision: branch and worktree cut from the fetched base<br/>DB insert: decision, task with spec, files, checks and effort<br/>WM: base indexed"]
+    D --> E["swe spawned with the task id<br/>DB insert: metered run · DB update: task running<br/>WM: brought forward if behind"]
+    E --> F["swe implements<br/>DB insert: every deny and tool output"]
+    F --> G["swe closes; every check passes<br/>DB insert: verification run, close lints<br/>DB update: commit, report, task completed"]
+    G --> H["code-reviewer passes the commit<br/>DB insert: verdict and any nits"]
+    H --> I["bro judges fit to the design and closes the task<br/>DB update: task closed · worktree removed"]
+    I -- architectural change --> I1["WM: full scan, so the new structure shows this session"]
+    I1 --> J
+    I --> J{Base moved?}
+    J -- yes --> J1["Rebase, re-verify; patch unchanged, so the pass carries<br/>DB insert: verification run · DB update: task's commit"]
+    J1 --> K
+    J -- no --> K["bro pushes and opens the PR<br/>DB insert: PR and the issues it closes"]
+    K --> L["Human merges, or the merge policy does<br/>DB update: the branch's tasks and the PR's issues closed"]
+    L --> M["WM: the merge moves refs; fetch and reindex in the background<br/>concepts the swe proposed apply at the next scan"]
+    K -. review comments .-> T[3.5 PR comment triage]
+```
+
+### Code task fails a step
+
+Each failure returns to its owner without waiting on the Human; 3.4 lists the paths.
+
+```mermaid
+flowchart TD
+    P0[Provision fails at any stage] --> P1["Nothing written; what it created is removed<br/>bro fixes the cause and provisions again"]
+    S0[swe spawn fails] --> S1["DB update: task back to pending"]
+    D0[A hook denies an edit or command] --> D1["DB insert: the deny, audited<br/>swe fixes it in the named form, same run"]
+    T0[swe runs out of turns] --> T1["Checkpoint commit<br/>DB update: run ends with its stop cause; task keeps the checkpoint"]
+    T1 --> SP
+    C0[A close check fails] --> C1["DB insert: failing verification or lint run<br/>task stays running; swe fixes and closes again"]
+    E0[Policy deny, spec contradiction or broken environment] --> E1["DB update: task failed, quoting the cause<br/>bro fixes the spec or the environment"]
+    E1 --> RO
+    B0[bro's checks at task close fail, or the design misfits] --> B1["DB insert: audit row and note naming the check"]
+    B1 --> RO
+    V0[code-reviewer fails the commit] --> V1["DB insert: verdict and blocking findings<br/>DB update: task reopened, running at high effort"]
+    V1 --> SP
+    V1 -- second fail since the last pass --> RC["DB insert: root-cause decision<br/>swe spawn denied until it exists"]
+    RC --> SP
+    I0[Verification fails on the rebased commit, or a required CI check fails] --> RO
+    I2[Rebased patch changed, so the pass does not carry] --> I3["One new review of the rebased commit<br/>DB insert: verdict"]
+    I3 -- fail --> V1
+    W0[Wrong approach, design drift or integrate conflict] --> W1["DB update: old task escalated<br/>DB insert: new task on a fresh branch, open findings carried<br/>WM: base indexed for the new worktree"]
+    W1 --> SP
+    RO["bro reopens the task<br/>DB insert: decision · DB update: task running, files and checks widened<br/>WM: base indexed; worktree recreated when missing"] --> SP
+    SP[swe spawned again, as in the success chart]
 ```
 
 | Step | Owner | Method | What it guarantees and hands over |
@@ -64,65 +80,38 @@ flowchart TD
 - **Verification never fails open**, and only provisioning creates task branches and worktrees.
 - **Every run is metered** (tokens, duration, why it stopped, what it resumed), and so is every deny and tool output. Overrun and silent-run advisories inform bro and stop nothing.
 
-### What each step records
-
-When each step of a code task writes the trajectory DB and moves the world model. The world model indexes each repo at its target commit, origin's copy of the PR target, so a task's own commit enters the map only after its PR merges.
-
-```mermaid
-sequenceDiagram
-    participant H as Human
-    participant B as bro
-    participant S as swe
-    participant R as code-reviewer
-    participant DB as Trajectory DB
-    participant WM as World model
-    H->>B: asks
-    B->>WM: read the map (a read first brings a behind index forward)
-    B->>DB: issue, the Human's words as intent, planning note (one transaction)
-    B->>DB: provision: decision and task with spec, files, checks and effort
-    B->>WM: provision fetches the base and indexes it
-    Note over B,DB: any provision failure writes nothing
-    B->>S: spawn with the task id
-    S->>DB: spawn hook opens a metered run; task running
-    S->>WM: spawn brings the index forward if behind
-    S->>DB: every deny and tool output, as it happens
-    S->>DB: close: verification run, close lints, report against each criterion
-    B->>R: hand off the commit
-    R->>DB: verdict and findings for that commit (append-only)
-    B->>DB: close task: scope judgment, task closed, worktree removed
-    opt architectural change
-        B->>WM: full scan so the new structure shows this session
-    end
-    opt base moved
-        B->>DB: integrate: rebased commit re-verified; review carried or re-recorded
-    end
-    B->>DB: push and PR recorded
-    H->>DB: merge: the branch's tasks and the PR's issues close
-    B->>WM: the merge moves refs; fetch and reindex in the background
-    Note over WM: concepts the swe proposed apply at the next scan once review passed
-    Note over S,WM: planned, GH 2957: a per-task overlay index built at swe close, read by code-reviewer
-```
-
-Every issue, task and discussion write also syncs to the issue tracker when the project turns sync on.
-
 ## 3.2 Non-code task
 
 A change to docs or prompts only, which bro writes itself instead of sending to swe. bro marks the task docs or prompts when it provisions it; the task then runs 3.1's steps with bro in swe's place, and a doc review on both sides of the push gate.
 
+### Non-code task succeeds
+
 ```mermaid
 flowchart TD
-    A[Human asks] --> B[bro grounds, records intent]
-    B --> C[Provision: task marked docs or prompts; branch, worktree]
-    C --> D[bro edits in the task's worktree]
-    D -- code path, or outside the worktree --> D1[Edit refused; the code change goes to swe as a code task]
-    D --> E[bro self-checks with the doc-review skill, planned]
-    E -- blocking result --> D
-    E --> F{Close checks pass, every changed path docs or prompts?}
-    F -- no --> D
-    F -- yes --> G[3.3 Push gate, graded with the same checklist]
-    G -- fail --> R[3.4 Retry and escalation]
-    G -- pass --> P[bro closes, integrates, pushes and opens the PR]
-    P --> Q[Human merges, or the merge policy does]
+    A[Human asks] --> B["bro reads the world model and records the goal<br/>WM: a read brings a behind index forward<br/>DB insert: issue, intent, reuse-or-build note"]
+    B --> C["Provision, task marked docs or prompts<br/>DB insert: decision, task with its kind<br/>WM: base indexed"]
+    C --> D["bro edits in the task's worktree<br/>DB insert: bro's turns metered, every deny and tool output"]
+    D --> E["bro self-checks with the doc-review skill (planned, GH 3073)"]
+    E --> F["bro closes; every check passes, every changed path is docs or prompts<br/>DB insert: verification run, close lints<br/>DB update: commit, report, task completed"]
+    F --> G["code-reviewer passes it with the same checklist<br/>DB insert: verdict and any nits"]
+    G --> H["bro closes the task, integrates if the base moved<br/>DB update: task closed · worktree removed"]
+    H --> K["bro pushes and opens the PR<br/>DB insert: PR and the issues it closes"]
+    K --> L["Human merges, or the merge policy does<br/>DB update: the branch's tasks and the PR's issues closed"]
+    L --> M["WM: fetch and reindex in the background"]
+```
+
+### Non-code task fails a step
+
+```mermaid
+flowchart TD
+    P0[Provision fails at any stage] --> P1["Nothing written; bro fixes the cause"]
+    D0[Edit on a code path, outside the task's worktree, or with no marked task running] --> D1["DB insert: the refusal, audited, naming swe"]
+    D1 --> D2["The code part becomes a code task for swe<br/>DB insert: task, as in the code-task charts"]
+    E0[Self-check finds a blocking result, planned] --> E1[bro fixes it before closing]
+    C0[A close check fails, or a changed path is code] --> C1["DB insert: failing verification or lint run<br/>task stays running; bro fixes and closes again"]
+    V0[code-reviewer fails it] --> V1["DB insert: verdict and blocking findings<br/>DB update: task reopened, running at high effort"]
+    V1 --> V2[bro reworks it itself and closes again]
+    I0[Integrate conflict, a failing check after rebase, or a required CI check fails] --> I1["Reopen or retry as for a code task<br/>DB update: task running, or old task escalated<br/>DB insert: decision, or a new task"]
 ```
 
 | Step | Owner | Method | What it guarantees and hands over |
