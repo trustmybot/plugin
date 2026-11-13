@@ -12,7 +12,7 @@ flowchart TD
     D1 --> D
     D -- out of turns --> D2[Checkpoint commit; next run resumes]
     D2 --> D
-    D -- policy deny or spec contradiction --> F0[Run ends failed, quoting the cause]
+    D -- policy deny, spec contradiction or broken environment --> F0[Run ends failed, quoting the cause]
     F0 --> R
     D --> E{Close checks pass?}
     E -- no --> D
@@ -28,9 +28,14 @@ flowchart TD
     M -- yes --> N{Rebase and re-verify clean?}
     N -- conflict --> R
     N -- verification fails --> R
+    N -- pass does not carry --> N2{One new review of the rebased commit}
+    N2 -- fail --> R
+    N2 -- pass --> P
+    N -- precondition fails --> X2[bro fixes the cause and reruns]
     N -- yes --> P
     M -- no --> P[Push and open the PR]
     P --> Q[Human merges, or the merge policy does]
+    P -. required CI fails .-> R
     P -. review comments .-> T[3.5 PR comment triage]
     T --> C
 ```
@@ -81,7 +86,7 @@ A change to prompt or docs files, or a task marked prompt-bearing, also gets a d
 | Hand off | bro | the commit goes to review only with a passing run and a report that covers it, plus the list of edits outside the file list |
 | Review | code-reviewer | 3.3: a recorded verdict for the commit, never read from reply text |
 | Close task | bro | on a pass, bro judges fit to the design, accepts or refuses out-of-scope edits, and closes the task; the task worktree is removed at task close, before the merge |
-| Integrate and push | bro | a moved base is rebased and re-verified before the push; a push needs a passing review for every task commit; bro opens the PR |
+| Integrate and push | bro | a moved base is rebased and re-verified before the push; the review pass carries to the rebased commit only when the patch is unchanged, verification passes again and the base changes touch nothing the diff depends on; a push needs a passing review for every task commit; bro opens the PR |
 | Merge | Human | the PR merges, unless the project's merge policy delegates it; an in-session merge closes the branch's tasks and the issues the PR closes |
 
 - **A deny is a fix, not a stop.** It names the allowed form or what failed, and swe fixes it in the same run; a policy deny ends the run failed, quoting the deny.
@@ -96,7 +101,7 @@ The task runs 3.1 unchanged; the difference is the decision bro records at provi
 
 | Step | Actor | What it guarantees |
 |---|---|---|
-| Spawn | bro → code-reviewer | the reviewer gets anchors and a short note only, and starts only on a commit machines already vouch for: the right tip, a passing run, a current lint record; a conflict with the base waits for the merge |
+| Spawn | bro → code-reviewer | the reviewer gets anchors and a short note only, and starts only on a commit machines already vouch for: the right tip, a handoff for that commit, a passing run, a lint record current against the base; a conflict with the base does not refuse it and waits for the merge |
 | Probe | code-reviewer | deterministic: reads the brief and the commit and probes the diff's dependents through the world model in a review worktree; it runs no lints, since the spawn already proved swe's lint record |
 | Verdict | code-reviewer | judgment: a fail carries a blocking finding, a pass may carry nits and pre-existing findings; the reviewer's identity is observed, never claimed |
 | Pass | bro | bro reads the verdict from its record and closes the task, integrates it if the base moved, pushes and opens the PR |
@@ -112,6 +117,9 @@ The task runs 3.1 unchanged; the difference is the decision bro records at provi
 | Review fail | the task is already running at high effort; bro spawns a fresh swe or resumes the one that wrote the commit |
 | Design misfit or other rework | bro amends the spec and reopens the task, recreating its worktree when missing |
 | Wrong approach or integrate conflict | bro escalates the task and retries it as a fresh task, branch and worktree from the current base, carrying its open findings |
+| Failed check after integrate, or a required CI check failing on the PR | bro reopens the same task naming the check, and swe reworks it; the check leaked, so it also moves into the layer that owns it |
+| Rebased commit whose review pass does not carry | one new code-reviewer pass on the rebased commit; swe reworks only if it fails |
+| Broken environment | swe ends its run failed naming the environment rather than repairing it; bro fixes the environment, reopens the task and spawns swe again |
 | Refused reviewer spawn | bro fixes the cause before any reviewer runs |
 
 - **Rework is bounded.** Two fails since the last pass stop further swe runs until bro records a root-cause analysis and makes the change it names; no run count denies on its own. Design drift ends the task, and bro redesigns it as a new one. Nothing waits on the Human.
@@ -129,8 +137,8 @@ The task runs 3.1 unchanged; the difference is the decision bro records at provi
 
 | Symptom | Where to look |
 |---|---|
-| swe will not start | The spawn needs a provisioned task with a spec; a third rework of the same approach also needs a recorded root-cause decision |
+| swe will not start | The spawn needs a provisioned task with a spec, at the task's effort; after two review fails it also needs a recorded root-cause analysis and the change it names |
 | swe closed but the task did not complete | The close checks on the commit: the run's recorded failure names which one |
-| The reviewer was refused | The commit is not the task's tip, has no passing run or lint record, or conflicts with the base |
+| The reviewer was refused | The commit is not the task's tip, has no handoff, has no passing run, or its lint record is missing, failing or stale against a moved base. A conflict with the base never refuses it |
 | The push is denied | A pushed task commit lacks a passing verdict of its own, or a newer fail stands over it |
 | A task keeps failing review | The open findings and their probes; after two fails, the root-cause analysis bro recorded |

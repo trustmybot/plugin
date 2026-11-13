@@ -28,12 +28,12 @@ flowchart TD
 
 TMB keeps its state inside the project, so it installs per project: **project** scope for a team (`.claude/settings.json`), **local** scope for one person and for the dev and rc channels (`.claude/settings.local.json`). User scope loads TMB's hooks into every project, and session start recommends `--scope project` once per session when it sees one.
 
-`claude plugin install` defaults to user scope, so always pass `--scope`. From the project root, with `<s>` set to `project` or `local`:
+`claude plugin install` defaults to user scope, so always pass `--scope`. From the project root, with `<scope>` set to `project` or `local`:
 
 ```bash
-claude plugin marketplace add trustmybot/marketplace --scope <s>
-claude plugin install tmb@trustmybot --scope <s>
-claude plugin update tmb@trustmybot --scope <s>
+claude plugin marketplace add trustmybot/marketplace --scope <scope>
+claude plugin install tmb@trustmybot --scope <scope>
+claude plugin update tmb@trustmybot --scope <scope>
 claude plugin marketplace update trustmybot   # no scope flag
 ```
 
