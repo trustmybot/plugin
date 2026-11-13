@@ -4,8 +4,9 @@ Every case of flows 3.1 to 3.5 in [FLOWS.md](FLOWS.md): the quality layers every
 
 ```mermaid
 flowchart TD
-    A[Human asks] --> B[bro grounds and records intent]
-    B --> C[Provision: decision, task, branch, worktree, index]
+    A[Human asks] --> B[bro grounds in the world model]
+    B --> B1[Issue and intent recorded in the trajectory DB]
+    B1 --> C[Provision: decision and task recorded; branch, worktree, world model indexed at the base]
     C -- any step fails --> X0[Nothing written; bro fixes the cause]
     C --> D[swe implements]
     D -- hook deny --> D1[swe fixes in the named form, same run]
@@ -35,10 +36,13 @@ flowchart TD
     N -- yes --> P
     M -- no --> P[Push and open the PR]
     P --> Q[Human merges, or the merge policy does]
+    Q --> W[World model reindexes the moved base]
     P -. required CI fails .-> R
     P -. review comments .-> T[3.5 PR comment triage]
     T --> C
 ```
+
+Every record the chart names (issue, intent, decision, task, runs, verdicts and findings) lives in the trajectory DB, the cold store [MEMORY.md](MEMORY.md) describes; an agent reads it back from there, never from chat. When the world model reindexes, and why, is in [WORLD_MODEL.md](WORLD_MODEL.md#scan).
 
 ## Quality layers
 
@@ -78,9 +82,9 @@ A change to prompt or docs files, or a task marked prompt-bearing, also gets a d
 
 | Step | Actor | What it guarantees |
 |---|---|---|
-| Ask and ground | Human → bro | bro starts each turn knowing its role and the open issue, and reads the world model before planning |
-| Intent | bro ↔ Human | the Human confirms the base branch and branch name; the issue, its intent and the reuse-or-build call are recorded before any branch exists |
-| Provision | bro | one step records the decision and a task with a spec (numbered success criteria, file list, verification commands, effort), then fetches the base, cuts the branch and worktree, runs setup and indexes the world model there; any failure writes nothing. A spec too large for one swe run is split into linked tasks |
+| Ask and ground | Human → bro | bro starts each turn knowing its role and the open issue, and reads the world model before planning; a vague ask is pinned down with the Human before anything is recorded |
+| Intent | bro | the goal is saved in the trajectory DB before any branch exists: an issue, the Human's words as its intent, and the reuse-or-build call. bro picks the base itself, the PR target set at first contact or the unmerged branch the task stacks on, and names the branch automatically |
+| Provision | bro | one step records in the trajectory DB the decision and a task with a spec (numbered success criteria, file list, verification commands, effort), then fetches the base, cuts the branch and worktree, runs setup and indexes the world model there; any failure writes nothing. A spec too large for one swe run is split into linked tasks |
 | Implement | swe | swe acts only after reading its brief, writes only in its worktree, and has each edit and commit checked as it lands |
 | Close | swe | the task completes only when the changelog, stale-doc and leak checks, the verification commands (the repo's standing checks among them), every open finding's probe and the repo's close lints pass on the commit, with a report against every success criterion |
 | Hand off | bro | the commit goes to review only with a passing run and a report that covers it, plus the list of edits outside the file list |
