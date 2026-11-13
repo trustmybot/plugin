@@ -74,7 +74,7 @@ flowchart TD
     B --> C[Provision: task marked docs or prompts; branch, worktree]
     C --> D[bro edits in the task's worktree]
     D -- code path, or outside the worktree --> D1[Edit refused; the code change goes to swe as a code task]
-    D --> E[bro runs the doc-review checklist]
+    D --> E[bro self-checks with the doc-review skill, planned]
     E -- blocking result --> D
     E --> F{Close checks pass, every changed path docs or prompts?}
     F -- no --> D
@@ -89,7 +89,7 @@ flowchart TD
 | Ask, ground and intent | Human → bro | judgment | as in 3.1 |
 | Provision | bro | deterministic | as in 3.1, plus the task's kind, docs or prompts, which sets the paths bro may edit. The path kinds are read at the task's base commit, so the task cannot widen its own limits |
 | Author | bro | deterministic | bro writes only inside the running task's worktree and only on paths of its kind; a code path, an edit in the main checkout or an unmarked task is refused, and the refusal names swe |
-| Doc review | bro | deterministic | the change passes the checklist before review: the rubric loaded at the base ref, each rubric criterion the change touches graded, each claim about the code checked against the source (another doc is not evidence), and the other prompt files scanned for contradictions, with one probe per claim and per rule in the report |
+| Doc review | bro | judgment | planned (GH 3073): bro self-checks with the doc-review skill that swe and code-reviewer preload, so the change passes it before review: the rubric loaded at the base ref, each rubric criterion the change touches graded, each claim about the code checked against the source (another doc is not evidence), and the other prompt files scanned for contradictions, with one probe per claim and per rule in the report |
 | Close | bro | deterministic | the same checks as swe's close in 3.1, recorded for the commit; every path the task changed since it left its PR target must be docs or prompts, and a code or mixed change is refused |
 | Review | code-reviewer | judgment | through 3.3, graded with the same checklist loaded from the same base ref, so a change that passes the author's check passes review for the same reasons. The reviewer spot-checks only a claim the author recorded no probe for, or one it doubts, and fails only on a rubric fail, a false or unverifiable claim, or a contradiction; anything else is a nit |
 | Close task, push, merge | bro, then Human | as in 3.1 | as in 3.1 |

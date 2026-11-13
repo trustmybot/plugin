@@ -99,13 +99,13 @@ flowchart LR
 
 ### 3.2 Non-code task
 
-A docs or prompts change bro writes itself, in a task worktree marked with that kind; the same checklist judges it before and at review.
+A docs or prompts change bro writes itself, in a task worktree marked with that kind; code-reviewer grades it with the doc-review skill, and bro's self-check with that skill before review is planned (GH 3073).
 
 ```mermaid
 flowchart LR
     A[Human asks] --> B[bro grounds and records intent]
     B --> C[bro provisions a docs or prompts task]
-    C --> D[bro edits, runs the doc-review checklist and closes]
+    C --> D[bro edits and closes]
     D --> E[3.3 Push gate: pass]
     E --> F[bro closes task, pushes, opens PR]
     F --> G[Human merges]
