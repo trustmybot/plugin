@@ -1,6 +1,6 @@
 # TMB Workflows
 
-This file is the starting point for every flow: one chart each for its ideal case, a short description, and a link to the detail page that holds every other case, failures included, and how to debug them. A flow whose chart says everything has no detail page. Who owns each quality check, and how a change hands from one owner to the next, is in [TASKS.md](TASKS.md#quality-layers).
+This file is the starting point for every flow: one chart each for its ideal case, a short description, and a link to the detail page that holds every other case, failures included, and how to debug them. A flow whose chart says everything has no detail page. Who owns each quality check, and how a task hands from one owner to the next, is in [TASKS.md](TASKS.md#quality-layers).
 
 It is the ground truth for the workflow: it describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its chart here, and its detail page, in the same PR. Neither names a hook, gate, tool or symbol: what enforces a step is the world model's answer, and the logic is the code's.
 
@@ -12,11 +12,11 @@ Flows are grouped by when they run, and numbered within their group.
 | 2. Cold start | 2.1 | [First contact](#21-first-contact) | A project that is not yet onboarded | bro | project shape, repo and remote settings, the onboarded marker |
 | 2. Cold start | 2.2 | [Scan and world-model refresh](#22-scan-and-world-model-refresh) | An empty world model, `/scan`, or the trajectory server connecting | bro (or the server, in background) | the world model and the discovered-capability registry |
 | 2. Cold start | 2.3 | [Environment profile](#23-environment-profile) | bro needs a repo's install, test and lint commands | bro | a per-machine cache of resolved commands |
-| 3. Agent task handling | 3.1 | [Code-touching task](#31-code-touching-task) | Code change ask | bro → swe; code-reviewer per task; bro closes after its pass | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR |
-| 3. Agent task handling | 3.2 | [Architectural change](#32-architectural-change) | New boundary/module, schema, public API, external side effects | bro records a decision + blast radius, then 3.1 | + a decision record |
+| 3. Agent task handling | 3.1 | [Code task](#31-code-task) | An ask that changes code, architectural changes included | bro → swe; code-reviewer per task; bro closes after its pass | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR |
+| 3. Agent task handling | 3.2 | [Non-code task](#32-non-code-task) | An ask that changes only docs or prompts | bro writes it; code-reviewer grades it with the doc-review checklist | as 3.1, the task marked docs or prompts |
 | 3. Agent task handling | 3.3 | [Push gate](#33-push-gate) | Each completed task bro hands to review; any push | bro → code-reviewer (one per task, parallel) | a verdict per reviewed commit, with its findings |
-| 3. Agent task handling | 3.4 | [Retry and escalation](#34-retry-and-escalation) | A design misfit, a review fail, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
-| 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
+| 3. Agent task handling | 3.4 | [Retry and escalation](#34-retry-and-escalation) | A design misfit, a review fail, or an integrate conflict | bro ↔ the author (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
+| 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe, or bro itself, per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
 | 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
 | 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
 | 4. Extending the team | 4.1 | [Cheatcode lifecycle](#41-cheatcode-lifecycle) | A capability wall, the Human says "cheatcode", or a reuse check before building | bro (Human approves install) | the capability registry and its attachments |
@@ -81,37 +81,43 @@ flowchart LR
 
 [TASKS.md](TASKS.md) holds every case of flows 3.1 to 3.5: what each step guarantees, the failure paths and how to debug a stuck task.
 
-### 3.1 Code-touching task
+### 3.1 Code task
 
-The canonical chain: bro plans and gates, swe implements, code-reviewer reviews, and the Human merges.
+The canonical chain: bro plans and gates, swe implements, code-reviewer reviews, and the Human merges. An architectural change also records a decision naming its blast radius at provision, and bro weighs the change against it at close.
 
 ```mermaid
 flowchart LR
     A[Human asks] --> B[bro grounds and records intent]
     B --> C[bro provisions task, branch, worktree]
+    C -. architectural .-> C1[Decision and blast radius recorded]
+    C1 -.-> D
     C --> D[swe implements and closes]
     D --> E[3.3 Push gate: pass]
     E --> F[bro closes task, pushes, opens PR]
     F --> G[Human merges]
 ```
 
-### 3.2 Architectural change
+### 3.2 Non-code task
 
-A new boundary or module, a schema or public API change, or an external side effect runs 3.1 plus a decision with its blast radius, recorded when bro provisions the task.
+A docs or prompts change bro writes itself, in a task worktree marked with that kind; the same checklist judges it before and at review.
 
 ```mermaid
 flowchart LR
-    A[Architectural ask] --> B[Decision and blast radius recorded at provision]
-    B --> C[3.1 Code-touching task]
+    A[Human asks] --> B[bro grounds and records intent]
+    B --> C[bro provisions a docs or prompts task]
+    C --> D[bro edits, runs the doc-review checklist and closes]
+    D --> E[3.3 Push gate: pass]
+    E --> F[bro closes task, pushes, opens PR]
+    F --> G[Human merges]
 ```
 
 ### 3.3 Push gate
 
-Each completed task gets its own code-reviewer, in parallel, and no task commit is pushed without a passing verdict for that commit.
+Each completed task of either kind gets its own code-reviewer, in parallel, and no task commit is pushed without a passing verdict for that commit.
 
 ```mermaid
 flowchart LR
-    A[Task handed to review] --> B[code-reviewer probes the diff's dependents]
+    A[Task handed to review] --> B[code-reviewer probes the diff's dependents, or grades docs and prompts with the doc-review checklist]
     B --> C[Recorded verdict: pass]
     C --> D[bro closes, pushes, opens PR]
 ```
@@ -123,19 +129,19 @@ A review fail, a design misfit or an integrate conflict sends the task back to i
 ```mermaid
 flowchart LR
     A[Fail, misfit or conflict] --> B[bro reopens or retries the task]
-    B --> C[swe reworks]
+    B --> C[The author reworks: swe, or bro on a non-code task]
     C --> D[3.3 Push gate]
 ```
 
 ### 3.5 PR comment triage
 
-Review comments on a PR bro owns become swe work through 3.1, on the PR's own issue.
+Review comments on a PR bro owns become tasks through 3.1 or 3.2, on the PR's own issue.
 
 ```mermaid
 flowchart LR
     A[Comments reach a PR bro owns] --> B[Fetch and store each once]
     B --> C[Group the task-worthy ones]
-    C --> D[3.1 per group, on the PR's issue]
+    C --> D[3.1 or 3.2 per group, on the PR's issue]
 ```
 
 ### 3.6 Multi-repo workspaces
