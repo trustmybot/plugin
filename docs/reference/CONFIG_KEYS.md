@@ -45,7 +45,7 @@ The schema-seeded keys are present in every initialised DB, and seeding never ov
 
 ## Branch policy is per repo, not here
 
-The branching model (`branching_model`), PR target (`pr_target`) and protected branches (`protected_branches`) are per-repo settings, not `plugin_config` keys. `/onboard` writes them for each repo, and an unset value means the repo is not onboarded (run `/onboard`), never a silent global default. [REPO_RESOLUTION.md](../architecture/REPO_RESOLUTION.md) explains how an operation finds its repo in a single- or multi-repo workspace.
+The branching model (`branching_model`), PR target (`pr_target`) and protected branches (`protected_branches`) are per-repo settings, not `plugin_config` keys. `/onboard` writes them for each repo, and an unset value means the repo is not onboarded (run `/onboard`), never a silent global default. [Multi-repo workspaces](../architecture/GIT.md#multi-repo-workspaces) explains how an operation finds its repo in a single- or multi-repo workspace.
 
 The branching model sets the defaults `/onboard` writes, and never overrides an explicit value:
 

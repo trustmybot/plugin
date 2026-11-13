@@ -1314,7 +1314,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 
 - Every workflow row belongs to one issue, directly or through its task. Project-level audit and discussion rows use a schema-seeded system issue that no task may use.
 - Rows that concern a repo name its `repos` row. A repo is renamed in one transaction across every table that names it, and a scan never renames one.
-- Per-repo branch policy lives on the `repos` row and nowhere else ([`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)); `plugin_config` holds only workspace-global settings ([`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md)).
+- Per-repo branch policy lives on the `repos` row and nowhere else ([Multi-repo workspaces](./GIT.md#multi-repo-workspaces)); `plugin_config` holds only workspace-global settings ([`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md)).
 - A few references are soft: a task's branch name is unique only within its issue, so rows that point at a branch carry no declared foreign key.
 
 ## Rules the data keeps

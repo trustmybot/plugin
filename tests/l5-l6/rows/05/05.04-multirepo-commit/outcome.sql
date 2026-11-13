@@ -1,7 +1,7 @@
 -- 05.04-multirepo-commit: assert path discipline in a multi-repo workspace.
 --
 -- Setup: workspace has two inner repos, api/ and app/, each registered by path
--- in the `repos` table (path-keyed resolution — docs/architecture/REPO_RESOLUTION.md).
+-- in the `repos` table (path-keyed resolution — docs/architecture/GIT.md, Multi-repo workspaces).
 -- Bro runs /scan which writes wm_directories rows per repo into the
 -- trajectory DB. The path-discipline contract — repo-relative paths,
 -- repo-scoped writes — is identical across world-model substrates.

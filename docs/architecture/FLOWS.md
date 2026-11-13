@@ -101,7 +101,7 @@ The first bro turn on a project that isn't onboarded runs `/onboard` before any 
 
 The Human's `/scan`, an empty world model, an architectural change, or the trajectory server connecting starts a scan, run by bro or by the server in background. It leaves the world model and the capability registry.
 
-- **Deterministic map.** The scan builds a summary per directory (its README, else a structural one), file purposes, and the symbol index with its edges, all repo-relative ([`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)).
+- **Deterministic map.** The scan builds a summary per directory (its README, else a structural one), file purposes, and the symbol index with its edges, all repo-relative ([Multi-repo workspaces](./GIT.md#multi-repo-workspaces)).
 - **Kept current.** Reads and task spawns reindex a repo to its target commit on their own; each scan is audited with its source and whether the project's shape changed.
 - **Resource discovery.** The same scan reconciles on-disk skills, plugins and MCP servers into the capability registry, so one added out of band is visible to flow 10.
 
@@ -176,7 +176,7 @@ When review comments reach a PR bro owns (a PR-activity notification, a CI-monit
 
 ### 33. Multi-repo path discipline
 
-A workspace's inner repos are identified by registration, and world-model paths are stored repo-relative ([`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). Registration also scopes source protection: bro may not edit a registered repo from the main checkout, while unregistered siblings stay editable.
+A workspace's inner repos are identified by registration, and world-model paths are stored repo-relative ([Multi-repo workspaces](./GIT.md#multi-repo-workspaces)). Registration also scopes source protection: bro may not edit a registered repo from the main checkout, while unregistered siblings stay editable.
 
 ### 13. Bulk cleanup (pre-authorized destructive ops)
 

@@ -21,7 +21,7 @@ These differences from real hardware are where the design decisions sit.
 3. **Write through, never write back.** Context is volatile, so a decision reaches the DB when it is made. Evicting then loses nothing.
 4. **Evict at boundaries.** A session ends when its dispatched work has returned and been closed or parked. The one timer that matters is prompt cache expiry: the next call then pays full price for the whole context, so a cold restart is usually cheaper.
 
-Since nothing in hot storage can be evicted, a hook cuts the long output of bro's routine read-only shell commands to its head and tail before it enters context (`mcp/trajectory-server/src/hooks/bash-output-trim.ts` says which commands).
+Since nothing in hot storage can be evicted, a hook cuts the long output of bro's routine read-only shell commands to its head and tail before it enters context.
 
 ## Loading from cold
 
@@ -34,8 +34,8 @@ Since nothing in hot storage can be evicted, a hook cuts the long output of bro'
 | Agent | Keeps hot | Loads from cold when needed |
 |---|---|---|
 | bro | The Human's current ask and the work in flight | Issues, decisions, the project map; investigation goes to a subagent |
-| swe | One task's spec and the files it edits | `task_brief`, the world model |
-| code-reviewer | One task's diff and its findings | `task_brief`, validation history |
+| swe | One task's spec and the files it edits | Its task brief, the world model |
+| code-reviewer | One task's diff and its findings | Its task brief, validation history |
 | consultant | One question | Discussions, the audit log, the world model |
 
 ## Design test
