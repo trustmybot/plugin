@@ -1,14 +1,30 @@
 # TMB Workflows
 
-The decision chain is **Human → bro → swe** with two distinct gates:
-- **bro is the task gate** — writes each task's spec, hands the returned work to review, and judges its fit to the design at task close.
-- **code-reviewer is the push gate** — reviews each completed task before bro closes it; no task commit reaches the remote without a passing review.
+Flows are grouped by when they run, and numbered within their group.
 
-Consultants are project-local domain experts; they advise but never write workflow state. [RESPONSIBILITIES.md](RESPONSIBILITIES.md) says what each agent may and may not do, [DETERMINISTIC_LAYER.md](../prompt-engineering/DETERMINISTIC_LAYER.md) how TMB splits a step between prompt judgment and code, [ERD.md](ERD.md) what the trajectory DB stores, and [MEMORY.md](MEMORY.md) what each agent keeps in context and what it loads on demand.
+| Group | # | Flow | Trigger | Agents | State it leaves |
+|---|---|---|---|---|---|
+| 1. Install | 1.1 | [Install and session start](#11-install-and-session-start) | Plugin install, then every session start | — (the plugin itself) | per-session markers |
+| 2. Cold start | 2.1 | [First contact](#21-first-contact) | A project that is not yet onboarded | bro | project shape, repo and remote settings, the onboarded marker |
+| 2. Cold start | 2.2 | [Scan and world-model refresh](#22-scan-and-world-model-refresh) | An empty world model, `/scan`, or the trajectory server connecting | bro (or the server, in background) | the world model and the discovered-capability registry |
+| 2. Cold start | 2.3 | [Environment profile](#23-environment-profile) | bro needs a repo's install, test and lint commands | bro | a per-machine cache of resolved commands |
+| 3. Agent task handling | 3.1 | [Code-touching task](#31-code-touching-task) | Code change ask | bro → swe; code-reviewer per task; bro closes after its pass | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR |
+| 3. Agent task handling | 3.2 | [Architectural change](#32-architectural-change) | New boundary/module, schema, public API, external side effects | bro records a decision + blast radius, then 3.1 | + a decision record |
+| 3. Agent task handling | 3.3 | [Push gate](#33-push-gate) | Each completed task bro hands to review; any push | bro → code-reviewer (one per task, parallel) | a verdict per reviewed commit, with its findings |
+| 3. Agent task handling | 3.4 | [Retry and escalation](#34-retry-and-escalation) | A design misfit, a review fail, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
+| 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
+| 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
+| 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
+| 4. Extending the team | 4.1 | [Cheatcode lifecycle](#41-cheatcode-lifecycle) | A capability wall, the Human says "cheatcode", or a reuse check before building | bro (Human approves install) | the capability registry and its attachments |
+| 4. Extending the team | 4.2 | [Agent creation](#42-agent-creation) | Routing hits a role the project has no agent for | bro | a project agent file |
+| 4. Extending the team | 4.3 | [Skill creation](#43-skill-creation) | Recurring pattern needs encoding | bro | a registered skill |
+| 4. Extending the team | 4.4 | [Consultant invocation](#44-consultant-invocation) | Human asks for a second opinion | bro → consultant | the consultant's analysis |
+| 4. Extending the team | 4.5 | [Roundtable](#45-roundtable) | The Human types `/roundtable <topic>` | bro orchestrates 2–5 consultants | the table, its votes and the ratified decision |
+| 5. Reporting TMB bugs | 5.1 | [Bug report](#51-bug-report) | bro hits a real TMB bug and the Human opted in | bro (Human approves each report) | a record of each filed report |
 
-This file is the ground truth for the workflow. It describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its chart here, and its detail page, in the same PR.
+This file is the starting point for every flow: one chart each for its ideal case, a short description, and a link to the detail page that holds every other case, failures included, and how to debug them. A flow whose chart says everything has no detail page. The quality layers below are the design every flow is built on.
 
-**What this file holds.** The quality design every flow is built on, then one chart per flow showing its ideal case, with a short description and a link to the flow's detail page. A detail page holds every case: the failure paths, what each step guarantees, and how to debug the flow. A flow whose chart says everything has no detail page. Neither names a hook, gate, tool or symbol: what enforces a step is the world model's answer, and the logic is the code's.
+It is the ground truth for the workflow: it describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its chart here, and its detail page, in the same PR. Neither names a hook, gate, tool or symbol: what enforces a step is the world model's answer, and the logic is the code's.
 
 ## Quality layers
 
@@ -44,30 +60,6 @@ A change to prompt or docs files, or a task marked prompt-bearing, also gets a d
 - **Leaks point upstream.** When a later layer or CI catches a cheap check, the fix is to move that check into the layer that owns it, not to do more rework. The leak rate per layer is the health metric (planned, GH 3053).
 - **CI confirms; it does not discover.**
 - **Failures return to their owner.** A failed check goes back to swe, a review finding goes back to swe at higher effort, and a design misfit goes back to bro's spec. None of these waits on the Human.
-
-## Quick index
-
-Flows are grouped by when they run, and numbered within their group.
-
-| Group | # | Flow | Trigger | Agents | State it leaves |
-|---|---|---|---|---|---|
-| 1. Install | 1.1 | [Install and session start](#11-install-and-session-start) | Plugin install, then every session start | — (the plugin itself) | per-session markers |
-| 2. Cold start | 2.1 | [First contact](#21-first-contact) | A project that is not yet onboarded | bro | project shape, repo and remote settings, the onboarded marker |
-| 2. Cold start | 2.2 | [Scan and world-model refresh](#22-scan-and-world-model-refresh) | An empty world model, `/scan`, or the trajectory server connecting | bro (or the server, in background) | the world model and the discovered-capability registry |
-| 2. Cold start | 2.3 | [Environment profile](#23-environment-profile) | bro needs a repo's install, test and lint commands | bro | a per-machine cache of resolved commands |
-| 3. Agent task handling | 3.1 | [Code-touching task](#31-code-touching-task) | Code change ask | bro → swe; code-reviewer per task; bro closes after its pass | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR |
-| 3. Agent task handling | 3.2 | [Architectural change](#32-architectural-change) | New boundary/module, schema, public API, external side effects | bro records a decision + blast radius, then 3.1 | + a decision record |
-| 3. Agent task handling | 3.3 | [Push gate](#33-push-gate) | Each completed task bro hands to review; any push | bro → code-reviewer (one per task, parallel) | a verdict per reviewed commit, with its findings |
-| 3. Agent task handling | 3.4 | [Retry and escalation](#34-retry-and-escalation) | A design misfit, a review fail, or an integrate conflict | bro ↔ swe (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
-| 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
-| 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
-| 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
-| 4. Extending the team | 4.1 | [Cheatcode lifecycle](#41-cheatcode-lifecycle) | A capability wall, the Human says "cheatcode", or a reuse check before building | bro (Human approves install) | the capability registry and its attachments |
-| 4. Extending the team | 4.2 | [Agent creation](#42-agent-creation) | Routing hits a role the project has no agent for | bro | a project agent file |
-| 4. Extending the team | 4.3 | [Skill creation](#43-skill-creation) | Recurring pattern needs encoding | bro | a registered skill |
-| 4. Extending the team | 4.4 | [Consultant invocation](#44-consultant-invocation) | Human asks for a second opinion | bro → consultant | the consultant's analysis |
-| 4. Extending the team | 4.5 | [Roundtable](#45-roundtable) | The Human types `/roundtable <topic>` | bro orchestrates 2–5 consultants | the table, its votes and the ratified decision |
-| 5. Reporting TMB bugs | 5.1 | [Bug report](#51-bug-report) | bro hits a real TMB bug and the Human opted in | bro (Human approves each report) | a record of each filed report |
 
 ## 1. Install
 
