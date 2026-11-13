@@ -37,9 +37,27 @@ A hook can be registered several times for one event: a project install beside a
 
 **Gates run in order.** Claude Code runs the hooks of one matcher in parallel, so a gate could act on a call another gate denies. Each event therefore has one router registration per group, and the router runs a group's gates in a fixed order, enforcement first, answering with the first deny.
 
+One hook call through the router:
+
+```mermaid
+flowchart TD
+    A[Claude Code fires a hook event; every registration runs the router] --> B{Which install serves this project?}
+    B --> B1[A dev checkout runs its own gates; else the newest project install, else the newest user install]
+    B1 --> C[Hand the call to that install's router]
+    C --> D{Another invocation already holds the lock for this event, session, tool and input?}
+    D -- yes --> E[Wait, then replay only its denial]
+    D -- no --> F[Take the lock]
+    F --> J[Run the group's gates in order, enforcement first]
+    J --> K{A gate denies, throws, overruns or answers badly?}
+    K -- an enforcement gate --> L[Answer with that deny]
+    K -- an advisory gate --> M[Log it and drop it]
+    M --> J
+    K -- no, all gates done --> N[Allow]
+```
+
 ## Agents write only under their run's root
 
-Every agent run has a root: the project for bro and code-reviewer, the task's worktree for swe. A write is judged against the root of the caller's own run, resolved from who the caller is, never from its working directory, because a swe starts with the main checkout as its working directory. Until a swe has read its brief, its run has no root and every write is denied. Three layers hold the boundary:
+Every agent run has a root: the project for bro and code-reviewer, the task's worktree for swe. A write is judged against the root of the caller's own run, resolved from who the caller is, never from its working directory, because a swe starts with the main checkout as its working directory. A swe's run is bound to its task through the task id in its spawn prompt; until that task resolves to a worktree, the run has no root and every write is denied. Three layers hold the boundary:
 
 | Tier | Layer | What it holds |
 |---|---|---|
@@ -53,6 +71,31 @@ The guard is a parser, not a jail, and its rule is simple: a write it cannot pro
 
 Besides the run's root, the guard allows only places that store nothing outside the project or are the host's own scratch space: the device sinks, the model cache, the host's private temp dirs and the project's scratch dir. The main session may also write Claude Code's own state for the project, such as its memory and plans; subagents may not.
 
+How the guard judges one call:
+
+```mermaid
+flowchart TD
+    A[A file tool or Bash call] --> B{Trajectory DB state?}
+    B -- unresolved --> OK[Allow]
+    B -- error --> DENY[Deny and audit, naming why]
+    B -- ok --> C{Caller is a swe?}
+    C -- no --> R1[Root: the project]
+    C -- yes --> D{Its task resolves to a worktree?}
+    D -- no --> DENY
+    D -- yes --> R2[Root: the task's worktree]
+    R1 --> E{Bash?}
+    R2 --> E
+    E -- no, a file tool --> T[Target: the tool's path]
+    E -- yes --> P{The parser can read the command, with no inline program that could hide a write?}
+    P -- no --> DENY
+    P -- yes --> T2[Targets: every write the parser finds]
+    T --> K[Resolve each target the way the kernel does, symlinks included]
+    T2 --> K
+    K --> L{Every target inside the root or an allowed place, or an unknown part after a literal directory inside the root?}
+    L -- yes --> OK
+    L -- no --> DENY
+```
+
 ### The sandbox opt-in
 
 Onboarding merges the sandbox block into the project's local settings only on an explicit yes: sandbox on, writes allowed to the project and the model cache, network allowed to GitHub, the package registries and the project's remote hosts, and package caches moved into the project so the write allowance never widens to the home directory. The merge keeps every existing setting, records what TMB added, and a later no removes exactly that.
@@ -60,6 +103,10 @@ Onboarding merges the sandbox block into the project's local settings only on an
 The default answer comes from evidence: a recorded live probe per platform runs TMB's remote commands with and without the sandbox. A fresh onboard defaults to yes only when the platform has a clean record and no remote uses SSH, which bypasses the sandbox's proxy; otherwise it defaults to no. The release gate reruns the probe.
 
 The guard still judges temp paths because a live probe showed the sandbox leaves its own temp dir writable by default.
+
+### Planned: an OS sandbox instead of write prediction
+
+(planned, GH 2098) Predicting what an arbitrary program will write cannot be done in general, so the parser both denies legitimate commands and misses real writes. The planned design stops predicting: the session sandbox becomes the hard boundary, with TMB's own state inside the project write-denied to agents; each swe Bash call runs inside a per-task OS sandbox profile that allows only its worktree; and hooks decide only what the literal input shows, never reading an arbitrary program. Deliberate evasion is out of the threat model, since agents make mistakes but do not attack TMB.
 
 ## Enforcement
 

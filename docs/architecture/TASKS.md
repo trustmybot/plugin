@@ -64,6 +64,47 @@ flowchart TD
 - **Verification never fails open**, and only provisioning creates task branches and worktrees.
 - **Every run is metered** (tokens, duration, why it stopped, what it resumed), and so is every deny and tool output. Overrun and silent-run advisories inform bro and stop nothing.
 
+### What each step records
+
+When each step of a code task writes the trajectory DB and moves the world model. The world model indexes each repo at its target commit, origin's copy of the PR target, so a task's own commit enters the map only after its PR merges.
+
+```mermaid
+sequenceDiagram
+    participant H as Human
+    participant B as bro
+    participant S as swe
+    participant R as code-reviewer
+    participant DB as Trajectory DB
+    participant WM as World model
+    H->>B: asks
+    B->>WM: read the map (a read first brings a behind index forward)
+    B->>DB: issue, the Human's words as intent, planning note (one transaction)
+    B->>DB: provision: decision and task with spec, files, checks and effort
+    B->>WM: provision fetches the base and indexes it
+    Note over B,DB: any provision failure writes nothing
+    B->>S: spawn with the task id
+    S->>DB: spawn hook opens a metered run; task running
+    S->>WM: spawn brings the index forward if behind
+    S->>DB: every deny and tool output, as it happens
+    S->>DB: close: verification run, close lints, report against each criterion
+    B->>R: hand off the commit
+    R->>DB: verdict and findings for that commit (append-only)
+    B->>DB: close task: scope judgment, task closed, worktree removed
+    opt architectural change
+        B->>WM: full scan so the new structure shows this session
+    end
+    opt base moved
+        B->>DB: integrate: rebased commit re-verified; review carried or re-recorded
+    end
+    B->>DB: push and PR recorded
+    H->>DB: merge: the branch's tasks and the PR's issues close
+    B->>WM: the merge moves refs; fetch and reindex in the background
+    Note over WM: concepts the swe proposed apply at the next scan once review passed
+    Note over S,WM: planned, GH 2957: a per-task overlay index built at swe close, read by code-reviewer
+```
+
+Every issue, task and discussion write also syncs to the issue tracker when the project turns sync on.
+
 ## 3.2 Non-code task
 
 A change to docs or prompts only, which bro writes itself instead of sending to swe. bro marks the task docs or prompts when it provisions it; the task then runs 3.1's steps with bro in swe's place, and a doc review on both sides of the push gate.
