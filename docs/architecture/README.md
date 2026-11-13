@@ -42,7 +42,7 @@ Looking for one answer instead?
 
 ## Index
 
-- [PHILOSOPHY.md](PHILOSOPHY.md) — The principles behind the design: the two review gates, the dev-vs-user-runtime boundary, hot and cold memory, and clean removal of replaced designs.
+- [PHILOSOPHY.md](PHILOSOPHY.md) — The principles behind the design: how an idea becomes tasks, the dev-vs-user-runtime boundary, one owner per quality check, code over prompts for enforcement, clean removal, and hot and cold memory.
 - [FLOWS.md](FLOWS.md) — The ground truth for every workflow, from install and cold start to task handling and bug reports, and the quality design every flow is built on.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — What each shipped agent is for, what it may and may not do, and why the roles are split this way.
 - [MEMORY.md](MEMORY.md) — The memory model every agent follows: cold storage in the trajectory DB, hot session context, and pinned prompts, with the cost of each tier.
