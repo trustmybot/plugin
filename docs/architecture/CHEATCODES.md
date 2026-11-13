@@ -1,6 +1,6 @@
 # Cheatcode integration
 
-How bro acquires cheatcodes (published skills, MCP toolkits and plugins) on demand, and the trust and approval gates on the way. The lifecycle, stage by stage, is flow 10 in [FLOWS.md](./FLOWS.md); this page holds the design decisions behind it.
+How bro acquires cheatcodes (published skills, MCP toolkits and plugins) on demand, and the trust and approval gates on the way. [FLOWS.md](./FLOWS.md) shows where acquiring a capability fits among TMB's other workflows; this page holds the design decisions behind it.
 
 ## Principle
 
@@ -10,7 +10,7 @@ The mechanical pipeline (search, record, vet, install, activate) is deterministi
 - **Is this candidate trustworthy enough to install?** Weigh the signals and ask the Human.
 - **Which agent consumes it?** The one the Human named, or one inferred from the domain.
 
-Which deterministic layer covers each stage follows [DETERMINISTIC_LAYER.md](../prompt-engineering/DETERMINISTIC_LAYER.md).
+Everything else is deterministic code; [DETERMINISTIC_LAYER.md](../prompt-engineering/DETERMINISTIC_LAYER.md) explains how TMB decides what a prompt judges and what code enforces.
 
 ## Registries
 

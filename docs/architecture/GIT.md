@@ -1,6 +1,6 @@
 # Git workflow
 
-Where each actor's git state lives at every stage of a TMB task, and how a workspace with several repos decides which repo an operation belongs to. The task chain this serves is flow 2 in [FLOWS.md](./FLOWS.md).
+Where each actor's git state lives at every stage of a TMB task, and how a workspace with several repos decides which repo an operation belongs to. [FLOWS.md](./FLOWS.md) shows the task chain this serves, from the Human's ask to the merge.
 
 ## Core principle: local is canonical, origin is downstream
 

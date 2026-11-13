@@ -4,7 +4,7 @@ The decision chain is **Human → bro → swe** with two distinct gates:
 - **bro is the task gate** — writes each task's spec, hands the returned work to review, and judges its fit to the design at task close.
 - **code-reviewer is the push gate** — reviews each completed task before bro closes it; no task commit reaches the remote without a passing review.
 
-Consultants are project-local consultants, created with `/tmb:agent-create`; they advise but never write workflow state. Roles live in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); deterministic layers in [`DETERMINISTIC_LAYER.md`](../prompt-engineering/DETERMINISTIC_LAYER.md); schema in [`ERD.md`](ERD.md); the memory model every flow follows, which the brand workflow hero takes its memory story from, in [`MEMORY.md`](MEMORY.md).
+Consultants are project-local domain experts; they advise but never write workflow state. [RESPONSIBILITIES.md](RESPONSIBILITIES.md) says what each agent may and may not do, [DETERMINISTIC_LAYER.md](../prompt-engineering/DETERMINISTIC_LAYER.md) how TMB splits a step between prompt judgment and code, [ERD.md](ERD.md) what the trajectory DB stores, and [MEMORY.md](MEMORY.md) what each agent keeps in context and what it loads on demand.
 
 This file is the ground truth for the workflow, including the brand workflow hero and its animations. It describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its section here in the same PR.
 
@@ -186,7 +186,7 @@ When the Human's prompt names what to delete, bro does it in one step with no re
 
 ### 10. Cheatcode lifecycle
 
-A capability wall, the Human saying "cheatcode", or a reuse check before building leads bro to acquire a skill, MCP toolkit or plugin instead of grinding it out by hand; the Human approves each install. It leaves the capability registry and its attachments. The pipeline is deterministic; bro judges only whether a capability is missing, whether a candidate is trustworthy, and which agent consumes it. Detail: [`CHEATCODES.md`](./CHEATCODES.md).
+A capability wall, the Human saying "cheatcode", or a reuse check before building leads bro to acquire a skill, MCP toolkit or plugin instead of grinding it out by hand; the Human approves each install. It leaves the capability registry and its attachments. The pipeline is deterministic; bro judges only whether a capability is missing, whether a candidate is trustworthy, and which agent consumes it. [CHEATCODES.md](./CHEATCODES.md) covers the trust and safety design behind it.
 
 | Stage | What it guarantees |
 |---|---|

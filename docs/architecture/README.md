@@ -4,20 +4,22 @@ TMB's design of record: how the plugin is shaped and why. Read it to understand 
 
 ## Three layers of knowledge
 
-TMB keeps each fact in exactly one of three layers, at the level of detail that layer holds best:
+TMB's own repo keeps each fact in exactly one of three layers, at the level of detail that layer holds best:
 
 - **High-level design: these docs.** Components, boundaries, flows, invariants and the reasons behind them. They name no functions, files, tables or tool parameters, so a refactor does not make them stale.
-- **Mid-level relationships: the world model.** What lives where, what calls, imports or reads what, and the concepts that tie code to design. Ask it with `world_model_search`, `world_model_get` and `world_model_symbol`; `/scan` rebuilds it from the code, so it never drifts.
-- **Low-level logic: the code.** How a step is done, in self-explaining names and tests. Read the code when the world model has pointed you to it.
+- **Mid-level relationships: the world model.** What lives where and what depends on what, derived from the code so it cannot drift from it. [WORLD_MODEL.md](WORLD_MODEL.md) covers it.
+- **Low-level logic: the code.** How a step is done, in self-explaining names and tests.
 
-A fact belongs in the lowest layer that can hold it. A rule a check can enforce goes in code; a relationship the scan can derive goes in the world model; only the design and its reasons stay here. When a page here starts naming symbols, the detail has drifted into the wrong layer: move it down, don't copy it. The one exception is a generated page guarded by a freshness test, such as [ERD.md](ERD.md).
+A fact belongs in the lowest layer that can hold it. A rule a check can enforce goes in code; a relationship the world model can derive goes there; only the design and its reasons stay here. When a page here starts naming symbols, the detail has drifted into the wrong layer: move it down, don't copy it. The one exception is a generated page guarded by a freshness test, such as [ERD.md](ERD.md).
+
+This rule is how TMB develops itself. It comes from our experience of design and code drifting apart, not from research evidence that it prevents that drift, and users cannot opt in to it yet. In a user's project, TMB provides the bottom two layers: the world model and the code.
 
 ## Reading guide
 
 New to TMB? Read in this order:
 
 1. [PHILOSOPHY.md](PHILOSOPHY.md) — why TMB is built the way it is.
-2. [FLOWS.md](FLOWS.md) — what happens, flow by flow. Its Quality layers section is the design every other page builds on, and it wins any conflict with a prompt or a hook.
+2. [FLOWS.md](FLOWS.md) — what happens, flow by flow, and which design wins when a prompt and a hook disagree.
 3. [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — who does each step.
 4. [MEMORY.md](MEMORY.md) and [WORLD_MODEL.md](WORLD_MODEL.md) — what agents remember and how they find their way around a project.
 5. [GIT.md](GIT.md) — where the work sits at every stage of a task.
@@ -41,7 +43,7 @@ Looking for one answer instead?
 ## Index
 
 - [PHILOSOPHY.md](PHILOSOPHY.md) — The principles behind the design: the two review gates, the dev-vs-user-runtime boundary, hot and cold memory, and clean removal of replaced designs.
-- [FLOWS.md](FLOWS.md) — The ground truth for every workflow, from install and cold start to task handling and bug reports. Its Quality layers section sets the two axes every flow is built on.
+- [FLOWS.md](FLOWS.md) — The ground truth for every workflow, from install and cold start to task handling and bug reports, and the quality design every flow is built on.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — What each shipped agent is for, what it may and may not do, and why the roles are split this way.
 - [MEMORY.md](MEMORY.md) — The memory model every agent follows: cold storage in the trajectory DB, hot session context, and pinned prompts, with the cost of each tier.
 - [WORLD_MODEL.md](WORLD_MODEL.md) — The world model bro reasons from: its purpose, its boundaries, and why it is a derived cache rebuilt by scanning.

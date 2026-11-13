@@ -13,7 +13,7 @@ The roles are split by what each can be trusted to do without marking its own ho
   3. **Subagents are fragile.** swe runs with a narrow tool allowlist and a fresh context, and a hook deny or server error can end its run. Critical state writes stay with bro, the most permissioned and most resilient layer.
 - **code-reviewer** is an independent third party at the push gate, with no edit tools. Its verdict is the only one the push gate accepts.
 
-Each layer owns one level of quality, and no layer repeats another's check: the Human owns intent, bro the environment, spec and architecture, swe functionality, and code-reviewer the diff. See [Quality layers](FLOWS.md#quality-layers).
+Each layer owns one level of quality, and no layer repeats another's check: the Human owns intent, bro the environment, spec and architecture, swe functionality, and code-reviewer the diff. [FLOWS.md](FLOWS.md#quality-layers) shows how the layers fit together and which wins when a prompt and a hook disagree.
 
 ## Which agents a project has
 
@@ -29,7 +29,7 @@ The persona comes from the plugin's `CLAUDE.md`, delivered by hooks; there is no
 - **Plans and routes.** Grounds each ask in the trajectory DB and the world model, proposes a branch, writes the task spec, and provisions the task with its branch and worktree.
 - **Gates tasks.** When swe returns, bro hands the commit to review and spawns code-reviewer. After a pass it judges only the architecture fit and swe's extra paths, re-running no checks and re-reviewing no diff, then closes the task in one transaction.
 - **Gates pushes.** It reads the verdict from its recorded row, never from reply text, rebases onto the base when it moved, pushes and opens the PR.
-- **Never edits source.** Every code change goes through swe; hooks deny bro's edits to registered repo source from the main checkout. Unregistered sibling repos are outside that guard (see [Multi-repo workspaces](GIT.md#multi-repo-workspaces)).
+- **Never edits source.** Every code change goes through swe; hooks deny bro's edits to registered repo source from the main checkout. Unregistered sibling repos are outside that guard; [GIT.md](GIT.md#multi-repo-workspaces) explains how a workspace with several repos decides which ones are registered.
 - **Talks to the Human.** Only bro asks the Human questions and reports to them.
 
 ## swe
