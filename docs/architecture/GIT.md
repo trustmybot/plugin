@@ -16,22 +16,44 @@ This is the standard developer flow: commit locally, push, open a PR. The TMB tw
 
 | Actor | Idle | Task provisioned | swe working | swe committed | Bro pushes (PR opens) | After merge |
 |---|---|---|---|---|---|---|
-| **You + bro** | `<base>` | `<base>`; bro cuts `<feature>` from `origin/<base>` and attaches a worktree, without switching | `<base>` | `<base>` | `<base>`; bro pushes `<feature>` | `<base>` |
-| **swe** | not spawned | not spawned | worktree on `<feature>`, dirty | worktree on `<feature>`, commits advance it | idle; worktree kept for rework | worktree removed |
+| **You + bro** | `<base>` | `<base>`; bro fetches `<base>`, cuts `<feature>` from it and attaches a worktree, without switching | `<base>` | `<base>` | `<base>`; bro pushes `<feature>` | `<base>`; merged local branch pruned |
+| **swe** | not spawned | not spawned | worktree on `<feature>`, dirty | worktree on `<feature>`, commits advance it | done; worktree removed after the passing review, recreated on rework | — |
 | **Origin** | `<base>` | `<base>` | same | same | `<feature>` updated | `<base>` advanced |
 
 ## Key handoffs
 
-- **Bro provisions.** One step creates the task, cuts `<feature>` from `origin/<base>` and attaches a worktree. The main checkout never switches branches; swe never creates branches or worktrees.
+- **Bro provisions.** One step creates the task, fetches `<base>`, cuts `<feature>` and attaches a worktree (see [Keeping the base fresh](#keeping-the-base-fresh)). The main checkout never switches branches; swe never creates branches or worktrees.
 - **No bro-side merge.** swe's commits are already on `<feature>`, so bro just pushes it.
 - **Push gate.** A push is admitted only when every pushed task commit has a passing code-reviewer verdict.
-- **Cleanup.** A passing review removes the task's worktree; a merge in the session also removes the merged local branch.
+- **Cleanup.** A passing review removes the task's worktree and returns the main checkout to `<base>`; reopening the task for rework recreates the worktree. A merge in the session also removes the merged local branch and prunes deleted remote branches.
 
 ## Why this design
 
 A branch can be checked out in only one worktree at a time. swe's worktree owns `<feature>` while swe works, and the main checkout sits on `<base>` throughout, so there is never a second checkout to reconcile.
 
 Routing swe's commits through your local branch, rather than letting swe push, keeps the usual mental model: you can inspect, rebase or drop anything before it reaches origin.
+
+## Keeping the base fresh
+
+Work always starts from the latest `<base>`, so a task never builds on stale code. Each entry point checks it:
+
+- **Provisioning fetches first.** Provisioning, reopening and retrying a task each run an environment gate before anything is recorded: a bounded fetch of `<base>` from origin, then the branch, the worktree, setup and the world-model index. A failed stage refuses the call and removes what it created. The fetch is skipped only when the repo has no origin or origin has no such branch.
+- **The cut takes the newer tip.** A new `<feature>` is cut from local `<base>` when it is a fast-forward ahead of `origin/<base>`, so unpushed local work is kept, else from `origin/<base>`. When the two have diverged, origin wins and bro is told why.
+- **An existing branch is fast-forwarded or refused.** A `<feature>` already at or behind the base tip is fast-forwarded to it. One that has diverged is refused, so bro picks a fresh name or explicitly continues that branch.
+- **A stale branch gets no worktree.** A guard denies attaching a worktree to a branch that is behind `origin/<base>`, after its own fetch.
+- **Hand-made branches start from a current base.** A guard denies creating a branch in a main checkout that is not on `<base>`, or whose local `<base>` differs from origin after a fetch.
+- **Integration resolves the base the same way.** The post-review rebase below fetches `<base>` and uses the newer of local and origin, as provisioning does.
+
+## Git guards
+
+Hooks hold the rest of this model in place, each enforcing the policy of the repo the command runs in:
+
+- **Destructive commands.** Hard resets, forced cleans and force-pushes to protected branches are denied, as are direct commits, merges and rebases on a shared base.
+- **The main checkout stays on `<base>`.** Checking out a branch that belongs to an open task is denied; the task's worktree is the place to work on it.
+- **swe stays in its lane.** swe cannot push, create branches or worktrees, or touch files outside its worktree. A swe spawn waits until its task's branch exists, and its worktree is created if missing.
+- **Pushes are reviewed.** See the push gate above.
+- **Remote identity is the Human's.** Forge logins and commands that change remote identity or create repos are denied.
+- **The world model follows the refs.** A command that moves refs, such as a fetch, merge, rebase or reset, triggers a background re-index.
 
 ## Rebasing a reviewed task
 
