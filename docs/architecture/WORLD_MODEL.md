@@ -27,6 +27,26 @@ The world model lives in the trajectory DB, beside the workflow audit but with n
 - **Indexed from git, never the working tree.** Each repo is indexed from its target commit, the fetched target branch or else `HEAD`, so every session and worktree reads the same map. Reads, spawns and commands that move refs bring the index forward incrementally; a full rebuild is the fallback.
 - **One transaction per write.** A scan reads and parses first, then applies everything at once, so a reader sees the old map or the new one, never a mix.
 
+## Scan
+
+Every case of flow 2.2 in [FLOWS.md](FLOWS.md).
+
+```mermaid
+flowchart TD
+    A[Empty world model, /scan, an architectural change, or the server connecting] --> B[bro, or the server in background, starts a scan]
+    B --> C[Read and parse each repo at its target commit]
+    C --> D[Apply the whole map in one transaction]
+    D --> E[Re-check concepts: suspect or broken steps flagged]
+    D --> F[Reconcile on-disk skills, plugins and MCP servers into the capability registry]
+    D --> G[Audit the scan: its source, and whether the project's shape changed]
+    H[A read, task spawn or ref-moving command] --> I{Repo behind its target commit?}
+    I -- yes --> J[Incremental reindex]
+    J -- fails --> B
+    I -- no --> K[Serve the current map]
+```
+
+A capability added out of band shows up in the registry at the next scan, so the [cheatcode lifecycle](CHEATCODES.md) sees it.
+
 ## Consumers
 
 Bro queries the world model directly on cold starts and "where does X live" questions; the plugin's `CLAUDE.md` says which query fits which question. The task brief resolves a task's scope against it and bundles the result with the task and its discussion, so swe gets one read instead of several. The dashboard reads the same map.

@@ -19,11 +19,14 @@ This rule is how TMB develops itself. It comes from our experience of design and
 New to TMB? Read in this order:
 
 1. [PHILOSOPHY.md](PHILOSOPHY.md) — why TMB is built the way it is.
-2. [FLOWS.md](FLOWS.md) — what happens, flow by flow, and which design wins when a prompt and a hook disagree.
+2. [FLOWS.md](FLOWS.md) — what happens, one ideal-case chart per flow, and which design wins when a prompt and a hook disagree.
 3. [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — who does each step.
-4. [MEMORY.md](MEMORY.md) and [WORLD_MODEL.md](WORLD_MODEL.md) — what agents remember and how they find their way around a project.
-5. [GIT.md](GIT.md) — where the work sits at every stage of a task.
-6. [CONTAINMENT.md](CONTAINMENT.md) and [CHEATCODES.md](CHEATCODES.md) — the safety boundary, and how TMB extends itself inside it.
+4. [TASKS.md](TASKS.md) — every case of a task, from ask to merge, and why one gets stuck.
+5. [MEMORY.md](MEMORY.md) and [WORLD_MODEL.md](WORLD_MODEL.md) — what agents remember and how they find their way around a project.
+6. [GIT.md](GIT.md) — where the work sits at every stage of a task.
+7. [CONTAINMENT.md](CONTAINMENT.md), [CHEATCODES.md](CHEATCODES.md) and [EXTENDING.md](EXTENDING.md) — the safety boundary, and how TMB extends itself inside it.
+
+Each flow in FLOWS.md links to its detail page, which charts every case, failures included, and how to debug them.
 
 Looking for one answer instead?
 
@@ -31,6 +34,11 @@ Looking for one answer instead?
 |---|---|
 | Why does TMB do X at all? | [PHILOSOPHY.md](PHILOSOPHY.md) |
 | What happens when the Human asks for Y? | [FLOWS.md](FLOWS.md) |
+| Why won't the plugin start, or why is it degraded? | [INSTALL.md](INSTALL.md) |
+| What does first contact ask, and what does it record? | [ONBOARD.md](ONBOARD.md) |
+| How does bro learn a repo's test and lint commands? | [ENVIRONMENT.md](ENVIRONMENT.md) |
+| Why is my task stuck? | [TASKS.md](TASKS.md) |
+| How does a project gain an agent, a skill or a second opinion? | [EXTENDING.md](EXTENDING.md) |
 | Which agent may do Z? | [RESPONSIBILITIES.md](RESPONSIBILITIES.md) |
 | What does an agent see at the start of a turn? | [MEMORY.md](MEMORY.md) |
 | How does bro know where code lives? | [WORLD_MODEL.md](WORLD_MODEL.md) |
@@ -43,7 +51,12 @@ Looking for one answer instead?
 ## Index
 
 - [PHILOSOPHY.md](PHILOSOPHY.md) — The principles behind the design: how an idea becomes tasks, the dev-vs-user-runtime boundary, one owner per quality check, code over prompts for enforcement, clean removal, and hot and cold memory.
-- [FLOWS.md](FLOWS.md) — The ground truth for every workflow, from install and cold start to task handling and bug reports, and the quality design every flow is built on.
+- [FLOWS.md](FLOWS.md) — One ideal-case chart per flow, from install to bug reports, plus the quality layers every flow is built on.
+- [INSTALL.md](INSTALL.md) — Install and session start in every case, and what to check when the plugin is missing or degraded.
+- [ONBOARD.md](ONBOARD.md) — First contact: its rounds, what each records, and how a re-run keeps what still stands.
+- [ENVIRONMENT.md](ENVIRONMENT.md) — How bro learns and caches a repo's install, test and lint commands, with the repo as the source of truth.
+- [TASKS.md](TASKS.md) — Every case of a task from ask to merge: the push gate, retry and escalation, PR comment triage, and debugging a stuck task.
+- [EXTENDING.md](EXTENDING.md) — How a project gains agents, skills, consultants and roundtables, and what each path refuses.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — What each shipped agent is for, what it may and may not do, and why the roles are split this way.
 - [MEMORY.md](MEMORY.md) — The memory model every agent follows: cold storage in the trajectory DB, hot session context, and pinned prompts, with the cost of each tier.
 - [WORLD_MODEL.md](WORLD_MODEL.md) — The world model bro reasons from: its purpose, its boundaries, and why it is a derived cache rebuilt by scanning.

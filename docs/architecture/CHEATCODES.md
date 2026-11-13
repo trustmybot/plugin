@@ -12,6 +12,43 @@ The mechanical pipeline (search, record, vet, install, activate) is deterministi
 
 Everything else is deterministic code; [DETERMINISTIC_LAYER.md](../prompt-engineering/DETERMINISTIC_LAYER.md) explains how TMB decides what a prompt judges and what code enforces.
 
+## Lifecycle
+
+Every case of flow 4.1 in [FLOWS.md](FLOWS.md).
+
+```mermaid
+flowchart TD
+    A[Capability gap, the Human says cheatcode, or a reuse check] --> S[Search registries]
+    S --> F{A candidate fits?}
+    F -- no --> B[bro builds the capability instead]
+    F -- yes --> V[Vet: trust tier and capabilities]
+    V --> H{Human approves?}
+    H -- no --> Z[Stop]
+    H -- yes --> T{Consuming agent resolved?}
+    T -- no, and it is a skill --> X[Install refused: no orphan skill]
+    T -- yes, or a pure server tool --> I[Install in one transaction]
+    I --> K{Kind}
+    K -- standalone skill --> U[Usable now]
+    K -- plugin or MCP server --> R[Loads at the next restart]
+    U --> C[Reconcile at each server start and scan]
+    R --> C
+    C --> D{Human confirms uninstall?}
+    D -- yes --> E{Teardown clean?}
+    E -- yes --> G[Removed, attachments reversed, audited]
+    E -- no --> M[Entry kept, marked broken, reported]
+```
+
+| Stage | What it guarantees |
+|---|---|
+| Search | ranked candidates; when none fits, bro builds the capability instead |
+| Vet | a trust tier and the candidate's capabilities; vetting never decides |
+| Approve | the Human approves before anything installs |
+| Target | the consuming agent: the one the Human named, one inferred from the domain, or the Human's answer when it is ambiguous; a pure server tool needs none |
+| Install | one transaction: the registry entry, its attachments to the consuming agent, and the audit; idempotent on name and source |
+| Activate | when the cheatcode becomes usable ([Hot-load](#hot-load)) |
+| Reconcile | each server start and scan checks the registry against what is on disk and audits drift |
+| Uninstall | Human-confirmed; reverses the install and its attachments ([Teardown](#teardown)) |
+
 ## Registries
 
 Discovery queries real, reputable registries, never a self-built index. Each source carries a tier that doubles as its reputation signal, and official sources always outrank curated ones:
