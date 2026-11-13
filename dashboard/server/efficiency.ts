@@ -18,7 +18,7 @@ const GIT_MAX_BUFFER = 32 * 1024 * 1024;
 
 const LOCKFILES = new Set(['bun.lock', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']);
 const GENERATED_FILES = new Set(['data-contracts.json']);
-const GENERATED_PATHS = new Set(['docs/contributing/ENUMS.md', 'docs/architecture/ERD.md', 'docs/reference/CONFIG_KEYS.md']);
+const GENERATED_PATHS = new Set(['docs/contributing/ENUMS.md', 'docs/architecture/ERD.md', 'docs/architecture/CONFIG_KEYS.md']);
 const GENERATED_DIRS = new Set(['dist', 'build']);
 const DOC_FILE = /\.(md|mdx|txt|rst)$/;
 

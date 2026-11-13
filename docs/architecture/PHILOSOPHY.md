@@ -1,52 +1,51 @@
 # Design philosophy
 
-The principles behind how the TMB plugin is shaped — how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, why a replaced design is removed cleanly, why memory is split into hot and cold, and why every fact about the codebase lives in exactly one of three layers: docs, world model or code.
+The principles behind how TMB is shaped. Each is the reason a design looks the way it does; the other pages here show how it is built. How TMB keeps its own design, relationships and logic apart is in the [README](README.md).
 
-## 1. Two review perspectives
+## 1. Ideas become goals, goals become tasks
 
-The workflow has two review gates. Both read the diff line by line — what differs is the context each brings to it, and what that context does to what they catch.
+Work starts as the Human's idea and reaches code only through two conversions, each recorded where the next actor will look.
 
-- **bro reviews at the SYSTEM level.** The question bro answers is "does this change fit the whole system?" — does it belong in this milestone, does it respect the role boundaries, does it ripple into surfaces the spec didn't name, is it the right shape of work at all.
-- **code-reviewer reviews at the diff level.** The question code-reviewer answers is "does this diff break other behaviour?", probed through the world model's dependents with the spec as the basis for what the diff intends; whether the diff meets its criteria is owned by swe's recorded checks and criterion report, and scope and design are bro's.
+- **Idea to goal.** bro grounds the idea in past decisions and the project map, then asks two questions before anything is built: is it actionable, and does something existing (a maintained package or a published capability) already cover it? An actionable idea becomes an issue: the goal. Its plan lives in the issue, and every later choice is a recorded decision, the newest one winning.
+- **Goal to tasks.** bro splits the goal into tasks. Each task's spec is a contract: numbered success criteria, the surfaces it touches, and the commands that verify it. A spec too large for one swe run splits into linked tasks, so each run fits in one context.
 
-The two perspectives are complementary because of a context asymmetry. bro carries the full picture — the plan, the decisions, the prior turns — which is what makes the system-fit call possible; but that same context biases bro toward expecting correctness, so bro can read a line for what it was *meant* to do and wave a real low-level bug through. code-reviewer arrives with fresh memory and little of the big picture, and that freshness is the point: reading the diff cold, unprimed by intent, is what gives it the better odds of catching the local bug bro rationalizes past. Neither substitutes for the other — bro's context catches scope and ripple problems code-reviewer can't see; code-reviewer's fresh eyes catch correctness bugs bro's context hides.
+Every later check is judged against these records, never against what someone remembers the Human meant.
 
 ## 2. Dev-vs-user-runtime boundary
 
-`docs/` is TMB-internal, alongside the test harness (`tests/`) and the release and maintenance scripts. `docs/` documents how *this project* is built and operated: the L0–L6 test harness, the `trustmybot/plugin` repository itself, GitHub milestones and labels, the rc and release-gate flow, the contributing guide, and the benchmark campaign. None of it is part of the runtime a user's project uses.
+TMB's docs, test harness and release scripts describe how this project is built: its test levels, its repository, its milestones and its release gates. None of it ships to a user's project.
 
-The shipped runtime must be about THE USER'S project and fully self-contained:
+The shipped runtime (the persona, agents, skills, commands, hooks, templates and the MCP server) is about the user's project and is self-contained. It never refers to TMB's own development process, because a user has none of it and a prompt that cites it leaks meaningless internal context. When a shipped surface needs a rule TMB's docs also describe, it states the rule directly. For the same reason, a feature built for TMB's own needs must work in any user's project, reading that project's labels, milestones and repos from its data rather than assuming TMB's.
 
-- `CLAUDE.md`, `agents/`, `skills/`, `commands/`, `hooks/`, `templates/`
-- the user-facing MCP server code
-
-These surfaces must never reference TMB's own development process — no harness paths, no `L1`/`L5/L6` levels, no `tests/` directories, no internal milestone or release machinery. A user installing the plugin has none of that, so a prompt or hook that cites it leaks meaningless internal context and erodes trust. When a shipped surface needs to state a rule that TMB's docs also describe, it states the rule directly rather than pointing at a `docs/` file the user does not have.
 ## 3. Cut entropy at handoffs
 
-TMB's trajectory exists to cut the entropy lost at each handoff: Human → bro → swe → code-reviewer → the next session. The design priority is stability first, then efficiency.
+The trajectory exists to cut the context lost at each handoff: Human → bro → swe → code-reviewer → the next session. Stability comes first, then efficiency.
 
-Judge a proposed feature by one question: does it reduce entropy at a handoff, or make a past decision re-findable? One discussion maps to one issue, so every decision is findable from the work it shaped.
+Judge a proposed feature by one question: does it reduce loss at a handoff, or make a past decision re-findable? One discussion maps to one issue, so every decision is findable from the work it shaped.
 
-## 4. Gates catch false success; audits chase perfection
+## 4. One owner per check
 
-swe and the two review gates optimize for speed. The swe checklist and its one trusted gate run are trusted, and a reviewer's job is to catch a false success claim — verify the recorded test results — not to demand a perfect change.
+Each layer owns one level of quality, and no layer repeats another's check; a repeated check costs tokens and blurs who answers for a miss.
 
-Exhaustive quality hunting is the audit's job, run separately against live data. This keeps the per-task loop fast without lowering the bar for what reaches main.
+- **The Human** owns intent.
+- **bro** owns the environment, the spec and the architecture. At close it judges whether the change fits the whole system, without re-running checks or re-reading the diff.
+- **swe** owns functionality. Before closing it reviews its own work: every criterion and edge case has a change behind it, nothing outside the task was touched on the way, the tests for what it touched pass, and its report answers every criterion with evidence. When the spec contradicts itself or a fact is missing, it closes as failed rather than guessing.
+- **code-reviewer** owns the diff. It reads it cold and probes what depends on it, and it is strict: a missed bug costs more than a rework.
 
-## 5. Remove cleanly
+bro and code-reviewer complement each other through a context asymmetry. bro's full picture makes the system-fit call possible but primes it to read a line for what it was meant to do; code-reviewer's fresh context, unprimed by intent, gives it better odds on the local bug bro would rationalize past.
 
-When a design is replaced, delete the old one outright. Code, prompts and docs describe only what is true now: no `no longer`, `used to`, `deprecated` or `previously` notes, and no commented-out remnants. The reason for the removal lives in the commit message and PR description, where history belongs.
+Exhaustive quality hunting is the audit's job, run separately against live data, so the per-task loop stays lean.
 
-## 6. Memory is hot and cold
+## 5. Code enforces, prompts judge
 
-**The DB is the only source of truth. Context is a disposable cache of it, written through and never the only copy. Every agent loads the smallest page it needs, and ends at a task boundary.** The tiers, their costs and the design test live in [`MEMORY.md`](./MEMORY.md).
+What code can check, code checks; a prompt keeps only the calls that need judgment. A rule stated only in a prompt is a rule the model may skip.
 
-## 7. Three layers of knowledge
+Gates fail closed. A guard admits what it can prove safe and denies the rest, because a guard that blocks only known-bad input fails open on whatever it did not foresee.
 
-Every fact about the codebase lives in exactly one of three layers:
+## 6. Remove cleanly
 
-1. **Docs: architecture.** Components, boundaries, invariants, and why they are built that way. A hand-written doc never names a class, function, file, column or enum value; where a reader needs one, it points to the world model or the code.
-2. **World model: relationships.** What calls, reads or changes what (symbols), and the named design ideas anchored to them (concepts). It is generated by `/scan` and swe's completion report, never written by hand.
-3. **Code: logic.** Self-explaining names and small cohesive units; a comment only for a why the code cannot show.
+When a design is replaced, delete the old one outright. Code, prompts and docs describe only what is true now, with no notes about what used to be and no commented-out remnants. The reason for a removal lives in the commit message and PR description, where history belongs.
 
-A fact in the wrong layer moves to the right one; it is never copied. One exception: a generated section guarded by a freshness test (such as the `audit.event_type` table in `ENUMS.md`) may carry detail, because the test fails when it drifts. When a doc drifts from the code, fix it by deleting the detail, not by re-copying it.
+## 7. Memory is hot and cold
+
+The DB is the only source of truth. Context is a disposable cache of it, written through and never the only copy. Every agent loads the smallest page it needs and ends at a task boundary. [MEMORY.md](./MEMORY.md) covers the tiers, what each costs, and how to tell which tier a fact belongs in.

@@ -50,7 +50,7 @@ import { pgrepProbe } from './health.js';
 
 const PLUGIN_NAME = 'tmb';
 const MCP_SERVER_KEY = 'plugin:tmb:trajectory-server';
-const SCOPE_DOC = 'docs/reference/INSTALL.md#recommended-scope-project-or-local';
+const SCOPE_DOC = 'docs/architecture/INSTALL.md#recommended-scope-project-or-local';
 
 type Json = unknown;
 

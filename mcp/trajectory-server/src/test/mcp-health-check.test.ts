@@ -173,13 +173,13 @@ describe('mcp-health-check: the SessionStart server probe and install notices', 
       reset(1);
       writeInstalls({ 'tmb@mp': [userEntry()] });
       const ctx = contextOf(run(ss('inst-3')).stdout);
-      assert.ok(ctx.includes('TMB installed at user scope; `--scope project` is recommended (see docs/reference/INSTALL.md)'), ctx);
+      assert.ok(ctx.includes('TMB installed at user scope; `--scope project` is recommended (see docs/architecture/INSTALL.md)'), ctx);
     });
 
     it('user-scope install only: the notice names the plugin-root INSTALL.md', () => {
       const root = join(sb.dir, 'plugin-root');
       const ctx = contextOf(run(ss('inst-3b'), { CLAUDE_PLUGIN_ROOT: root }).stdout);
-      assert.ok(ctx.includes(`(see ${root}/docs/reference/INSTALL.md)`), ctx);
+      assert.ok(ctx.includes(`(see ${root}/docs/architecture/INSTALL.md)`), ctx);
     });
 
     it('project install only: no notice', () => {

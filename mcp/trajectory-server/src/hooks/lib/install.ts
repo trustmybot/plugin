@@ -256,7 +256,7 @@ export function userSettingsJson(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /** tmb_legacy_user_hooks_doc. */
-export const LEGACY_USER_HOOKS_DOC = 'docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks';
+export const LEGACY_USER_HOOKS_DOC = 'docs/architecture/INSTALL.md#upgrading-into-v110--remove-leftover-user-wide-hooks';
 
 export interface LegacyHook {
   line: string;

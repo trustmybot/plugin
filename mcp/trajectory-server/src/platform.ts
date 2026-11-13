@@ -397,7 +397,7 @@ export function otherClaudeDbs(
 /**
  * The one trajectory-DB location rule, shared with the hooks' `dbPath`
  * (src/hooks/lib/db.ts) and documented in
- * docs/reference/TRAJECTORY_DB_LOCATION.md. Returns the existing DB, or null
+ * docs/architecture/MEMORY.md#where-the-trajectory-db-lives. Returns the existing DB, or null
  * when unresolved:
  *
  * 1. `TRAJECTORY_DB_PATH`, if set (must exist).

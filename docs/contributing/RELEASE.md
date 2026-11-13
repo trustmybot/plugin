@@ -12,7 +12,7 @@ Every push to `dev` runs `.github/workflows/dev-build.yml`. Its `stamp` job stam
 
 **Is a fix in my build?** Your build has it when its `n` is at least the `n` of the build that shipped the fix's PR (same `X.Y.Z`).
 
-**Dev channel or rc?** The dev channel serves merged work as it lands, checked only per PR. Cut an rc when you have a candidate to ship; only an rc goes through the release gate. To switch channels or upgrade, see [INSTALL.md](../reference/INSTALL.md) and [UPGRADE.md](../reference/UPGRADE.md); each dev build also comments its version and upgrade commands on its PR.
+**Dev channel or rc?** The dev channel serves merged work as it lands, checked only per PR. Cut an rc when you have a candidate to ship; only an rc goes through the release gate. To switch channels or upgrade, see [INSTALL.md](../architecture/INSTALL.md#upgrade); each dev build also comments its version and upgrade commands on its PR.
 
 ## Release gate
 

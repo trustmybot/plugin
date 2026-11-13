@@ -24,7 +24,7 @@ import { contextOf, GIT_ENV, HOOKS_JS, jsonValues, lines, makeSandbox, noCmdPath
 
 const GATE = 'session-start-prescan';
 const IN_SESSION_CMD = /(^|[ `"'(])\/(plugin|reload-plugins|mcp)([ `"'),.;:]|$)/m;
-const LEGACY_DOC = 'docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks';
+const LEGACY_DOC = 'docs/architecture/INSTALL.md#upgrading-into-v110--remove-leftover-user-wide-hooks';
 const LEGACY_ENTRIES = 'line 10 git-guards, line 23 agent-spawn-dispatch, line 33 swe-scope-guard';
 const LEGACY_FIXTURE = join(PLUGIN_ROOT, 'tests/l3-integration/hooks/fixtures/legacy-user-settings.json');
 const SCHEMA_VERSION = String((JSON.parse(readFileSync(join(PLUGIN_ROOT, 'scripts/hooks/lib/data-contracts.json'), 'utf8')) as { schema_version: unknown }).schema_version);

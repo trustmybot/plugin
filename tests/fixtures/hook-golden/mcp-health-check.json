@@ -564,7 +564,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"trajectory-server not detected yet at SessionStart; if a trajectory tool returns is_error, load tmb_recovery §B\\n\\nTMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/reference/INSTALL.md).\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"trajectory-server not detected yet at SessionStart; if a trajectory tool returns is_error, load tmb_recovery §B\\n\\nTMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/architecture/INSTALL.md).\"}}\n",
       "tree": [
         "bare/",
         "biglog/",
@@ -656,7 +656,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/reference/INSTALL.md).\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/architecture/INSTALL.md).\"}}\n",
       "tree": [
         "bare/",
         "biglog/",
@@ -940,7 +940,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/reference/INSTALL.md).\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/architecture/INSTALL.md).\"}}\n",
       "tree": [
         "bare/",
         "biglog/",
@@ -1410,7 +1410,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/reference/INSTALL.md).\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/architecture/INSTALL.md).\"}}\n",
       "tree": [
         "bare/",
         "biglog/",

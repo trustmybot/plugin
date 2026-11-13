@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 72`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 72`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -12,7 +12,7 @@ The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of tru
 - **Search** — FTS5 indexes and embedding caches over discussions, audit rows and the world model, each keyed by its source row.
 - **Eval mode** — capture tables in `schema-eval.sql`, applied only with `TMB_EVAL_MODE=1`, so production DBs never carry them.
 
-The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and who writes it is in the tools under `mcp/trajectory-server/src/tools/` (`world_model_search` finds the writer).
+The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
 _Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 72`; edit the schema, then rerun the script._
@@ -1314,14 +1314,14 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 
 - Every workflow row belongs to one issue, directly or through its task. Project-level audit and discussion rows use a schema-seeded system issue that no task may use.
 - Rows that concern a repo name its `repos` row. A repo is renamed in one transaction across every table that names it, and a scan never renames one.
-- Per-repo branch policy lives on the `repos` row and nowhere else ([`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)); `plugin_config` holds only workspace-global settings ([`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md)).
+- Per-repo branch policy lives on the `repos` row and nowhere else ([Multi-repo workspaces](./GIT.md#multi-repo-workspaces)); `plugin_config` holds only workspace-global settings ([`CONFIG_KEYS.md`](CONFIG_KEYS.md)).
 - A few references are soft: a task's branch name is unique only within its issue, so rows that point at a branch carry no declared foreign key.
 
 ## Rules the data keeps
 
 - **One timestamp format.** Every timestamp is UTC ISO 8601 with milliseconds, so ordering and keyset cursors compare them as plain strings.
-- **Nothing closes silently.** An issue never closes over live work, and a task never reaches `closed` without the record saying whether it was reviewed: a close with no passing review writes an explicit bypass or waiver row. A review passes a commit only when it was recorded at or after that commit's review anchor (bro's verification of it, or an integrate that carried the review across a trivial rebase); one shared rule in `mcp/trajectory-server/src/review-sql.ts` decides it for every reader.
-- **Verdicts are append-only.** A re-recorded review attempt adds a row instead of replacing one; a finding's status moves from open to fixed or waived, and the finding stays.
+- **Nothing closes silently.** An issue never closes over live work, and a task never reaches `closed` without the record saying whether it was reviewed: a close with no passing review writes an explicit bypass or waiver row. A review passes a commit only when it was recorded at or after that commit's review anchor (bro's verification of it, or an integrate that carried the review across a trivial rebase); one shared rule decides it for every reader.
+- **Verdicts are append-only.** A re-recorded review attempt adds a row instead of replacing one; a finding's status moves from open to fixed or won't-fix, and the finding stays.
 - **Verification is recorded, not re-run.** Each run of a task's checks, and each run of its close lints, is a row with its commands or lints, so bro, code-reviewer and the reviewer preflight read the result for an exact commit.
 - **Cost is metered, not stored as totals.** Agent runs carry measured token counts; task cost and rework are computed from them at read time.
 - **Audit is event-only.** Each audit row is one lifecycle event; tool-call capture lives in the eval-mode tables.
@@ -1329,8 +1329,8 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 
 ## Data contracts
 
-The schema says what a row may hold; data contracts say what the rows TMB writes over time must look like. One declarative list, `mcp/trajectory-server/src/data-contracts.ts`, drives the `trajectory_doctor` tool, the session-start health line and the end-to-end test gate. That list is the contract catalog.
+The schema says what a row may hold; data contracts say what the rows TMB writes over time must look like. One declarative list drives the `trajectory_doctor` tool, the session-start health line and the end-to-end test gate. That list is the contract catalog.
 
 ## Schema migration policy
 
-`schema.sql` is applied idempotently on every open. Forward migrations run automatically on open, one step per schema version, after a snapshot of the DB file; a DB newer than the code is refused, never downgraded. `mcp/trajectory-server/src/db.ts` holds the steps.
+`schema.sql` is applied idempotently on every open. Forward migrations run automatically on open, one step per schema version, after a snapshot of the DB file; a DB newer than the code is refused, never downgraded, and the snapshot is the way back.

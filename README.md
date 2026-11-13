@@ -10,7 +10,7 @@
 
 TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `code-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets.
 
-> **TMB runs on Claude Code.** Operating-system support: [`docs/reference/INSTALL.md`](docs/reference/INSTALL.md#operating-systems).
+> **TMB runs on Claude Code.** Operating-system support: [`docs/architecture/INSTALL.md`](docs/architecture/INSTALL.md#operating-systems).
 
 ---
 
@@ -33,7 +33,7 @@ claude plugin marketplace add trustmybot/marketplace --scope project
 claude plugin install tmb@trustmybot --scope project
 ```
 
-Install at project or local scope, never user scope; [INSTALL.md](docs/reference/INSTALL.md#recommended-scope-project-or-local) explains why and lists the update commands.
+Install at project or local scope, never user scope; [INSTALL.md](docs/architecture/INSTALL.md#recommended-scope-project-or-local) explains why and lists the update commands.
 
 Use `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` with `--scope local` for the rc channel (pre-promotion testing — tolerate occasional breakage). Pick one channel per CC install; to switch, run `claude plugin uninstall tmb@trustmybot --scope project` (or `claude plugin uninstall tmb@trustmybot-rc --scope local`), then add the other.
 
@@ -47,7 +47,7 @@ Refresh after upstream changes: `claude plugin marketplace update trustmybot`, t
 @bro write a todo cli
 ```
 
-Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code-touching asks route through bro → SWE → code-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
+Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code tasks route through bro → SWE → code-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
 
 Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
@@ -81,7 +81,7 @@ Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architec
 
 Verdicts persist in the DB next to the code they judged — six months later "why did we ship this commit?" is still queryable.
 
-Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`agents/code-reviewer.md`](agents/code-reviewer.md).
+Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#33-push-gate), [`agents/code-reviewer.md`](agents/code-reviewer.md).
 
 ### 4. Agentic Orchestration — composable, not monolithic
 

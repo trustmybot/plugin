@@ -1,6 +1,6 @@
 // 05.04-multirepo-commit L5 isolation: builds the multi-repo workspace fixture.
 // Creates api/ and app/ sibling git repos and registers both via the `repos`
-// table (path-keyed resolution — see docs/architecture/REPO_RESOLUTION.md).
+// table (path-keyed resolution — see docs/architecture/GIT.md, Multi-repo workspaces).
 // README per inner repo lets scan_run populate the world model with
 // README-derived summaries when bro runs /scan.
 import { mkdirSync, realpathSync } from 'node:fs';

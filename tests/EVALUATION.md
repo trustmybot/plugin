@@ -106,7 +106,7 @@ flowchart TD
 
 Reading the dotted edges:
 - **S3 → S7**: the GitHub remote bro configured in step 3 is the URL step 7 pushes against. If step 3 forgot to write the remote (DB or git config), step 7 has nowhere to push.
-- **S4 → S5/S6/S8/S9/S10/S11**: step 4 produces `src/cli.py` + `tests/test_cli.py` — the substrate every subsequent code-touching row consumes. Step 5 modifies the CLI; step 6 reads it; step 8 refactors its storage; step 9 modifies the test file; step 10/11 deliberate on the storage choice.
+- **S4 → S5/S6/S8/S9/S10/S11**: step 4 produces `src/cli.py` + `tests/test_cli.py` — the substrate every subsequent code task row consumes. Step 5 modifies the CLI; step 6 reads it; step 8 refactors its storage; step 9 modifies the test file; step 10/11 deliberate on the storage choice.
 - **S5 → S7**: the committed task from step 5 is what step 7 pushes. The push gate scores `validation_attempts` on that task's `commit_sha`.
 - **S4 → S12**: step 12 resumes the issue + task step 4 created. If step 4 didn't leave an in-progress task, step 12 has nothing to resume and would (incorrectly) re-plan from scratch.
 - **S10 → S11**: cto is one of the two roundtable participants in step 11. The roundtable assertion checks BOTH `cto` (drafted in step 10 in chain, seeded from the row's prompt file in isolation) AND `data-engineer` (from-scratch) voted.
