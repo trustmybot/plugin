@@ -39,7 +39,26 @@ swe never fetches, rebases or pulls. When `<base>` moves after a task passed rev
 
 ## Multi-repo workspaces
 
-A workspace can hold several inner git repos, siblings or submodules, under one trajectory DB. TMB resolves "which repo does this operation belong to" by **path**, never by a global default repo:
+A workspace can hold several inner git repos, siblings or submodules, under one trajectory DB. A scan discovers them and maps each one to a repo row in the DB:
+
+```mermaid
+flowchart TD
+    A["/scan, or bro's first scan when the world model is empty"] --> B[Walk the project root up to four levels deep, skipping dependency and build folders and task worktrees]
+    B --> C{Folder holds .git?}
+    C -- no --> B
+    C -- yes --> D{The project root itself?}
+    D -- yes --> R
+    D -- no --> E{Hidden folder, ignored by an enclosing repo, a linked worktree, or no commits?}
+    E -- yes --> S[Skipped; an audit row records why]
+    E -- no --> R[Repo row upserted: name from the folder, path, file count, remotes]
+    R --> F[Tracked files indexed into the world model, paths relative to the repo]
+    R --> P["/onboard records the repo's branch policy on its row"]
+    G[A registered repo this scan no longer finds] --> H{A task or another record still references it?}
+    H -- yes --> K[Kept, reported stale]
+    H -- no --> X[Retired with its world-model rows]
+```
+
+TMB then resolves "which repo does this operation belong to" by **path**, never by a global default repo:
 
 1. **Repos are identified by registration.** A repo takes part in TMB only once `/scan` has registered it. Registration is the same step that warms the world model, so the two stay aligned.
 2. **Resolution is path-keyed.** An operation belongs to the registered repo whose path contains it: the command's git root for a hook, the task's repo for a task. World-model paths are stored relative to their repo.
