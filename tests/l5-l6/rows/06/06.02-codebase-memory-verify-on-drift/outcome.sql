@@ -1,6 +1,6 @@
 -- 06.02-codebase-memory-verify-on-drift (world model in the wm_ tables)
 -- Pre-state: a v1-summary wm_directories row exists + the README on disk
--- now says v2. On the first code-touching ask, bro plans + dispatches. If/when
+-- now says v2. On the first code task, bro plans + dispatches. If/when
 -- bro fires scan_run (explicitly or via the server's startup catch-up), the
 -- README-derived summary on the repo-root wm_directories row refreshes to v2.
 --

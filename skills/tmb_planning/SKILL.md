@@ -1,11 +1,11 @@
 ---
 name: tmb_planning
-description: Bro's code-touching flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, hand off to code-reviewer, atomic-close after its pass. Loaded on the first code-touching ask of a session.
+description: Bro's code task flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, hand off to code-reviewer, atomic-close after its pass. Loaded on the first code task of a session.
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
 effort: high
 ---
 
-# Planning — bro's code-touching flow
+# Planning — bro's code task flow
 
 ## 1. Verify the world model
 

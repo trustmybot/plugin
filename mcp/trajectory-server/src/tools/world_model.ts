@@ -1151,7 +1151,7 @@ export function worldModelTools(
     {
       name: 'world_model_get',
       description:
-        "The world model as a directory tree, the map for code-touching cold starts. Each node has a README summary (summary_source='readme', trust current|drifting(n)|dead_refs(k), summary_sha, commits_behind, dead_refs) or a structural one, first line only below root. " +
+        "The world model as a directory tree, the map for cold-start code tasks. Each node has a README summary (summary_source='readme', trust current|drifting(n)|dead_refs(k), summary_sha, commits_behind, dead_refs) or a structural one, first line only below root. " +
         'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work: closed-task branch tips not in the target. ' +
         'checkout_behind_upstream: commits the checkout trails origin/<target> at last fetch (may explain missing files, shifted lines); absent if current. ' +
         'last_scan {at, source, ok, errors}: newest scan_run (ok false if a stage failed), else null. ' +

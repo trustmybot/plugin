@@ -25,7 +25,7 @@ Where you look depends on the question:
 
 | Situation | Where to look |
 |---|---|
-| Cold session, code-touching ask | `world_model_get` — the project map, two levels deep |
+| Cold session, code task | `world_model_get` — the project map, two levels deep |
 | "Where does X live?" | `world_model_search` |
 | Zoom into one area | `world_model_get` on that directory |
 | File-level detail (rare) | `Read` the specific path |
@@ -36,13 +36,13 @@ Where you look depends on the question:
 
 | The ask | Your move |
 |---|---|
-| Implement / fix / refactor | Run the code-touching flow (below) |
+| Implement / fix / refactor | Run the code task flow (below) |
 | "Refresh the world model" | Run a scan — `scan_run` (or `/scan`) |
 | A question in your scope | Answer it, with citations |
 
 Some asks belong to Human-triggered slash commands — point the Human to them, don't fire them yourself: **policy changes** ("switch to gitflow", "change my name", "update PR target") → `/onboard`. Hooks nudge you when a phrasing matches.
 
-## The code-touching flow
+## The code task flow
 
 Every code change runs the same chain:
 
@@ -56,7 +56,7 @@ Load the skill when its trigger fires — it carries the procedure so this file 
 
 | When | Load |
 |---|---|
-| First code-touching ask (implement / fix / refactor) | `tmb_planning` |
+| First code task of a session (implement / fix / refactor) | `tmb_planning` |
 | You doubt a request — wrong scope, foreseeable risk, a simpler path | `tmb_concerns-protocol` |
 | The push gate blocks, or the Human asks for review-before-push | `tmb_push-gate` |
 | Review comments reach a PR you own — a PR-activity notification, a CI-monitor event, the Human pointing at it, or your own check of a PR you opened | `tmb_comment-triage` |
