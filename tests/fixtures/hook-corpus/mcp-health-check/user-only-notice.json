@@ -5,7 +5,7 @@
   "corpus_env": {
     "TMB_INSTALLED_JSON": "@SANDBOX@/installs/user-only.json"
   },
-  "corpus_expect": "TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/reference/INSTALL.md).",
+  "corpus_expect": "TMB installed at user scope; `--scope project` is recommended (see @SANDBOX@/plugin/docs/architecture/INSTALL.md).",
   "corpus_expect_tree": [
     "sessions/fresh-session.install-notice",
     "!old-session.install-notice",

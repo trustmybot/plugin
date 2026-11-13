@@ -66,7 +66,7 @@ function repo() {
     X3: commit('fix!: breaking', { 'src/x3.ts': text(10, 'x3') }),
     D1: commit('docs: guide', { 'docs/guide.md': text(20, 'g'), 'package-lock.json': text(7, 'npm') }),
     D2: commit('docs(readme): intro', { 'docs/intro.md': text(10, 'intro') }),
-    D3: commit('docs: notes', { 'docs/reference/CONFIG_KEYS.md': text(30, 'k'), 'notes.txt': text(10, 'n') }),
+    D3: commit('docs: notes', { 'docs/architecture/CONFIG_KEYS.md': text(30, 'k'), 'notes.txt': text(10, 'n') }),
     O1: commit('Update stuff', { 'src/o.ts': text(8, 'o') }),
     T1: commit('test: cover', { 'test/t.mjs': text(12, 't') }),
   };
@@ -409,7 +409,7 @@ describe('efficiency helpers', () => {
   });
 
   test('generated files and docs', () => {
-    for (const p of ['dist/a.js', 'web/build/x.js', 'a.js.map', 'x.min.css', 'bun.lock', 'sub/package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'data-contracts.json', 'docs/contributing/ENUMS.md', 'docs/architecture/ERD.md', 'docs/reference/CONFIG_KEYS.md'])
+    for (const p of ['dist/a.js', 'web/build/x.js', 'a.js.map', 'x.min.css', 'bun.lock', 'sub/package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'data-contracts.json', 'docs/contributing/ENUMS.md', 'docs/architecture/ERD.md', 'docs/architecture/CONFIG_KEYS.md'])
       assert.ok(mod.isGenerated(p), p);
     for (const p of ['src/dist.ts', 'distill/a.ts', 'docs/guide.md', 'builder.ts']) assert.ok(!mod.isGenerated(p), p);
     for (const p of ['README.md', 'a.mdx', 'notes.txt', 'x.rst', 'docs/img.png']) assert.ok(mod.isDoc(p), p);

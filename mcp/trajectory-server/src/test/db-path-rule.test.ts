@@ -1,5 +1,5 @@
 /**
- * The one trajectory-DB location rule (docs/reference/TRAJECTORY_DB_LOCATION.md)
+ * The one trajectory-DB location rule (docs/architecture/MEMORY.md#where-the-trajectory-db-lives)
  * across the hooks, and the fail-closed gate semantics that ride on it
  * (GH 1692). Every hook runs as `node dist/hooks.js <hook>` with a temp HOME.
  *

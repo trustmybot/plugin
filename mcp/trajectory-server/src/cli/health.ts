@@ -72,7 +72,7 @@ import {
 import { installRoot, jqRawText, posixDirname, TMB_DB_FILENAME } from '../hooks/lib/project-env.js';
 import type { CliIo } from './fallback-db.js';
 
-const SCOPE_DOC = 'docs/reference/INSTALL.md#recommended-scope-project-or-local';
+const SCOPE_DOC = 'docs/architecture/INSTALL.md#recommended-scope-project-or-local';
 const DB_READ_TIMEOUT_MS = '500';
 const MEMORY = ':memory:';
 

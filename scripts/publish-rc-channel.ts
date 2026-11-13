@@ -83,7 +83,7 @@ const README_TEMPLATE = [
   '',
   'Disable rather than uninstall so you can flip back to the released channel with `claude plugin enable tmb@<marketplace> --scope local` when done. Fully quit and relaunch Claude Code after each change; a plugin change applies only on a fresh start.', // cli-config-scope: printed
   '',
-  'The rc channel is a per-developer choice, so every command here installs at local scope; see [Recommended scope](https://github.com/trustmybot/plugin/blob/main/docs/reference/INSTALL.md#recommended-scope-project-or-local).',
+  'The rc channel is a per-developer choice, so every command here installs at local scope; see [Recommended scope](https://github.com/trustmybot/plugin/blob/dev/docs/architecture/INSTALL.md#recommended-scope-project-or-local).',
   '',
   '## Pull the latest rc',
   '',

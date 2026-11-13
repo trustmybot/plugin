@@ -233,4 +233,4 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 ## Related
 
 - [`LABELS.md`](./LABELS.md) — same governance rule for GH issue labels
-- [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md) — `plugin_config` key registry (different doc because keys are looser than ENUMs)
+- [`CONFIG_KEYS.md`](../architecture/CONFIG_KEYS.md) — `plugin_config` key registry (different doc because keys are looser than ENUMs)

@@ -29,6 +29,24 @@ Since nothing in hot storage can be evicted, a hook cuts the long output of bro'
 - **An index first.** The world model and ranked search snippets are the page table: they say where to read before anything is read.
 - **The DB must be trustworthy.** A stale DB makes agents re-derive state or keep their own copies, which breaks the model. A memory file written to carry state between sessions signals a design flaw to fix.
 
+## Where the trajectory DB lives
+
+Cold storage is one DB per project, and one rule decides which `trajectory.db` the server and every hook open; each implements it once, and a lint fails on a third copy. `<plugin>` is the plugin's name (`tmb` when unset).
+
+1. **`TRAJECTORY_DB_PATH`**, if set and the file exists.
+2. **Walk up** from `CLAUDE_PROJECT_DIR`, else the working directory, collecting every ancestor `.claude/<plugin>/trajectory.db`. The walk never enters `$HOME` unless it started there, does not stop at `.git`, and skips a legacy DB that predates the current task schema. A `standalone` file beside a candidate ends the walk and wins; otherwise the **outermost** candidate wins, so a workspace of several repos shares one DB.
+3. Otherwise **unresolved**; the server creates a fresh DB at `<CLAUDE_PROJECT_DIR or cwd>/.claude/<plugin>/trajectory.db`.
+
+Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or `TMB_TEST_RUN_ID`) the hooks never walk, and scripts never run the rule: they require an explicit `TRAJECTORY_DB_PATH`. The project root is the directory holding the resolved DB. Only the server migrates the DB; every other opener refuses an older schema. The doctor's `no_other_trajectory_dbs` warning lists other live DBs on the walk or up to four levels below the root, and `/onboard` offers to pick the workspace, make the session directory standalone, or remove empty strays.
+
+| DB state | Meaning | Gates that can deny | Advisory hooks |
+|---|---|---|---|
+| unresolved | No DB anywhere (not onboarded), or no SQLite backend | Allow | Silent no-op |
+| ok | The DB answers a read | Decide normally | Run normally |
+| error | The DB resolved but the read failed: busy, corrupt, or unreadable | Deny with `BLOCKED: trajectory DB unavailable — <hook> could not read <path> …` | Allow, print one stderr line |
+
+Failing closed on an unreadable DB keeps a gate from admitting what it cannot check; allowing when there is no DB keeps TMB out of projects that never onboarded.
+
 ## Every agent
 
 | Agent | Keeps hot | Loads from cold when needed |

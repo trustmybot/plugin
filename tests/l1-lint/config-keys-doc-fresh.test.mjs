@@ -1,4 +1,4 @@
-// L1 lint: the generated key table in docs/reference/CONFIG_KEYS.md matches the plugin_config keys the code uses, each with a KEYS entry in scripts/maintenance/gen-config-keys-doc.mjs.
+// L1 lint: the generated key table in docs/architecture/CONFIG_KEYS.md matches the plugin_config keys the code uses, each with a KEYS entry in scripts/maintenance/gen-config-keys-doc.mjs.
 import { strict as assert } from 'node:assert';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const GEN = join(ROOT, 'scripts', 'maintenance', 'gen-config-keys-doc.mjs');
-const DOC = join('docs', 'reference', 'CONFIG_KEYS.md');
+const DOC = join('docs', 'architecture', 'CONFIG_KEYS.md');
 
 export function checkDoc(args = []) {
   try {
@@ -23,7 +23,7 @@ export function checkDoc(args = []) {
 test('a CONFIG_KEYS.md missing a generated row fails naming CONFIG_KEYS.md', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tmb-config-keys-doc-fresh-'));
   try {
-    mkdirSync(join(dir, 'docs', 'reference'), { recursive: true });
+    mkdirSync(join(dir, 'docs', 'architecture'), { recursive: true });
     const doc = readFileSync(join(ROOT, DOC), 'utf8');
     const dropped = doc
       .split('\n')
@@ -33,7 +33,7 @@ test('a CONFIG_KEYS.md missing a generated row fails naming CONFIG_KEYS.md', () 
     writeFileSync(join(dir, DOC), dropped);
     const result = checkDoc(['--root', dir]);
     assert.equal(result.ok, false);
-    assert.match(result.stderr, /docs\/reference\/CONFIG_KEYS\.md/);
+    assert.match(result.stderr, /docs\/architecture\/CONFIG_KEYS\.md/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

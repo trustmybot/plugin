@@ -503,7 +503,7 @@ describe('cli.js health', () => {
       'WARN line',
     );
     assert.equal(out.split('\n').filter((l) => l.includes('WARN  legacy-user-hooks')).length, 1, 'one warning');
-    assert.ok(out.includes('Remove them by hand: docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks'), 'points to UPGRADE.md');
+    assert.ok(out.includes('Remove them by hand: docs/architecture/INSTALL.md#upgrading-into-v110--remove-leftover-user-wide-hooks'), 'points to UPGRADE.md');
     assert.ok(out.includes(`Projects on TMB < 1.1.0 lose them too: ${oldReal} (1.0.2)`), 'names the old project only');
     assert.ok(out.includes('== all checks passed =='), 'a warning is not a failed check');
     assert.equal(rc, 0, 'exit code unchanged');

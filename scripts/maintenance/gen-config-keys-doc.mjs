@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Regenerates the plugin_config key table in docs/reference/CONFIG_KEYS.md
+// Regenerates the plugin_config key table in docs/architecture/CONFIG_KEYS.md
 // (between the config-keys:generated markers).
 //
 // The key set comes from the code: every key the server (mcp/trajectory-server/src,
@@ -12,7 +12,7 @@
 //   (no flag)     rewrite the doc in place
 //   --check       write nothing; exit 1 when the committed doc differs or the
 //                 key set disagrees with KEYS
-//   --root <dir>  read and write docs/reference/CONFIG_KEYS.md under <dir> (lint self-tests)
+//   --root <dir>  read and write docs/architecture/CONFIG_KEYS.md under <dir> (lint self-tests)
 
 import { readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -297,7 +297,7 @@ function main() {
   const repo = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const rootAt = argv.indexOf('--root');
   const root = rootAt >= 0 ? argv[rootAt + 1] : repo;
-  const doc = join(root, 'docs/reference/CONFIG_KEYS.md');
+  const doc = join(root, 'docs/architecture/CONFIG_KEYS.md');
   const seeds = seededDefaults(readFileSync(join(repo, 'mcp/trajectory-server/src/schema.sql'), 'utf8'));
   const errors = keySetErrors(discoverKeys(repo));
   for (const e of errors) console.error(`  ✗ ${e}`);

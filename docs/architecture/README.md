@@ -10,7 +10,7 @@ TMB's own repo keeps each fact in exactly one of three layers, at the level of d
 - **Mid-level relationships: the world model.** What lives where and what depends on what, derived from the code so it cannot drift from it. [WORLD_MODEL.md](WORLD_MODEL.md) covers it.
 - **Low-level logic: the code.** How a step is done, in self-explaining names and tests.
 
-A fact belongs in the lowest layer that can hold it. A rule a check can enforce goes in code; a relationship the world model can derive goes there; only the design and its reasons stay here. When a page here starts naming symbols, the detail has drifted into the wrong layer: move it down, don't copy it. The one exception is a generated page guarded by a freshness test, such as [ERD.md](ERD.md).
+A fact belongs in the lowest layer that can hold it. A rule a check can enforce goes in code; a relationship the world model can derive goes there; only the design and its reasons stay here. When a page here starts naming symbols, the detail has drifted into the wrong layer: move it down, don't copy it. Two exceptions: a generated page guarded by a freshness test, such as [ERD.md](ERD.md) and [CONFIG_KEYS.md](CONFIG_KEYS.md); and the install and debugging sections of a detail page, which may name what a user types or sees (commands, settings, environment variables, messages and file locations), never internal functions or tables.
 
 This rule is how TMB develops itself. It comes from our experience of design and code drifting apart, not from research evidence that it prevents that drift, and users cannot opt in to it yet. In a user's project, TMB provides the bottom two layers: the world model and the code.
 
@@ -46,13 +46,14 @@ Looking for one answer instead?
 | May TMB write to this path? | [CONTAINMENT.md](CONTAINMENT.md) |
 | How does bro add a published skill or MCP server? | [CHEATCODES.md](CHEATCODES.md) |
 | What does the trajectory DB store? | [ERD.md](ERD.md) |
+| Which project settings exist? | [CONFIG_KEYS.md](CONFIG_KEYS.md) |
 | Where does function X live? | Not here: ask the world model |
 
 ## Index
 
 - [PHILOSOPHY.md](PHILOSOPHY.md) — The principles behind the design: how an idea becomes tasks, the dev-vs-user-runtime boundary, one owner per quality check, code over prompts for enforcement, clean removal, and hot and cold memory.
 - [FLOWS.md](FLOWS.md) — One ideal-case chart per flow, from install to bug reports, plus the quality layers every flow is built on.
-- [INSTALL.md](INSTALL.md) — Install and session start in every case, and what to check when the plugin is missing or degraded.
+- [INSTALL.md](INSTALL.md) — Install, upgrade and session start in every case, and what to check when the plugin is missing or degraded.
 - [ONBOARD.md](ONBOARD.md) — First contact: its rounds, what each records, and how a re-run keeps what still stands.
 - [ENVIRONMENT.md](ENVIRONMENT.md) — How bro learns and caches a repo's install, test and lint commands, with the repo as the source of truth.
 - [TASKS.md](TASKS.md) — Every case of a task from ask to merge: the push gate, retry and escalation, PR comment triage, and debugging a stuck task.
@@ -64,3 +65,4 @@ Looking for one answer instead?
 - [CONTAINMENT.md](CONTAINMENT.md) — TMB's promise to write nothing outside the project it runs in, the layers that keep it, and the few declared exceptions.
 - [CHEATCODES.md](CHEATCODES.md) — How bro adds published skills, MCP toolkits and plugins on demand, and the trust and approval gates on the way.
 - [ERD.md](ERD.md) — The trajectory DB schema as an entity relationship diagram, grouped into workflow, registry, world-model and search tables. Generated from the schema.
+- [CONFIG_KEYS.md](CONFIG_KEYS.md) — Every project setting TMB reads, with its default and what it changes. Generated from the code.

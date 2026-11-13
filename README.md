@@ -10,7 +10,7 @@
 
 TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `code-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets.
 
-> **TMB runs on Claude Code.** Operating-system support: [`docs/reference/INSTALL.md`](docs/reference/INSTALL.md#operating-systems).
+> **TMB runs on Claude Code.** Operating-system support: [`docs/architecture/INSTALL.md`](docs/architecture/INSTALL.md#operating-systems).
 
 ---
 
@@ -33,7 +33,7 @@ claude plugin marketplace add trustmybot/marketplace --scope project
 claude plugin install tmb@trustmybot --scope project
 ```
 
-Install at project or local scope, never user scope; [INSTALL.md](docs/reference/INSTALL.md#recommended-scope-project-or-local) explains why and lists the update commands.
+Install at project or local scope, never user scope; [INSTALL.md](docs/architecture/INSTALL.md#recommended-scope-project-or-local) explains why and lists the update commands.
 
 Use `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` with `--scope local` for the rc channel (pre-promotion testing — tolerate occasional breakage). Pick one channel per CC install; to switch, run `claude plugin uninstall tmb@trustmybot --scope project` (or `claude plugin uninstall tmb@trustmybot-rc --scope local`), then add the other.
 

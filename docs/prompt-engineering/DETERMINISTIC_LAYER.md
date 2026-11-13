@@ -19,7 +19,7 @@ The rules for moving TMB doctrine out of prompts and into code: the layers, what
 
 The layers stack: a rule a prompt states should also be caught by a harder layer, so a dropped prompt line fails loudly (a block, a rejection) instead of silently. Layers 1 and 4 hold in every host configuration; layer 2 depends on the host firing the plugin's hooks.
 
-Source of truth for each layer's implementation: hooks under `mcp/trajectory-server/src/hooks/` (registered in `registry.ts`), MCP tools and middleware under `mcp/trajectory-server/src/`, constraints in `mcp/trajectory-server/src/schema.sql`, plugin settings in [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md).
+Source of truth for each layer's implementation: hooks under `mcp/trajectory-server/src/hooks/` (registered in `registry.ts`), MCP tools and middleware under `mcp/trajectory-server/src/`, constraints in `mcp/trajectory-server/src/schema.sql`, plugin settings in [`CONFIG_KEYS.md`](../architecture/CONFIG_KEYS.md).
 
 ## What stays in layer 6
 

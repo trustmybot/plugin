@@ -49,7 +49,7 @@ export function resolvePluginVersion(env: NodeJS.ProcessEnv = process.env): stri
 /**
  * Resolve the trajectory DB path: the DB found by `findExistingClaudeDbUp`
  * (platform.ts), else a fresh-init path under `CLAUDE_PROJECT_DIR` (or cwd). The rule is
- * documented in docs/reference/TRAJECTORY_DB_LOCATION.md.
+ * documented in docs/architecture/MEMORY.md#where-the-trajectory-db-lives.
  */
 export function resolveDbPath(opts?: {
   env?: NodeJS.ProcessEnv;

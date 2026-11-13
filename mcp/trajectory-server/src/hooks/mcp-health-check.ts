@@ -113,7 +113,7 @@ function installNotice(event: string, sessionId: string, env: NodeJS.ProcessEnv)
   let notice =
     project !== undefined
       ? `TMB: user-scope TMB v${installVersion(user)} ignored — project install v${installVersion(project)} in use.`
-      : `TMB installed at user scope; \`--scope project\` is recommended (see ${root !== '' ? `${root}/` : ''}docs/reference/INSTALL.md).`;
+      : `TMB installed at user scope; \`--scope project\` is recommended (see ${root !== '' ? `${root}/` : ''}docs/architecture/INSTALL.md).`;
   const marker = noticeMarker(sessionId, env);
   if (marker !== '' && existsSync(marker)) {
     notice = '';
