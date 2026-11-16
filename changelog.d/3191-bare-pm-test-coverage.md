@@ -1,0 +1,2 @@
+### Changed
+- **A bare `pnpm test` or `npm test` CI line can now be a suggested verification command** (GH 3191): a package-manager test line that names no directory, such as `npm test`, `yarn run test` or `pnpm test:unit`, now counts as covering the directory it runs from, so scope_suggest drafts it for the files under that directory. A test command that covers a nearer directory still comes first. Build, lint, install and other non-test script lines still cover nothing.

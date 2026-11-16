@@ -133,6 +133,23 @@ const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 const RUN_SCRIPT = new Set(['run', 'run-script']);
 const PRINTERS = new Set(['echo', 'printf']);
 const TARGET_RUNNERS = new Set(['make', 'just', 'task']);
+const TEST_SCRIPT = /^test(:.+)?$/;
+
+// The index of the first word at or after from that is not a flag.
+function nextBare(words: Word[], from: number): number {
+  let i = from;
+  while (i < words.length && words[i]!.text.startsWith('-')) i++;
+  return i;
+}
+
+// Whether one simple command is a package manager running its test script:
+// `npm test`, `pnpm test:unit`, `yarn run test`, flags allowed before each name.
+function isPackageManagerTest(words: Word[]): boolean {
+  if (!PACKAGE_MANAGERS.has(posix.basename(words[0].text))) return false;
+  let sub = nextBare(words, 1);
+  if (sub < words.length && RUN_SCRIPT.has(words[sub].text)) sub = nextBare(words, sub + 1);
+  return sub < words.length && !words[sub].dynamic && TEST_SCRIPT.test(words[sub].text);
+}
 
 // The argument indexes of one simple command that are names, not paths: a
 // package manager's `run <script>`, every echo/printf argument, and each bare
@@ -140,20 +157,15 @@ const TARGET_RUNNERS = new Set(['make', 'just', 'task']);
 function nameArgs(words: Word[]): Set<number> {
   const out = new Set<number>();
   const tool = posix.basename(words[0]!.text);
-  const nextBare = (from: number): number => {
-    let i = from;
-    while (i < words.length && words[i]!.text.startsWith('-')) i++;
-    return i;
-  };
   if (PRINTERS.has(tool)) {
     for (let i = 1; i < words.length; i++) out.add(i);
   } else if (TARGET_RUNNERS.has(tool)) {
     for (let i = 1; i < words.length; i++) if (!words[i]!.text.includes('/')) out.add(i);
   } else if (PACKAGE_MANAGERS.has(tool)) {
-    const run = nextBare(1);
+    const run = nextBare(words, 1);
     if (run < words.length && RUN_SCRIPT.has(words[run]!.text)) {
       out.add(run);
-      const script = nextBare(run + 1);
+      const script = nextBare(words, run + 1);
       if (script < words.length) out.add(script);
     }
   }
@@ -189,6 +201,7 @@ export function coveredDirs(command: string, base: string, known: RepoPaths): st
     if (cwd === null) continue;
     ranSinceCd = true;
     const names = nameArgs(words);
+    let namedDir = false;
     for (let i = 1; i < words.length; i++) {
       const w = words[i]!;
       if (REDIRECT_ALONE.test(w.text)) {
@@ -200,6 +213,12 @@ export function coveredDirs(command: string, base: string, known: RepoPaths): st
       const dir = dirOfWord(w.text, cwd, known);
       if (dir === null) continue;
       out.add(dir);
+      namedDir = true;
+      foundSinceCd = true;
+    }
+    // A bare package-manager test line checks the package it runs in.
+    if (!namedDir && known.dirs.has(cwd) && isPackageManagerTest(words)) {
+      out.add(cwd);
       foundSinceCd = true;
     }
   }
