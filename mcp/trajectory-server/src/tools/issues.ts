@@ -629,8 +629,8 @@ export interface RemoteCloseResult {
 // sync row is never spawned and reports `skipped: 'not_synced'`, or
 // `skipped: 'repo_unresolved'` when the issue's repo resolves to no repos row; `synced` means
 // at least one synced target and every one of them closed. Sync failures are
-// logged, never thrown: a remote hiccup must not fail the local close. Shared
-// by `issue_close`, `bro_atomic_close` and `task_recover`.
+// logged, never thrown: a remote hiccup must not fail the local close. Used by
+// `issue_close`; a task close defers the remote to PR merge (GH 3115).
 export async function syncIssueCloseRemotes(
   db: TrajectoryDB,
   dbPath: string,

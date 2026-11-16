@@ -232,8 +232,56 @@ describe('issue_close remote sync gate', () => {
   });
 });
 
-describe('bro_atomic_close and task_recover consult the gate', () => {
-  it("bro_atomic_close close_issue_if_last_task with issue_sync='off': no spawn, skip audited", async () => {
+async function atomicClose(
+  db: TrajectoryDB,
+  taskId: number,
+  _spawnFn: ReturnType<typeof makeSpawnFn>['_spawnFn'],
+  closeIssueIfLast = true,
+): Promise<Record<string, unknown>> {
+  const r = await call(compositeTools(db, DB_PATH).handlers, 'bro_atomic_close', {
+    agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', verification_summary: 'ok',
+    close_issue_if_last_task: closeIssueIfLast, waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', _spawnFn,
+  });
+  assert.ok(!r.isError, JSON.stringify(parse(r)));
+  return parse(r);
+}
+
+async function recover(
+  db: TrajectoryDB,
+  taskId: number,
+  _spawnFn: ReturnType<typeof makeSpawnFn>['_spawnFn'],
+): Promise<Record<string, unknown>> {
+  const r = await call(compositeTools(db, DB_PATH).handlers, 'task_recover', {
+    agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', close_issue_if_last_task: true, _spawnFn,
+  });
+  assert.ok(!r.isError, JSON.stringify(parse(r)));
+  return parse(r);
+}
+
+function localIssueStatus(db: TrajectoryDB, issueId: number): string {
+  return db.get<{ status: string }>('SELECT status FROM issues WHERE id = ?', [issueId])!.status;
+}
+
+describe('bro_atomic_close and task_recover leave the remote open until PR merge (GH 3115)', () => {
+  it("bro_atomic_close with issue_sync='auto' + a github remote: local issue closes, no remote spawn, gh 42 deferred", async () => {
+    const db = tempDB();
+    registerRepo(db, ['github']);
+    setIssueSync(db, 'auto');
+    const issueId = seedLinkedIssue(db, { gh: 42 });
+    const taskId = seedClosableTask(db, issueId, 'completed');
+    const { spawned, _spawnFn } = makeSpawnFn();
+
+    const out = await atomicClose(db, taskId, _spawnFn);
+    assert.equal(out['issue_closed'], true);
+    assert.equal(localIssueStatus(db, issueId), 'closed');
+    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
+    assert.deepEqual(remoteCloses(spawned), []);
+    assert.equal(spawned.length, 0, 'not even the gate probe runs');
+    assert.equal(skipAudits(db).length, 0);
+    db.close();
+  });
+
+  it("bro_atomic_close with issue_sync='off': same deferral, no skip audit", async () => {
     const db = tempDB();
     registerRepo(db);
     setIssueSync(db, 'off');
@@ -241,19 +289,45 @@ describe('bro_atomic_close and task_recover consult the gate', () => {
     const taskId = seedClosableTask(db, issueId, 'completed');
     const { spawned, _spawnFn } = makeSpawnFn();
 
-    const r = await call(compositeTools(db, DB_PATH).handlers, 'bro_atomic_close', {
-      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', verification_summary: 'ok',
-      close_issue_if_last_task: true, waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', _spawnFn,
-    });
-    assert.ok(!r.isError, JSON.stringify(parse(r)));
-    assert.equal(parse(r)['issue_closed'], true);
-    assert.equal((parse(r)['remote'] as Record<string, unknown>)['skipped'], 'issue_sync_off');
+    const out = await atomicClose(db, taskId, _spawnFn);
+    assert.equal(out['issue_closed'], true);
+    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
     assert.equal(spawned.length, 0);
-    assert.equal(skipAudits(db).length, 1);
+    assert.equal(skipAudits(db).length, 0);
     db.close();
   });
 
-  it("task_recover close_issue_if_last_task with issue_sync='auto' + mocked spawn: one gh issue close", async () => {
+  it('bro_atomic_close on an unlinked issue defers with an empty remotes list', async () => {
+    const db = tempDB();
+    registerRepo(db, ['github']);
+    setIssueSync(db, 'auto');
+    const issueId = seedLinkedIssue(db, {});
+    const taskId = seedClosableTask(db, issueId, 'completed');
+    const { spawned, _spawnFn } = makeSpawnFn();
+
+    const out = await atomicClose(db, taskId, _spawnFn);
+    assert.equal(out['issue_closed'], true);
+    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [] });
+    assert.equal(spawned.length, 0);
+    db.close();
+  });
+
+  it('bro_atomic_close without close_issue_if_last_task leaves the issue open and returns no remote key', async () => {
+    const db = tempDB();
+    registerRepo(db, ['github']);
+    setIssueSync(db, 'auto');
+    const issueId = seedLinkedIssue(db, { gh: 42 });
+    const taskId = seedClosableTask(db, issueId, 'completed');
+    const { spawned, _spawnFn } = makeSpawnFn();
+
+    const out = await atomicClose(db, taskId, _spawnFn, false);
+    assert.equal(out['issue_closed'], false);
+    assert.equal('remote' in out, false);
+    assert.equal(spawned.length, 0);
+    db.close();
+  });
+
+  it("task_recover with issue_sync='auto' + a github remote: no remote spawn, gh 42 deferred", async () => {
     const db = tempDB();
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
@@ -261,18 +335,16 @@ describe('bro_atomic_close and task_recover consult the gate', () => {
     const taskId = seedClosableTask(db, issueId, 'pending');
     const { spawned, _spawnFn } = makeSpawnFn();
 
-    const r = await call(compositeTools(db, DB_PATH).handlers, 'task_recover', {
-      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', close_issue_if_last_task: true, _spawnFn,
-    });
-    assert.ok(!r.isError, JSON.stringify(parse(r)));
-    const out = parse(r);
+    const out = await recover(db, taskId, _spawnFn);
     assert.equal(out['issue_closed'], true);
-    assert.equal((out['remote'] as Record<string, unknown>)['synced'], true);
-    assert.deepEqual(remoteCloses(spawned), [{ cmd: 'gh', args: ['issue', 'close', '42', '--repo', 'github.com/owner/repo'] }]);
+    assert.equal(localIssueStatus(db, issueId), 'closed');
+    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
+    assert.deepEqual(remoteCloses(spawned), []);
+    assert.equal(skipAudits(db).length, 0);
     db.close();
   });
 
-  it('task_recover with TMB_DISABLE_REMOTE_SYNC=1: no spawn, env_disabled audited', async () => {
+  it('task_recover with TMB_DISABLE_REMOTE_SYNC=1: same deferral, no skip audit', async () => {
     const db = tempDB();
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
@@ -281,13 +353,10 @@ describe('bro_atomic_close and task_recover consult the gate', () => {
     const taskId = seedClosableTask(db, issueId, 'pending');
     const { spawned, _spawnFn } = makeSpawnFn();
 
-    const r = await call(compositeTools(db, DB_PATH).handlers, 'task_recover', {
-      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', close_issue_if_last_task: true, _spawnFn,
-    });
-    assert.ok(!r.isError, JSON.stringify(parse(r)));
-    assert.equal((parse(r)['remote'] as Record<string, unknown>)['skipped'], 'env_disabled');
+    const out = await recover(db, taskId, _spawnFn);
+    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
     assert.equal(spawned.length, 0);
-    assert.equal(skipAudits(db)[0]!.content['reason'], 'env_disabled');
+    assert.equal(skipAudits(db).length, 0);
     db.close();
   });
 });
@@ -332,7 +401,7 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
     db.close();
   });
 
-  it('bro_atomic_close closes only the chosen provider twin', async () => {
+  it('bro_atomic_close closes neither twin and defers both to PR merge', async () => {
     const db = tempDB();
     registerRepo(db, ['github', 'gitlab'], ['github']);
     setIssueSync(db, 'auto');
@@ -340,18 +409,17 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
     const taskId = seedClosableTask(db, issueId, 'completed');
     const { spawned, _spawnFn } = makeSpawnFn();
 
-    const r = await call(compositeTools(db, DB_PATH).handlers, 'bro_atomic_close', {
-      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', verification_summary: 'ok',
-      close_issue_if_last_task: true, waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', _spawnFn,
+    const out = await atomicClose(db, taskId, _spawnFn);
+    assert.equal(out['issue_closed'], true);
+    assert.deepEqual(out['remote'], {
+      deferred: 'pr_merge',
+      remotes: [{ remote_kind: 'github', remote_iid: 42 }, { remote_kind: 'gitlab', remote_iid: 7 }],
     });
-    assert.ok(!r.isError, JSON.stringify(parse(r)));
-    assert.equal(parse(r)['issue_closed'], true);
-    assert.equal((parse(r)['remote'] as Record<string, unknown>)['synced'], true);
-    assert.deepEqual(remoteCloses(spawned), [{ cmd: 'gh', args: ['issue', 'close', '42', '--repo', 'github.com/owner/repo'] }]);
+    assert.deepEqual(remoteCloses(spawned), []);
     db.close();
   });
 
-  it('task_recover closes only the chosen provider twin', async () => {
+  it('task_recover closes neither twin and defers both to PR merge', async () => {
     const db = tempDB();
     registerRepo(db, ['github', 'gitlab'], ['gitlab']);
     setIssueSync(db, 'auto');
@@ -359,12 +427,12 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
     const taskId = seedClosableTask(db, issueId, 'pending');
     const { spawned, _spawnFn } = makeSpawnFn();
 
-    const r = await call(compositeTools(db, DB_PATH).handlers, 'task_recover', {
-      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', close_issue_if_last_task: true, _spawnFn,
+    const out = await recover(db, taskId, _spawnFn);
+    assert.deepEqual(out['remote'], {
+      deferred: 'pr_merge',
+      remotes: [{ remote_kind: 'github', remote_iid: 42 }, { remote_kind: 'gitlab', remote_iid: 7 }],
     });
-    assert.ok(!r.isError, JSON.stringify(parse(r)));
-    assert.equal((parse(r)['remote'] as Record<string, unknown>)['synced'], true);
-    assert.deepEqual(remoteCloses(spawned), [{ cmd: 'glab', args: ['issue', 'close', '7', '-R', 'gitlab.com/owner/repo'] }]);
+    assert.deepEqual(remoteCloses(spawned), []);
     db.close();
   });
 });

@@ -600,7 +600,7 @@ describe('bro_atomic_close', () => {
     }
   });
 
-  it('#277: mirrors the auto-close to the linked remote (no local/remote drift)', async () => {
+  it('GH 3115: the auto-close leaves the linked remote open until PR merge', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'bac-remote-'));
     const repoRoot = join(ws, 'app');
     mkdirSync(repoRoot, { recursive: true });
@@ -620,7 +620,7 @@ describe('bro_atomic_close', () => {
     const discussions = discussionTools(db);
     const audit = auditTools(db);
 
-    // Record every spawn so we can assert the remote close actually fired.
+    // Record every spawn so we can assert no remote close fires.
     const spawnCalls: Array<{ cmd: string; args: string[] }> = [];
     const spawnFn = (cmd: string, args: string[]) => {
       spawnCalls.push({ cmd, args });
@@ -664,10 +664,8 @@ describe('bro_atomic_close', () => {
       assert.equal(parse(r)['issue_closed'], true);
 
       const closeCall = spawnCalls.find((c) => c.args.includes('issue') && c.args.includes('close'));
-      assert.ok(closeCall, `expected a remote 'issue close' spawn; got ${JSON.stringify(spawnCalls)}`);
-      assert.equal(closeCall!.cmd, 'gh', 'github remote closes via gh');
-      assert.ok(closeCall!.args.includes('42'), 'remote close must target gh_iid 42');
-      assert.deepEqual((parse(r)['remote'] as Record<string, unknown>)['synced'], true);
+      assert.equal(closeCall, undefined, `the remote closes at PR merge, not here; got ${JSON.stringify(spawnCalls)}`);
+      assert.deepEqual(parse(r)['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
     } finally {
       if (savedEnv === undefined) delete process.env.TMB_DISABLE_REMOTE_SYNC;
       else process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;

@@ -37,7 +37,6 @@ import {
   taskHasPassingReview,
 } from './lifecycle.js';
 import {
-  syncIssueCloseRemotes,
   resolveDefaultMilestone,
   milestoneDefaultFields,
   validateIssueLabels,
@@ -441,6 +440,28 @@ function insertIntentAndNote(
 type IssueLeftOpen =
   | { reason: 'issue_has_open_tasks'; tasks: Array<{ task_id: number; status: string }> }
   | { reason: 'tasks_without_review'; tasks: Array<{ task_id: number; commit_sha: string | null }>; review_pending: true };
+
+interface DeferredRemoteClose {
+  deferred: 'pr_merge';
+  remotes: Array<{ remote_kind: 'github' | 'gitlab'; remote_iid: number }>;
+}
+
+// Closing the last task closes only the local issue (GH 3115): the remote twin
+// stays open until the PR that references it merges; then the PR's closing
+// keyword, or the close-issue-on-merge hook on the PR's closing refs, closes
+// the remote twin; the hook does so for an issue already closed locally too.
+// A task close can run before its branch is even pushed, so closing the
+// remote here would claim a fix the remote branch does not yet carry.
+function deferredRemoteClose(db: TrajectoryDB, issueId: string | number): DeferredRemoteClose {
+  const row = db.get<{ gh_iid: number | null; gl_iid: number | null }>(
+    `SELECT gh_iid, gl_iid FROM issues WHERE id = ?`,
+    [issueId],
+  );
+  const remotes: DeferredRemoteClose['remotes'] = [];
+  if (row?.gh_iid != null) remotes.push({ remote_kind: 'github', remote_iid: row.gh_iid });
+  if (row?.gl_iid != null) remotes.push({ remote_kind: 'gitlab', remote_iid: row.gl_iid });
+  return { deferred: 'pr_merge', remotes };
+}
 
 // task_brief sections (GH 1743): a swe gets 'core' by default and loads the
 // rest on demand; every other caller gets 'all'.
@@ -1624,7 +1645,9 @@ export function compositeTools(
             type: 'boolean',
             description:
               'When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, ' +
-              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why.',
+              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. ' +
+              'The linked GitHub/GitLab issue stays open until the PR that references it merges: ' +
+              "remote: {deferred: 'pr_merge', remotes: [{remote_kind, remote_iid}]} lists it.",
           },
           waive_scope_gate: {
             type: 'boolean',
@@ -1666,7 +1689,9 @@ export function compositeTools(
             type: 'boolean',
             description:
               'When true, also close the issue in the same transaction under the issue_close rules (no live task, ' +
-              'no closed task without a passing review or recorded bypass); otherwise issue_left_open says why.',
+              'no closed task without a passing review or recorded bypass); otherwise issue_left_open says why. ' +
+              'The linked GitHub/GitLab issue stays open until the PR that references it merges: ' +
+              "remote: {deferred: 'pr_merge', remotes: [{remote_kind, remote_iid}]} lists it.",
           },
         },
         required: ['agent'],
@@ -3704,7 +3729,7 @@ export function compositeTools(
     bro_atomic_close: requireRoles(
       'bro_atomic_close',
       ['bro'],
-      wrap(async (args) => {
+      wrap((args) => Promise.resolve().then(() => {
         const taskId = args['task_id'] as string;
         if (!taskId) return err('Missing required arg: task_id');
 
@@ -3860,23 +3885,14 @@ export function compositeTools(
           };
         });
 
-        // Mirror the close to the linked remote(s) — same path issue_close
-        // uses — so closing the last task via the composite doesn't leave the
-        // GitHub/GitLab issue open (#277). Runs after the local transaction
-        // commits because the sync spawns gh/glab (async, can't sit inside the
-        // synchronous db.transaction).
-        const remote = result.issue_closed
-          ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'] as SpawnFn | undefined)
-          : undefined;
-
-        return ok(remote ? { ...result, remote } : result);
-      }),
+        return ok(result.issue_closed ? { ...result, remote: deferredRemoteClose(db, task.issue_id) } : result);
+      })),
     ),
 
     task_recover: requireRoles(
       'task_recover',
       ['bro'],
-      wrap(async (args) => {
+      wrap((args) => Promise.resolve().then(() => {
         const taskArg = args['task_id'];
         const taskId = taskArg === undefined || taskArg === null || taskArg === '' ? null : String(taskArg);
 
@@ -3960,9 +3976,7 @@ export function compositeTools(
           return closeTaskInTx(db, task, commitSha!, verificationSummary, now, closeIssueIfLast, 'task_recover');
         });
 
-        const remote = result.issue_closed
-          ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'] as SpawnFn | undefined)
-          : undefined;
+        const remote = result.issue_closed ? deferredRemoteClose(db, task.issue_id) : undefined;
 
         return ok({
           recovered: true,
@@ -3976,7 +3990,7 @@ export function compositeTools(
           ...(remote ? { remote } : {}),
           ...sweepResult,
         });
-      }),
+      })),
     ),
   };
 
