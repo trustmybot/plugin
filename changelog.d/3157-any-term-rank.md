@@ -1,0 +1,2 @@
+### Changed
+- **world_model_search's any-term fallback ranks hits matching more of your words first** (GH 3157): when no row matched every query word, files, directories and symbols came back in bm25 order, so a short row matching one word buried a row matching several. The fallback now fetches a wider pool and orders it by how many distinct query words each row matches, keeping bm25 order within a tie.
