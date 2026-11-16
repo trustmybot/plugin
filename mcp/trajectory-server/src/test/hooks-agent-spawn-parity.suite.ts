@@ -43,7 +43,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
-import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree, withoutGitVersionPaths } from './golden.js';
 import { shardOf } from './shard.js';
 import { byLocale, corpusFiles, materialize, noCmdPath, run, type CaseWorktree, type CorpusPaths, type Run, type SideExpect } from './hooks-swe-run-parity.suite.js';
 
@@ -360,7 +360,7 @@ export function agentSpawnParityShard(k: number, n: number): void {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
           const env = caseEnv(s, locale, c.env, c.cwd);
           const dbRel = relative(s, env.TRAJECTORY_DB_PATH ?? join(s, PROJECT_DB));
-          const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+          const { tree: storedTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             restore(c.worktrees);
             const setup = snapshot(s);
             return { ...quiet(run(...liveHookCommand(gate), c, env), 'bash'), tree: settledTree(setup, snapshot(s)) };
@@ -368,7 +368,8 @@ export function agentSpawnParityShard(k: number, n: number): void {
           restore(c.worktrees);
           const setup = snapshot(s);
           const node = quiet(run(process.execPath, [HOOKS_BUNDLE, gate], c, env), 'ts');
-          const nodeTree = settledTree(setup, snapshot(s));
+          const nodeTree = withoutGitVersionPaths(settledTree(setup, snapshot(s)));
+          const bashTree = withoutGitVersionPaths(storedTree);
           assert.equal(node.code, 0, `node exit: ${node.stderr}`);
           if (c.divergent === undefined) {
             assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);

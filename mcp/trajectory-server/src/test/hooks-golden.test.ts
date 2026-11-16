@@ -24,6 +24,8 @@ import {
   sandboxSha,
   settledTree,
   tokenizeRoots,
+  withoutGitVersionPaths,
+  withRequiredSchemaPlaceholder,
 } from './golden.js';
 import { gateNames } from '../hooks/registry.js';
 import { requireRecordSelection } from './hooks-parity.suite.js';
@@ -412,6 +414,44 @@ describe('hook golden recordings', () => {
       const before = { 'kept': a, 'edited': a, 'removed': a, 'dir/': null, 'db': '{"rows":1}' };
       const after = { 'kept': a, 'edited': b, 'added': b, 'dir/': null, 'db': '{"rows":1}' };
       assert.deepEqual(settledTree(before, after), { 'kept': '<unchanged>', 'edited': b, 'added': b, 'dir/': null, 'db': '{"rows":1}' });
+    });
+
+    it('a tree compares without the paths that depend on the git version', () => {
+      const a = 'a'.repeat(64);
+      const kept = {
+        '.git/hooks/': null,
+        '.git/hooks/pre-commit': a,
+        '.git/hooks/sample': a,
+        '.git/refs/': null,
+        '.git/worktrees/wt/': null,
+        '.git/worktrees/wt/HEAD': a,
+        '.git/worktrees/wt/refs/heads/': null,
+        'project/other/.git/refs/': null,
+        'project/other/.git/hooks/x.sample.bak': a,
+        'notgit/hooks/x.sample': a,
+      };
+      const dropped = {
+        '.git/hooks/sendemail-validate.sample': a,
+        '.git/hooks/pre-commit.sample': '<unchanged>',
+        '.git/worktrees/wt/refs/': null,
+        'project/other/.git/hooks/x.sample': a,
+        'project/checkout/.git/worktrees/done/refs/': null,
+      };
+      assert.deepEqual(withoutGitVersionPaths({ ...kept, ...dropped }), kept);
+    });
+
+    it('a schema banner compares without its required number but keeps the stored one', () => {
+      const banner = (stored: number, required: number): string =>
+        `Trajectory DB: unchecked (schema v${stored} < v${required} — start the trajectory server to migrate)\n`;
+      assert.equal(withRequiredSchemaPlaceholder(banner(30, 70)), withRequiredSchemaPlaceholder(banner(30, 66)));
+      assert.equal(
+        withRequiredSchemaPlaceholder(banner(30, 66)),
+        'Trajectory DB: unchecked (schema v30 < v<REQUIRED> — start the trajectory server to migrate)\n',
+      );
+      assert.notEqual(withRequiredSchemaPlaceholder(banner(29, 66)), withRequiredSchemaPlaceholder(banner(30, 66)));
+      for (const text of ['', 'schema v30 is current', 'schema v30 > v66', 'v30 < v66']) {
+        assert.equal(withRequiredSchemaPlaceholder(text), text);
+      }
     });
 
     it('a sandbox hash does not depend on where the sandbox is', () => {
