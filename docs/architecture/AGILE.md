@@ -8,6 +8,8 @@ Project-level agile mode has partly shipped: /onboard sets the project's review 
 
 ## Why a feature branch
 
+Agility is agile mode's one core goal, and every agile design choice below serves it: the feature reaches a state the Human can try, change or drop sooner, with fewer reviews and CI runs on the way.
+
 - **Truest**, the default, reviews every task before its push, and each task becomes its own PR into the working branch, such as dev. Nothing reaches the working branch unreviewed.
 - **Agile** is for building a feature in many small tasks and judging it as a whole: an MVP the Human wants to try once it works end to end, or an idea that may be dropped. Merging ten tasks into dev one by one, each with its own review and CI run, delays that test and spends ten CI runs on work no one can judge yet.
 
