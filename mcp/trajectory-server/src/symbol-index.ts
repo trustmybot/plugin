@@ -950,6 +950,87 @@ export function symbolsByName(db: TrajectoryDB, repo: string, qualifiedName: str
     .map(normalizeRow);
 }
 
+export const NEAR_MATCH_CAP = 5;
+const NEAR_MATCH_TOKEN_MIN = 4;
+
+export interface NearSymbol {
+  id: number;
+  qualified_name: string;
+  kind: SymbolKind;
+  repo: string;
+  path: string;
+  line: number;
+}
+
+function normalizedName(name: string): string {
+  return name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+// camelCase, PascalCase and snake/kebab/colon-separated parts, lowercased.
+function nameTokens(name: string): string[] {
+  return name
+    .replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+}
+
+function editDistance(a: string, b: string): number {
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur: number[] = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur.push(Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// Likely intended symbols for a qualified name that matched nothing in repos:
+// normalized names that contain or are contained in the query's, or that share
+// its first name token when that token is long enough to be distinctive. Ranked
+// by edit distance, definitions before module rows, then path.
+export function nearSymbols(db: TrajectoryDB, repos: string[], qualifiedName: string): NearSymbol[] {
+  const query = normalizedName(qualifiedName);
+  if (!query || repos.length === 0) return [];
+  const first = nameTokens(qualifiedName)[0];
+  const token = first !== undefined && first.length >= NEAR_MATCH_TOKEN_MIN ? first : null;
+  const rows = db.all<{ id: number; repo: string; path: string; kind: SymbolKind; qualified_name: string; start_line: number }>(
+    `SELECT s.id, s.repo, s.path, s.kind, s.qualified_name, s.start_line FROM wm_symbols s
+      WHERE s.repo IN (${repos.map(() => '?').join(', ')})`,
+    repos,
+  );
+  const ranked: Array<{ near: NearSymbol; distance: number }> = [];
+  for (const r of rows) {
+    const candidate = normalizedName(r.qualified_name);
+    if (!candidate) continue;
+    const related =
+      candidate.includes(query) || query.includes(candidate) || (token !== null && nameTokens(r.qualified_name).includes(token));
+    if (!related) continue;
+    ranked.push({
+      near: {
+        id: Number(r.id),
+        qualified_name: r.qualified_name,
+        kind: r.kind,
+        repo: r.repo,
+        path: r.path,
+        line: Number(r.start_line),
+      },
+      distance: editDistance(query, candidate),
+    });
+  }
+  ranked.sort(
+    (a, b) =>
+      a.distance - b.distance ||
+      Number(a.near.kind === 'module') - Number(b.near.kind === 'module') ||
+      a.near.path.localeCompare(b.near.path) ||
+      a.near.id - b.near.id,
+  );
+  return ranked.slice(0, NEAR_MATCH_CAP).map((r) => r.near);
+}
+
 interface EdgeEnd {
   edge_kind: EdgeKind;
   resolution: string;
