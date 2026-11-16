@@ -318,6 +318,7 @@ describe('router groups (GH 1692 R2)', () => {
   it('a tool-filtered gate runs only for its own tool', () => {
     assert.deepEqual(names(`${MCP}task_update_status`), [...CHAIN_HEAD, 'swe-verification-gate']);
     assert.deepEqual(names(`${MCP}validation_record`), [...CHAIN_HEAD, 'reviewer-identity-observe']);
+    assert.deepEqual(names(`${MCP}review_batch_record`), [...CHAIN_HEAD, 'reviewer-identity-observe']);
     assert.deepEqual(names(`${MCP}cheatcode_install`), [...CHAIN_HEAD, 'cheatcode-install-approval']);
     assert.deepEqual(names(`${MCP}task_update_statusx`), CHAIN_HEAD);
   });

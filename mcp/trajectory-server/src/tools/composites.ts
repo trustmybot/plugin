@@ -479,9 +479,9 @@ export interface CloseScope {
 // under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
-// row. bro_atomic_close under workflow_mode 'agile' instead queues an
-// unreviewed task for the grouped review with one review_queued row: a bypass
-// row would take it out of the review queue. Returns whether the issue was
+// row. Under workflow_mode 'agile' any closer instead queues an unreviewed
+// task for the grouped review with one review_queued row: a bypass row would
+// take it out of the review queue. Returns whether the issue was
 // closed (so the caller can mirror the close to the remote after the
 // transaction commits), when it was left open, why, and whether the task was
 // queued.
@@ -508,11 +508,13 @@ function closeTaskInTx(
     created_at: now,
   });
 
-  // 2. review bypass for a non-atomic closer, or the agile queue entry for
-  // bro_atomic_close, judged against that anchor.
+  // 2. the agile queue entry for any closer, else the review bypass for a
+  // non-atomic closer, judged against that anchor.
   let reviewGateBypassed = false;
   let reviewQueued = false;
-  if (bypassClosedBy !== null) {
+  if (workflowMode === 'agile') {
+    reviewQueued = recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha }, now);
+  } else if (bypassClosedBy !== null) {
     reviewGateBypassed = recordReviewBypassIfUnreviewed(
       db,
       { ...task, commit_sha: commitSha },
@@ -520,8 +522,6 @@ function closeTaskInTx(
       'bro',
       now,
     );
-  } else if (workflowMode === 'agile') {
-    reviewQueued = recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha }, now);
   }
 
   // 3. flip task to closed, stamping the workflow mode it closed under.
@@ -1646,7 +1646,7 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed when no code-reviewer verdict passes), else it returns a re-dispatch directive; other statuses are a no-op. ' +
+        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed when no code-reviewer verdict passes; in agile mode review_queued instead), else it returns a re-dispatch directive; other statuses are a no-op. ' +
         'Every call also sweeps: running tasks with no open swe run and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) fail (task_stale_swept, runs closed swept_stale); pending ones over 7 days old are reported; runs open on terminal tasks close; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
         'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} plus the recovery result.',
       inputSchema: {
@@ -3971,6 +3971,7 @@ export function compositeTools(
           commit_sha: commitSha,
           issue_closed: result.issue_closed,
           review_gate_bypassed: result.review_gate_bypassed,
+          ...(result.review_queued ? { review_queued: true } : {}),
           ...(result.issue_left_open ? { issue_left_open: result.issue_left_open } : {}),
           ...(remote ? { remote } : {}),
           ...sweepResult,

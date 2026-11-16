@@ -234,12 +234,37 @@ function supersedeOlderObservations(db: TrajectoryDB, taskId: number, attemptN: 
   );
 }
 
-function observationAgeS(observation: ReviewerObservation, nowMs: number): number {
+export function observationAgeS(observation: Pick<ReviewerObservation, 'observed_at'>, nowMs: number): number {
   const observedMs = Date.parse(String(observation.observed_at ?? ''));
   return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1000) : Number.POSITIVE_INFINITY;
 }
 
-interface FindingInput {
+/**
+ * The reviewer a fresh reviewer_identity_observed row names: its agent_id,
+ * which tells a code-reviewer subagent apart from the main loop (no
+ * agent_id), and its session. `call` names the observed call in the errors.
+ * The caller still checks the agent_id against the swe runs of its task(s).
+ */
+export function observedReviewer(
+  observed: Pick<ReviewerObservation, 'agent_id' | 'session_id'>,
+  call: string,
+): { agentId: string; sessionId: string | null } {
+  const agentId = typeof observed.agent_id === 'string' ? observed.agent_id : '';
+  if (agentId === '') {
+    throw new Error(
+      `reviewer_not_independent: the observed ${call} carried no agent_id — it came from the main loop, not a code-reviewer subagent.`,
+    );
+  }
+  if (!AGENT_ID_RE.test(agentId)) {
+    throw new Error(
+      `reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(agentId)} does not match [A-Za-z0-9_-]{8,64}.`,
+    );
+  }
+  const sessionId = typeof observed.session_id === 'string' && observed.session_id !== '' ? observed.session_id : null;
+  return { agentId, sessionId };
+}
+
+export interface FindingInput {
   criterion_id: string | null;
   probe_cmd: string;
   expected: string;
@@ -286,7 +311,7 @@ function parseFindings(verdict: string, raw: unknown): FindingInput[] {
   return findings;
 }
 
-function parseFinding(item: unknown, i: number): FindingInput {
+export function parseFinding(item: unknown, i: number): FindingInput {
   if (typeof item !== 'object' || item === null || Array.isArray(item)) {
     throw new Error(`findings[${i}] must be an object ${FINDING_SHAPE}`);
   }
@@ -501,17 +526,8 @@ export function validationTools(db: TrajectoryDB): {
         let reviewerAgentId: string | null;
 
         if (observed) {
-          const observedAgentId = typeof observed.agent_id === 'string' ? observed.agent_id : '';
-          if (observedAgentId === '') {
-            throw new Error(
-              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id — it came from the main loop, not a code-reviewer subagent.`,
-            );
-          }
-          if (!AGENT_ID_RE.test(observedAgentId)) {
-            throw new Error(
-              `reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(observedAgentId)} does not match [A-Za-z0-9_-]{8,64}.`,
-            );
-          }
+          const reviewer = observedReviewer(observed, `validation_record call for task ${taskId} attempt ${attemptN}`);
+          const observedAgentId = reviewer.agentId;
           const sweRun = db.get<{ id: number }>(
             `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ? LIMIT 1`,
             [taskId, observedAgentId],
@@ -521,7 +537,7 @@ export function validationTools(db: TrajectoryDB): {
               `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate code-reviewer.`,
             );
           }
-          subagentSessionId = typeof observed.session_id === 'string' && observed.session_id !== '' ? observed.session_id : null;
+          subagentSessionId = reviewer.sessionId;
           reviewerAgentId = observedAgentId;
           db.run(
             `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,

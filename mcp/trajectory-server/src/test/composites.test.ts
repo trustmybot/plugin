@@ -5835,4 +5835,54 @@ describe('bro_atomic_close under agile review mode (GH 2225)', () => {
     assert.equal(count(db, 'review_queued', task), 1);
     db.close();
   });
+
+  // GH 2225 T4 SC4 (discussion 119): a non-atomic close of an agile task
+  // queues it; a review_gate_bypassed row would drop it from the queue unreviewed.
+  const recover = (db: TrajectoryDB, task: number) =>
+    call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_recover', {
+      agent: 'bro', task_id: String(task), commit_sha: SHA, verification_summary: 'recovered',
+    });
+
+  it('SC4: task_recover of an unreviewed agile task writes one bro review_queued row and no review_gate_bypassed', async () => {
+    const { db, task } = seed('agile');
+    const r = await recover(db, task);
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(parse(r)['review_queued'], true);
+    assert.equal(parse(r)['review_gate_bypassed'], false);
+    assert.equal(count(db, 'review_queued', task), 1);
+    assert.equal(count(db, 'review_gate_bypassed', task), 0);
+    const queued = db.get<{ from_node: string; content_json: string }>(`SELECT from_node, content_json FROM audit WHERE event_type = 'review_queued'`)!;
+    assert.equal(queued.from_node, 'bro');
+    assert.deepEqual(JSON.parse(queued.content_json), { task_id: task, commit_sha: SHA });
+    const row = db.get<{ status: string; workflow_mode: string }>('SELECT status, workflow_mode FROM tasks WHERE id = ?', [task])!;
+    assert.deepEqual({ ...row }, { status: 'closed', workflow_mode: 'agile' });
+    const queue = JSON.parse(((await reviewQueueTools(db).handlers['review_queue']({ agent: 'bro' })) as RawResult).content[0].text) as {
+      groups: Array<{ tasks: Array<{ id: number }> }>;
+    };
+    assert.deepEqual(queue.groups.flatMap((g) => g.tasks.map((t) => t.id)), [task], 'the recovered task stays in the review queue');
+    db.close();
+  });
+
+  for (const mode of ['truest', null] as const) {
+    it(`SC4: task_recover under workflow_mode ${mode ?? 'unset'} still writes review_gate_bypassed and no review_queued`, async () => {
+      const { db, task } = seed(mode);
+      const r = await recover(db, task);
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(parse(r)['review_gate_bypassed'], true);
+      assert.equal(parse(r)['review_queued'], undefined);
+      assert.equal(count(db, 'review_gate_bypassed', task), 1);
+      assert.equal(count(db, 'review_queued', task), 0);
+      db.close();
+    });
+  }
+
+  it('SC4: task_recover of a reviewed agile task writes neither row', async () => {
+    const { db, issue, task } = seed('agile');
+    seedReviewedCommit(db, issue, task, SHA);
+    const r = await recover(db, task);
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(count(db, 'review_queued', task), 0);
+    assert.equal(count(db, 'review_gate_bypassed', task), 0);
+    db.close();
+  });
 });

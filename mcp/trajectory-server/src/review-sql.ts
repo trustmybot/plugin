@@ -97,12 +97,33 @@ export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
 // A task closed under workflow_mode 'agile' without a pass is queued for a
 // later grouped review: bro_atomic_close records one review_queued row for
 // the commit it closed. The push guard admits such a commit to any branch but
-// the repo's pr_target. As with skips, only bro's rows count.
+// the repo's pr_target. As with skips, only bro's rows count. A batch-reviewed
+// task (batchReviewedSql) keeps its row, so the push guard still admits it.
 export const AGILE_QUEUED_SQL = `(t.status = 'closed' AND t.workflow_mode = 'agile' AND EXISTS (SELECT 1 FROM audit q
   WHERE q.event_type = 'review_queued' AND q.from_node = 'bro'
     AND json_valid(q.content_json)
     AND json_extract(q.content_json, '$.task_id') = t.id
     AND json_extract(q.content_json, '$.commit_sha') = t.commit_sha))`;
+
+// The key a review_batch_record call's reviewer_identity_observed row carries
+// ($.batch_key) and the tool looks it up by: the distinct task ids ascending
+// and the lowercased head_sha, so the hook and the tool agree on one call.
+export function reviewBatchKey(taskIds: readonly number[], headSha: string): string {
+  return `${[...new Set(taskIds)].sort((a, b) => a - b).join(',')}@${headSha.toLowerCase()}`;
+}
+
+// A queued agile task is batch-reviewed once a code-reviewer
+// review_batch_recorded row with verdict 'pass' names it at its current
+// commit: task_ids[i] is the task and commit_shas[i] the commit reviewed. Only
+// review_batch_record writes the row, so only code-reviewer's rows count.
+// json_each raises on malformed JSON whichever term the planner runs first,
+// so it reads '{}' in place of an invalid row.
+export const batchReviewedSql = (alias: string): string => `EXISTS (SELECT 1 FROM audit b,
+    json_each(CASE WHEN json_valid(b.content_json) THEN b.content_json ELSE '{}' END, '$.task_ids') bt
+  WHERE b.event_type = 'review_batch_recorded' AND b.from_node = 'code-reviewer'
+    AND ${jsonSql('json_extract', 'b', '$.verdict')} = 'pass'
+    AND bt.value = ${alias}.id
+    AND CASE WHEN json_valid(b.content_json) THEN json_extract(b.content_json, '$.commit_shas[' || bt.key || ']') END = ${alias}.commit_sha)`;
 
 // validation_attempts is append-only, so a task's verdict is its newest row
 // (highest id): an older pass under a newer fail or escalate does not count,

@@ -36,7 +36,7 @@ Each gate here is one `<name>.ts`, wired through `hooks/hooks.json`. Every regis
 | `agent-arg-matches-caller.ts` | PreToolUse trajectory-server | Deny a call whose `agent` argument names another role than the caller |
 | `swe-brief-gate.ts` | PreToolUse trajectory-server + Edit/Write | swe must fetch its task brief before touching state or files |
 | `swe-verification-gate.ts` | PreToolUse trajectory-server (`task_update_status`) | Gate swe's close on the changelog, stale-doc and leak checks, then on verification |
-| `reviewer-identity-observe.ts` | PreToolUse trajectory-server (`validation_record`) | Record the calling code-reviewer's identity for its verdict |
+| `reviewer-identity-observe.ts` | PreToolUse trajectory-server (`validation_record`, `review_batch_record`) | Record the calling code-reviewer's identity for its verdict |
 | `cheatcode-install-approval.ts` | PreToolUse trajectory-server (`cheatcode_install`) | Require the Human's approval before installing a cheatcode |
 | `prompt-write-approval.ts` | PreToolUse Edit/Write/MultiEdit/Bash | Require the Human's recent approval before a non-swe write under `.claude/skills/` or `.claude/agents/` |
 | `worktree-adopt-guard.ts` | PreToolUse trajectory-server (`task_provision`, `task_reopen`, `task_retry`) | Require `adopt_worktree` from a session in a linked worktree; refuse it elsewhere |
