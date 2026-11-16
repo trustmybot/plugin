@@ -284,6 +284,72 @@ describe('isTestRunner allowlist (GH 3145)', () => {
   });
 });
 
+describe('isTestRunner package-manager test lines (GH 3177)', () => {
+  const forms = [
+    'npm test', 'npm run test', 'npm run test:unit', 'pnpm test', 'pnpm run test:e2e',
+    'yarn test', 'yarn run test', 'bun test', 'bun run test:unit',
+  ];
+
+  it('SC1: each npm, pnpm, yarn and bun test form counts, alone, with flags and after cd x &&', () => {
+    for (const form of forms) {
+      for (const command of [form, `${form} --coverage`, `cd x && ${form}`]) {
+        assert.ok(isTestRunner({ runner: 'ci:1', command }), command);
+      }
+    }
+  });
+
+  it('SC2: build, install, lint and non-test script lines stay excluded', () => {
+    const no = [
+      'npm run build', 'npm ci', 'npm install', 'pnpm install', 'yarn lint', 'npm run lint',
+      'bun run build', 'npm run testing', 'npm run pretest', 'cd x && pnpm run build',
+    ];
+    for (const command of no) assert.ok(!isTestRunner({ runner: 'ci:1', command }), command);
+  });
+});
+
+describe('scope_suggest drafts a pnpm test CI line covering src (GH 3177)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-scope-pm-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+  const workflow = [
+    'name: ci', 'on: push', 'jobs:', '  check:', '    runs-on: ubuntu-latest', '    steps:',
+    '      - run: pnpm install', '      - run: pnpm test src', '',
+  ].join('\n');
+  const files: Record<string, string> = {
+    'package.json': JSON.stringify({ name: 'app', scripts: { build: 'tsc -p .' } }, null, 2) + '\n',
+    '.github/workflows/ci.yml': workflow,
+    'src/billing.ts': 'export function chargeCard(amount: number): number {\n  return amount * 2;\n}\n',
+    'tests/billing.test.mjs': "import { chargeCard } from '../src/billing.js';\n\nchargeCard(1);\n",
+  };
+
+  before(async () => {
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.email', 't@t.io'], ['config', 'user.name', 't'], ['add', '-A'], ['commit', '-qm', 'c']]) {
+      execFileSync('git', args, { cwd: root, timeout: 30_000 });
+    }
+    parse(await scanTools(db, holder, ':memory:').handlers['scan_run']({ agent: 'bro', session_dir: ws }));
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('SC3: the pnpm test CI line is drafted under a non-test runner name; pnpm install and the build script are not', async () => {
+    const scope = parse<Scope>(await wm['scope_suggest']({ agent: 'bro', repo: 'app', anchors: ['chargeCard'] }));
+    const pnpmTest = frameUntrusted('runner-command', 'pnpm test src');
+    const runner = scope.runners.find((r) => r.command === pnpmTest);
+    assert.ok(runner, `pnpm test src not among ${JSON.stringify(scope.runners)}`);
+    assert.doesNotMatch(runner.runner, /^test(:|$)/);
+    assert.deepEqual(scope.draft.verification, [pnpmTest]);
+  });
+});
+
 describe('draftFiles (GH 3145, GH 3158)', () => {
   const file = (path: string, score: number, via: string[]) => ({ path, score, via });
 
