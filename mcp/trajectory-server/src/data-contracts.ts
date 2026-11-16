@@ -155,7 +155,7 @@ const SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias: string): string =>
 
 export const REVIEW_GRACE_HOURS_DEFAULT = 24;
 
-const UNREVIEWED_CLOSED_TASK = (alias: string): string =>
+export const UNREVIEWED_CLOSED_TASK = (alias: string): string =>
   `${alias}.status = 'closed' AND ${ts(`${alias}.updated_at`)} >= ${daysAgo(30)}
                AND ${ts(`${alias}.updated_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
                AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = ${alias}.id AND v.verdict = 'pass')
