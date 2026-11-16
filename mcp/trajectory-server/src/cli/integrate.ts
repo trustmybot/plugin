@@ -132,7 +132,7 @@ const MAX_BUFFER = 256 * 1024 * 1024;
 const OVERLAP_SHOWN = 10;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
 
-class Exit extends Error {
+export class Exit extends Error {
   constructor(readonly code: number) {
     super(`exit ${code}`);
   }
@@ -170,41 +170,58 @@ function lastLines(text: string, n: number): string {
   return text === '' ? '' : text.split('\n').slice(-n).join('\n');
 }
 
-class Integration {
-  private db = '';
-  private taskId = '';
-  private issueId = '';
-  private base = '';
-  private branch = '';
-  private reviewedSha = '';
-  private reviewAnchorAt = '';
-  private commitSha = '';
-  private baseSha = '';
-  private baseLabel = '';
-  private repoRoot = '';
-  private repoName = '';
-  private tip = '';
-  private wt = '';
-  private runId = '';
+/** What rebaseAndVerify leaves for the caller: the verified rebased SHA, the kept picks and the budget it ran under. */
+export interface VerifiedRebase {
+  newSha: string;
+  kept: string[];
+  timeoutS: number;
+  startS: number;
+  toolchainPath: string;
+}
+
+/**
+ * The machinery `cli.js integrate` and `cli.js feature-merge` share: a task's
+ * commit rebased onto a base sha in a temporary worktree, checked for patch
+ * drift, its verification[] run there and recorded, the worktree removed on
+ * every exit. <command> names the subcommand in stderr lines, DB write
+ * callers and temporary dir names.
+ */
+export abstract class TaskRebase {
+  protected db = '';
+  protected taskId = '';
+  protected issueId = '';
+  protected base = '';
+  protected branch = '';
+  protected commitSha = '';
+  protected baseSha = '';
+  protected baseLabel = '';
+  protected repoRoot = '';
+  protected repoName = '';
+  protected tip = '';
+  protected runId = '';
+  protected wt = '';
   private runOpen = false;
   private child: ChildProcess | null = null;
   private scratch = '';
 
   constructor(
-    private readonly env: NodeJS.ProcessEnv,
-    private readonly io: CliIo,
+    protected readonly env: NodeJS.ProcessEnv,
+    protected readonly io: CliIo,
+    protected readonly command: string,
   ) {}
 
-  private say(text: string): void {
-    this.io.err(`integrate: ${text}\n`);
+  abstract run(argv: readonly string[]): Promise<number>;
+
+  protected say(text: string): void {
+    this.io.err(`${this.command}: ${text}\n`);
   }
 
-  private die(code: number, text: string): never {
+  protected die(code: number, text: string): never {
     this.say(text);
     throw new Exit(code);
   }
 
-  private git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): GitResult {
+  protected git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): GitResult {
     const r = spawnSync('git', ['-C', dir, ...args], {
       encoding: 'utf8',
       env: opts.env ?? this.env,
@@ -218,72 +235,30 @@ class Integration {
   }
 
   /** A git command whose output goes to stderr, as the .sh's `>&2`. */
-  private gitLoud(dir: string, args: readonly string[], env?: NodeJS.ProcessEnv): boolean {
+  protected gitLoud(dir: string, args: readonly string[], env?: NodeJS.ProcessEnv): boolean {
     const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: env ?? this.env, stdio: ['ignore', 'pipe', 'pipe'] });
     this.io.err(`${r.stdout ?? ''}${r.stderr ?? ''}`);
     return r.status === 0;
   }
 
-  private g(args: readonly string[]): GitResult {
+  protected g(args: readonly string[]): GitResult {
     return this.git(this.repoRoot, args);
   }
 
-  private revParse(dir: string, rev: string): string {
+  protected revParse(dir: string, rev: string): string {
     const r = this.git(dir, ['rev-parse', '--verify', '-q', rev]);
     return r.ok ? r.out : '';
   }
 
-  private record(sql: string): { ok: boolean; stdout: string } {
-    const r = dbWrite(this.db, sql, { caller: 'integrate', env: { ...this.env, ...RECORD_ENV } });
+  protected record(sql: string): { ok: boolean; stdout: string } {
+    const r = dbWrite(this.db, sql, { caller: this.command, env: { ...this.env, ...RECORD_ENV } });
     if (!r.ok && r.error !== '') this.io.err(`${r.error}\n`);
     return { ok: r.ok, stdout: r.stdout };
   }
 
-  /**
-   * Points tasks.commit_sha at <newSha> and writes its task_integrated anchor,
-   * both or neither; false when the task moved off the reviewed SHA. A row
-   * that carries names reviewed_sha and its review_anchor_at, so the reviewed
-   * pass covers <newSha>. One that does not names the reviewed SHA as
-   * rebased_from and has neither key, so it anchors at its own created_at and
-   * only a pass recorded after it covers <newSha> (GH 3163).
-   */
-  private recordIntegrated(newSha: string, carry: boolean): boolean {
-    const now = nowIso();
-    const pointAtNewSha = `UPDATE tasks SET commit_sha = '${sqlQuote(newSha)}', updated_at = '${now}' WHERE id = ${this.taskId} AND commit_sha = '${sqlQuote(this.reviewedSha)}';`;
-    const taskId = Number(this.taskId);
-    const runId = Number(this.runId);
-    const content = JSON.stringify(
-      carry
-        ? { task_id: taskId, reviewed_sha: this.reviewedSha, review_anchor_at: this.reviewAnchorAt, commit_sha: newSha, base: this.base, run_id: runId }
-        : { task_id: taskId, rebased_from: this.reviewedSha, commit_sha: newSha, base: this.base, run_id: runId, carried: false },
-    );
-    const audit = auditSql(
-      {
-        issueId: this.issueId,
-        branchId: this.branch,
-        fromNode: 'hook:integrate',
-        eventType: 'task_integrated',
-        summary: `task ${this.taskId} integrated onto ${this.base}: ${this.reviewedSha} -> ${newSha}`,
-        contentJson: content,
-      },
-      'changes() = 1',
-      { caller: 'integrate', env: this.env, now },
-    );
-    if (audit.code !== 0) {
-      this.io.err(`${audit.error}\n`);
-      return false;
-    }
-    const r = this.record(
-      `${pointAtNewSha}
-${audit.sql}
-SELECT changes();`,
-    );
-    return r.ok && commandSubstitution(r.stdout) === '1';
-  }
-
   private finish(rc: number, timedOut: 0 | 1): boolean {
     for (let attempt = 1; attempt <= FINISH_ATTEMPTS; attempt += 1) {
-      const s = runFinishSql('integrate', this.runId, rc, timedOut);
+      const s = runFinishSql(this.command, this.runId, rc, timedOut);
       if (s.code !== 0) {
         this.io.err(`${s.error}\n`);
         return false;
@@ -298,7 +273,7 @@ SELECT changes();`,
   }
 
   private recordCommand(ordinal: number, command: string, rc: number, elapsed: number, output: string): boolean {
-    const s = runCommandSql('integrate', this.runId, ordinal, command, rc, String(elapsed), output, this.env);
+    const s = runCommandSql(this.command, this.runId, ordinal, command, rc, String(elapsed), output, this.env);
     if (s.code !== 0) {
       this.io.err(`${s.error}\n`);
       return false;
@@ -331,7 +306,7 @@ SELECT changes();`,
 
   /** Runs <cmd> in the worktree, output captured, killed with its process group after <seconds>. */
   private execute(cmd: readonly string[], seconds: number, env: NodeJS.ProcessEnv): Promise<{ rc: number; fired: boolean; out: string }> {
-    if (this.scratch === '') this.scratch = mkdtempSync(join(this.env.TMPDIR || tmpdir(), 'tmb-integrate-'));
+    if (this.scratch === '') this.scratch = mkdtempSync(join(this.env.TMPDIR || tmpdir(), `tmb-${this.command}-`));
     const outPath = join(this.scratch, 'out');
     return new Promise((done) => {
       const fd = openSync(outPath, 'w');
@@ -370,20 +345,20 @@ SELECT changes();`,
     });
   }
 
-  private branchHolder(): string {
+  protected branchHolder(branch = this.branch): string {
     let wt = '';
     for (const line of this.g(['worktree', 'list', '--porcelain']).out.split('\n')) {
       if (line.startsWith('worktree ')) wt = line.slice('worktree '.length);
-      if (line === `branch refs/heads/${this.branch}`) return wt;
+      if (line === `branch refs/heads/${branch}`) return wt;
     }
     return '';
   }
 
   /** True when no worktree holds the branch and its tip is commit_sha, a verified rebase of it, or absent; sets tip. */
-  private branchMovable(): boolean {
+  protected branchMovable(): boolean {
     const holder = this.branchHolder();
     if (holder !== '') {
-      this.say(`${this.branch} is checked out at ${holder}; remove that worktree (or switch it off the branch) and run cli.js integrate again`);
+      this.say(`${this.branch} is checked out at ${holder}; remove that worktree (or switch it off the branch) and run cli.js ${this.command} again`);
       return false;
     }
     this.tip = this.revParse(this.repoRoot, `refs/heads/${this.branch}^{commit}`);
@@ -401,52 +376,8 @@ SELECT changes();`,
     return true;
   }
 
-  private fetchBase(remote: string, branch: string): void {
-    const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
-    const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
-    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, branch], {
-      env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
-      timeoutMs,
-    });
-    if (r.timedOut) {
-      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) timed out after ${timeoutMs} ms; ${this.branch} and the DB are unchanged`);
-    }
-    if (!r.ok) {
-      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) failed; ${this.branch} and the DB are unchanged: ${r.err.trim()}`);
-    }
-  }
-
-  private hasRef(ref: string): boolean {
+  protected hasRef(ref: string): boolean {
     return this.g(['show-ref', '--verify', '-q', ref]).ok;
-  }
-
-  /** The base sha: a local branch with an upstream is fetched and loses to its upstream unless equal or ahead; a remote-tracking ref is fetched; anything else resolves as given. Sets baseLabel. */
-  private resolveBase(): string {
-    this.baseLabel = this.base;
-    const local = `refs/heads/${this.base}`;
-    if (this.hasRef(local)) {
-      const upstream = this.g(['rev-parse', '--symbolic-full-name', `${this.base}@{upstream}`]);
-      const remote = this.g(['config', '--get', `branch.${this.base}.remote`]).out;
-      const merge = this.g(['config', '--get', `branch.${this.base}.merge`]).out;
-      if (!upstream.ok || upstream.out === '' || remote === '' || merge === '') return this.revParse(this.repoRoot, `${local}^{commit}`);
-      if (remote !== '.') this.fetchBase(remote, merge.replace(/^refs\/heads\//, ''));
-      const localSha = this.revParse(this.repoRoot, `${local}^{commit}`);
-      const upstreamSha = this.revParse(this.repoRoot, `${upstream.out}^{commit}`);
-      if (upstreamSha === '' || localSha === upstreamSha || this.g(['merge-base', '--is-ancestor', upstreamSha, localSha]).ok) return localSha;
-      this.say(`${local} (${localSha}) is behind or diverged from ${upstream.out} (${upstreamSha}); rebasing onto ${upstream.out}`);
-      this.baseLabel = upstream.out.replace(/^refs\/remotes\//, '');
-      return upstreamSha;
-    }
-    const tracking = `refs/remotes/${this.base}`;
-    if (this.hasRef(tracking)) {
-      const remote = this.g(['remote'])
-        .out.split('\n')
-        .filter((name) => name !== '' && this.base.startsWith(`${name}/`))
-        .sort((a, b) => b.length - a.length)[0];
-      if (remote !== undefined) this.fetchBase(remote, this.base.slice(remote.length + 1));
-      return this.revParse(this.repoRoot, `${tracking}^{commit}`);
-    }
-    return this.revParse(this.repoRoot, `${this.base}^{commit}`);
   }
 
   private rebasePicks(sha: string): string[] {
@@ -504,9 +435,245 @@ SELECT changes();`,
   }
 
   /** The NUL-separated paths a `git -z` listing prints, read raw because this.git drops NULs; null when git fails. */
-  private pathList(args: readonly string[], input = ''): string[] | null {
+  protected pathList(args: readonly string[], input = ''): string[] | null {
     const r = spawnSync('git', ['-C', this.wt, ...args], { encoding: 'utf8', env: this.env, input, maxBuffer: MAX_BUFFER });
     return r.status === 0 ? r.stdout.split('\0').filter((path) => path !== '') : null;
+  }
+
+  /** Sets repoRoot and repoName from the task's repo (else the sole repo, else the workspace root); exit 4 when it is not a git checkout. */
+  protected async resolveRepo(taskRepo: string): Promise<void> {
+    const wsRoot = posixDirname(posixDirname(posixDirname(this.db)));
+    const repoDir =
+      taskRepo !== '' ? repoPathByName(this.db, taskRepo, this.env) || `${wsRoot}/${taskRepo}` : repoSinglePath(this.db, this.env) || wsRoot;
+    this.repoRoot = await repoGitRoot(repoDir, this.env);
+    if (this.repoRoot === '' || !isDir(repoDir)) this.die(4, `task ${this.taskId}'s repo is not a git checkout: ${repoDir || '<unresolved>'}`);
+    this.repoName = taskRepo || repoNameForRoot(this.db, this.repoRoot, this.env);
+  }
+
+  /** The task's verification[] commands, one per line; exit 4 when it is unreadable, not an array or empty. */
+  protected verificationCommands(): string {
+    const verification = gateRead(this.db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${this.taskId};`, this.env);
+    if (verification === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${this.db}`);
+    const commands = verificationCommands(verification);
+    if (commands === null) this.die(4, `task ${this.taskId}'s verification[] is not a JSON array`);
+    if (commands === '') this.die(4, `task ${this.taskId} has no verification[]; there is nothing to re-verify the rebased commit with`);
+    return commands;
+  }
+
+  /**
+   * Rebases commit_sha onto baseSha in a temporary worktree and runs
+   * <commands> there as a recorded verification run (source manual). A
+   * conflict or patch drift exits 2, a failed setup or command exits 1, a
+   * failed DB write exits 4; branch refs and tasks are never touched here.
+   */
+  protected async rebaseAndVerify(commands: string): Promise<VerifiedRebase> {
+    const branch = this.branch;
+    try {
+      mkdirSync(`${this.repoRoot}/.claude/worktrees`, { recursive: true });
+    } catch {
+      this.die(4, `cannot create ${this.repoRoot}/.claude/worktrees`);
+    }
+    try {
+      this.wt = mkdtempSync(`${this.repoRoot}/.claude/worktrees/${this.command}-${this.taskId}.`);
+    } catch {
+      this.die(4, 'cannot create a temporary worktree dir');
+    }
+    if (!this.gitLoud(this.repoRoot, ['worktree', 'add', '-q', '--detach', this.wt, this.commitSha])) {
+      try {
+        rmdirSync(this.wt);
+      } catch {
+        /* not empty or gone */
+      }
+      this.wt = '';
+      this.die(4, 'git worktree add failed');
+    }
+
+    this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.baseLabel} (${this.baseSha}) in ${this.wt}`);
+    if (!this.gitLoud(this.wt, ['-c', 'merge.renames=false', 'rebase', '-q', this.baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
+      this.git(this.wt, ['rebase', '--abort']);
+      this.die(2, `rebase of task ${this.taskId} onto ${this.baseLabel} conflicted; aborted, ${branch} and the DB are unchanged`);
+    }
+    const newSha = this.revParse(this.wt, 'HEAD');
+    if (newSha === '') this.die(4, 'cannot read the rebased HEAD');
+
+    const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? '');
+    const budgetRaw =
+      this.env.TMB_VERIFICATION_TIMEOUT_S ||
+      sqliteRo(this.db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", this.env);
+    const timeoutS = parseBudget(budgetRaw).timeoutS;
+
+    const rebased = this.rebasePicks(newSha);
+    if (rebased.length === 0) {
+      this.die(2, `task ${this.taskId}'s patch is already in ${this.baseLabel}; nothing to integrate, ${branch} and the DB are unchanged`);
+    }
+    const kept = this.keptPicks(newSha);
+    if (kept.length !== rebased.length || this.patchIds(kept) !== this.patchIds(rebased)) {
+      this.die(
+        2,
+        `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.baseLabel}..reviewed differs from ${this.baseLabel}..rebased); ${branch} and the DB are unchanged`,
+      );
+    }
+
+    const deps = await prepareWorktreeDeps(this.repoRoot, this.wt, { env: { ...this.env, PATH: toolchainPath } });
+    for (const s of deps.skipped) this.io.err(`worktree-deps: ${s.dir}: ${s.reason}\n`);
+    if (deps.install_error !== undefined) {
+      this.io.err(`${deps.install_error}\n`);
+      this.die(1, `worktree setup failed on ${newSha}; no verification run recorded, ${branch} unmoved`);
+    }
+
+    const setup = await runWorktreeSetup(this.wt, { env: { ...this.env, PATH: toolchainPath } });
+    if (setup.error !== undefined) {
+      this.io.err(`${describeSetupFailure(setup)}\n`);
+      this.die(1, `worktree setup failed on ${newSha}; no verification run recorded, ${branch} unmoved`);
+    }
+
+    const started = this.record(runStartSql(this.taskId, newSha, timeoutS, 'manual'));
+    this.runId = started.ok ? commandSubstitution(started.stdout) : '';
+    if (this.runId === '') this.die(4, `could not record a verification run for ${newSha}; ${branch} unmoved`);
+    this.runOpen = true;
+
+    const commandEnv = { ...this.env, ...RECORD_ENV, PATH: toolchainPath };
+    const lines = commands.split('\n');
+    const total = lines.filter((line) => line !== '').length;
+    const startS = nowS();
+    for (const [i, cmd] of lines.entries()) {
+      const ordinal = i + 1;
+      const remaining = timeoutS - (nowS() - startS);
+      if (remaining <= 0) {
+        this.recordCommand(ordinal, cmd, TIMED_OUT_CODE, 0, 'budget spent before the command started');
+        if (!this.finish(TIMED_OUT_CODE, 1)) this.say(`run #${this.runId} finish write failed`);
+        this.die(1, `verification budget (${timeoutS}s) spent before command ${ordinal}/${total}: ${cmd}; recorded as run #${this.runId}; ${branch} unmoved`);
+      }
+      const cmdStart = nowS();
+      const { rc, fired, out } = await this.execute(['bash', '-c', cmd], remaining, commandEnv);
+      const elapsed = nowS() - cmdStart;
+      const tail = lastLines(out, TAIL_LINES);
+      const timedOut: 0 | 1 = rc === TIMED_OUT_CODE && fired ? 1 : 0;
+      if (!this.recordCommand(ordinal, cmd, rc, elapsed, tail)) this.say(`run #${this.runId}: command ${ordinal} row not recorded`);
+      if (rc !== 0) {
+        if (!this.finish(rc, timedOut)) this.say(`run #${this.runId} finish write failed`);
+        this.say(`verification failed on ${newSha}: command ${ordinal}/${total} exited ${rc} after ${elapsed}s: ${cmd}`);
+        this.io.err(`${tail}\n`);
+        this.die(1, `recorded as run #${this.runId}; ${branch} unmoved`);
+      }
+    }
+
+    if (!this.finish(0, 0)) {
+      this.die(4, `run #${this.runId} passed but its finish write failed, so the push guard will not count it; ${branch} unmoved`);
+    }
+    return { newSha, kept, timeoutS, startS, toolchainPath };
+  }
+}
+
+/** Runs <rebase> as a cli.js subcommand: an Exit becomes its code, and cleanup runs on return and on process exit. */
+export async function runTaskRebase(rebase: TaskRebase, argv: readonly string[]): Promise<number> {
+  const onExit = (code: number): void => rebase.cleanup(code);
+  process.on('exit', onExit);
+  let code = 1;
+  try {
+    code = await rebase.run(argv);
+  } catch (e) {
+    if (!(e instanceof Exit)) throw e;
+    code = e.code;
+  } finally {
+    process.off('exit', onExit);
+    rebase.cleanup(code);
+  }
+  return code;
+}
+
+class Integration extends TaskRebase {
+  private reviewedSha = '';
+  private reviewAnchorAt = '';
+
+  constructor(env: NodeJS.ProcessEnv, io: CliIo) {
+    super(env, io, 'integrate');
+  }
+
+  /**
+   * Points tasks.commit_sha at <newSha> and writes its task_integrated anchor,
+   * both or neither; false when the task moved off the reviewed SHA. A row
+   * that carries names reviewed_sha and its review_anchor_at, so the reviewed
+   * pass covers <newSha>. One that does not names the reviewed SHA as
+   * rebased_from and has neither key, so it anchors at its own created_at and
+   * only a pass recorded after it covers <newSha> (GH 3163).
+   */
+  private recordIntegrated(newSha: string, carry: boolean): boolean {
+    const now = nowIso();
+    const pointAtNewSha = `UPDATE tasks SET commit_sha = '${sqlQuote(newSha)}', updated_at = '${now}' WHERE id = ${this.taskId} AND commit_sha = '${sqlQuote(this.reviewedSha)}';`;
+    const taskId = Number(this.taskId);
+    const runId = Number(this.runId);
+    const content = JSON.stringify(
+      carry
+        ? { task_id: taskId, reviewed_sha: this.reviewedSha, review_anchor_at: this.reviewAnchorAt, commit_sha: newSha, base: this.base, run_id: runId }
+        : { task_id: taskId, rebased_from: this.reviewedSha, commit_sha: newSha, base: this.base, run_id: runId, carried: false },
+    );
+    const audit = auditSql(
+      {
+        issueId: this.issueId,
+        branchId: this.branch,
+        fromNode: 'hook:integrate',
+        eventType: 'task_integrated',
+        summary: `task ${this.taskId} integrated onto ${this.base}: ${this.reviewedSha} -> ${newSha}`,
+        contentJson: content,
+      },
+      'changes() = 1',
+      { caller: 'integrate', env: this.env, now },
+    );
+    if (audit.code !== 0) {
+      this.io.err(`${audit.error}\n`);
+      return false;
+    }
+    const r = this.record(
+      `${pointAtNewSha}
+${audit.sql}
+SELECT changes();`,
+    );
+    return r.ok && commandSubstitution(r.stdout) === '1';
+  }
+
+  private fetchBase(remote: string, branch: string): void {
+    const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
+    const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
+    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, branch], {
+      env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
+      timeoutMs,
+    });
+    if (r.timedOut) {
+      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) timed out after ${timeoutMs} ms; ${this.branch} and the DB are unchanged`);
+    }
+    if (!r.ok) {
+      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) failed; ${this.branch} and the DB are unchanged: ${r.err.trim()}`);
+    }
+  }
+
+  /** The base sha: a local branch with an upstream is fetched and loses to its upstream unless equal or ahead; a remote-tracking ref is fetched; anything else resolves as given. Sets baseLabel. */
+  private resolveBase(): string {
+    this.baseLabel = this.base;
+    const local = `refs/heads/${this.base}`;
+    if (this.hasRef(local)) {
+      const upstream = this.g(['rev-parse', '--symbolic-full-name', `${this.base}@{upstream}`]);
+      const remote = this.g(['config', '--get', `branch.${this.base}.remote`]).out;
+      const merge = this.g(['config', '--get', `branch.${this.base}.merge`]).out;
+      if (!upstream.ok || upstream.out === '' || remote === '' || merge === '') return this.revParse(this.repoRoot, `${local}^{commit}`);
+      if (remote !== '.') this.fetchBase(remote, merge.replace(/^refs\/heads\//, ''));
+      const localSha = this.revParse(this.repoRoot, `${local}^{commit}`);
+      const upstreamSha = this.revParse(this.repoRoot, `${upstream.out}^{commit}`);
+      if (upstreamSha === '' || localSha === upstreamSha || this.g(['merge-base', '--is-ancestor', upstreamSha, localSha]).ok) return localSha;
+      this.say(`${local} (${localSha}) is behind or diverged from ${upstream.out} (${upstreamSha}); rebasing onto ${upstream.out}`);
+      this.baseLabel = upstream.out.replace(/^refs\/remotes\//, '');
+      return upstreamSha;
+    }
+    const tracking = `refs/remotes/${this.base}`;
+    if (this.hasRef(tracking)) {
+      const remote = this.g(['remote'])
+        .out.split('\n')
+        .filter((name) => name !== '' && this.base.startsWith(`${name}/`))
+        .sort((a, b) => b.length - a.length)[0];
+      if (remote !== undefined) this.fetchBase(remote, this.base.slice(remote.length + 1));
+      return this.revParse(this.repoRoot, `${tracking}^{commit}`);
+    }
+    return this.revParse(this.repoRoot, `${this.base}^{commit}`);
   }
 
   /** The world-model dependents of <paths>, or why the world model cannot name them. */
@@ -571,12 +738,7 @@ SELECT changes();`,
     if (commitSha === '') this.die(3, `task ${this.taskId} has no commit_sha, so no reviewed commit`);
     if (hasPass !== '1') this.die(3, `task ${this.taskId} has no passing code-reviewer verdict for commit ${commitSha}`);
 
-    const wsRoot = posixDirname(posixDirname(posixDirname(db)));
-    const repoDir =
-      taskRepo !== '' ? repoPathByName(db, taskRepo, this.env) || `${wsRoot}/${taskRepo}` : repoSinglePath(db, this.env) || wsRoot;
-    this.repoRoot = await repoGitRoot(repoDir, this.env);
-    if (this.repoRoot === '' || !isDir(repoDir)) this.die(4, `task ${this.taskId}'s repo is not a git checkout: ${repoDir || '<unresolved>'}`);
-    this.repoName = taskRepo || repoNameForRoot(db, this.repoRoot, this.env);
+    await this.resolveRepo(taskRepo);
 
     this.commitSha = this.revParse(this.repoRoot, `${commitSha}^{commit}`);
     if (this.commitSha === '') this.die(4, `commit_sha of task ${this.taskId} is not a commit in ${this.repoRoot}`);
@@ -589,108 +751,12 @@ SELECT changes();`,
       return 0;
     }
 
-    const verification = gateRead(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${this.taskId};`, this.env);
-    if (verification === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${db}`);
-    const commands = verificationCommands(verification);
-    if (commands === null) this.die(4, `task ${this.taskId}'s verification[] is not a JSON array`);
-    if (commands === '') this.die(4, `task ${this.taskId} has no verification[]; there is nothing to re-verify the rebased commit with`);
+    const commands = this.verificationCommands();
 
     if (!this.branchMovable()) throw new Exit(4);
 
-    try {
-      mkdirSync(`${this.repoRoot}/.claude/worktrees`, { recursive: true });
-    } catch {
-      this.die(4, `cannot create ${this.repoRoot}/.claude/worktrees`);
-    }
-    try {
-      this.wt = mkdtempSync(`${this.repoRoot}/.claude/worktrees/integrate-${this.taskId}.`);
-    } catch {
-      this.die(4, 'cannot create a temporary worktree dir');
-    }
-    if (!this.gitLoud(this.repoRoot, ['worktree', 'add', '-q', '--detach', this.wt, this.commitSha])) {
-      try {
-        rmdirSync(this.wt);
-      } catch {
-        /* not empty or gone */
-      }
-      this.wt = '';
-      this.die(4, 'git worktree add failed');
-    }
-
-    this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.baseLabel} (${this.baseSha}) in ${this.wt}`);
-    if (!this.gitLoud(this.wt, ['-c', 'merge.renames=false', 'rebase', '-q', this.baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
-      this.git(this.wt, ['rebase', '--abort']);
-      this.die(2, `rebase of task ${this.taskId} onto ${this.baseLabel} conflicted; aborted, ${branch} and the DB are unchanged`);
-    }
-    const newSha = this.revParse(this.wt, 'HEAD');
-    if (newSha === '') this.die(4, 'cannot read the rebased HEAD');
-
-    const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? '');
-    const budgetRaw =
-      this.env.TMB_VERIFICATION_TIMEOUT_S ||
-      sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", this.env);
-    const timeoutS = parseBudget(budgetRaw).timeoutS;
-
-    const rebased = this.rebasePicks(newSha);
-    if (rebased.length === 0) {
-      this.die(2, `task ${this.taskId}'s patch is already in ${this.baseLabel}; nothing to integrate, ${branch} and the DB are unchanged`);
-    }
-    const kept = this.keptPicks(newSha);
-    if (kept.length !== rebased.length || this.patchIds(kept) !== this.patchIds(rebased)) {
-      this.die(
-        2,
-        `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.baseLabel}..reviewed differs from ${this.baseLabel}..rebased); ${branch} and the DB are unchanged`,
-      );
-    }
+    const { newSha, kept, timeoutS, startS, toolchainPath } = await this.rebaseAndVerify(commands);
     const uncarried = this.uncarriedReason(kept);
-
-    const deps = await prepareWorktreeDeps(this.repoRoot, this.wt, { env: { ...this.env, PATH: toolchainPath } });
-    for (const s of deps.skipped) this.io.err(`worktree-deps: ${s.dir}: ${s.reason}\n`);
-    if (deps.install_error !== undefined) {
-      this.io.err(`${deps.install_error}\n`);
-      this.die(1, `worktree setup failed on ${newSha}; no verification run recorded, ${branch} unmoved`);
-    }
-
-    const setup = await runWorktreeSetup(this.wt, { env: { ...this.env, PATH: toolchainPath } });
-    if (setup.error !== undefined) {
-      this.io.err(`${describeSetupFailure(setup)}\n`);
-      this.die(1, `worktree setup failed on ${newSha}; no verification run recorded, ${branch} unmoved`);
-    }
-
-    const started = this.record(runStartSql(this.taskId, newSha, timeoutS, 'manual'));
-    this.runId = started.ok ? commandSubstitution(started.stdout) : '';
-    if (this.runId === '') this.die(4, `could not record a verification run for ${newSha}; ${branch} unmoved`);
-    this.runOpen = true;
-
-    const commandEnv = { ...this.env, ...RECORD_ENV, PATH: toolchainPath };
-    const lines = commands.split('\n');
-    const total = lines.filter((line) => line !== '').length;
-    const startS = nowS();
-    for (const [i, cmd] of lines.entries()) {
-      const ordinal = i + 1;
-      const remaining = timeoutS - (nowS() - startS);
-      if (remaining <= 0) {
-        this.recordCommand(ordinal, cmd, TIMED_OUT_CODE, 0, 'budget spent before the command started');
-        if (!this.finish(TIMED_OUT_CODE, 1)) this.say(`run #${this.runId} finish write failed`);
-        this.die(1, `verification budget (${timeoutS}s) spent before command ${ordinal}/${total}: ${cmd}; recorded as run #${this.runId}; ${branch} unmoved`);
-      }
-      const cmdStart = nowS();
-      const { rc, fired, out } = await this.execute(['bash', '-c', cmd], remaining, commandEnv);
-      const elapsed = nowS() - cmdStart;
-      const tail = lastLines(out, TAIL_LINES);
-      const timedOut: 0 | 1 = rc === TIMED_OUT_CODE && fired ? 1 : 0;
-      if (!this.recordCommand(ordinal, cmd, rc, elapsed, tail)) this.say(`run #${this.runId}: command ${ordinal} row not recorded`);
-      if (rc !== 0) {
-        if (!this.finish(rc, timedOut)) this.say(`run #${this.runId} finish write failed`);
-        this.say(`verification failed on ${newSha}: command ${ordinal}/${total} exited ${rc} after ${elapsed}s: ${cmd}`);
-        this.io.err(`${tail}\n`);
-        this.die(1, `recorded as run #${this.runId}; ${branch} unmoved`);
-      }
-    }
-
-    if (!this.finish(0, 0)) {
-      this.die(4, `run #${this.runId} passed but its finish write failed, so the push guard will not count it; ${branch} unmoved`);
-    }
 
     const lintBase = (await lintBaseSha(this.wt, db, this.taskId, newSha, this.env)) || this.baseSha;
     const lints = await runCloseLints(this.wt, newSha, lintBase, timeoutS - (nowS() - startS), { ...this.env, PATH: toolchainPath }, {
@@ -727,18 +793,5 @@ SELECT changes();`,
 }
 
 export async function integrate(argv: readonly string[], env: NodeJS.ProcessEnv, io: CliIo): Promise<number> {
-  const integration = new Integration(env, io);
-  const onExit = (code: number): void => integration.cleanup(code);
-  process.on('exit', onExit);
-  let code = 1;
-  try {
-    code = await integration.run(argv);
-  } catch (e) {
-    if (!(e instanceof Exit)) throw e;
-    code = e.code;
-  } finally {
-    process.off('exit', onExit);
-    integration.cleanup(code);
-  }
-  return code;
+  return runTaskRebase(new Integration(env, io), argv);
 }
