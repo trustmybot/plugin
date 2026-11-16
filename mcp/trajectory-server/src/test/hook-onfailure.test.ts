@@ -9,7 +9,8 @@
  * trajectory-server/dist/hooks.js" <Event> [part]`), checked once per gate that
  * dist/hooks-router.txt lists for <Event>, that entry's matcher and its part, or
  * a direct `node … dist/hooks.js <gate>` entry (liveness-sentinel); a leading
- * node guard (`command -v node … || { …; exit 2; }; `, GH 2215) is dropped. Each
+ * node guard (`node -e "<node:sqlite probe>" … || { …; exit 2; }; `, GH 2215,
+ * GH 3150) is dropped. Each
  * gate is src/hooks/<gate>.ts, listed in dist/hooks-gates.txt.
  *
  * A gate is deny-capable when, outside comments, it builds a deny or calls a
@@ -35,7 +36,7 @@ const TS_DENY_RE = /permissionDecision: *'deny'|decision: *'block'|denyDbUnavail
 const COMMENT_LINE = /^\s*(\/\/|\/?\*)/;
 const FUNCTION_OPENER = /^(export\s+)?(async\s+)?function\s+[A-Za-z_$][A-Za-z0-9_$]*\s*[(<]/;
 const CONST_OPENER = /^(export\s+)?const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(:[^=]*)?=\s*(async\s+)?\(/;
-const NODE_GUARD = /^command -v node >\/dev\/null 2>&1 \|\| \{ [^}]*\}; /;
+const NODE_GUARD = /^node -e "[^"]*" >\/dev\/null 2>&1 \|\| \{ [^}]*\}; /;
 const DIRECT_GATE = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([a-z][a-z0-9-]*)$/;
 const ROUTER_ENTRY = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Z][A-Za-z]+)(?: ([a-z-]+))?$/;
 

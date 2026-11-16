@@ -105,12 +105,19 @@ describe('hook-timeout-budget: each router registration covers the parse and its
   // smaller of its own budget and the group budget left, so each group's
   // registration timeout is the backstop over the parse allowance plus its
   // group budget, and the group budget leaves every gate its whole budget.
-  const registrations = hookRegistrations(PLUGIN_ROOT)
-    .map((r) => ({ ...r, router: routerCommand(r.command) }))
-    .filter((r) => r.router !== null);
+  const all = hookRegistrations(PLUGIN_ROOT).map((r) => ({ ...r, router: routerCommand(r.command) }));
+  const registrations = all.filter((r) => r.router !== null);
 
   it('hooks.json has router registrations', () => {
     assert.ok(registrations.length > 0);
+  });
+
+  // A guard prefix routerCommand cannot strip would drop its entry from the
+  // budget checks below without a failure, so every command that ends in a
+  // router <Event> call must parse as one.
+  it('every registration ending in a router <Event> call parses as a router entry', () => {
+    const unparsed = all.filter((r) => r.router === null && /\/dist\/hooks\.js" [A-Z][A-Za-z]+( [a-z-]+)?$/.test(r.command));
+    assert.deepEqual(unparsed.map((r) => `${r.event} ${r.matcher || '-'}`), []);
   });
 
   for (const r of registrations) {

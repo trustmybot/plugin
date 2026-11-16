@@ -32,7 +32,7 @@ export interface RouterCommand {
 }
 
 const ROUTER_PREFIX = 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" ';
-const NODE_GUARD = /^command -v node >\/dev\/null 2>&1 \|\| \{ [^}]*\}; /;
+const NODE_GUARD = /^node -e "[^"]*" >\/dev\/null 2>&1 \|\| \{ [^}]*\}; /;
 
 export function routerTable(root: string): RouterRow[] {
   return readFileSync(join(root, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8')
