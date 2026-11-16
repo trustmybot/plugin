@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 73`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 74`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -15,7 +15,7 @@ The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of tru
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 73`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 74`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -482,13 +482,14 @@ erDiagram
         INTEGER exported "NOT NULL"
         TEXT terms "NOT NULL"
         INTEGER run_order
+        TEXT params_json
     }
 
     wm_edges {
         INTEGER src_id FK "NOT NULL; → wm_symbols.id CASCADE"
         INTEGER dst_id FK "→ wm_symbols.id SET NULL"
         TEXT dst_name "NOT NULL"
-        TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on|bundles|reads_config|covers"
+        TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on|bundles|reads_config|covers|references_value|mentions_path|doc_link|generated_from"
         TEXT resolution "NOT NULL; CHECK exact|name|unresolved"
         INTEGER line
         TEXT hint
@@ -1101,6 +1102,7 @@ Table constraints:
 | `exported` | INTEGER | NOT NULL | `0` |  |
 | `terms` | TEXT | NOT NULL | `''` |  |
 | `run_order` | INTEGER | nullable |  |  |
+| `params_json` | TEXT | nullable |  |  |
 
 Table constraints:
 
@@ -1113,7 +1115,7 @@ Table constraints:
 | `src_id` | INTEGER | NOT NULL |  | FK → `wm_symbols.id` ON DELETE CASCADE |
 | `dst_id` | INTEGER | nullable |  | FK → `wm_symbols.id` ON DELETE SET NULL |
 | `dst_name` | TEXT | NOT NULL |  |  |
-| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers')` |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers','references_value','mentions_path','doc_link','generated_from')` |
 | `resolution` | TEXT | NOT NULL | `'unresolved'` | CHECK `resolution IN ('exact','name','unresolved')` |
 | `line` | INTEGER | nullable |  |  |
 | `hint` | TEXT | nullable |  |  |
