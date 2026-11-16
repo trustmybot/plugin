@@ -166,7 +166,7 @@ flowchart LR
 
 ### 3.8 Parallel lanes
 
-Planned (epic GH 3024; merge queue GH 3148). When the Human's ask holds several independent streams of work, each too large for one turn, bro proposes lanes. bro first settles who merges, because a lane run ends with many PRs. A lane is a child session running its own bro on flow 3.1 or 3.2 for the issues it owns. The parent bro keeps the lanes from colliding, then merges their PRs in priority order or hands each one to the Human, as the Human chose at the start. Starting sessions and messaging between them are Claude's own features; TMB adds ownership, gates and merge order. [LANES.md](LANES.md) holds every case.
+Planned (epic GH 3024; merge queue GH 3148). When the Human's ask holds several independent streams of work, each too large for one turn, bro proposes lanes. bro first settles who merges, because a lane run ends with many PRs. A lane is a child session running its own bro on flow 3.1 or 3.2 for the issues it owns. The parent bro keeps the lanes from colliding, then merges their PRs in priority order or hands each one to the Human, as the Human chose at the start. Starting sessions and messaging between them are Claude's own features; TMB adds ownership, gates, merge order and a lane registry in the trajectory DB, so the Human can recover a lane or change its priority or state at any time without relying on any bro's memory. [LANES.md](LANES.md) holds every case.
 
 ```mermaid
 flowchart LR

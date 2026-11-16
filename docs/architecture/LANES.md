@@ -8,6 +8,7 @@ This whole flow is planned (epic GH 3024). Each step below names the issue that 
 
 Claude Code and Desktop already start child sessions, carry messages between sessions, relay each child's end-of-turn report and list linked sessions. TMB uses those features as they are and doesn't redesign them. TMB adds only what its own model needs:
 
+- a lane registry in the trajectory DB, the source of truth for every lane's state, so lanes can be recovered and changed at any time;
 - who owns which issue, file and schema version;
 - the gates every lane passes;
 - the order in which lane PRs merge, and who merges them.
@@ -132,3 +133,27 @@ flowchart LR
 - **The queue** records each lane PR with its lane, priority and state: queued, held, returned or merged. A returned PR keeps its priority. Planned: GH 3148.
 - **A merge closes the PR's issues**, which unblocks their dependents in other lanes. Planned: GH 3026.
 - **The queue is visible** on the dashboard's Lanes page, with lanes nested under their parent session. Planned: GH 3041 and GH 3028.
+
+## 6. Change or recover a lane
+
+Lanes live in the trajectory DB, not in any bro's memory. Each lane has one record: its parent, its session, its owned issues, its priority, its state (active, paused or archived) and the run's merge choice. Every change is written there first, with the request that caused it. A bro acts only on what the record says, so a change survives compaction, a restart, or a session the host no longer lists.
+
+```mermaid
+flowchart LR
+    A[Human asks bro to change a lane] --> B[bro writes the change to the lane's record]
+    B --> C{What changed?}
+    C -- priority --> D[Merge queue and schema order re-sorted]
+    C -- pause or resume --> E[Lane stops or restarts taking tasks]
+    C -- archive --> F[Lane's leases released, its open issues handed back to the parent]
+    D --> G[Each lane bro reads its record on its next turn and follows it]
+    E --> G
+    F --> G
+    H[Session compacted, restarted, or gone] --> I[bro restores lanes from the registry]
+    I -- lane's session is gone --> J[Start a new session that takes over the same lane record]
+    I -- session alive --> G
+    J --> G
+```
+
+- **Any of the Human's sessions can change a lane.** The Human can raise a priority or archive a lane from the parent or from the lane itself. A lane bro never changes another lane on its own. Planned: GH 3025, with the per-session approval gate in GH 3028.
+- **Records are kept.** An archived lane keeps its record and history, so it can be listed and reopened later. Archiving the Claude session itself is the host's feature, which bro may offer alongside.
+- **Recovery uses the stable session id.** A new session that takes over a lane gets its brief rebuilt from the record, not from a message. Planned: GH 3025.
