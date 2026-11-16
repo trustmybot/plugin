@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { seedReviewedCommit, tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
+import { onboardTools } from '../tools/onboard.js';
 import { WORKFLOW_MODE_KEY, configTools, readWorkflowMode, setConfigValues } from '../tools/config.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -47,6 +48,21 @@ describe('SC1: config_set refuses workflow_mode', () => {
         db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'config_changed' AND json_extract(content_json, '$.key') = 'workflow_mode'`)!.n,
         0,
       );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('still refuses the key once /onboard has stored a mode, leaving that mode in place', async () => {
+    const db = tempDB();
+    try {
+      const onboard = onboardTools(db);
+      const applied = await call(onboard.handlers, 'onboard_apply', { agent: 'bro', shape: 'local', review_mode: 'agile' });
+      assert.ok(!applied.isError, JSON.stringify(parse(applied)));
+      const r = await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'workflow_mode', value: 'truest' });
+      assert.equal(r.isError, true);
+      assert.ok((parse(r)['error'] as string).startsWith('human_only_config_key:'));
+      assert.equal(readWorkflowMode(db), 'agile');
     } finally {
       db.close();
     }
