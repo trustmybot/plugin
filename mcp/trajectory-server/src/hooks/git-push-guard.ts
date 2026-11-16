@@ -70,7 +70,7 @@ const CODE_REVIEWER_REASON = `BLOCKED: ${CODE_REVIEWER_ROLE} must not push. The 
 const WORKTREE_REASON = 'BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaping the detached-HEAD commits.';
 const WORKTREE_FIX: DenyFix = { allowed: 'git fetch ./.claude/worktrees/<slug> HEAD:<feature>, then git push from the main checkout' };
 const DB_REASON =
-  'BLOCKED: trajectory DB unavailable — the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB.';
+  'BLOCKED: trajectory DB unavailable — the push gate could not read task review state through node:sqlite, so it refuses to fail open. Check the trajectory DB.';
 export const PARSE_REASON =
   'BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same push split into simpler commands with plain quoting' };

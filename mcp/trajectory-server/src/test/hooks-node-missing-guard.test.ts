@@ -1,9 +1,11 @@
 /**
- * Node guard (GH 2215): with `node` off PATH every router registration exits
- * 127 before substrate-preflight can name the cause, so the SessionStart
- * default registration and the WorktreeCreate one start with a POSIX
- * `command -v node` guard that prints the TMB DEGRADED line and exits 2. The
- * fail-closed PreToolUse registrations keep `onFailure: "block"` unguarded.
+ * Node guard (GH 2215, GH 3150): with `node` off PATH every router
+ * registration exits 127 before substrate-preflight can name the cause, and a
+ * Node older than 22.13 cannot load node:sqlite without a flag, so the
+ * SessionStart default registration and the WorktreeCreate one start with a
+ * POSIX guard that loads node:sqlite and, when that fails, prints the TMB
+ * DEGRADED line and exits 2. The fail-closed PreToolUse registrations keep
+ * `onFailure: "block"` unguarded.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -23,8 +25,10 @@ interface HooksJson {
 }
 
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as HooksJson;
-const MESSAGE = 'TMB DEGRADED: missing node — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22 or later on PATH and restart Claude Code.';
-const GUARD = `command -v node >/dev/null 2>&1 || { echo '${MESSAGE}' >&2; exit 2; }; `;
+const MESSAGE =
+  'TMB DEGRADED: missing node, or node older than 22.13 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.13 or later on PATH and restart Claude Code.';
+const PROBE = `node -e "require('node:sqlite')"`;
+const GUARD = `${PROBE} >/dev/null 2>&1 || { echo '${MESSAGE}' >&2; exit 2; }; `;
 const tail = (event: string): string => `node "\${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" ${event}`;
 const FAIL_CLOSED_PRETOOLUSE = ['Write|Edit|MultiEdit|NotebookEdit', 'Bash', 'Agent', 'SendMessage', 'mcp__.*trajectory-server__.*'];
 
@@ -61,7 +65,17 @@ describe('hooks.json node guard (GH 2215)', () => {
       assert.equal(r.stdout, '');
     });
 
-    it(`${event}: with node on PATH, the router tail runs`, () => {
+    it(`${event}: with a node that cannot load node:sqlite (older than 22.13), /bin/sh exits 2 with the same line and never runs the router`, () => {
+      const bin = tempDir();
+      writeFileSync(join(bin, 'node'), '#!/bin/sh\necho "router ran"\nexit 1\n');
+      chmodSync(join(bin, 'node'), 0o755);
+      const r = runSh(registration(event).command, bin);
+      assert.equal(r.status, 2, r.stderr);
+      assert.equal(r.stderr, `${MESSAGE}\n`);
+      assert.equal(r.stdout, '');
+    });
+
+    it(`${event}: with node on PATH loading node:sqlite, the router tail runs`, () => {
       const bin = tempDir();
       writeFileSync(join(bin, 'node'), '#!/bin/sh\necho "$@"\n');
       chmodSync(join(bin, 'node'), 0o755);
@@ -72,8 +86,13 @@ describe('hooks.json node guard (GH 2215)', () => {
     });
   }
 
+  it('the probe passes on the Node running this suite (22.13 or later)', () => {
+    const r = spawnSync('/bin/sh', ['-c', `${PROBE} >/dev/null 2>&1`], { env: { PATH: process.env.PATH }, timeout: 30_000 });
+    assert.equal(r.status, 0);
+  });
+
   it('only those two registrations carry the guard', () => {
-    const guarded = Object.entries(HOOKS.hooks).flatMap(([event, groups]) => groups.flatMap((g) => g.hooks.filter((h) => h.command.startsWith('command -v node')).map(() => event)));
+    const guarded = Object.entries(HOOKS.hooks).flatMap(([event, groups]) => groups.flatMap((g) => g.hooks.filter((h) => h.command.startsWith(PROBE)).map(() => event)));
     assert.deepEqual(guarded.sort(), ['SessionStart', 'WorktreeCreate']);
   });
 

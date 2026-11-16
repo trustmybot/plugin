@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { CHAIN, CONTEXT_SEPARATOR, PREPARE, agentSpawnDispatch } from '../hooks/agent-spawn-dispatch.js';
+import { CHAIN, CONTEXT_SEPARATOR, PREPARE, PREPARE_DENIES, agentSpawnDispatch } from '../hooks/agent-spawn-dispatch.js';
 import { ensureSweWorktree } from '../hooks/ensure-swe-worktree.js';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
 import { findGate, gateNames } from '../hooks/registry.js';
@@ -96,6 +96,14 @@ describe('agent-spawn-dispatch', () => {
   it('drops the PREPARE steps output from the context', async () => {
     const s = stubs({ 'ensure-swe-worktree': context('prepare'), 'record-swe-spawn': deny('ignored') });
     assert.deepEqual(await agentSpawnDispatch(PAYLOAD, {}, s.find), ALLOW);
+  });
+
+  it('prints an ensure-swe-worktree deny verbatim and records nothing after it (GH 3150)', async () => {
+    const isolation = deny('node:sqlite is unavailable');
+    const s = stubs({ 'require-task-spec': context('ctx'), 'ensure-swe-worktree': isolation });
+    assert.deepEqual(await agentSpawnDispatch(PAYLOAD, {}, s.find), isolation);
+    assert.deepEqual(s.names(), [...CHAIN, 'ensure-swe-worktree']);
+    assert.deepEqual([...PREPARE_DENIES], ['ensure-swe-worktree']);
   });
 
   it('counts a missing, throwing or non-JSON gate as empty and drops its stderr', async () => {

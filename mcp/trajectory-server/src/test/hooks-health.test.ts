@@ -139,14 +139,15 @@ describe('substrate-preflight helpers', () => {
     assert.equal(noRemoteUrl('not json'), false);
   });
 
-  it('names every missing needed tool in one banner, never jq, and sqlite3 only without node:sqlite', async () => {
+  it('names every missing needed tool in one banner, never jq or sqlite3, and node:sqlite only without it', async () => {
     const r = await substratePreflight('{}', { PATH: NO_COMMANDS });
     assert.equal(r.code, 0);
     const ctx = (JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
     assert.ok(ctx.startsWith('TMB DEGRADED: '), ctx);
     assert.ok(!ctx.includes('jq'), ctx);
     for (const bin of ['git', 'node']) assert.ok(ctx.includes(`missing ${bin} — `), bin);
-    assert.equal(ctx.includes('missing sqlite3 — '), loadNodeSqlite() === null, ctx);
+    assert.ok(!ctx.includes('sqlite3'), ctx);
+    assert.equal(ctx.includes('missing node:sqlite — '), loadNodeSqlite() === null, ctx);
   });
 });
 
