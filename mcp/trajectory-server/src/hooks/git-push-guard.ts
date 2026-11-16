@@ -15,7 +15,8 @@
  *
  * GH 3102: a push is judged on the commits its refspecs send, not on HEAD,
  * forced pushes included, a refspec that names no commit is denied, and a
- * stored commit_sha matches as a 7+ hex prefix of the pushed SHA.
+ * stored commit_sha matches as a 7+ hex prefix of the pushed SHA. GH 3168:
+ * commits already on the base's remote-tracking ref are never judged.
  *
  * GH 2225: a task closed under agile review mode and queued for review needs
  * no pass, for itself or its rebases, when every branch the push's refspecs
@@ -29,6 +30,7 @@ import { ALLOW, type Gate, type GateResult } from './gate.js';
 import {
   ambiguousSubcommandReason,
   cmdStatements,
+  cwdState,
   denyAmbiguousGitTarget,
   gitBesideExpansion,
   gitSubcommandOf,
@@ -85,6 +87,11 @@ const unresolvedRefspecReason = (refspec: string, what: string, dir: string): st
   `BLOCKED: the push gate cannot resolve the refspec \`${refspec}\` of \`${what}\` to a commit in ${dir}, so it cannot tell which commits the push sends and refuses to fail open. The gate reads the refs before the command runs, so a ref an earlier statement of the same command creates (\`git checkout -b X && git push -u origin X\`) does not exist yet: run the push as its own command once the ref exists.`;
 const UNRESOLVED_REFSPEC_FIX: DenyFix = { allowed: 'git -C <repo> push <remote> <src>[:<dst>] as its own command, its <src> an existing local branch, HEAD, a full ref or a commit' };
 const SHA_LIST_REASON = 'BLOCKED: the push gate read a pushed commit that is not a full SHA, so it cannot match it against task commits and refuses to fail open.';
+
+/** Whether a statement listed in <dir> may run in any checkout: `?`, or `-` (a dir the listing cannot resolve) when <cwd>'s repo has linked worktrees. */
+async function mayNameAnyCheckout(dir: string, cwd: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  return (dir === '-' ? await cwdState(cwd, env, { unresolved: true }) : dir) === '?';
+}
 
 function pushVerb(sub: string): boolean {
   return sub === 'push' || sub.startsWith('push ');
@@ -398,11 +405,25 @@ class Guard {
     return base;
   }
 
-  /** The commits a bare `git push`, which names no refspec, sends: those past the upstream, else past the base. */
+  /**
+   * The remote-tracking ref of <base> when it is one, else ''. Its commits are
+   * already on the remote, so no push range judges them (GH 3168); a local
+   * fallback base is never subtracted, as its commits may not be pushed yet.
+   */
+  private async remoteBaseRef(dir: string, base: string): Promise<string> {
+    if (!base.startsWith('origin/')) return '';
+    const ref = `refs/remotes/${base}`;
+    return (await this.commitOf(dir, ref)) === '' ? '' : ref;
+  }
+
+  /** The commits a bare `git push`, which names no refspec, sends: those past the upstream and the remote base, else past the base. */
   private async headShas(dir: string): Promise<string> {
-    const upstream = await gitOut(dir, ['log', '@{u}..HEAD', '--pretty=%H'], this.env);
-    if (upstream !== '') return upstream;
     const base = await this.baseRef(dir);
+    const upstream = await gitOut(dir, ['log', '@{u}..HEAD', '--pretty=%H'], this.env);
+    if (upstream !== '') {
+      const remoteBase = await this.remoteBaseRef(dir, base);
+      return remoteBase === '' ? upstream : await gitOut(dir, ['log', '@{u}..HEAD', `^${remoteBase}`, '--pretty=%H'], this.env);
+    }
     return await gitOut(dir, ['log', base === '' ? 'HEAD' : `${base}..HEAD`, '--pretty=%H'], this.env);
   }
 
@@ -433,8 +454,9 @@ class Guard {
   /**
    * The commits one push statement sends, newline-joined, or the refspec no
    * commit can be found for. Each refspec sends its source minus the remote
-   * branch it updates when that is tracked here, else minus the base; a bare
-   * push keeps HEAD's range and a delete sends nothing.
+   * branch it updates when that is tracked here, else minus the base, and
+   * always minus the base's remote-tracking ref; a bare push keeps HEAD's
+   * range and a delete sends nothing.
    */
   private async pushedShas(dir: string, args: PushArgs): Promise<{ shas: string } | { unresolved: string }> {
     if (args.refspecs.length === 0 && args.refSets.length === 0) return { shas: await this.headShas(dir) };
@@ -445,7 +467,7 @@ class Guard {
       ...args.refspecs.filter((refspec) => !isMatching(refspec)).map((refspec) => ({ refspec, enumerated: false })),
       ...(await this.refSetSpecs(dir, [...new Set([...args.refSets, ...matching])])).map((refspec) => ({ refspec, enumerated: true })),
     ];
-    let base: string | undefined;
+    let bounds: { base: string; remoteBase: string } | undefined;
     const shas = new Set<string>();
     for (const { refspec, enumerated } of specs) {
       const spec = splitRefspec(refspec);
@@ -456,9 +478,13 @@ class Guard {
         if (enumerated) continue;
         return { unresolved: refspec };
       }
-      let stop = await this.trackingRef(dir, args.remote, spec);
-      if (stop === '') stop = base ??= await this.baseRef(dir);
-      const range = stop === '' ? [tip] : [tip, `^${stop}`];
+      if (bounds === undefined) {
+        const base = await this.baseRef(dir);
+        bounds = { base, remoteBase: await this.remoteBaseRef(dir, base) };
+      }
+      const tracking = await this.trackingRef(dir, args.remote, spec);
+      const stops = [tracking || bounds.base, bounds.remoteBase].filter((stop) => stop !== '');
+      const range = [tip, ...stops.map((stop) => `^${stop}`)];
       const out = await gitOut(dir, ['rev-list', ...range], this.env);
       if (out !== '') for (const sha of lines(out)) shas.add(sha);
     }
@@ -554,7 +580,11 @@ export const gitPushGuard: Gate = async (payload, env) => {
   if (opaque) return deny(opaqueReason(opaque.src ?? opaque.stmt), OPAQUE_FIX);
   const subs = listed.statements.map((statement) => gitSubcommandOf(statement));
   const unknown = listed.statements[subs.indexOf(undefined)];
-  if (unknown) return deny(subcommandReason(unknown.src ?? unknown.stmt), SUBCOMMAND_FIX);
+  if (unknown) {
+    // A dir that may name any checkout is the deny to fix first, as in git-guards (GH 2643, GH 3170).
+    if (namesPush && (await mayNameAnyCheckout(unknown.dir, cwd, env))) return { stdout: denyAmbiguousGitTarget(unknown, unknown.dir === '-'), code: 0 };
+    return deny(subcommandReason(unknown.src ?? unknown.stmt), SUBCOMMAND_FIX);
+  }
   const pushes = listed.statements.flatMap((statement, j) => {
     const sub = subs[j] ?? '';
     return pushVerb(sub) ? [{ statement, sub }] : [];
