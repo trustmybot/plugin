@@ -6,6 +6,7 @@ Public MIT plugin for Claude Code. Issues, PRs and real-use reports are welcome;
 
 1. Open or find an issue on `github.com/trustmybot/plugin` (canonical; a GitLab mirror is a backup).
 2. Branch off `dev` as `<type>/<issue>-<slug>` (e.g. `fix/45-gitguards-merge`; types `feat fix refactor chore docs test perf`): `git fetch origin dev && git switch -c <branch> origin/dev`. Without Write access, fork the repo and branch in your fork.
+   Install [Bun](https://bun.sh) at the version in `.bun-version`, then run `bun run setup` once: it installs any missing dependencies and builds the payload.
 3. Make the change with its tests. Locally, run the tests for the paths you touched, `bun run build:tsc` and the L1 lints you touched.
 4. `gh pr create --base dev` with `Closes #N` in the description.
 

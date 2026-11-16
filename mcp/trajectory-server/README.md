@@ -29,7 +29,7 @@ A repo opts in to a build step for every worktree TMB makes with `.config/tmb/wo
 - `pr_monitor_worktree`: before the reviewer's command; a failure returns an error naming the command, and the worktree is still removed.
 - `swe-verification-gate`: before a run that is not reused; a failure denies the close with the command and its output tail. Setup counts against the verification budget: each command gets at most what is left of it, `verification[]` gets what setup leaves, and a setup that spends it denies. Setup is not recorded as a verification command.
 
-This repo's own file runs `bun run build:payload`.
+This repo's own file runs `scripts/maintenance/install-deps.ts` (installs a lockfile root that still has no `node_modules`, GH 3146), then `bun run build:payload`.
 
 ## Doc checks
 
