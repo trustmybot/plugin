@@ -15,6 +15,7 @@ import { scanTools } from '../tools/scan.js';
 import { compositeTools } from '../tools/composites.js';
 import { reindexIdle } from '../world-model/freshness.js';
 import { WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
+import { gitFailureLine } from '../tools/env-gate.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -293,6 +294,99 @@ describe('environment gate (GH 2866)', () => {
         [out['task_id']],
       )!;
       assert.match(decision.body, /Environment gate: reindex skipped because the server has no world-model graph/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe('gitFailureLine (GH 3055)', () => {
+  it("prefers git's fatal: line over the progress line before it", () => {
+    const stderr = "Preparing worktree (checking out 'b')\nfatal: '/w/b' already exists\n";
+    assert.equal(gitFailureLine(stderr, 'git failed'), "fatal: '/w/b' already exists");
+  });
+
+  it('prefers an error: line, and keeps the first line when no line names a cause', () => {
+    assert.equal(gitFailureLine('hint: x\nerror: pathspec y did not match\n', 'f'), 'error: pathspec y did not match');
+    assert.equal(gitFailureLine('remote: denied\nsecond line\n', 'f'), 'remote: denied');
+    assert.equal(gitFailureLine('  one line only  ', 'f'), 'one line only');
+    assert.equal(gitFailureLine('', 'exited 128'), 'exited 128');
+    assert.equal(gitFailureLine(undefined, 'exited 128'), 'exited 128');
+  });
+});
+
+describe('environment gate worktree stage with a leftover folder (GH 3055)', () => {
+  // A worktree removed by hand, then its branch: task_reopen recuts both.
+  async function failedTaskWithoutWorktree(fx: Fx, branchId: string): Promise<number> {
+    const out = parse(await provision(fx, branchId));
+    const taskId = out['task_id'] as number;
+    assert.equal(typeof taskId, 'number', JSON.stringify(out));
+    fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+    fx.git('worktree', 'remove', '--force', worktreeOf(fx, branchId));
+    fx.git('branch', '-D', branchId);
+    return taskId;
+  }
+
+  const registeredWorktrees = (fx: Fx): string[] =>
+    fx
+      .git('worktree', 'list', '--porcelain')
+      .split('\n')
+      .filter((l) => l.startsWith('worktree '))
+      .map((l) => l.slice('worktree '.length));
+
+  it('task_reopen removes an unregistered folder of empty directories and creates the worktree there', async () => {
+    const fx = await fixture();
+    try {
+      const taskId = await failedTaskWithoutWorktree(fx, 'feat/leftover-empty');
+      const wt = worktreeOf(fx, 'feat/leftover-empty');
+      mkdirSync(join(wt, '.claude', '.cc-writes'), { recursive: true });
+      mkdirSync(join(wt, 'nested', 'deeper'), { recursive: true });
+
+      const out = parse(await fx.tools['task_reopen']({ agent: 'bro', task_id: taskId, reason: 'rework after review' }));
+      assert.equal(out['env_gate_failed'], undefined, JSON.stringify(out));
+      const stages = (out['env_gate'] as { stages: Array<{ stage: string; status: string }> }).stages;
+      assert.deepEqual(stages.find((s) => s.stage === 'worktree'), { stage: 'worktree', status: 'pass' });
+      assert.ok(registeredWorktrees(fx).includes(wt), `${wt} is a registered worktree`);
+      assert.ok(existsSync(join(wt, 'pyapp', 'main.py')), 'the worktree is checked out');
+      assert.equal(existsSync(join(wt, 'nested')), false, 'the leftover directories are gone');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('task_reopen leaves an unregistered folder holding a file and refuses with a detail naming it occupied', async () => {
+    const fx = await fixture();
+    try {
+      const taskId = await failedTaskWithoutWorktree(fx, 'feat/leftover-file');
+      const wt = worktreeOf(fx, 'feat/leftover-file');
+      writeFiles(wt, { '.claude/.cc-writes/keep/notes.txt': 'keep me' });
+
+      const r = await fx.tools['task_reopen']({ agent: 'bro', task_id: taskId, reason: 'rework after review' });
+      assert.equal((r as Raw).isError, true, JSON.stringify(parse(r)));
+      const failed = parse(r)['env_gate_failed'] as { stage: string; detail: string };
+      assert.equal(failed.stage, 'worktree');
+      assert.ok(failed.detail.includes(`${wt} is occupied`), failed.detail);
+      assert.equal(readFileSync(join(wt, '.claude/.cc-writes/keep/notes.txt'), 'utf8'), 'keep me', 'the file survives');
+      assert.equal(registeredWorktrees(fx).includes(wt), false);
+      assert.equal(fx.git('branch', '--list', 'feat/leftover-file'), '', 'the recut branch is removed');
+      assert.equal(fx.db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [taskId])!.status, 'failed');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it("a failing git worktree add names git's fatal: line, not its progress line", async () => {
+    const fx = await fixture();
+    try {
+      // A file where the worktrees directory belongs: git prints "Preparing
+      // worktree" and then the fatal: line that names the cause.
+      writeFiles(fx.root, { '.claude/worktrees': 'not a directory' });
+      const r = await provision(fx, 'feat/blocked-parent');
+      assert.equal((r as Raw).isError, true, JSON.stringify(parse(r)));
+      const failed = parse(r)['env_gate_failed'] as { stage: string; detail: string };
+      assert.equal(failed.stage, 'worktree');
+      assert.match(failed.detail, /failed: fatal: .*\.claude\/worktrees/);
+      assert.doesNotMatch(failed.detail, /Preparing worktree/);
     } finally {
       fx.cleanup();
     }

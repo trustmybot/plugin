@@ -2,7 +2,8 @@
 // their DB transaction (GH 2866): it admits only an environment whose every
 // stage proved ready, and on a refusal removes what this call created.
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { existsSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import type { WorldModelGraph } from '../graph.js';
 import { joinToolchainPath, toolchainDirs } from '../hooks/swe-verification-gate.js';
@@ -71,6 +72,16 @@ function firstLine(text: string | undefined, fallback: string): string {
   return text?.trim().split('\n')[0] || fallback;
 }
 
+// Git prints progress such as "Preparing worktree (checking out 'b')" before
+// the line that names the cause, so a `fatal:` or `error:` line wins.
+export function gitFailureLine(stderr: string | undefined, fallback: string): string {
+  const cause = stderr
+    ?.split('\n')
+    .map((l) => l.trim())
+    .find((l) => /^(fatal|error):/.test(l));
+  return cause || firstLine(stderr, fallback);
+}
+
 function hasOrigin(repoPath: string): boolean {
   const res = runGit(repoPath, ['remote', 'get-url', 'origin']);
   return res.status === 0 && res.stdout.trim() !== '';
@@ -94,7 +105,7 @@ export function fetchBaseStage(repoPath: string, base: string): FetchStageResult
     ? res.error.message
     : res.status === null
       ? `ran past ${BASE_FETCH_TIMEOUT_MS / 1000}s`
-      : firstLine(stderr, `exited ${res.status}`);
+      : gitFailureLine(stderr, `exited ${res.status}`);
   return { ok: false, failure: { stage: 'fetch', detail: `git fetch origin ${base} failed: ${why}.` } };
 }
 
@@ -113,11 +124,50 @@ function isRegisteredWorktree(repoPath: string, worktreePath: string): boolean {
   return res.stdout.split('\n').some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === canonical);
 }
 
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// True only when the walk finds directories alone (a leftover such as
+// `.claude/.cc-writes/`); a file, symlink or unreadable entry keeps the folder.
+function holdsOnlyDirectories(path: string): boolean {
+  try {
+    if (!lstatSync(path).isDirectory()) return false;
+    return readdirSync(path, { withFileTypes: true }).every((e) => e.isDirectory() && holdsOnlyDirectories(join(path, e.name)));
+  } catch {
+    return false;
+  }
+}
+
+// An unregistered folder at the worktree path is cleared when it holds no
+// file; one that holds any is left for the caller to clear.
+function clearLeftoverFolder(worktreePath: string): { error: string } | null {
+  if (!pathExists(worktreePath)) return null;
+  if (!holdsOnlyDirectories(worktreePath)) {
+    return {
+      error: `worktree path ${worktreePath} is occupied: it is not a registered git worktree and holds files; clear it, then retry.`,
+    };
+  }
+  try {
+    rmSync(worktreePath, { recursive: true });
+  } catch (e) {
+    return { error: `could not remove the empty leftover folder ${worktreePath}: ${firstLine((e as Error).message, 'rm failed')}.` };
+  }
+  return null;
+}
+
 function addWorktree(repoPath: string, branchId: string, worktreePath: string): { reused: boolean } | { error: string } {
   if (isRegisteredWorktree(repoPath, worktreePath)) return { reused: true };
+  const leftover = clearLeftoverFolder(worktreePath);
+  if (leftover) return leftover;
   const res = runGit(repoPath, ['worktree', 'add', worktreePath, branchId], { timeout: WORKTREE_TIMEOUT_MS });
   if (res.status !== 0 || res.error) {
-    return { error: `git worktree add ${worktreePath} ${branchId} failed: ${firstLine(res.stderr, res.error?.message ?? 'git failed')}.` };
+    return { error: `git worktree add ${worktreePath} ${branchId} failed: ${gitFailureLine(res.stderr, res.error?.message ?? 'git failed')}.` };
   }
   return { reused: false };
 }
