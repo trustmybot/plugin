@@ -762,6 +762,7 @@ export interface ScopeSuggestion {
   tests: Array<{ path: string; via: string }>;
   runners: ScopeRunner[];
   unresolved_anchors: string[];
+  normalized_anchors?: Array<{ anchor: string; path_normalized: string }>;
   draft: { files: string[]; verification: string[] };
   warning?: 'semantic_unavailable';
 }
@@ -784,6 +785,25 @@ function importerPaths(db: TrajectoryDB, symbol: SymbolRow): string[] {
       [symbol.id, whole, symbol.repo, symbol.path, symbol.path],
     )
     .map((r) => r.path);
+}
+
+// GH 3175: agents copy paths from the project root (`plugin/mcp/...`) while the
+// world model stores repo-relative ones. The exact path is looked up first, so
+// a real directory named like the repo still wins; only on a miss whose first
+// segment names one of `repos` is it retried without that segment, in that repo.
+export function lookupRepoPath<T>(
+  repos: readonly string[],
+  path: string,
+  lookup: (repos: readonly string[], path: string) => T | null,
+): { value: T; path_normalized?: string } | null {
+  const exact = lookup(repos, path);
+  if (exact !== null) return { value: exact };
+  const slash = path.indexOf('/');
+  const head = slash < 0 ? path : path.slice(0, slash);
+  if (!head || !repos.includes(head)) return null;
+  const stripped = slash < 0 ? '' : path.slice(slash + 1);
+  const value = lookup([head], stripped);
+  return value === null ? null : { value, path_normalized: stripped };
 }
 
 function anchorSymbols(db: TrajectoryDB, repo: string, anchor: string): SymbolRow[] | 'file' | null {
@@ -841,14 +861,17 @@ export async function scopeSuggest(
   }
 
   const unresolved: string[] = [];
+  const normalized: Array<{ anchor: string; path_normalized: string }> = [];
   for (const anchor of anchors) {
-    const roots = anchorSymbols(db, repo, anchor);
-    if (roots === null) {
+    const found = lookupRepoPath([repo], anchor, (_, a) => anchorSymbols(db, repo, a));
+    if (found === null) {
       unresolved.push(anchor);
       continue;
     }
+    const roots = found.value;
+    if (found.path_normalized !== undefined) normalized.push({ anchor, path_normalized: found.path_normalized });
     if (roots === 'file') {
-      add(anchor, ANCHOR_SCORE, 'anchor');
+      add(found.path_normalized ?? anchor, ANCHOR_SCORE, 'anchor');
       continue;
     }
     for (const s of roots) {
@@ -899,6 +922,7 @@ export async function scopeSuggest(
     tests: testList,
     runners,
     unresolved_anchors: unresolved,
+    ...(normalized.length > 0 ? { normalized_anchors: normalized } : {}),
     draft: { files: draftFiles(ranked, searchScores), verification: commands.map((c) => frameUntrusted('runner-command', c)) },
     ...(warning ? { warning } : {}),
   };
@@ -1428,7 +1452,7 @@ export function worldModelTools(
         const repo = resolved.name;
         const source = sourceOf(resolved);
 
-        const path = (args['path'] as string | undefined) ?? '';
+        const pathArg = (args['path'] as string | undefined) ?? '';
         const depthArg = args['depth'];
         const depth: number | null =
           depthArg === null ? null : typeof depthArg === 'number' ? depthArg : 2;
@@ -1449,12 +1473,17 @@ export function worldModelTools(
           return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo, args['agent']) });
         }
 
-        const rows: DirRow[] = graph.subtree(repo, path, depth);
-        const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
-        const tree = buildTree(rows, path, depth, { nodeCounter, covers: coveringRunners(db, repo) });
-        if (!tree) {
-          return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo, args['agent']) });
+        const covers = coveringRunners(db, repo);
+        const found = lookupRepoPath([repo], pathArg, (_, p) => {
+          const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
+          const tree = buildTree(graph.subtree(repo, p, depth), p, depth, { nodeCounter, covers });
+          return tree ? { tree, nodeCounter } : null;
+        });
+        if (!found) {
+          return ok({ repo, ...source, root: null, warning: 'path-not-found', path: pathArg, unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo, args['agent']) });
         }
+        const { tree, nodeCounter } = found.value;
+        const path = found.path_normalized ?? pathArg;
 
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
         if (path !== '') {
@@ -1468,6 +1497,7 @@ export function worldModelTools(
           ...source,
           ...freshnessFields(fr),
           ...staleFlag(fr),
+          ...(found.path_normalized !== undefined ? { path_normalized: found.path_normalized } : {}),
           root: fields ? projectTree(tree, fields) : tree,
           ...(path === '' ? { coverage: graph.fileCoverage(repo) } : {}),
           ...(truncated ? { truncated: true } : {}),
@@ -1609,7 +1639,7 @@ export function worldModelTools(
         }
         const id = args['id'];
         let symbol: SymbolRow | null = null;
-        let source: { repo_source?: RepoSource } = {};
+        let source: { repo_source?: RepoSource; path_normalized?: string } = {};
         let fresh: Map<string, Freshness> = new Map();
         if (typeof id === 'number') {
           const before = symbolById(db, id);
@@ -1628,9 +1658,17 @@ export function worldModelTools(
           const pathArg = args['path'];
           const path = typeof pathArg === 'string' && pathArg ? pathArg : undefined;
           fresh = await freshenAll(allRepos ? resolved.available_repos : [repo], args['agent']);
-          const matches = allRepos
-            ? resolved.available_repos.flatMap((r) => symbolsByName(db, r, name, path))
-            : symbolsByName(db, repo, name, path);
+          const searched = allRepos ? resolved.available_repos : [repo];
+          const byName = (repos: readonly string[], p: string | undefined): SymbolRow[] =>
+            repos.flatMap((r) => symbolsByName(db, r, name, p));
+          const found = path === undefined
+            ? null
+            : lookupRepoPath(searched, path, (repos, p) => {
+                const hits = byName(repos, p);
+                return hits.length > 0 ? hits : null;
+              });
+          const matches = path === undefined ? byName(searched, undefined) : found?.value ?? [];
+          if (found?.path_normalized !== undefined) source = { ...source, path_normalized: found.path_normalized };
           if (matches.length === 0) {
             const indexError = allRepos ? undefined : indexErrorOf(lastScan(db), repo).index_error;
             const message =
