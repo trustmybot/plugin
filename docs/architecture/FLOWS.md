@@ -101,7 +101,7 @@ flowchart LR
 
 ### 3.2 Non-code task
 
-A docs or prompts change bro writes itself, in a task worktree marked with that kind; code-reviewer grades it with the doc-review skill, and bro's self-check with that skill before review is planned (GH 3073).
+A docs or prompts change bro writes itself, in a task worktree marked with that kind; code-reviewer grades it with the doc-review skill; bro self-checks with the same skill before review.
 
 ```mermaid
 flowchart LR

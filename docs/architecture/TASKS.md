@@ -91,7 +91,7 @@ flowchart TD
     A[Human asks] --> B["bro reads the world model and records the goal<br/>WM: a read brings a behind index forward<br/>DB insert: issue, intent, reuse-or-build note"]
     B --> C["Provision, task marked docs or prompts<br/>DB insert: decision, task with its kind<br/>WM: base indexed"]
     C --> D["bro edits in the task's worktree<br/>DB insert: bro's turns metered, every deny and tool output"]
-    D --> E["bro self-checks with the doc-review skill (planned, GH 3073)"]
+    D --> E["bro self-checks with the doc-review skill"]
     E --> F["bro closes; every check passes, every changed path is docs or prompts<br/>DB insert: verification run, close lints<br/>DB update: commit, report, task completed"]
     F --> G["code-reviewer passes it with the same checklist<br/>DB insert: verdict and any nits"]
     G --> H["bro closes the task, integrates if the base moved<br/>DB update: task closed · worktree removed"]
@@ -107,7 +107,7 @@ flowchart TD
     P0[Provision fails at any stage] --> P1["Nothing written; bro fixes the cause"]
     D0[Edit on a code path, outside the task's worktree, or with no marked task running] --> D1["DB insert: the refusal, audited, naming swe"]
     D1 --> D2["The code part becomes a code task for swe<br/>DB insert: task, as in the code-task charts"]
-    E0[Self-check finds a blocking result, planned] --> E1[bro fixes it before closing]
+    E0[Self-check finds a blocking result] --> E1[bro fixes it before closing]
     C0[A close check fails, or a changed path is code] --> C1["DB insert: failing verification or lint run<br/>task stays running; bro fixes and closes again"]
     V0[code-reviewer fails it] --> V1["DB insert: verdict and blocking findings<br/>DB update: task reopened, running at high effort"]
     V1 --> V2[bro reworks it itself and closes again]
@@ -119,7 +119,7 @@ flowchart TD
 | Ask, ground and intent | Human → bro | judgment | as in 3.1 |
 | Provision | bro | deterministic | as in 3.1, plus the task's kind, docs or prompts, which sets the paths bro may edit. The path kinds are read at the task's base commit, so the task cannot widen its own limits |
 | Author | bro | deterministic | bro writes only inside the running task's worktree and only on paths of its kind; a code path, an edit in the main checkout or an unmarked task is refused, and the refusal names swe |
-| Doc review | bro | judgment | planned (GH 3073): bro self-checks with the doc-review skill that swe and code-reviewer preload, so the change passes it before review: the rubric loaded at the base ref, each rubric criterion the change touches graded, each claim about the code checked against the source (another doc is not evidence), and the other prompt files scanned for contradictions, with one probe per claim and per rule in the report |
+| Doc review | bro | judgment | bro self-checks with the doc-review skill that swe and code-reviewer preload, so the change passes it before review: the rubric loaded at the base ref, each rubric criterion the change touches graded, each claim about the code checked against the source (another doc is not evidence), and the other prompt files scanned for contradictions, with one probe per claim and per rule in the report |
 | Close | bro | deterministic | the same checks as swe's close in 3.1, recorded for the commit; every path the task changed since it left its PR target must be docs or prompts, and a code or mixed change is refused |
 | Review | code-reviewer | judgment | through 3.3, graded with the same checklist loaded from the same base ref, so a change that passes the author's check passes review for the same reasons. The reviewer spot-checks only a claim the author recorded no probe for, or one it doubts, and fails only on a rubric fail, a false or unverifiable claim, or a contradiction; anything else is a nit |
 | Close task, push, merge | bro, then Human | as in 3.1 | as in 3.1 |
