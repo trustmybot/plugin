@@ -2153,6 +2153,49 @@ describe('coveredDirs: a bare package-manager test line covers its cwd (GH 3191)
   }
 });
 
+describe('coveredDirs: a package-manager subcommand is a name, not a dir (GH 3199)', () => {
+  const known = repoPaths(['src/a.ts', 'test/a.test.ts', 'lint/rules.ts', 'scripts/run.ts']);
+  const cases: Array<[string, string[]]> = [
+    ['npm test', ['.']],
+    ['pnpm test', ['.']],
+    ['yarn test', ['.']],
+    ['yarn lint', []],
+    ['npm test src', ['src']],
+    ['npm test test', ['test']],
+    ['npm run lint -- src', ['src']],
+    ['bun scripts/run.ts', ['scripts']],
+  ];
+  for (const [command, dirs] of cases) {
+    it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, '.', known), dirs);
+    });
+  }
+});
+
+describe('coveredDirs: a value-taking flag keeps its value a path and its subcommand a name (GH 3199)', () => {
+  const known = repoPaths(['web/a.ts', 'test/a.test.ts', 'lint/rules.ts']);
+  const cases: Array<[string, string[]]> = [
+    ['npm --prefix web test', ['web']],
+    ['yarn --cwd web test', ['web']],
+    ['pnpm -C web test', ['web']],
+    ['pnpm --dir web test', ['web']],
+    ['bun --cwd web test', ['web']],
+    ['pnpm --filter web test', ['web']],
+    ['pnpm -F web test', ['web']],
+    ['yarn --workspace web test', ['web']],
+    ['npm -w web test', ['web']],
+    ['npm --prefix web run test', ['web']],
+    ['npm --prefix web run --silent lint', ['web']],
+    ['npm --prefix=web test', ['.']],
+    ['npm --silent test', ['.']],
+  ];
+  for (const [command, dirs] of cases) {
+    it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, '.', known), dirs);
+    });
+  }
+});
+
 describe('scan_run records no covers edge for a script name or echo text (GH 2521)', () => {
   const ws = mkdtempSync(join(tmpdir(), 'wm-covers-names-'));
   const root = join(ws, 'app');
