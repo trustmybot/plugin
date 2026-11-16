@@ -579,7 +579,7 @@
   },
   "mcp/trajectory-server/src/parsing/runners.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 10
+      "count": 9
     }
   },
   "mcp/trajectory-server/src/platform.ts": {

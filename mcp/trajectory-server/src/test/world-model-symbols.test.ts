@@ -2153,6 +2153,25 @@ describe('coveredDirs: a bare package-manager test line covers its cwd (GH 3191)
   }
 });
 
+describe('coveredDirs: a package-manager subcommand is a name, not a dir (GH 3199)', () => {
+  const known = repoPaths(['src/a.ts', 'test/a.test.ts', 'lint/rules.ts', 'scripts/run.ts']);
+  const cases: Array<[string, string[]]> = [
+    ['npm test', ['.']],
+    ['pnpm test', ['.']],
+    ['yarn test', ['.']],
+    ['yarn lint', []],
+    ['npm test src', ['src']],
+    ['npm test test', ['test']],
+    ['npm run lint -- src', ['src']],
+    ['bun scripts/run.ts', ['scripts']],
+  ];
+  for (const [command, dirs] of cases) {
+    it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, '.', known), dirs);
+    });
+  }
+});
+
 describe('scan_run records no covers edge for a script name or echo text (GH 2521)', () => {
   const ws = mkdtempSync(join(tmpdir(), 'wm-covers-names-'));
   const root = join(ws, 'app');

@@ -162,10 +162,13 @@ function nameArgs(words: Word[]): Set<number> {
   } else if (TARGET_RUNNERS.has(tool)) {
     for (let i = 1; i < words.length; i++) if (!words[i]!.text.includes('/')) out.add(i);
   } else if (PACKAGE_MANAGERS.has(tool)) {
-    const run = nextBare(words, 1);
-    if (run < words.length && RUN_SCRIPT.has(words[run]!.text)) {
-      out.add(run);
-      const script = nextBare(words, run + 1);
+    // The subcommand is a name (`npm test`, `yarn lint`); one with a '/' is a
+    // file the manager runs (`bun scripts/run.ts`).
+    const sub = nextBare(words, 1);
+    const subcommand = sub < words.length ? words[sub].text : null;
+    if (subcommand !== null && !subcommand.includes('/')) out.add(sub);
+    if (subcommand !== null && RUN_SCRIPT.has(subcommand)) {
+      const script = nextBare(words, sub + 1);
       if (script < words.length) out.add(script);
     }
   }

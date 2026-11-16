@@ -1,0 +1,2 @@
+### Fixed
+- **`npm test` covers the directory it runs from even when the repo has a top-level `test/` directory** (GH 3199): a package manager's subcommand, such as `test` in `npm test` or `lint` in `yarn lint`, is now read as a script name and never as a directory. A path after it, as in `npm test src`, still names a directory, and a subcommand with a `/`, as in `bun scripts/run.ts`, still names the file it runs.
