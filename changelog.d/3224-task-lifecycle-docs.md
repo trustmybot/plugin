@@ -1,0 +1,2 @@
+### Changed
+- **The architecture docs design the task lifecycle as append-only events** (GH 3224): docs/architecture/ERD.md now states the trajectory DB's two design requirements, trajectory purpose and consistent naming, and an append-only task history rule. docs/architecture/TASKS.md adds the task lifecycle state machine shared by truest and agile tasks. docs/architecture/AGILE.md records queued, batch-reviewed and waived as lifecycle states. The ERD also flags hook-call telemetry in audit as drift (GH 3229).

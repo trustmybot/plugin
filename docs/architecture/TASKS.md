@@ -8,7 +8,7 @@ Every record a task leaves (issue, intent, decision, task, runs, verdicts and fi
 
 Any change that touches code. bro plans and gates, swe implements, code-reviewer reviews, and the Human merges. An architectural change (a new boundary or module, a schema or public API change, or an external side effect) is a code task with one more record: the decision bro writes at provision names the change and its blast radius, and bro's design judgment at task close weighs the change against it.
 
-In the charts of 3.1 and 3.2, **DB insert** adds rows to the trajectory DB, **DB update** changes rows already there, and **WM** marks where the world model is brought forward, indexed or scanned. The world model indexes each repo at origin's copy of its PR target, so a task's own commit enters it only after the PR merges. Every issue, task and discussion write also syncs to the issue tracker when the project turns sync on.
+In the charts of 3.1 and 3.2, **DB insert** adds rows to the trajectory DB, **DB update** changes rows already there (a task's change of state becomes a lifecycle event insert once [Task lifecycle](#task-lifecycle) ships), and **WM** marks where the world model is brought forward, indexed or scanned. The world model indexes each repo at origin's copy of its PR target, so a task's own commit enters it only after the PR merges. Every issue, task and discussion write also syncs to the issue tracker when the project turns sync on.
 
 ### Code task succeeds
 
@@ -125,6 +125,43 @@ flowchart TD
 | Close task, push, merge | bro, then Human | as in 3.1 | as in 3.1 |
 
 Docs and prompts are the only non-code kinds today; other kinds will arrive as more review skills for code-reviewer, on the same steps. A swe task marked prompt-bearing stays a code task but runs the same checklist before it closes.
+
+## Task lifecycle
+
+Every task of both kinds moves through one state machine, and every move is recorded as a lifecycle event, never as an edit to the task. Planned, GH 3224; [ERD.md](ERD.md#rules-the-data-keeps) gives the rule the data keeps.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: provisioned
+    pending --> running: author spawned
+    running --> pending: spawn rolled back
+    running --> completed: author closes, checks pass
+    running --> failed: policy deny, spec contradiction or broken environment
+    completed --> in_review: handed to code-reviewer
+    in_review --> reviewed: verdict pass
+    in_review --> running: verdict fail, reopened at high effort
+    reviewed --> closed: bro closes
+    completed --> closed: bro closes without a review, recorded as a bypass
+    completed --> queued: agile close, merged into the feature branch
+    queued --> batch_reviewed: the group's review passes
+    queued --> waived: the Human waives the branch review
+    batch_reviewed --> closed: the feature branch merges
+    waived --> closed: the feature branch merges
+    completed --> running: bro reopens
+    failed --> running: bro reopens
+    closed --> running: bro reopens after a failed check or a PR comment
+    closed --> in_review: a rebased commit whose pass does not carry
+    pending --> escalated: retried as a new task
+    running --> escalated: retried as a new task
+    completed --> escalated: retried as a new task
+    failed --> escalated: retried as a new task
+    closed --> escalated: integrate conflict, retried as a new task
+```
+
+- **Every move is one event.** The chart lists the only moves the DB accepts. Each move names who made it, why, and the record it rests on: a verification run, a lint run, a review verdict or a review batch.
+- **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes into the queue, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
+- **Retries keep their lineage.** A task retried after escalation names the task it retries, so a chain of retries reads as one line.
+- **Auditing is a join.** A task's story is its events, in sequence order, joined with the runs, verdicts and batches they point at. "Why three re-runs?" is the causes on its moves back to running. "Why did it miss a close?" is the last event before the chain stopped.
 
 ## 3.3 Push gate
 

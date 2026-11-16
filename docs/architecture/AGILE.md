@@ -74,6 +74,7 @@ flowchart LR
 - **Queued** means merged into the feature branch and waiting for review.
 - **Batch-reviewed** means the feature branch's review passed for the task's group. The move is recorded with the review that cleared it.
 - **Waived** means the Human let the feature branch merge without that review. The waiver names the branch, and the audit log keeps it.
+- **Review states are lifecycle states.** Queued, batch-reviewed and waived are states of the task lifecycle in [TASKS.md](TASKS.md#task-lifecycle), and each move into one is a lifecycle event, not a separate record. A group review is recorded once, as a review batch. In the same transaction, every task in the group moves to batch-reviewed, and each move points at that batch. Planned, GH 3224.
 
 ## Task flow
 
