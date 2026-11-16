@@ -26,6 +26,7 @@ import {
   fileRefKey,
   IMPACT_MAX_DEPTH,
   keywordSearchSymbols,
+  nearSymbols,
   staleFiles,
   symbolById,
   symbolCard,
@@ -1599,10 +1600,21 @@ export function worldModelTools(
             : symbolsByName(db, repo, name, path);
           if (matches.length === 0) {
             const indexError = allRepos ? undefined : indexErrorOf(lastScan(db), repo).index_error;
-            return err(
+            const message =
               `symbol ${name} not found in ${allRepos ? 'any repo' : `repo ${repo || '(none)'}`}` +
-                (indexError ? `; the last scan's symbol index failed for this repo: ${indexError}` : ''),
-            );
+              (indexError ? `; the last scan's symbol index failed for this repo: ${indexError}` : '');
+            // The path arg may be what's wrong, so candidates come from the whole repo.
+            const didYouMean = nearSymbols(db, allRepos ? resolved.available_repos : [repo], name);
+            if (didYouMean.length === 0) return err(message);
+            return ok({
+              symbol: null,
+              ...source,
+              warning: 'not_found',
+              did_you_mean: didYouMean,
+              message,
+              ...(allRepos ? {} : checkoutLag(db, repo)),
+              ...blockOf(allRepos ? resolved.available_repos : repo, args['agent']),
+            });
           }
           const definitions = matches.filter((m) => m.kind !== 'module');
           if (definitions.length > 1) {
