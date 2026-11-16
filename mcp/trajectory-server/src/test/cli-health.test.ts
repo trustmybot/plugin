@@ -175,8 +175,8 @@ interface Run {
   rc: number;
 }
 
-function runCli(env: NodeJS.ProcessEnv, cli = CLI, cwd = sandbox): Run {
-  const r = spawnSync(process.execPath, ['--experimental-sqlite', cli, 'health'], {
+function runCli(env: NodeJS.ProcessEnv, cli = CLI, cwd = sandbox, nodeFlags = ['--experimental-sqlite']): Run {
+  const r = spawnSync(process.execPath, [...nodeFlags, cli, 'health'], {
     env: { PATH: `${stubDir}:/usr/bin:/bin`, HOME: join(sandbox, 'home'), ...env },
     cwd,
     encoding: 'utf8',
@@ -352,6 +352,20 @@ describe('cli.js health', () => {
     assert.ok(out.includes('db:        :memory:'), ':memory: override is preserved');
     assert.ok(out.includes('PASS  world-model: in-memory trajectory DB'), ':memory: world model PASS');
     assert.ok(!out.includes('INFO  world-model'), ':memory: has no leftover graph file');
+  });
+
+  it('check4g world-model: no usable node:sqlite → skip line names node:sqlite, even with sqlite3 on PATH', () => {
+    const f = resetScenario('wm-no-node-sqlite');
+    // The CLI imports node:sqlite statically, so hide it only from the runtime probe, as on a Node whose node:sqlite is unusable.
+    const preload = join(sandbox, 'hide-node-sqlite.mjs');
+    writeFileSync(
+      preload,
+      "const real = process.getBuiltinModule;\nprocess.getBuiltinModule = (id) => (id === 'node:sqlite' ? undefined : real.call(process, id));\n",
+    );
+    // PATH keeps /usr/bin, so a sqlite3 CLI there must not count as a usable engine.
+    const { out } = runCli(scenarioEnv(f), CLI, sandbox, ['--experimental-sqlite', '--import', preload]);
+    assert.ok(out.includes('PASS  world-model: node:sqlite unavailable — skipping'), out);
+    assert.ok(!out.includes('sqlite3 unavailable'), out);
   });
 
   it('server-log default: resolves to <db-dir>/logs/mcp-server.log, never under HOME', () => {

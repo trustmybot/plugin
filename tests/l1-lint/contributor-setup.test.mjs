@@ -1,4 +1,4 @@
-// L1 lint: contributor setup stays wired (GH 3151, GH 3146) — package.json pins the Bun of .bun-version, worktree setup installs missing deps before build:payload, and install-deps.ts installs only the lockfile roots with no node_modules.
+// L1 lint: contributor setup stays wired (GH 3151, GH 3146, GH 3150) — package.json pins the Bun of .bun-version, every package.json declares the Node floor, worktree setup installs missing deps before build:payload, and install-deps.mts installs only the lockfile roots with no node_modules.
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,7 +8,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const INSTALL_SCRIPT = 'scripts/maintenance/install-deps.ts';
+const INSTALL_SCRIPT = 'scripts/maintenance/install-deps.mts';
+const NODE_FLOOR = '>=22.13.0';
+const NODE_PACKAGES = ['package.json', 'mcp/trajectory-server/package.json', 'dashboard/package.json'];
 const INSTALL_CMD = `node --experimental-strip-types ${INSTALL_SCRIPT}`;
 
 function readJson(root, rel) {
@@ -45,6 +47,11 @@ test('package.json pins the Bun version of .bun-version', () => {
   assert.deepEqual(bunPinProblems(ROOT), []);
 });
 
+test('every package.json declares the Node floor (GH 3150)', () => {
+  const floors = Object.fromEntries(NODE_PACKAGES.map((rel) => [rel, readJson(ROOT, rel).engines?.node]));
+  assert.deepEqual(floors, Object.fromEntries(NODE_PACKAGES.map((rel) => [rel, NODE_FLOOR])));
+});
+
 test('bunPinProblems flags a packageManager that disagrees with .bun-version', () => {
   const dir = mkdtempSync(join(tmpdir(), 'contributor-setup-pin-'));
   try {
@@ -69,7 +76,7 @@ test('setup runs the install script before build:payload', () => {
   assert.equal(readJson(ROOT, 'package.json').scripts.setup, `${INSTALL_CMD} && bun run build:payload`);
 });
 
-// A temp copy of the repo pieces install-deps.ts reads, plus a PATH dir with a stub bun that logs each call's cwd and args.
+// A temp copy of the repo pieces install-deps.mts reads, plus a PATH dir with a stub bun that logs each call's cwd and args.
 function sandbox({ rootModules, dashboardModules, withBun }) {
   const dir = mkdtempSync(join(tmpdir(), 'contributor-setup-'));
   const repo = join(dir, 'repo');
@@ -77,6 +84,8 @@ function sandbox({ rootModules, dashboardModules, withBun }) {
   mkdirSync(join(repo, 'dashboard'));
   copyFileSync(join(ROOT, INSTALL_SCRIPT), join(repo, INSTALL_SCRIPT));
   copyFileSync(join(ROOT, '.bun-version'), join(repo, '.bun-version'));
+  // The root package.json decides how Node loads the script (its missing "type" drew F15-1's warning).
+  copyFileSync(join(ROOT, 'package.json'), join(repo, 'package.json'));
   if (rootModules) mkdirSync(join(repo, 'node_modules'));
   if (dashboardModules) mkdirSync(join(repo, 'dashboard', 'node_modules'));
   const bin = join(dir, 'bin');
@@ -132,8 +141,11 @@ test('install-deps exits 127 naming Bun, its version and bun.sh when bun is not 
     const r = s.run();
     const version = readFileSync(join(ROOT, '.bun-version'), 'utf8').trim();
     assert.equal(r.status, 127);
-    assert.ok(r.stderr.includes(`Bun ${version}`) && r.stderr.includes('https://bun.sh'), r.stderr);
-    assert.equal(r.stderr.trim().split('\n').length, 1, r.stderr);
+    // The whole stderr is the script's one line: no Node warning (MODULE_TYPELESS_PACKAGE_JSON, F15-1) ahead of it.
+    const lines = r.stderr.split('\n');
+    assert.deepEqual(lines.slice(1), [''], r.stderr);
+    assert.ok(lines[0].includes(`Bun ${version}`) && lines[0].includes('https://bun.sh'), r.stderr);
+    assert.ok(!r.stderr.includes('MODULE_TYPELESS_PACKAGE_JSON'), r.stderr);
   } finally {
     rmSync(s.dir, { recursive: true, force: true });
   }

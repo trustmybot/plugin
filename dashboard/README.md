@@ -138,7 +138,7 @@ Bars are at most 24 px wide with a 2 px gap between neighbours, a translucent wa
 
 ## Build
 
-Requires Node 22+ and Bun. The server imports trajectory-server source, so run `bun install --frozen-lockfile` at the repo root too for its types. The build type-checks, bundles the server and the change-impact worker with esbuild (two entry points, `dist/server.mjs` and `dist/change-impact-worker.mjs`), bundles the app with esbuild (code splitting: `app.js` plus lazy chunks under `dist/web/chunks/`) and builds the CSS with Tailwind; every package is a devDependency. Both esbuild calls pass `--preserve-symlinks`: chunk names hash the module paths esbuild resolves, and a task worktree links `node_modules` to the main checkout's, so without the flag a worktree build renames every chunk.
+Requires Node 22.13+ and Bun. The server imports trajectory-server source, so run `bun install --frozen-lockfile` at the repo root too for its types. The build type-checks, bundles the server and the change-impact worker with esbuild (two entry points, `dist/server.mjs` and `dist/change-impact-worker.mjs`), bundles the app with esbuild (code splitting: `app.js` plus lazy chunks under `dist/web/chunks/`) and builds the CSS with Tailwind; every package is a devDependency. Both esbuild calls pass `--preserve-symlinks`: chunk names hash the module paths esbuild resolves, and a task worktree links `node_modules` to the main checkout's, so without the flag a worktree build renames every chunk.
 
 ```bash
 cd dashboard

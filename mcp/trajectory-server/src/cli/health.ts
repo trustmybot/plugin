@@ -57,8 +57,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { constants } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dbPath, dbReadRo, GATE_READ_ERROR, haveSqlite, projectRoot } from '../hooks/lib/db.js';
+import { dbPath, dbReadRo, GATE_READ_ERROR, projectRoot } from '../hooks/lib/db.js';
 import { byteCompare, commandOnPath } from '../hooks/lib/host.js';
+import { loadNodeSqlite } from '../hooks/lib/sqlite-shell.js';
 import {
   duplicateDisableCmds,
   duplicateInstalls,
@@ -244,7 +245,7 @@ export function health(_argv: readonly string[], env: NodeJS.ProcessEnv, io: Cli
   const self = selfRoot(env);
   const name = manifestName(self);
   const projectDir = env.CLAUDE_PROJECT_DIR ?? '';
-  const sqliteOk = haveSqlite(env);
+  const sqliteOk = loadNodeSqlite() !== null;
   const roEnv: NodeJS.ProcessEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: DB_READ_TIMEOUT_MS };
 
   const db = env.TRAJECTORY_DB_PATH === MEMORY ? MEMORY : (dbPath(env) ?? '');
@@ -371,7 +372,7 @@ export function health(_argv: readonly string[], env: NodeJS.ProcessEnv, io: Cli
   } else if (db === MEMORY) {
     r.pass('world-model: in-memory trajectory DB — nothing on disk to probe');
   } else if (!sqliteOk) {
-    r.pass('world-model: sqlite3 unavailable — skipping');
+    r.pass('world-model: node:sqlite unavailable — skipping');
   } else if (wmTableCount === GATE_READ_ERROR || wmCounts === GATE_READ_ERROR || wmTableCount === '') {
     r.fail('world-model: cannot read the world-model tables');
     r.remediate(`Is the DB present/queryable? db=${db}`);
