@@ -140,6 +140,40 @@ describe('feature-branch-merge-gate', () => {
     assert.match(await judge(`gh pr create --head ${FEATURE}`), new RegExp(`task\\(s\\) ${third} still queued`), 'a task merged after the waiver re-denies');
   });
 
+  it('denies every PR-create spelling from a queued feature branch, allows it after a waiver, and leaves read-only calls alone (GH 2225)', async () => {
+    const spell = 'feat/agile-spellings';
+    const queued = mergeTask(spell, 'eee5555');
+    const spellings = [
+      `gh -R o/r pr create --head ${spell}`,
+      `gh --repo=o/r pr new -H o:${spell}`,
+      `gh pr -R o/r new --head=${spell}`,
+      `glab -R o/r mr new -s ${spell}`,
+      `glab --repo o/r mr create --source-branch=${spell}`,
+      `gh api repos/o/r/pulls -f head=${spell} -f base=dev -f title=t`,
+      `gh api -X POST /repos/o/r/pulls -F head=o:${spell}`,
+      `gh api --method=post repos/o/r/pulls --field=head=${spell}`,
+      `gh api graphql -f query='mutation { createPullRequest(input: {repositoryId: "R", baseRefName: "dev", headRefName: "${spell}", title: "t"}) { pullRequest { id } } }'`,
+      `gh api graphql -f query='mutation($h: String!) { createPullRequest(input: {headRefName: $h}) { pullRequest { id } } }' -f headRefName=${spell}`,
+    ];
+    for (const command of spellings) {
+      assert.match(await judge(command), new RegExp(`feature branch ${spell} carries agile task\\(s\\) ${queued} still queued`), command);
+    }
+    for (const command of [
+      `gh -R o/r pr view --head ${spell}`,
+      `gh pr list --head ${spell}`,
+      `gh api repos/o/r/pulls -f head=${spell} -X GET`,
+      `gh api repos/o/r/pulls?head=${spell}`,
+      `gh api repos/o/r/pulls/7 -f head=${spell}`,
+      `gh api graphql -f query='{ repository(owner: "o", name: "r") { pullRequests(headRefName: "${spell}") { totalCount } } }'`,
+    ]) {
+      assert.equal(await judge(command), '', command);
+    }
+
+    const waived = await waive(spell);
+    assert.ok(!waived.isError, waived.content[0].text);
+    for (const command of spellings) assert.equal(await judge(command), '', command);
+  });
+
   it('allows a head that is no feature branch, other commands, and a missing DB', async () => {
     mergeTask('feat/agile-other', 'ddd4444');
     for (const command of [
