@@ -61,7 +61,7 @@ swe never fetches, rebases or pulls. When `<base>` moves after a task passed rev
 
 ## Agile feature branches
 
-Planned (GH 2225). In agile review mode a long-lived feature branch stands between the task branches and `<base>`. Each `<feature>` is cut from the feature branch's tip instead of `<base>`, and bro merges it back into the feature branch locally once the task closes, with no PR. bro pushes the feature branch as a backup and brings `<base>` into it when `<base>` moves. Only the feature branch itself reaches `<base>`, as one PR after its review passes or the Human waives it. [AGILE.md](AGILE.md) covers every case.
+Shipped for the project review mode; the branch's review and a lane's feature branch are planned (GH 2225, GH 3025), so today only a Human waiver lets the branch through. In agile review mode a long-lived feature branch stands between the task branches and `<base>`. Each `<feature>` is cut from the feature branch's tip instead of `<base>`, and bro merges it back into the feature branch locally once the task closes, with no PR. bro pushes the feature branch as a backup and brings `<base>` into it at the milestone, or earlier in an optional periodic sync. Only the feature branch itself reaches `<base>`, as one PR after its review passes or the Human waives it. [AGILE.md](AGILE.md) covers every case.
 
 ## Multi-repo workspaces
 

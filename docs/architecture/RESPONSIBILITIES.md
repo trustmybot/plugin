@@ -48,7 +48,7 @@ Scope is recorded at the review handoff and judged at close: bro either has the 
 - **Reviews from the records.** It reads the brief, the recorded verification run and the scope record, re-runs none of swe's checks, and spends the review on its own probes of what the diff's dependents rely on.
 - **Signs off with a typed verdict.** The server derives the reviewer's identity itself and refuses a verdict not independent of the swe that wrote the commit.
 - **Never edits files** and never changes task status.
-- **Under agile review mode, reviews once per feature branch.** Planned (GH 2225): the per-task gate moves to one batched review of the feature branch before it merges into the working branch, for code and no-code tasks alike, and bro closes each task and merges it into the feature branch without a per-task verdict. [AGILE.md](AGILE.md) covers every case.
+- **Under agile review mode, reviews once per feature branch.** bro already closes each agile task and folds it into the feature branch without a per-task verdict, for code and no-code tasks alike. Planned (GH 2225): the per-task gate moves to one batched review of the feature branch before it merges into the working branch. [AGILE.md](AGILE.md) covers every case.
 
 ## Consultants
 
