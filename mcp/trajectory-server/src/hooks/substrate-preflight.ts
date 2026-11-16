@@ -16,7 +16,7 @@ export const GATE_NAME = 'substrate-preflight';
 type Probe = readonly [bin: string, why: string, present: (env: NodeJS.ProcessEnv) => boolean];
 
 export const PROBES: readonly Probe[] = [
-  ['node:sqlite', 'task/spawn gates cannot verify state (needs Node.js 22.13 or later)', haveSqlite],
+  ['node:sqlite', 'task/spawn gates cannot verify state (needs Node.js 22.16 or later)', haveSqlite],
   ['git', 'branch guards and commit-message lint are inoperative', (env) => commandOnPath('git', env)],
   ['node', 'MCP trajectory-server and scan tooling cannot start', (env) => commandOnPath('node', env)],
 ];

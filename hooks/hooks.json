@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"require('node:sqlite')\" >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node, or node older than 22.13 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.13 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart",
+            "command": "node -e \"process.exit(typeof require('node:sqlite').StatementSync.prototype.setReturnArrays==='function'?0:1)\" >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node, or node older than 22.16 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.16 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart",
             "timeout": 32
           },
           {
@@ -248,7 +248,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"require('node:sqlite')\" >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node, or node older than 22.13 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.13 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" WorktreeCreate",
+            "command": "node -e \"process.exit(typeof require('node:sqlite').StatementSync.prototype.setReturnArrays==='function'?0:1)\" >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node, or node older than 22.16 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.16 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" WorktreeCreate",
             "timeout": 19
           }
         ]

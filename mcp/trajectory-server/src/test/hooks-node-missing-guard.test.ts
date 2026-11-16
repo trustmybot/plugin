@@ -1,10 +1,11 @@
 /**
  * Node guard (GH 2215, GH 3150): with `node` off PATH every router
  * registration exits 127 before substrate-preflight can name the cause, and a
- * Node older than 22.13 cannot load node:sqlite without a flag, so the
- * SessionStart default registration and the WorktreeCreate one start with a
- * POSIX guard that loads node:sqlite and, when that fails, prints the TMB
- * DEGRADED line and exits 2. The fail-closed PreToolUse registrations keep
+ * Node older than 22.16 has no node:sqlite the hooks can read with (flagged
+ * on older Nodes, no StatementSync.prototype.setReturnArrays before 22.16), so
+ * the SessionStart default registration and the WorktreeCreate one start with
+ * a POSIX guard that checks for setReturnArrays and, when that fails, prints
+ * the TMB DEGRADED line and exits 2. The fail-closed PreToolUse registrations keep
  * `onFailure: "block"` unguarded.
  */
 import assert from 'node:assert/strict';
@@ -26,8 +27,8 @@ interface HooksJson {
 
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as HooksJson;
 const MESSAGE =
-  'TMB DEGRADED: missing node, or node older than 22.13 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.13 or later on PATH and restart Claude Code.';
-const PROBE = `node -e "require('node:sqlite')"`;
+  'TMB DEGRADED: missing node, or node older than 22.16 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.16 or later on PATH and restart Claude Code.';
+const PROBE = `node -e "process.exit(typeof require('node:sqlite').StatementSync.prototype.setReturnArrays==='function'?0:1)"`;
 const GUARD = `${PROBE} >/dev/null 2>&1 || { echo '${MESSAGE}' >&2; exit 2; }; `;
 const tail = (event: string): string => `node "\${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" ${event}`;
 const FAIL_CLOSED_PRETOOLUSE = ['Write|Edit|MultiEdit|NotebookEdit', 'Bash', 'Agent', 'SendMessage', 'mcp__.*trajectory-server__.*'];
@@ -65,7 +66,7 @@ describe('hooks.json node guard (GH 2215)', () => {
       assert.equal(r.stdout, '');
     });
 
-    it(`${event}: with a node that cannot load node:sqlite (older than 22.13), /bin/sh exits 2 with the same line and never runs the router`, () => {
+    it(`${event}: with a node whose probe fails (older than 22.16), /bin/sh exits 2 with the same line and never runs the router`, () => {
       const bin = tempDir();
       writeFileSync(join(bin, 'node'), '#!/bin/sh\necho "router ran"\nexit 1\n');
       chmodSync(join(bin, 'node'), 0o755);
@@ -86,9 +87,19 @@ describe('hooks.json node guard (GH 2215)', () => {
     });
   }
 
-  it('the probe passes on the Node running this suite (22.13 or later)', () => {
+  it('the probe passes on the Node running this suite (22.16 or later)', () => {
     const r = spawnSync('/bin/sh', ['-c', `${PROBE} >/dev/null 2>&1`], { env: { PATH: process.env.PATH }, timeout: 30_000 });
     assert.equal(r.status, 0);
+  });
+
+  it('the probe fails on a node:sqlite without StatementSync.prototype.setReturnArrays, as on a Node older than 22.16 that loads it', () => {
+    const preload = join(tempDir(), 'drop-set-return-arrays.mjs');
+    writeFileSync(preload, "delete process.getBuiltinModule('node:sqlite').StatementSync.prototype.setReturnArrays;\n");
+    const env = { PATH: process.env.PATH, NODE_OPTIONS: `--import=${preload}` };
+    const loads = spawnSync('/bin/sh', ['-c', `node -e "require('node:sqlite')" >/dev/null 2>&1`], { env, timeout: 30_000 });
+    assert.equal(loads.status, 0, 'node:sqlite still loads');
+    const r = spawnSync('/bin/sh', ['-c', `${PROBE} >/dev/null 2>&1`], { env, timeout: 30_000 });
+    assert.equal(r.status, 1);
   });
 
   it('only those two registrations carry the guard', () => {

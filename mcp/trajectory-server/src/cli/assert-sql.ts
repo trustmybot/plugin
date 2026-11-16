@@ -143,7 +143,7 @@ export async function assertSql(argv: readonly string[], env: NodeJS.ProcessEnv,
     return 2;
   }
   if (!loadNodeSqlite()) {
-    io.out('assert-sql: ERROR node:sqlite is unavailable in this Node (needs Node 22.13+)\n');
+    io.out('assert-sql: ERROR node:sqlite is unavailable in this Node (needs Node 22.16+)\n');
     return 2;
   }
 
