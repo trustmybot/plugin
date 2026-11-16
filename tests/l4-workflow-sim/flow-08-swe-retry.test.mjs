@@ -147,7 +147,7 @@ test('Flow 8 — a re-recorded attempt_n appends a row: latest verdict wins', as
   assert.equal(revised.ok, true, `the revised verdict must record: ${JSON.stringify(revised)}`);
   assert.equal(revised.data.reopened?.status, 'running', 'the newest verdict, a FAIL, reopens the passed task');
 
-  const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });
+  const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId, response_format: 'detailed' });
   assert.deepEqual(
     history.data.map(r => `${r.attempt_n}:${r.verdict}:${r.feedback}`),
     ['1:pass:first', '2:fail:second'],

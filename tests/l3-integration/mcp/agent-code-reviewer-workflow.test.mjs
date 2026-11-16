@@ -99,7 +99,7 @@ test('code-reviewer — fail path: record fail → bro sees it in history', asyn
 
   // bro reads back (validation_history is read-any).
   const history = await call(client, 'validation_history', {
-    agent: 'bro', task_id: taskId,
+    agent: 'bro', task_id: taskId, response_format: 'detailed',
   });
   assert.equal(history.ok, true);
   const rows = Array.isArray(history.data) ? history.data : history.data.attempts ?? [];

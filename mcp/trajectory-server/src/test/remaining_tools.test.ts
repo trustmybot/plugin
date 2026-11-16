@@ -285,7 +285,7 @@ describe('validationTools', () => {
       [taskId],
     );
 
-    const rows = parseResult(await call(tools.handlers, 'validation_history', { agent: 'bro', task_id: taskId }));
+    const rows = parseResult(await call(tools.handlers, 'validation_history', { agent: 'bro', task_id: taskId, response_format: 'detailed' }));
     assert.equal(rows.length, 1);
     assert.equal(rows[0].verification_run.run_id, 1, 'a run started after the attempt is not its run');
     assert.equal(rows[0].verification_run.commit_sha, 'aaa1111');

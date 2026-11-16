@@ -33,6 +33,7 @@ import {
 } from '../success-criteria.js';
 import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from '../checkpoint.js';
 import { WM_FEEDBACK_SCHEMA, insertWmFeedback } from './validation.js';
+import { RESPONSE_FORMATS, parseResponseFormat, withoutKeys } from './response-format.js';
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
 import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
 import { isPromptSurfaceUnder } from '../hooks/cmd-analysis/surface.js';
@@ -607,7 +608,7 @@ export function taskTools(db: TrajectoryDB): {
     },
     {
       name: 'task_get',
-      description: 'Fetch a single task by ID.',
+      description: 'Fetch a single task by ID. Concise by default.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -616,6 +617,11 @@ export function taskTools(db: TrajectoryDB): {
           include_spec_body: {
             type: 'boolean',
             description: 'Include spec_body + description (default false).',
+          },
+          response_format: {
+            type: 'string',
+            enum: [...RESPONSE_FORMATS],
+            description: "'concise' (default) omits completion_report (task_brief returns it); 'detailed' returns it.",
           },
         },
         required: ['agent', 'task_id'],
@@ -1436,11 +1442,12 @@ export function taskTools(db: TrajectoryDB): {
       if (!task) {
         throw new Error(`Not found: ${taskId}`);
       }
-      const includeSpec = args['include_spec_body'] === true;
-      if (includeSpec) {
-        return ok(task);
+      const concise = parseResponseFormat(args) === 'concise';
+      const shown: Record<string, unknown> = concise ? withoutKeys(task, ['completion_report']) : { ...task };
+      if (args['include_spec_body'] === true) {
+        return ok(shown);
       }
-      const { spec_body: _spec, description: _desc, ...thin } = task;
+      const { spec_body: _spec, description: _desc, ...thin } = shown;
       return ok(thin);
     }),
 
