@@ -28,9 +28,16 @@ A maintainer reviews and merges. Nobody pushes to `dev` or `main` directly: bran
 
 ## CI
 
-- `pr-check.yml` runs L1 and the dashboard tests on every PR.
+- `pr-check.yml` runs the dashboard tests and the L1 lints. On a PR it runs only the L1 steps whose inputs the PR changes ([L1 lint bundles](#l1-lint-bundles)); a PR touching a shared input and every merge_group run get the full L1.
 - `.github/workflows/dev-build.yml` reruns L1 on every push to `dev` (its `l1` job), so a merge that breaks an L1 rule turns `dev` red; its `stamp` job publishes the dev build and is not a gate.
 - The full L1–L4 sweep, L6 and L0 run only at the rc release gate ([RELEASE.md](docs/contributing/RELEASE.md#release-gate)). CI-only breakage surfaces there.
+
+### L1 lint bundles
+
+- Each L1 step declares its inputs: the globs of the repo paths it reads. A step that reads the whole tree declares `**`, and a step with no inputs fails the run.
+- `node --experimental-strip-types tests/run-all.ts --l1-changed --base origin/dev` runs only the steps whose inputs match a path changed in `origin/dev...HEAD`. Without `--base` it diffs against `TMB_LINT_BASE_SHA`; with neither, or when the diff fails, it runs the full L1.
+- A change to a shared input runs the full L1, because every step reads it: `package.json`, `bun.lock`, any `tsconfig*.json`, the test orchestrator, `tests/l1-lint/`, `tests/lib/` or `.config/tmb/`.
+- The docs bundle is what a Markdown-only change runs: markdownlint (rules in `.markdownlint-cli2.jsonc`, each disabled rule with its reason) and the Mermaid parse check, both over the tracked Markdown, plus the other lints that read Markdown or the whole tree, such as the link check.
 
 ## Issues & PRs
 

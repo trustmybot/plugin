@@ -135,6 +135,15 @@ describe('selectL1Steps', () => {
       assert.ok(names(selectL1Steps(table, [manifest])).includes(labelOf('contributor-setup.test.mjs')), manifest);
     }
   });
+  test('a Markdown change selects the docs bundle (markdownlint, mermaid-parse); a .ts-only change drops it', () => {
+    const bundle = ['markdownlint.test.mjs', 'mermaid-parse.test.mjs'].map(labelOf);
+    for (const changed of [['docs/x.md'], ['README.md'], ['.github/x.md'], ['.markdownlint-cli2.jsonc']]) {
+      const selected = names(selectL1Steps(table, changed));
+      for (const label of bundle) assert.ok(selected.includes(label), `${label} for ${changed[0]}`);
+    }
+    const tsOnly = names(selectL1Steps(table, ['mcp/trajectory-server/src/db.ts', 'dashboard/web/app.ts']));
+    for (const label of bundle) assert.ok(!tsOnly.includes(label), `${label} skipped for a .ts-only change`);
+  });
   test('a dot-directory path matches a ** glob', () => {
     assert.ok(names(selectL1Steps(table, ['.github/workflows/pr-check.yml'])).includes(labelOf('pr-check-full-suite.test.mjs')));
     assert.equal(matchesInput('.github/workflows/x.yml', '**'), true);

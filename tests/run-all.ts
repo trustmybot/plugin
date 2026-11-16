@@ -259,6 +259,8 @@ const SERVER_TESTS = ['mcp/trajectory-server/src/test/**'];
 const SCRIPTS = ['scripts/**'];
 const AGENTS = ['agents/**', 'templates/agents/**'];
 const WORKFLOWS = ['.github/**'];
+// The docs bundle: Markdown plus the markdownlint config, whose ignores set both lints' file set.
+const MARKDOWN = ['**/*.md', '.markdownlint-cli2.jsonc'];
 
 export function l1Steps(here: string): Step[] {
   const lint = (label: string, file: string, inputs: readonly string[], slow?: true): Step => {
@@ -282,6 +284,8 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs', ['mcp/trajectory-server/package.json']),
     // A link target anywhere in the tree can move or go away.
     lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs', EVERY),
+    lint('L1 lint: markdownlint on tracked Markdown (GH 3161)', 'markdownlint.test.mjs', [...MARKDOWN, 'tests/l1-lint/markdownlint.test.mjs']),
+    lint('L1 lint: every mermaid fence parses (GH 3161)', 'mermaid-parse.test.mjs', [...MARKDOWN, 'tests/l1-lint/mermaid-parse.test.mjs']),
     lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs', ['scripts/**', 'tests/**']),
     lint('L1 lint: no tracked shell files outside the allowlist (GH 2662)', 'no-shell-files.test.mjs', ['**/*.sh', '**/*.bash']),
     lint('L1 lint: contributor setup pins Bun and installs missing deps (GH 3151)', 'contributor-setup.test.mjs', [
