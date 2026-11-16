@@ -19,6 +19,7 @@ Flows are grouped by when they run, and numbered within their group.
 | 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe, or bro itself, per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
 | 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
 | 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
+| 3. Agent task handling | 3.9 | [Agile mode](#39-agile-mode) (planned, GH 2225) | A code task in a project the Human switched to agile | bro → swe; bro closes without review; code-reviewer later, one per group of merged tasks | tasks closed without review, a review queue of merged work; group verdicts, or a release waiver |
 | 4. Extending the team | 4.1 | [Cheatcode lifecycle](#41-cheatcode-lifecycle) | A capability wall, the Human says "cheatcode", or a reuse check before building | bro (Human approves install) | the capability registry and its attachments |
 | 4. Extending the team | 4.2 | [Agent creation](#42-agent-creation) | Routing hits a role the project has no agent for | bro | a project agent file |
 | 4. Extending the team | 4.3 | [Skill creation](#43-skill-creation) | Recurring pattern needs encoding | bro | a registered skill |
@@ -161,6 +162,24 @@ When the Human's prompt names what to delete, bro does it in one step with no re
 ```mermaid
 flowchart LR
     A[Human names what to delete] --> B[bro deletes in one step]
+```
+
+### 3.9 Agile mode
+
+Planned (GH 2225). A project the Human switches to agile trades the per-task review for speed. bro closes and pushes a task without a code-reviewer pass, still judging swe's report and the architecture fit, and records the skipped review. Once the task merges it joins a review queue; work that is dropped unmerged needs no review. Before a release, code-reviewer reviews the queue in groups, one per set of tasks that changed overlapping files, and the release waits until the queue is empty or the Human waives it. Truest stays the default, and switching back to it leaves queued work queued. [AGILE.md](AGILE.md) holds every case.
+
+```mermaid
+flowchart LR
+    A[Human asks] --> B[bro grounds, provisions task]
+    B --> C[swe implements and closes]
+    C --> D[bro closes without review, records the skip, pushes, opens PR]
+    D --> E[Merged per merge policy]
+    E --> F[Task joins the review queue]
+    F --> G[Before release: one code-reviewer per group, on its net diff]
+    G --> H[Release gate: queue empty, or Human waiver]
+    H --> I[Release per merge policy]
+    G -. fail .-> K[New fix task, reviewed as in 3.1]
+    K -.-> G
 ```
 
 ## 4. Extending the team

@@ -37,6 +37,7 @@ Looking for one answer instead?
 | How does bro learn a repo's test and lint commands? | [ENVIRONMENT.md](ENVIRONMENT.md) |
 | Who owns which quality check? | [TASKS.md](TASKS.md#quality-layers) |
 | Why is my task stuck? | [TASKS.md](TASKS.md) |
+| What does agile mode skip, and when is the skipped review done? | [AGILE.md](AGILE.md) |
 | How does a project gain an agent, a skill or a second opinion? | [EXTENDING.md](EXTENDING.md) |
 | Which agent may do Z? | [RESPONSIBILITIES.md](RESPONSIBILITIES.md) |
 | What does an agent see at the start of a turn? | [MEMORY.md](MEMORY.md) |
@@ -56,6 +57,7 @@ Looking for one answer instead?
 - [ONBOARD.md](ONBOARD.md) — First contact: its rounds, what each records, and how a re-run keeps what still stands.
 - [ENVIRONMENT.md](ENVIRONMENT.md) — How bro learns and caches a repo's install, test and lint commands, with the repo as the source of truth.
 - [TASKS.md](TASKS.md) — Every case of a task from ask to merge: the code task and the non-code task with each step's owner, the push gate both share, retry and escalation, PR comment triage, the quality-layer rules, and debugging a stuck task.
+- [AGILE.md](AGILE.md) — Agile mode (planned): closing tasks without the per-task review, the grouped review of merged work before a release, the release gate that waits for it, and switching modes.
 - [EXTENDING.md](EXTENDING.md) — How a project gains agents, skills, consultants and roundtables, and what each path refuses.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — What each shipped agent is for, what it may and may not do, and why the roles are split this way.
 - [MEMORY.md](MEMORY.md) — The memory model every agent follows: cold storage in the trajectory DB, hot session context, and pinned prompts, with the cost of each tier.
