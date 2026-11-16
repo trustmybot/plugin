@@ -26,6 +26,7 @@ import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
 import { agentRunsBackfillTools } from './agent-runs-backfill.js';
 import { trajectoryDoctorTools } from './trajectory-doctor.js';
+import { reviewQueueTools } from './review-queue.js';
 import { bugReportTools } from './bug-report.js';
 import { envTools } from './env.js';
 import { requireAgent } from '../middleware/agent-scope.js';
@@ -85,6 +86,7 @@ export function registerTools(
   const worldModel = worldModelTools(db, graphHolder);
   const backfill = agentRunsBackfillTools(db, dbPath);
   const doctor = trajectoryDoctorTools(db);
+  const reviewQueue = reviewQueueTools(db);
   const bugReport = bugReportTools(db);
   const env = envTools(db);
 
@@ -112,6 +114,7 @@ export function registerTools(
     ...worldModel.definitions,
     ...backfill.definitions,
     ...doctor.definitions,
+    ...reviewQueue.definitions,
     ...bugReport.definitions,
     ...env.definitions,
   ]);
@@ -140,6 +143,7 @@ export function registerTools(
     ...worldModel.handlers,
     ...backfill.handlers,
     ...doctor.handlers,
+    ...reviewQueue.handlers,
     ...bugReport.handlers,
     ...env.handlers,
   };
