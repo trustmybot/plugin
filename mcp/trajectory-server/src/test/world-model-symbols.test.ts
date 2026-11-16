@@ -2120,6 +2120,39 @@ describe('coveredDirs skips script names, echo text and make targets (GH 2521)',
   }
 });
 
+describe('coveredDirs: a bare package-manager test line covers its cwd (GH 3191)', () => {
+  const known = repoPaths(['src/a.ts', 'pkg/b.ts', 'tests/a.test.mjs']);
+  const cases: Array<[string, string, string[]]> = [
+    ['npm test', '.', ['.']],
+    ['pnpm test', '.', ['.']],
+    ['yarn test', '.', ['.']],
+    ['bun test', '.', ['.']],
+    ['npm run test', '.', ['.']],
+    ['pnpm run test:unit', '.', ['.']],
+    ['npm test -- --coverage', '.', ['.']],
+    ['npm --silent test', '.', ['.']],
+    ['yarn run-script test', '.', ['.']],
+    ['pnpm test', 'pkg', ['pkg']],
+    ['cd pkg && npm test', '.', ['pkg']],
+    ['npm test src', '.', ['src']],
+    ['pnpm test', 'gone', []],
+    ['npm run docs', '.', []],
+    ['npm run build', '.', []],
+    ['npm ci', '.', []],
+    ['pnpm install', '.', []],
+    ['yarn lint', '.', []],
+    ['npm run testing', '.', []],
+    ['npm run pretest', '.', []],
+    ['npm run $SCRIPT', '.', []],
+    ['tsc --noEmit', '.', []],
+  ];
+  for (const [command, base, dirs] of cases) {
+    it(`${JSON.stringify(command)} from ${base} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, base, known), dirs);
+    });
+  }
+});
+
 describe('scan_run records no covers edge for a script name or echo text (GH 2521)', () => {
   const ws = mkdtempSync(join(tmpdir(), 'wm-covers-names-'));
   const root = join(ws, 'app');

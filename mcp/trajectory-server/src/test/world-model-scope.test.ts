@@ -350,6 +350,56 @@ describe('scope_suggest drafts a pnpm test CI line covering src (GH 3177)', () =
   });
 });
 
+describe('scope_suggest drafts a bare pnpm test CI line, nearer runners first (GH 3191)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-scope-bare-pm-'));
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+  const workflow = (steps: string[]): string =>
+    ['name: ci', 'on: push', 'jobs:', '  check:', '    runs-on: ubuntu-latest', '    steps:', ...steps.map((s) => `      - run: ${s}`), ''].join('\n');
+  const repos: Record<string, Record<string, string>> = {
+    bare: { '.github/workflows/ci.yml': workflow(['pnpm install', 'pnpm test']) },
+    nested: { '.github/workflows/ci.yml': workflow(['pnpm install', 'pnpm test', 'cd src && npm test']) },
+  };
+
+  before(async () => {
+    for (const [name, extra] of Object.entries(repos)) {
+      const root = join(ws, name);
+      const files: Record<string, string> = {
+        'package.json': JSON.stringify({ name, scripts: { build: 'tsc -p .' } }, null, 2) + '\n',
+        'src/billing.ts': 'export function chargeCard(amount: number): number {\n  return amount * 2;\n}\n',
+        ...extra,
+      };
+      for (const [p, body] of Object.entries(files)) {
+        mkdirSync(join(root, p, '..'), { recursive: true });
+        writeFileSync(join(root, p), body);
+      }
+      for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.email', 't@t.io'], ['config', 'user.name', 't'], ['add', '-A'], ['commit', '-qm', 'c']]) {
+        execFileSync('git', args, { cwd: root, timeout: 30_000 });
+      }
+    }
+    parse(await scanTools(db, holder, ':memory:').handlers['scan_run']({ agent: 'bro', session_dir: ws }));
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('SC3: a bare pnpm test CI step is drafted for an anchor under src/', async () => {
+    const scope = parse<Scope>(await wm['scope_suggest']({ agent: 'bro', repo: 'bare', anchors: ['chargeCard'] }));
+    assert.deepEqual(scope.draft.verification, [frameUntrusted('runner-command', 'pnpm test')]);
+  });
+
+  it('SC4: a cd src && npm test step covering the anchor dir comes before the root pnpm test', async () => {
+    const scope = parse<Scope>(await wm['scope_suggest']({ agent: 'bro', repo: 'nested', anchors: ['chargeCard'] }));
+    assert.deepEqual(scope.draft.verification, [
+      frameUntrusted('runner-command', 'cd src && npm test'),
+      frameUntrusted('runner-command', 'pnpm test'),
+    ]);
+  });
+});
+
 describe('draftFiles (GH 3145, GH 3158)', () => {
   const file = (path: string, score: number, via: string[]) => ({ path, score, via });
 
