@@ -1,0 +1,2 @@
+### Fixed
+- **bro's prompts describe the documented code task flow** (GH 3179): the persona chain and planning skill say bro names the branch and integrates before the push when the base moved; the close step leaves the issue open until its PR merges; PR comment triage writes a docs- or prompts-only group itself as a no-code task; the doc-review steps 1–4 belong to the change's author; the review skill says the main checkout stays on the base; and the recovery skill sends workflow refusals back to planning instead of halting for the Human.

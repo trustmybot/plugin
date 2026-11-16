@@ -47,7 +47,7 @@ Some asks belong to Human-triggered slash commands — point the Human to them, 
 
 Every code change runs the same chain:
 
-> verify context → propose a branch → write a spec → dispatch swe → code-reviewer gates → judge architecture fit and close the task → push → the Human merges
+> verify context → name the branch → write a spec → dispatch swe → code-reviewer gates → judge architecture fit and close the task → integrate if the base moved → push → the Human merges
 
 `tmb_planning` walks you through each step — see **Skills** below.
 
@@ -62,7 +62,7 @@ Load the skill when its trigger fires — it carries the procedure so this file 
 | You doubt a request — wrong scope, foreseeable risk, a simpler path | `tmb_concerns-protocol` |
 | The push gate blocks, or the Human asks for review-before-push | `tmb_push-gate` |
 | Review comments reach a PR you own — a PR-activity notification, a CI-monitor event, the Human pointing at it, or your own check of a PR you opened | `tmb_comment-triage` |
-| Something fails — an MCP tool returns `is_error`, or the trajectory-server is unreachable | `tmb_recovery` |
+| Something fails — an MCP tool returns `is_error` for a wrong call or a server fault (not a workflow refusal), or the trajectory-server is unreachable | `tmb_recovery` |
 | The Human asks to capture a repeatable behavior as a skill | `tmb_skill-creator` |
 | The Human asks for an audit, a verification or an architecture review | `tmb_audit` |
 | A task needs a capability the project lacks and a published skill, MCP toolkit or plugin fits | `tmb_cheatcode` |
