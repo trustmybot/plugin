@@ -2,7 +2,7 @@
  * The close-lint runner (GH 2570) swe-verification-gate runs at S10 and
  * `cli.js integrate` runs on the rebased SHA: the lints a repo's
  * .config/tmb/close-lints.json declares at <sha> (an allowlist; nothing else
- * runs), each as `bash -c '<command>'` in the checkout under the env it is
+ * runs; a task with a no_code_class runs its no_code_lints when present, GH 3160), each as `bash -c '<command>'` in the checkout under the env it is
  * given, recorded against <base> as one lint_runs row with a lint_run_results
  * row per lint, in that order. The changelog and stale-doc checks are not close
  * lints; doc-checks.ts runs them at swe's close.
@@ -24,7 +24,7 @@ import { gateRead, GATE_READ_ERROR } from './db.js';
 import { gitText } from './doc-checks.js';
 import { prTargetRef } from './git-refs.js';
 import { CLOSE_LINTS_PATH, lintFingerprint } from './lint-fingerprint.js';
-import { type CloseLints, latestLintRun, lintRunFinishSql, lintRunResultSql, lintRunStartSql, type LintRunSource, parseCloseLints } from './lint-runs.js';
+import { type CloseLint, type CloseLints, latestLintRun, lintRunFinishSql, lintRunResultSql, lintRunStartSql, type LintRunSource, parseCloseLints } from './lint-runs.js';
 
 export const LINT_TIMED_OUT = 124;
 export const FAILURE_TAIL_LINES = 15;
@@ -67,13 +67,39 @@ export async function readCloseLints(repo: string, sha: string, env: NodeJS.Proc
   return typeof parsed === 'string' ? `${CLOSE_LINTS_PATH} at ${sha.slice(0, 12)}: ${parsed}` : parsed;
 }
 
-/** The close-lints config at <sha> and its fingerprint, or why either cannot be had. */
-export async function closeLintsPlan(repo: string, sha: string, env: NodeJS.ProcessEnv): Promise<{ config: CloseLints | null; fingerprint: string } | string> {
+/** The task's no_code_class, '' when it has none or the DB predates the column (v72), or GATE_READ_ERROR. */
+export function taskNoCodeClass(db: string, taskId: string, env: NodeJS.ProcessEnv): string {
+  if (!/^[0-9]+$/.test(taskId)) return GATE_READ_ERROR;
+  const column = gateRead(db, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'no_code_class';", env);
+  if (column === GATE_READ_ERROR) return GATE_READ_ERROR;
+  if (column !== '1') return '';
+  return gateRead(db, `SELECT COALESCE(no_code_class, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, env);
+}
+
+export type CloseLintSet = 'lints' | 'no_code_lints';
+
+export interface CloseLintsPlan {
+  config: CloseLints | null;
+  /** Which list of the config runs: no_code_lints for a classed task when the config has it, else lints. */
+  set: CloseLintSet;
+  lints: CloseLint[];
+  fingerprint: string;
+}
+
+/**
+ * The close-lints config at <sha>, the lint set a task of <noCodeClass> runs
+ * (GH 3160) and its fingerprint, or why either cannot be had. The
+ * no_code_lints fingerprint carries the set's name, so a recorded run of one
+ * set never passes for the other.
+ */
+export async function closeLintsPlan(repo: string, sha: string, env: NodeJS.ProcessEnv, noCodeClass = ''): Promise<CloseLintsPlan | string> {
   const config = await readCloseLints(repo, sha, env);
   if (typeof config === 'string') return config;
   const fingerprint = await lintFingerprint(repo, sha, config?.fingerprint_inputs ?? [], env);
   if (fingerprint === null) return `the close-lint fingerprint of ${sha} could not be computed (git ls-tree failed or a fingerprint_inputs glob does not apply)`;
-  return { config, fingerprint };
+  const noCodeLints = noCodeClass === '' ? undefined : config?.no_code_lints;
+  if (noCodeLints !== undefined) return { config, set: 'no_code_lints', lints: noCodeLints, fingerprint: `${fingerprint}+no_code_lints` };
+  return { config, set: 'lints', lints: config?.lints ?? [], fingerprint };
 }
 
 /**
@@ -151,6 +177,7 @@ function seconds(ms: number): number {
 /**
  * Runs the close lints of <repo> at <sha> against <baseSha> within <budgetS>
  * seconds and records them for <target>; the recorded run, or why none ran.
+ * The lint set is the one the target task's no_code_class selects.
  */
 export async function runCloseLints(
   repo: string,
@@ -160,7 +187,9 @@ export async function runCloseLints(
   env: NodeJS.ProcessEnv,
   target: LintRecordTarget,
 ): Promise<CloseLintsRun | string> {
-  const plan = await closeLintsPlan(repo, sha, env);
+  const noCodeClass = taskNoCodeClass(target.db, target.taskId, env);
+  if (noCodeClass === GATE_READ_ERROR) return `the no_code_class of task ${target.taskId} could not be read from ${target.db}, so its lint set is unknown`;
+  const plan = await closeLintsPlan(repo, sha, env, noCodeClass);
   if (typeof plan === 'string') return plan;
   const start = lintRunStartSql(target.taskId, sha, baseSha, plan.fingerprint, target.source);
   if (start.code !== 0) return start.error;
@@ -181,7 +210,7 @@ export async function runCloseLints(
   const scratch = mkdtempSync(join(tmpdir(), 'tmb-close-lints-'));
   try {
     const budgetStart = Date.now();
-    for (const [i, lint] of (plan.config?.lints ?? []).entries()) {
+    for (const [i, lint] of plan.lints.entries()) {
       const left = budgetS - (Date.now() - budgetStart) / 1000;
       if (left <= 0) {
         record({ name: lint.name, exitCode: LINT_TIMED_OUT, elapsedS: 0, output: `the ${budgetS}s close-lint budget ran out before \`${lint.command}\` started` });

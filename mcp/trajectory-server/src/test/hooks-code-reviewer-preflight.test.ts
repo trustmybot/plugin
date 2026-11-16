@@ -520,6 +520,32 @@ describe('code-reviewer-preflight', () => {
       assert.match(d.actual ?? '', /lints\[1\]\.name 'l1' is a duplicate/);
     });
 
+    it("judges a no-code task by its no_code_lints set, so a record of lints does not admit it (GH 3160)", async () => {
+      const f = fixture();
+      f.write(
+        CLOSE_LINTS_PATH,
+        JSON.stringify({ lints: [{ name: 'full', command: 'true' }], no_code_lints: [{ name: 'local', command: 'true' }], fingerprint_inputs: [] }),
+      );
+      featureCommit(f);
+      const sha = await f.record();
+      await assertAllowed(f);
+
+      const w = new DatabaseSync(f.db);
+      w.prepare("UPDATE tasks SET no_code_class = 'docs' WHERE id = ?").run(TASK_ID);
+      w.close();
+      const codePlan = await closeLintsPlan(f.repo, sha, f.env);
+      const noCodePlan = await closeLintsPlan(f.repo, sha, f.env, 'docs');
+      if (typeof codePlan === 'string' || typeof noCodePlan === 'string') assert.fail('plan');
+      assert.equal(noCodePlan.set, 'no_code_lints');
+      assert.equal(denial((await run(f)).stdout).check, 'stale_lint_record');
+
+      await f.lint(sha, { fingerprint: noCodePlan.fingerprint, results: [{ name: 'full', exit: 0 }] });
+      assert.deepEqual(denial((await run(f)).stdout).expected, 'the lint run holds a passing result for each of local');
+      await f.lint(sha, { fingerprint: noCodePlan.fingerprint, results: [{ name: 'local', exit: 0 }] });
+      await assertAllowed(f);
+      assert.notEqual(codePlan.fingerprint, noCodePlan.fingerprint);
+    });
+
     it('fixes both lint checks with a rerun of the close that records a fresh lint run', () => {
       for (const check of ['no_lint_record', 'stale_lint_record'] as const) {
         const fix = preflightFix(check, String(TASK_ID));

@@ -39,7 +39,8 @@
  *
  * Once verification[] passes (or is reused) for the worktree HEAD, the close
  * lints run (GH 2570, lib/close-lints.ts): the repo's .config/tmb/close-lints.json
- * lints at HEAD, recorded as a lint_runs row (source gate) against
+ * lints at HEAD (its no_code_lints for a task with a no_code_class when the
+ * file has them, GH 3160), recorded as a lint_runs row (source gate) against
  * merge-base(HEAD, PR target) with what verification[] left of the budget. A non-zero lint denies,
  * naming each failing lint with its exit code and last 15 output lines; a
  * malformed close-lints.json or an unresolvable merge-base denies with nothing
@@ -71,7 +72,7 @@ import { constants as osConstants, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { auditAppend, dbWrite, nowIso, type WriteResult } from './lib/audit.js';
-import { closeLintsPlan, describeFailures, LINT_TIMED_OUT, lintBaseSha, type LintRecordTarget, reusableLintRun, runCloseLints, runLabel } from './lib/close-lints.js';
+import { closeLintsPlan, describeFailures, LINT_TIMED_OUT, lintBaseSha, type LintRecordTarget, reusableLintRun, runCloseLints, runLabel, taskNoCodeClass } from './lib/close-lints.js';
 import { type DenyFix, denyJson, structuredDenyResult } from './lib/deny.js';
 import { branchSlug, DB_RETRY_FIX, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
 import { docChecks, type DocCheckFailure, gitText, nulFields, revParse } from './lib/doc-checks.js';
@@ -731,14 +732,6 @@ async function docGate(db: string, taskId: string, worktree: string, env: NodeJS
   return null;
 }
 
-/** The task's no_code_class, '' when it has none or the DB predates the column (v72), or GATE_READ_ERROR. */
-function taskNoCodeClass(db: string, taskId: string, env: NodeJS.ProcessEnv): string {
-  const column = gateRead(db, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'no_code_class';", env);
-  if (column === GATE_READ_ERROR) return GATE_READ_ERROR;
-  if (column !== '1') return '';
-  return gateRead(db, `SELECT COALESCE(no_code_class, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, env);
-}
-
 const NO_CODE_FIX: DenyFix = {
   allowed: "revert the code paths from the task's commits and close again; a code change goes to swe through its own task",
 };
@@ -957,7 +950,9 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
           'policy',
         );
       }
-      const plan = await closeLintsPlan(worktree, wtSha, genv);
+      const noCodeClass = taskNoCodeClass(db, taskId, genv);
+      if (noCodeClass === GATE_READ_ERROR) return DB_UNAVAILABLE_DENY;
+      const plan = await closeLintsPlan(worktree, wtSha, genv, noCodeClass);
       if (typeof plan === 'string') return deny(`BLOCKED: close lints did not run — ${plan}`, RETRY_FIXED);
       if (reusableLintRun(target, wtSha, baseSha, plan.fingerprint, genv) !== null) return verified;
       const leftS = budget.timeoutS - Math.ceil(verifiedMs / 1000);

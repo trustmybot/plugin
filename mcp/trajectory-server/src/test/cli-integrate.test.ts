@@ -816,6 +816,44 @@ describe('cli.js integrate', () => {
       assertNotIntegrated();
       assertNoTempWorktree();
     });
+
+    // GH 3160: the task's no_code_class picks no_code_lints when the config has them, else lints.
+    function setupWithBothSets(noCodeLints: Array<{ name: string; command: string }> | null): void {
+      setup('clean');
+      mkdirSync(join(repo, '.config/tmb'), { recursive: true });
+      const config = {
+        version: 1,
+        lints: [{ name: 'full', command: 'exit 0' }],
+        ...(noCodeLints === null ? {} : { no_code_lints: noCodeLints }),
+        fingerprint_inputs: ['*.txt'],
+      };
+      writeFileSync(join(repo, '.config/tmb/close-lints.json'), JSON.stringify(config));
+      git('add', '.config/tmb/close-lints.json');
+      git('commit', '-qm', 'chore: close lints');
+    }
+
+    it('a no-code task runs no_code_lints, not lints (GH 3160)', () => {
+      setupWithBothSets([{ name: 'local', command: 'exit 0' }]);
+      exec("UPDATE tasks SET no_code_class = 'docs' WHERE id = 1");
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(lintRuns(), `1|${r.out}|${rev('main')}|integrate|0|local=0`);
+    });
+
+    it('a code task runs lints, even when the config has no_code_lints (GH 3160)', () => {
+      setupWithBothSets([{ name: 'local', command: 'exit 7' }]);
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(lintRuns(), `1|${r.out}|${rev('main')}|integrate|0|full=0`);
+    });
+
+    it('a no-code task falls back to lints when the config has no no_code_lints (GH 3160)', () => {
+      setupWithBothSets(null);
+      exec("UPDATE tasks SET no_code_class = 'prompts' WHERE id = 1");
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(lintRuns(), `1|${r.out}|${rev('main')}|integrate|0|full=0`);
+    });
   });
 
   // Patch-ids over every path (GH 2054). src/s.txt and gen/out.txt each hold

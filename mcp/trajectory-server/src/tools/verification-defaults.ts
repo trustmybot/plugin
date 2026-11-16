@@ -6,6 +6,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import { CLOSE_LINTS_PATH } from '../hooks/lib/lint-fingerprint.js';
+import { parseCloseLints } from '../hooks/lib/lint-runs.js';
 import { gitUnanswered, runGit } from '../utils/git-run.js';
 import { resolveCutBase } from '../utils/git-refs.js';
 import { repoTargetBase } from '../utils/repo-paths.js';
@@ -61,6 +63,65 @@ export function appendVerificationDefaults(
     added.push(command);
   }
   return { verification: [...verification, ...added], added };
+}
+
+// GH 3160: a no-code task's close runs the class-selected close lints, so the
+// repo-wide defaults are not appended to its verification[].
+export function defaultsForClass(noCodeClass: string | null, defaults: readonly string[]): readonly string[] {
+  return noCodeClass ? [] : defaults;
+}
+
+// The lints[] commands of close-lints.json at `ref`; none without a repo, a ref or the file.
+function closeLintCommandsAt(repoPath: string | null, ref: string | null): { commands: string[] } | { error: string } {
+  if (!repoPath || !ref) return { commands: [] };
+  const listed = runGit(repoPath, ['ls-tree', '--name-only', ref, '--', CLOSE_LINTS_PATH], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (gitUnanswered(listed) || listed.status !== 0) return { error: `git ls-tree ${ref} failed: ${gitFailure(listed)}` };
+  if (listed.stdout.trim() === '') return { commands: [] };
+  const shown = runGit(repoPath, ['show', `${ref}:${CLOSE_LINTS_PATH}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (gitUnanswered(shown) || shown.status !== 0) return { error: `git show ${ref}:${CLOSE_LINTS_PATH} failed: ${gitFailure(shown)}` };
+  const parsed = parseCloseLints(shown.stdout);
+  if (typeof parsed === 'string') return { error: `${CLOSE_LINTS_PATH} at ${ref} is invalid: ${parsed}` };
+  return { commands: parsed.lints.map((l) => l.command) };
+}
+
+/**
+ * GH 3160: why task_provision refuses a no-code task's verification[], or null.
+ * It must be non-empty (integrate needs one) and must not repeat a
+ * verification-defaults command or a close-lints lints[] command at `ref`:
+ * those run the full suite, which the no-code close lints replace.
+ */
+export function noCodeVerificationRefusal(
+  repoPath: string | null,
+  ref: string | null,
+  verification: readonly string[],
+  defaults: readonly string[],
+): CallToolResult | null {
+  const refuse = (problem: string, command?: string): CallToolResult => ({
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          error: 'no_code_verification_refused',
+          message:
+            `task_provision: ${problem} A no-code task's verification[] lists the greps and lints covering the paths it touches; ` +
+            `its close runs the class-selected close lints. Nothing was written.`,
+          ...(command === undefined ? {} : { command }),
+          ref,
+        }),
+      },
+    ],
+  });
+  if (verification.length === 0) return refuse('a no-code task needs a non-empty verification[], since cli.js integrate refuses an empty one.');
+  const lints = closeLintCommandsAt(repoPath, ref);
+  if ('error' in lints) return refuse(`${lints.error}, so the full-suite commands cannot be checked.`);
+  const fullSuite = new Set([...defaults, ...lints.commands]);
+  const repeated = verification.find((command) => fullSuite.has(command));
+  if (repeated === undefined) return null;
+  return refuse(
+    `verification[] entry \`${repeated}\` is a ${VERIFICATION_DEFAULTS_FILE} command or a ${CLOSE_LINTS_PATH} lints[] command, which runs the full suite. Drop it and list the greps and lints covering the touched paths instead.`,
+    repeated,
+  );
 }
 
 export function verificationDefaultsResult(tool: string, ref: string | null, problem: string): CallToolResult {
