@@ -39,6 +39,7 @@ const TS_BORN_GATES: ReadonlySet<string> = new Set([
   'bash-output-trim',
   'code-reviewer-preflight',
   'code-reviewer-spawn-note',
+  'feature-branch-merge-gate',
   'lane-membership',
   'liveness-alert',
   'liveness-sentinel',

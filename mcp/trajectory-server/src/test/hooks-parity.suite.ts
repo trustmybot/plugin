@@ -308,6 +308,7 @@ export function hooksParityShard(k: number, n: number): void {
           'bash-output-trim',
           'code-reviewer-preflight',
           'code-reviewer-spawn-note',
+          'feature-branch-merge-gate',
           'lane-membership',
           'liveness-alert',
           'liveness-sentinel',

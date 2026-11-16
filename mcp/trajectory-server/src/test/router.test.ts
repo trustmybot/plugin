@@ -994,9 +994,9 @@ describe('router entry: dedupe and records', () => {
     }
   }
 
-  it('writes one hook_call row with the 14 gates of the Bash group, each with its ms', async () => {
+  it('writes one hook_call row with the 15 gates of the Bash group, each with its ms', async () => {
     const names = routerGates('PreToolUse', 'Bash').map((g) => g.name);
-    assert.equal(names.length, 14);
+    assert.equal(names.length, 15);
     const r = await call(bash('ls', { tool_use_id: 'call-row' }), () => () => ALLOW);
     assert.equal(r.stdout, '');
     const calls = rows('hook_call');

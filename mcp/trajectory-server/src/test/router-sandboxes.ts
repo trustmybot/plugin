@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, session-handoff, lane-membership, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge and prompt-write-approval have no hook-corpus
+ * liveness-alert, session-handoff, lane-membership, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge, prompt-write-approval and feature-branch-merge-gate have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -62,6 +62,7 @@ export const ROUTER_CORPUS_GATES = [
   'worktree-adopt-guard',
   'wm-read-before-provision',
   'prompt-write-approval',
+  'feature-branch-merge-gate',
   'swe-scope-fence',
   'naming-lint',
   'code-quality-lint',
@@ -496,6 +497,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('wm-read-before-provision')) cases.push(...wmReadCases(join(root, 'wm-read'), emptyProject));
   if (want('ref-move-reindex')) cases.push(...refMoveCases(join(root, 'ref-move')));
   if (want('prompt-write-approval')) cases.push(...promptWriteApprovalCases(join(root, 'prompt-write-approval')));
+  if (want('feature-branch-merge-gate')) cases.push(...featureMergeCases(join(root, 'feature-branch-merge-gate')));
 
   // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
   const noInstall = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
@@ -812,6 +814,55 @@ function promptWriteApprovalCases(dir: string): RouterCase[] {
     ['bash-write-elsewhere-no-db', call('Bash', { command: 'echo x > docs/x.md' }), { ...env, TRAJECTORY_DB_PATH: join(dir, 'nowhere/trajectory.db') }],
   ];
   return scenarios.map(([file, input, caseEnv]) => ({ gate: 'prompt-write-approval', file, input, env: caseEnv, cwd: project, fakeUid: false, reset: build }));
+}
+
+const FEATURE_BRANCH = 'feat/agile-x';
+type FeatureMergeState = 'queued' | 'batch-reviewed' | 'waived';
+
+/**
+ * feature-branch-merge-gate's cases over a repo checked out on an agile feature branch whose DB holds one task
+ * merged onto it, queued, batch-reviewed or waived per case, rebuilt per case.
+ */
+function featureMergeCases(dir: string): RouterCase[] {
+  const repo = join(dir, 'repo');
+  const db = join(dir, 'trajectory.db');
+  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const t0 = '2026-11-16T09:00:00.000Z';
+  const build = (state: FeatureMergeState): void => {
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(repo, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', FEATURE_BRANCH, repo], { timeout: 10_000 });
+    const d = new DatabaseSync(db);
+    try {
+      d.exec(schema);
+      d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(t0, t0);
+      d.prepare(
+        `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, commit_sha, workflow_mode, created_at, updated_at)
+         VALUES (3, 9, 'feat/3-x', ?, 'd', 'closed', 'abc1234', 'agile', ?, ?)`,
+      ).run(FEATURE_BRANCH, t0, t0);
+      const audit = d.prepare('INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (9, ?, ?, ?, ?, ?)');
+      audit.run('bro', 'review_queued', 'q', JSON.stringify({ task_id: 3, commit_sha: 'abc1234' }), t0);
+      audit.run('bro', 'feature_branch_merged', 'm', JSON.stringify({ task_id: 3, feature_branch: FEATURE_BRANCH, commit_sha: 'abc1234', rebased: false }), t0);
+      if (state === 'batch-reviewed') audit.run('code-reviewer', 'review_batch_recorded', 'b', JSON.stringify({ task_ids: [3], commit_shas: ['abc1234'], verdict: 'pass' }), t0);
+      if (state === 'waived') audit.run('bro', 'review_waived', 'w', JSON.stringify({ feature_branch: FEATURE_BRANCH, task_ids: [3], commit_shas: ['abc1234'], human_answer: 'Yes' }), t0);
+    } finally {
+      d.close();
+    }
+  };
+  build('queued');
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
+  const shell = (command: string): string => JSON.stringify({ hook_event_name: 'PreToolUse', cwd: repo, tool_name: 'Bash', tool_input: { command } });
+  const scenarios: readonly (readonly [string, string, FeatureMergeState, NodeJS.ProcessEnv])[] = [
+    ['pr-create-head-queued', shell(`gh pr create --base dev --head ${FEATURE_BRANCH} --title t --body b`), 'queued', env],
+    ['pr-create-checked-out-queued', shell('gh pr create --title t --body b'), 'queued', env],
+    ['mr-create-source-queued', shell(`glab mr create --source-branch ${FEATURE_BRANCH} --title t`), 'queued', env],
+    ['pr-create-batch-reviewed', shell(`gh pr create -H ${FEATURE_BRANCH} --title t --body b`), 'batch-reviewed', env],
+    ['pr-create-waived', shell(`gh pr create -H ${FEATURE_BRANCH} --title t --body b`), 'waived', env],
+    ['pr-create-other-head', shell('gh pr create --head feat/3-x --title t --body b'), 'queued', env],
+    ['pr-list', shell('gh pr list'), 'queued', env],
+    ['missing-db', shell(`gh pr create --head ${FEATURE_BRANCH}`), 'queued', { ...env, TRAJECTORY_DB_PATH: join(dir, 'nowhere/trajectory.db') }],
+  ];
+  return scenarios.map(([file, input, state, caseEnv]) => ({ gate: 'feature-branch-merge-gate', file, input, env: caseEnv, cwd: repo, fakeUid: false, reset: () => build(state) }));
 }
 
 /** bash-output-trim's cases: each allowlisted read with long output, and the calls it must pass unchanged. */

@@ -98,7 +98,8 @@ export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
 // later grouped review: bro_atomic_close records one review_queued row for
 // the commit it closed. The push guard admits such a commit to any branch but
 // the repo's pr_target. As with skips, only bro's rows count. A batch-reviewed
-// task (batchReviewedSql) keeps its row, so the push guard still admits it.
+// or waived task (batchReviewedSql, waivedSql) keeps its row, so the push
+// guard still admits it.
 export const AGILE_QUEUED_SQL = `(t.status = 'closed' AND t.workflow_mode = 'agile' AND EXISTS (SELECT 1 FROM audit q
   WHERE q.event_type = 'review_queued' AND q.from_node = 'bro'
     AND json_valid(q.content_json)
@@ -124,6 +125,29 @@ export const batchReviewedSql = (alias: string): string => `EXISTS (SELECT 1 FRO
     AND ${jsonSql('json_extract', 'b', '$.verdict')} = 'pass'
     AND bt.value = ${alias}.id
     AND CASE WHEN json_valid(b.content_json) THEN json_extract(b.content_json, '$.commit_shas[' || bt.key || ']') END = ${alias}.commit_sha)`;
+
+// A queued agile task is waived once a bro review_waived row names it at its
+// current commit, the same task_ids[i]/commit_shas[i] shape: the Human chose
+// to merge the feature branch without the grouped review. Only
+// review_waive_record writes the row, so only bro's rows count, and a task
+// whose commit moves after the waiver is queued again.
+export const waivedSql = (alias: string): string => `EXISTS (SELECT 1 FROM audit w,
+    json_each(CASE WHEN json_valid(w.content_json) THEN w.content_json ELSE '{}' END, '$.task_ids') wt
+  WHERE w.event_type = 'review_waived' AND w.from_node = 'bro'
+    AND wt.value = ${alias}.id
+    AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.commit_shas[' || wt.key || ']') END = ${alias}.commit_sha)`;
+
+// A queued agile task that no grouped review has settled yet: neither
+// batch-reviewed nor waived at its current commit.
+export const AGILE_PENDING_REVIEW_SQL = `(${AGILE_QUEUED_SQL} AND NOT ${batchReviewedSql('t')} AND NOT ${waivedSql('t')})`;
+
+// The tasks a feature branch carries: those cli.js feature-merge moved onto
+// it, each named by a bro feature_branch_merged row. branchSql is a SQL
+// expression for the branch name, already quoted.
+export const featureBranchTaskSql = (alias: string, branchSql: string): string => `EXISTS (SELECT 1 FROM audit m
+  WHERE m.event_type = 'feature_branch_merged' AND m.from_node = 'bro'
+    AND ${jsonSql('json_extract', 'm', '$.task_id')} = ${alias}.id
+    AND ${jsonSql('json_extract', 'm', '$.feature_branch')} = ${branchSql})`;
 
 // validation_attempts is append-only, so a task's verdict is its newest row
 // (highest id): an older pass under a newer fail or escalate does not count,

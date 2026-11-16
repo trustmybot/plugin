@@ -11,6 +11,7 @@
  * the lightest advisory one, wm-read-before-provision, which writes an audit row, the 5 s its 3.5 s audit run budget plus 1 s
  * needs, reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one, and
  * prompt-write-approval, which reads the DB, the 6 s of cheatcode-install-approval, the DB-reading approval gate it mirrors.
+ * feature-branch-merge-gate, which parses a Bash command, runs git and reads the DB, takes the 6 s of git-push-guard, the Bash gate it mirrors.
  * lane-membership, which writes the DB after a tool call, takes the 6 s of session-handoff, the DB-writing gate it mirrors.
  * swe-edit-lint, born in the router too, takes the 10 s its spec sets for the
  * repo's lint commands on the edited file (GH 2570).
@@ -19,6 +20,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'containment-guard': 5,
   'git-guards': 11,
   'git-push-guard': 6,
+  'feature-branch-merge-gate': 6,
   'swe-boundary': 6,
   'no-worktree-branch-create': 6,
   'stay-on-base-guard': 6,

@@ -525,6 +525,68 @@ describe('review_gate_bypassed on non-atomic closes', () => {
   });
 });
 
+describe('GH 2225 T5: task_update_status under workflow_mode agile queues the close', () => {
+  const setMode = (db: TrajectoryDB, mode: string): void => {
+    db.run(
+      `INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+      [JSON.stringify(mode)],
+    );
+  };
+  const modeOf = (db: TrajectoryDB, id: number): string | null =>
+    db.get<{ m: string | null }>('SELECT workflow_mode AS m FROM tasks WHERE id = ?', [id])!.m;
+
+  it('a close without a pass writes one bro review_queued row, no review_gate_bypassed row, and stamps the task agile', async () => {
+    const db = tempDB();
+    setMode(db, 'agile');
+    const issue = seedIssue(db);
+    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
+    const tasks = taskTools(db).handlers;
+    const r = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(taskStatus(db, t), 'closed');
+    assert.deepEqual(auditRows(db, 'review_queued'), [{ content: { task_id: t, commit_sha: 'abc1234' }, from_node: 'bro' }]);
+    assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
+    assert.equal(modeOf(db, t), 'agile');
+    assert.equal(db.get<{ ok: number }>(`SELECT ${AGILE_QUEUED_SQL} AS ok FROM tasks t WHERE t.id = ?`, [t])!.ok, 1);
+
+    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'escalated' });
+    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+    assert.equal(auditRows(db, 'review_queued').length, 1, 'one row per (task, commit)');
+    assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
+    db.close();
+  });
+
+  it('a close with a pass writes neither row; a non-closing move stamps nothing', async () => {
+    const db = tempDB();
+    setMode(db, 'agile');
+    const issue = seedIssue(db);
+    const reviewed = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
+    recordVerificationPass(db, issue, reviewed, 'abc1234', iso(-2 * HOUR));
+    recordVerdict(db, reviewed, 'pass', iso(-HOUR));
+    await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(reviewed), status: 'closed' });
+    assert.equal(auditRows(db, 'review_queued').length, 0);
+    assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
+    const moving = seedTask(db, issue, 'escalated', { commit: 'def5678' });
+    await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(moving), status: 'pending' });
+    assert.equal(modeOf(db, moving), null);
+    db.close();
+  });
+
+  for (const mode of ['truest', null]) {
+    it(`with workflow_mode ${mode ?? 'unset'} a close without a pass still writes review_gate_bypassed and no review_queued row`, async () => {
+      const db = tempDB();
+      if (mode !== null) setMode(db, mode);
+      const issue = seedIssue(db);
+      const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
+      await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+      assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((r) => r.content), [{ task_id: t, commit_sha: 'abc1234', closed_by: 'task_update_status' }]);
+      assert.equal(auditRows(db, 'review_queued').length, 0);
+      assert.equal(modeOf(db, t), null);
+      db.close();
+    });
+  }
+});
+
 describe('a bypass is recorded once per (task, commit)', () => {
   it('closed → escalated → closed twice writes exactly one row; task_recover after a reopen adds none', async () => {
     const db = tempDB();
