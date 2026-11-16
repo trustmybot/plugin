@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
+import { readWorkflowMode } from '../tools/config.js';
 import { envTools } from '../tools/env.js';
 import { readVerificationDefaults, VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
 import { parsePathClasses, PATH_CLASSES_FILE, readPathClasses } from '../path-classes.js';
@@ -1393,7 +1394,7 @@ describe('onboard tools', () => {
       assert.match(String(parse(result).error), /unknown round 'headless'/);
       const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
       const roundSchema = (def?.inputSchema.properties as Record<string, { enum: string[] }>)['round'];
-      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults', 'path_classes']);
+      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'verification_defaults', 'path_classes']);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -2503,6 +2504,114 @@ describe('bug_report_consent (GH 2034)', () => {
     } finally {
       db.close();
       rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('review_mode round (GH 2225)', () => {
+  type Option = { label: string; wire: string; recommended?: boolean };
+  type Question = { header: string; multiSelect: boolean; options: Option[]; default_index: number };
+
+  async function question(tools: ReturnType<typeof onboardTools>): Promise<Question> {
+    const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'review_mode' }));
+    const questions = data.questions as Question[];
+    assert.equal(questions.length, 1);
+    return questions[0];
+  }
+
+  const storedMode = (db: TrajectoryDB): string | undefined =>
+    db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = 'workflow_mode'`)?.value_json;
+
+  it('SC1: offers truest first and recommended, then agile; no Keep while no mode is stored', async () => {
+    const db = tempDB();
+    try {
+      const q = await question(onboardTools(db));
+      assert.equal(q.header, 'Review mode');
+      assert.equal(q.multiSelect, false);
+      assert.deepEqual(q.options.map((o) => o.wire), ['truest', 'agile']);
+      assert.equal(q.options[0].recommended, true);
+      assert.ok(!q.options[1].recommended);
+      assert.equal(q.default_index, 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC1: a stored mode adds Keep first and pre-selects it', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: 'agile' });
+      const q = await question(tools);
+      assert.deepEqual(q.options.map((o) => o.wire), ['__keep__', 'truest', 'agile']);
+      assert.equal(q.options[0].label, 'Keep "agile"');
+      assert.equal(q.default_index, 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC2: apply stores agile with the other answers; omitted or Keep leaves it; labels resolve', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      const fresh = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+      assert.equal((fresh.applied as Record<string, unknown>).review_mode, 'truest');
+      assert.equal(storedMode(db), undefined, 'an omitted answer writes no workflow_mode row');
+
+      const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: 'agile' }));
+      assert.equal((data.applied as Record<string, unknown>).review_mode, 'agile');
+      assert.equal(readWorkflowMode(db), 'agile');
+
+      await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+      assert.equal(readWorkflowMode(db), 'agile', 'omitting the answer keeps the stored mode');
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: '__keep__' });
+      assert.equal(readWorkflowMode(db), 'agile', 'Keep keeps the stored mode');
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: 'Truest' });
+      assert.equal(readWorkflowMode(db), 'truest', 'a label resolves to its mode');
+
+      const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+      assert.equal((state.current as Record<string, unknown>).review_mode, 'truest');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC2: a failure later in the apply transaction rolls the review mode back', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/x', 'x')`);
+      db.run(`CREATE TRIGGER forced_failure BEFORE UPDATE ON repos BEGIN SELECT RAISE(ABORT, 'forced failure'); END`);
+      const result = (await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: 'agile' })) as { isError?: boolean };
+      assert.equal(result.isError, true);
+      assert.match(String(parse(result).error), /forced failure/);
+      assert.equal(storedMode(db), undefined);
+      assert.equal(readWorkflowMode(db), 'truest');
+      assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'onboarded' AND value_json = 'true'`), undefined);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC3: refuses any other value, naming the allowed ones, and writes nothing', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      for (const bad of ['fast', 'AGILE-ish', '', 1]) {
+        const result = (await call(tools.handlers, 'onboard_apply', {
+          shape: 'local',
+          bug_report_consent: 'yes',
+          review_mode: bad,
+        })) as { isError?: boolean };
+        assert.equal(result.isError, true, JSON.stringify(bad));
+        assert.match(String(parse(result).error), /review_mode must be 'truest', 'agile' or '__keep__' \(got /);
+      }
+      assert.equal(storedMode(db), undefined);
+      assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'bug_report_consent'`), undefined);
+      assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'onboarded' AND value_json = 'true'`), undefined);
+    } finally {
+      db.close();
     }
   });
 });

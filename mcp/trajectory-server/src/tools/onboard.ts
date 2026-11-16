@@ -30,7 +30,7 @@ import {
   type OtherClaudeDb,
 } from '../platform.js';
 import { insertAudit } from './audit.js';
-import { writeConfigValueJson } from './config.js';
+import { WORKFLOW_MODES, WORKFLOW_MODE_KEY, isWorkflowMode, writeConfigValueJson, type WorkflowMode } from './config.js';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -633,6 +633,23 @@ function bugReportQuestion(current: string | null, isReonboard: boolean): BuiltQ
   };
 }
 
+const REVIEW_MODE_ADVICE: Advice = {
+  evidence: [],
+  reason: 'Truest is the default: nothing reaches your working branch unreviewed.',
+  wire: 'truest',
+};
+
+// Only /onboard stores the mode, so a stored one always gets a Keep option.
+function reviewModeQuestion(current: WorkflowMode | null): BuiltQuestion {
+  return {
+    question:
+      'How should code changes be reviewed? Truest reviews every task before it is pushed. Agile, for trying out a feature, closes tasks without that review and reviews the work as a whole before it merges.',
+    header: 'Review mode',
+    multiSelect: false,
+    ...assemble(keepOption(current, true), REVIEW_MODE_OPTIONS, REVIEW_MODE_ADVICE, 'truest'),
+  };
+}
+
 // AskUserQuestion takes 2-4 options per question and at most 4 questions.
 const AUQ_MAX_OPTIONS = 4;
 const AUQ_MAX_QUESTIONS = 4;
@@ -782,6 +799,11 @@ const BUG_REPORT_OPTIONS: QuestionOption[] = [
   { label: 'Yes', description: 'Bro drafts each report and files it only after you approve.', wire: 'yes' },
 ];
 
+const REVIEW_MODE_OPTIONS: QuestionOption[] = [
+  { label: 'Truest', description: 'Every task is reviewed before it is pushed.', wire: 'truest' },
+  { label: 'Agile', description: 'Tasks close unreviewed; the work is reviewed as a whole before it merges.', wire: 'agile' },
+];
+
 const ALONE_APPLY_KEYS = ['headless_enforcement', 'bug_report_consent'] as const;
 
 const SANDBOX_YES_RECOMMENDED = 'Yes (Recommended)';
@@ -834,9 +856,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           },
           round: {
             type: 'string',
-            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'verification_defaults', 'path_classes'],
+            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'verification_defaults', 'path_classes'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep). 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record). 'path_classes' = one repo's no-code path classes (any shape): one question whose evidence[] lists the docs and prompts globs detected from the files on its PR target, with options proposed (recommended), code (every path stays code) and Keep when the PR target already has " + PATH_CLASSES_FILE + "; nothing detected, an invalid file or an unresolvable PR target gives no questions and notes[] says why.",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep). 'review_mode' = the project review mode (any shape): truest (recommended, the default) or agile, plus Keep first when a mode is stored. 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record). 'path_classes' = one repo's no-code path classes (any shape): one question whose evidence[] lists the docs and prompts globs detected from the files on its PR target, with options proposed (recommended), code (every path stays code) and Keep when the PR target already has " + PATH_CLASSES_FILE + "; nothing detected, an invalid file or an unresolvable PR target gives no questions and notes[] says why.",
           },
           repo: {
             type: 'string',
@@ -905,6 +927,12 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             enum: ['yes', 'no'],
             description:
               "Optional. The 'bug_report' round answer: 'yes' lets bro offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; 'no' means bro never offers. Omit to keep the stored answer (default 'no'). Also accepted alone (no shape) on an onboarded project, with or without headless_enforcement.",
+          },
+          review_mode: {
+            type: 'string',
+            enum: [...WORKFLOW_MODES, KEEP_SENTINEL],
+            description:
+              "Optional. The 'review_mode' round answer, stored as the project's workflow_mode in the same transaction as the other answers: 'truest' reviews each task before it is pushed, 'agile' closes tasks without the per-task review and reviews the work as a whole before it merges. Omit (or '__keep__') to keep the stored mode (unset reads as truest). Only with shape; /onboard is the only path that sets it.",
           },
           verification_defaults: {
             type: 'array',
@@ -992,6 +1020,23 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       throw new Error(`bug_report_consent must be 'yes' or 'no' (got '${value}')`);
     }
     return value;
+  };
+
+  // writeConfigValueJson runs no validation, so the answer is checked here.
+  // null means no change: the answer was omitted or Keep.
+  const resolveReviewMode = (raw: unknown): WorkflowMode | null => {
+    if (raw === undefined) return null;
+    const resolved = typeof raw === 'string' ? resolveOption(raw, REVIEW_MODE_OPTIONS) : null;
+    if (resolved === KEEP_SENTINEL) return null;
+    if (!isWorkflowMode(resolved)) {
+      throw new Error(`review_mode must be ${WORKFLOW_MODES.map((m) => `'${m}'`).join(', ')} or '${KEEP_SENTINEL}' (got ${JSON.stringify(raw)})`);
+    }
+    return resolved;
+  };
+
+  const storedReviewMode = (): WorkflowMode | null => {
+    const stored = readConfig(db, WORKFLOW_MODE_KEY);
+    return isWorkflowMode(stored) ? stored : null;
   };
 
   // Headless enforcement is opt-in: 'yes' writes the shim into the project's
@@ -1223,6 +1268,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             headless_enforcement: readConfig(db, 'headless_enforcement') ?? 'no',
             sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'no',
             bug_report_consent: readConfig(db, 'bug_report_consent') ?? 'no',
+            review_mode: storedReviewMode() ?? 'truest',
           },
           probe: {
             in_git: git.in_git,
@@ -1251,6 +1297,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           | 'sync'
           | 'sandbox'
           | 'bug_report'
+          | 'review_mode'
           | 'verification_defaults'
           | 'path_classes';
         const repo = args['repo'] as string | undefined;
@@ -1275,6 +1322,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         if (round === 'bug_report') {
           const current = readConfig(db, 'bug_report_consent') as string | null;
           return ok({ questions: [bugReportQuestion(current, readOnboardedFlag(db))] });
+        }
+
+        if (round === 'review_mode') {
+          return ok({ questions: [reviewModeQuestion(storedReviewMode())] });
         }
 
         // Per-repo path: branching + pr_target questions seeded from THAT repos
@@ -1560,6 +1611,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         }
 
         const bug_report_consent = resolveBugReportConsent(args['bug_report_consent'] as string | undefined);
+        const reviewModeAnswer = resolveReviewMode(args['review_mode']);
 
         // A NULL row gets the explicit answers, reconciled against its own git
         // tree (#13: a repo without the gitflow target branch falls back to
@@ -1589,6 +1641,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           writeConfig(db, 'headless_enforcement', headless_enforcement);
           writeConfig(db, 'sandbox_enforcement', sandbox_enforcement);
           writeConfig(db, 'bug_report_consent', bug_report_consent);
+          if (reviewModeAnswer !== null) writeConfig(db, WORKFLOW_MODE_KEY, reviewModeAnswer);
 
           // The repos table is the sole source of truth for the four repo-scoped
           // keys (#980). Populated rows keep their per-repo policy; only NULL
@@ -1700,6 +1753,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             sandbox_enforcement,
             sandbox,
             bug_report_consent,
+            review_mode: storedReviewMode() ?? 'truest',
             ...(warning ? { warning } : {}),
           },
           ...repoFileFields(),

@@ -1,0 +1,2 @@
+### Added
+- **`/onboard` can ask for the project review mode** (GH 2225): `onboard_get_questions(round='review_mode')` offers `Truest` (recommended, the default) and `Agile`, with `Keep` first once a mode is stored. `onboard_apply` takes the answer as `review_mode` and stores it as `workflow_mode` in the same transaction as the other answers; omitting it, or `Keep`, leaves the stored mode as it is, and any other value is refused. `config_set` still refuses `workflow_mode`, so `/onboard` stays the only way to set it.
