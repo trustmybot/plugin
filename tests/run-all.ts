@@ -284,7 +284,12 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs', EVERY),
     lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs', ['scripts/**', 'tests/**']),
     lint('L1 lint: no tracked shell files outside the allowlist (GH 2662)', 'no-shell-files.test.mjs', ['**/*.sh', '**/*.bash']),
-    lint('L1 lint: contributor setup pins Bun and installs missing deps (GH 3151)', 'contributor-setup.test.mjs', ['.bun-version', 'scripts/maintenance/**']),
+    lint('L1 lint: contributor setup pins Bun and installs missing deps (GH 3151)', 'contributor-setup.test.mjs', [
+      '.bun-version',
+      'scripts/maintenance/**',
+      'mcp/trajectory-server/package.json',
+      'dashboard/package.json',
+    ]),
     lint('L1 lint: no bare mktemp (explicit path template)', 'no-bare-mktemp.test.mjs', ['tests/**', 'scripts/**']),
     lint('L1 lint: no grep -q in L6 chain-manifest pipelines', 'no-grep-q-in-pipelines.test.mjs', ['tests/l5-l6/l6-chain/**']),
     lint('L1 lint: no wall-clock asserts in tests', 'no-wall-clock-asserts.test.mjs', ['tests/**', 'dashboard/test/**', ...SERVER_TESTS]),

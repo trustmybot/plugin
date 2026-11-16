@@ -130,6 +130,11 @@ describe('selectL1Steps', () => {
     assert.ok(selected.includes(l1TailSteps(HERE).equivalence[0]));
     assert.ok(!selected.includes(labelOf('skill-frontmatter.test.mjs')), 'skill-frontmatter is skipped');
   });
+  test('a nested package.json selects contributor-setup, which reads every package.json', () => {
+    for (const manifest of ['dashboard/package.json', 'mcp/trajectory-server/package.json']) {
+      assert.ok(names(selectL1Steps(table, [manifest])).includes(labelOf('contributor-setup.test.mjs')), manifest);
+    }
+  });
   test('a dot-directory path matches a ** glob', () => {
     assert.ok(names(selectL1Steps(table, ['.github/workflows/pr-check.yml'])).includes(labelOf('pr-check-full-suite.test.mjs')));
     assert.equal(matchesInput('.github/workflows/x.yml', '**'), true);
