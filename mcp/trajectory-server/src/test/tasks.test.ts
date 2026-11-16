@@ -263,6 +263,37 @@ describe('taskTools', () => {
     db.close();
   });
 
+  it('task_update_status refuses bro completed → running and points to task_reopen (GH 2972)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batch = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/no-silent-rework', description: 'x' }],
+    });
+    const taskId = String(parseBatch(batch)[0].id);
+    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
+    const comp = await call(tools.handlers, 'task_update_status', {
+      agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+    });
+    assert.ok(!comp.isError, comp.content[0].text);
+
+    const rowCount = () => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit')!.n;
+    const before = rowCount();
+    const r = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'running' });
+    assert.equal(r.isError, true, 'bro must not move completed → running outside task_reopen');
+    assert.match(r.content[0].text, /task_reopen\(task_id, reason\)/);
+    const row = db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [Number(taskId)]);
+    assert.equal(row?.status, 'completed');
+    assert.equal(rowCount(), before, 'a refused transition writes no audit row');
+
+    db.close();
+  });
+
   it('task_create_batch accepts valid git-convention branch_id: feat/user-login', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
