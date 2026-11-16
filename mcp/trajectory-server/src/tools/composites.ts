@@ -1506,7 +1506,7 @@ export function compositeTools(
           agent: { type: 'string' },
           objective: { type: 'string', description: 'Short one-liner issue objective.' },
           intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
-          branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
+          branch_id: { type: 'string', description: 'Proposed branch_id (from branch_id_propose), used without asking the Human.' },
           repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create.' },
           labels: { type: 'array', items: { type: 'string' }, description: 'Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore), plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row.' },
         },
