@@ -34,6 +34,7 @@ import { nowISO } from '../db.js';
 import { commandOnPath } from '../hooks/lib/host.js';
 import { CommitContent, lastCommitByPath, lsTree } from '../utils/git-objects.js';
 import { resolveIndexTargetRef } from '../utils/index-target.js';
+import { inWorktreesDir } from '../world-model/nested-checkouts.js';
 import { insertAudit } from './audit.js';
 import { selectProjectInstalls } from './cheatcode-runtime.js';
 
@@ -275,7 +276,7 @@ function findGitParents(sessionDir: string): string[] {
     }
     for (const e of entries) {
       const childRel = `${rel}/${e.name}`;
-      if (PRUNED_TAIL.test(childRel) || childRel.includes('/.claude/worktrees')) continue;
+      if (PRUNED_TAIL.test(childRel) || inWorktreesDir(childRel)) continue;
       if (e.name === '.git') parents.push(rel);
       if (e.isDirectory()) walk(join(abs, e.name), childRel, depth + 1);
     }
