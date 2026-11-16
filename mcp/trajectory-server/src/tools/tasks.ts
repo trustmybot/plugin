@@ -312,12 +312,13 @@ const VALID_STATUSES = new Set([
 //   - 'closed'→'escalated' lets bro reopen a closed task's case for rework or
 //     redesign; bro owns the next step (task_retry admits an escalated task).
 //   - code-reviewer runs before the close, so a failed review leaves the task
-//     completed; its rework is completed → running (task_reopen).
+//     completed; its rework goes completed → running only through task_reopen,
+//     which records the task_reopened row that starts the new stint (GH 2972).
 const BRO_TRANSITIONS: Record<string, Set<string>> = {
   pending: new Set(['running', 'failed', 'escalated']),
   running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
   needs_validation: new Set(['running', 'completed', 'failed', 'escalated']),
-  completed: new Set(['running', 'needs_validation', 'failed', 'escalated']),
+  completed: new Set(['needs_validation', 'failed', 'escalated']),
   failed: new Set(['pending', 'running', 'escalated', 'closed']),
   escalated: new Set(['pending', 'running', 'failed', 'closed']),
   closed: new Set(['escalated']),
@@ -1499,6 +1500,12 @@ export function taskTools(db: TrajectoryDB): {
         const allowed = BRO_TRANSITIONS[task.status] ?? new Set<string>();
         if (!allowed.has(status)) {
           const valid = [...allowed].join(', ') || '(none — terminal)';
+          if (task.status === 'completed' && status === 'running') {
+            throw new Error(
+              `task_update_status rejected: bro may not move task ${taskId} from 'completed' to 'running'. ` +
+              `Reopen it for rework with task_reopen(task_id, reason), which records the task_reopened row. See GH 2972.`
+            );
+          }
           throw new Error(
             `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. ` +
             `Allowed from '${task.status}': ${valid}. ` +
