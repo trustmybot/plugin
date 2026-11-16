@@ -826,6 +826,32 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
       f.commit('feature');
       await assertAllowed(f);
     });
+
+    describe('a task stacked on a feature branch whose own commit adds the fragment (GH 2225)', () => {
+      /** feat/milestone adds a fragment on top of dev; the task's commit on it adds none. */
+      function stackedOnFeature(mode: 'agile' | 'truest'): Fixture {
+        const f = fixture();
+        f.write('changelog.d/milestone.md', '### Added\n- milestone (GH 1)\n');
+        f.commit('milestone');
+        f.git('branch', 'feat/milestone');
+        f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
+        f.commit('task without fragment');
+        const d = new DatabaseSync(f.db);
+        d.prepare("UPDATE tasks SET parent_branch_id = 'feat/milestone' WHERE id = ?").run(TASK_ID);
+        d.prepare("INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json").run(JSON.stringify(mode));
+        d.close();
+        return f;
+      }
+
+      it('agile: diffs from the feature branch, so the task itself adds no fragment', async () => {
+        const d = await denial(stackedOnFeature('agile'));
+        assert.equal(d.check, 'missing_changelog');
+      });
+
+      it('truest: diffs from dev as before, which holds the feature branch fragment', async () => {
+        await assertAllowed(stackedOnFeature('truest'));
+      });
+    });
   });
 
   describe('no way around the doc checks', () => {

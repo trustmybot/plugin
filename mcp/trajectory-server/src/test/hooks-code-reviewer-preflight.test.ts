@@ -397,6 +397,48 @@ describe('code-reviewer-preflight', () => {
       assert.match(d.actual ?? '', new RegExp(`no PR target ref resolves in .*repo$`));
       assert.match(d.expected ?? '', new RegExp(`merge-base\\(<PR target>, ${sha}\\)`));
     });
+
+    describe('an agile task stacked on a feature branch ahead of dev (GH 2225)', () => {
+      const FEATURE = 'feat/milestone';
+      /** The task branch cut from FEATURE, which is one commit ahead of dev, with its lint run recorded against merge-base(FEATURE, commit). */
+      async function stackedOnFeature(mode: 'agile' | 'truest' | null): Promise<{ f: Fixture; sha: string; featureBase: string }> {
+        const f = fixture();
+        f.git('checkout', '-q', '-b', FEATURE, 'dev');
+        f.write('src/m.txt', 'milestone\n');
+        f.commit('milestone');
+        f.git('branch', '-q', '-f', BRANCH, FEATURE);
+        f.git('checkout', '-q', BRANCH);
+        featureCommit(f);
+        const w = new DatabaseSync(f.db);
+        w.prepare('UPDATE tasks SET parent_branch_id = ? WHERE id = ?').run(FEATURE, TASK_ID);
+        if (mode !== null) {
+          w.prepare("INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json").run(JSON.stringify(mode));
+        }
+        w.close();
+        const sha = f.git('rev-parse', BRANCH);
+        const featureBase = f.git('merge-base', FEATURE, sha);
+        assert.notEqual(featureBase, f.git('merge-base', 'dev', sha), 'the feature branch is ahead of dev');
+        await f.record({ exit: 0 }, { baseSha: featureBase });
+        return { f, sha, featureBase };
+      }
+
+      it('agile: allows a lint record made against merge-base(feature branch, commit)', async () => {
+        const { f } = await stackedOnFeature('agile');
+        await assertAllowed(f);
+      });
+
+      for (const mode of ['truest', null] as const) {
+        it(`${mode ?? 'unset'} mode: denies that record, measuring from dev as before`, async () => {
+          const { f, sha, featureBase } = await stackedOnFeature(mode);
+          const d = denial((await run(f)).stdout);
+          assert.deepEqual(d, {
+            check: 'stale_lint_record',
+            expected: `the lint run's base_sha is merge-base(dev, ${sha})`,
+            actual: `run 1: base_sha recorded ${featureBase}, merge-base ${f.git('merge-base', 'dev', sha)}`,
+          });
+        });
+      }
+    });
   });
 
   describe('no_lint_record', () => {

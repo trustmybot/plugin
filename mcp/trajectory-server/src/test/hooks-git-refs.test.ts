@@ -2,17 +2,20 @@
  * The hooks' async base-ref helpers (GH 1692 R-async A2a): they answer as the
  * sync twins in utils/git-refs.ts on a table of fixture repos, nothing under
  * src/hooks imports the sync module, and attribution-footer's forge call takes
- * the gate's deadline.
+ * the gate's deadline. prTargetRef puts an agile task's resolving parent first
+ * and keeps the target-first order for every other task (GH 2225).
  */
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { attributionFooter } from '../hooks/attribution-footer.js';
 import { ALLOW } from '../hooks/gate.js';
+import { GATE_READ_ERROR } from '../hooks/lib/db.js';
 import { runWithDeadline } from '../hooks/lib/deadline.js';
 import { runWithGitMemo } from '../hooks/lib/git.js';
 import * as asyncRefs from '../hooks/lib/git-refs.js';
@@ -213,5 +216,68 @@ describe('attribution-footer under a deadline', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('prTargetRef: an agile task bases on its parent feature branch (GH 2225)', () => {
+  const FEATURE = 'feat/milestone';
+  let root: string;
+  let repo: string;
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+
+  before(() => {
+    root = mkdtempSync(join(tmpdir(), 'tmb-agile-base-'));
+    repo = newRepo(root, 'dev');
+    git(repo, 'branch', FEATURE);
+    git(repo, 'branch', 'local-only');
+    withOrigin(root, repo, 'dev', FEATURE);
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  const cases: ReadonlyArray<{ name: string; target: string; parent: string; agile: string | null; truest: string | null }> = [
+    { name: 'stacked on a feature branch on origin', target: 'dev', parent: FEATURE, agile: `origin/${FEATURE}`, truest: 'origin/dev' },
+    { name: 'stacked on a local-only feature branch', target: 'dev', parent: 'local-only', agile: 'local-only', truest: 'origin/dev' },
+    { name: 'parent given as origin/<feature>', target: 'dev', parent: `origin/${FEATURE}`, agile: `origin/${FEATURE}`, truest: 'origin/dev' },
+    { name: 'a parent that does not resolve falls back to the target', target: 'dev', parent: 'feat/gone', agile: 'origin/dev', truest: 'origin/dev' },
+    { name: 'a parent that is the target', target: 'dev', parent: 'dev', agile: 'origin/dev', truest: 'origin/dev' },
+    { name: 'a parent that is the target, given as origin/<target>', target: 'dev', parent: 'origin/dev', agile: 'origin/dev', truest: 'origin/dev' },
+    { name: 'not stacked', target: 'dev', parent: '', agile: 'origin/dev', truest: 'origin/dev' },
+    { name: 'a target that does not resolve, stacked', target: 'gone', parent: FEATURE, agile: `origin/${FEATURE}`, truest: `origin/${FEATURE}` },
+    { name: 'neither resolves: the repo default', target: 'gone', parent: 'feat/gone', agile: 'origin/dev', truest: 'origin/dev' },
+  ];
+  for (const c of cases) {
+    it(c.name, async () => {
+      assert.equal(await asyncRefs.prTargetRef(repo, c.target, c.parent, 'agile', env), c.agile, 'agile');
+      assert.equal(await asyncRefs.prTargetRef(repo, c.target, c.parent, 'truest', env), c.truest, 'truest keeps the target-first order');
+    });
+  }
+});
+
+describe('gateWorkflowMode reads plugin_config.workflow_mode as readWorkflowMode does', () => {
+  let root: string;
+  before(() => {
+    root = mkdtempSync(join(tmpdir(), 'tmb-gate-mode-'));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  const stored: ReadonlyArray<[string, string | null, string]> = [
+    ['unset', null, 'truest'],
+    ['agile', '"agile"', 'agile'],
+    ['truest', '"truest"', 'truest'],
+    ['an unknown mode', '"lane"', 'truest'],
+    ['unparseable', 'not json', 'truest'],
+  ];
+  for (const [name, valueJson, mode] of stored) {
+    it(`${name} reads as ${mode}`, () => {
+      const db = join(root, `${name.replace(/\W/g, '-')}.db`);
+      const d = new DatabaseSync(db);
+      d.exec('CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)');
+      if (valueJson !== null) d.prepare("INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)").run(valueJson);
+      d.close();
+      assert.equal(asyncRefs.gateWorkflowMode(db, process.env), mode);
+    });
+  }
+  it('a DB that does not read is GATE_READ_ERROR', () => {
+    assert.equal(asyncRefs.gateWorkflowMode(join(root, 'missing.db'), process.env), GATE_READ_ERROR);
   });
 });

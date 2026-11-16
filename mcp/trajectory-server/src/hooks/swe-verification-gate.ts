@@ -79,7 +79,7 @@ import { docChecks, type DocCheckFailure, gitText, nulFields, revParse } from '.
 import { classifyChange, classifyPath, PATH_CLASSES_FILE, readPathClasses } from '../path-classes.js';
 import { gitRun, isDir } from './lib/git.js';
 import { leakScan } from './lib/leak-scan.js';
-import { prTargetRef } from './lib/git-refs.js';
+import { gateWorkflowMode, prTargetRef } from './lib/git-refs.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -705,8 +705,10 @@ async function taskPrTargetRef(db: string, taskId: string, worktree: string, env
     env,
   );
   if (row === GATE_READ_ERROR) return GATE_READ_ERROR;
+  const workflowMode = gateWorkflowMode(db, env);
+  if (workflowMode === GATE_READ_ERROR) return GATE_READ_ERROR;
   const [, parentBranch = '', targetBranch = ''] = row.split('|');
-  return await prTargetRef(worktree, targetBranch, parentBranch, env);
+  return await prTargetRef(worktree, targetBranch, parentBranch, workflowMode, env);
 }
 
 async function docGate(db: string, taskId: string, worktree: string, env: NodeJS.ProcessEnv, notes: string[]): Promise<GateResult | null> {
@@ -946,7 +948,7 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
       const baseSha = await lintBaseSha(worktree, db, taskId, wtSha, genv);
       if (baseSha === '') {
         return deny(
-          `BLOCKED: close lints did not run — no merge-base of ${wtSha} with the task's PR target (repos.target_branch, parent_branch_id, else the repo default) resolves in ${worktree}, and the lint record names one.`,
+          `BLOCKED: close lints did not run — no merge-base of ${wtSha} with the task's base (an agile task's parent feature branch, else repos.target_branch, parent_branch_id, else the repo default) resolves in ${worktree}, and the lint record names one.`,
           'policy',
         );
       }
