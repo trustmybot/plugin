@@ -1,11 +1,12 @@
 // review_queue: the closed agile tasks still waiting for code review, grouped by overlapping declared files[].
 // review_batch_record: code-reviewer's one verdict on a group of them.
+// review_waive_record: the Human's waiver of that review for a feature branch, recorded by bro.
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { UNREVIEWED_CLOSED_TASK } from '../data-contracts.js';
-import { AGILE_QUEUED_SQL, batchReviewedSql, reviewBatchKey } from '../review-sql.js';
+import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, batchReviewedSql, featureBranchTaskSql, reviewBatchKey, waivedSql } from '../review-sql.js';
 import { isAncestor } from '../utils/git-objects.js';
 import { repoRowPath } from '../utils/repo-paths.js';
 import { insertAudit } from './audit.js';
@@ -121,7 +122,7 @@ const BATCH_VERDICTS = ['pass', 'fail'] as const;
 type BatchVerdict = (typeof BATCH_VERDICTS)[number];
 const HEAD_SHA_RE = /^[0-9a-f]{7,64}$/i;
 
-/** A refused review_batch_record call; the transaction rolls back, so nothing is written. */
+/** A refused review_batch_record or review_waive_record call; the transaction rolls back, so nothing is written. */
 class BatchRefused extends Error {
   constructor(
     readonly reason: string,
@@ -218,25 +219,51 @@ interface BatchTaskRow {
   repo_path: string | null;
   queued: number;
   batch_reviewed: number;
+  waived: number;
 }
 
 const BATCH_TASK_SQL = `SELECT t.id, t.issue_id, t.status, t.workflow_mode, t.commit_sha,
          COALESCE(t.repo, i.repo) AS repo, r.path AS repo_path,
-         ${AGILE_QUEUED_SQL} AS queued, ${batchReviewedSql('t')} AS batch_reviewed
+         ${AGILE_QUEUED_SQL} AS queued, ${batchReviewedSql('t')} AS batch_reviewed, ${waivedSql('t')} AS waived
     FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
     LEFT JOIN repos r ON r.name = COALESCE(t.repo, i.repo)
    WHERE t.id = ?`;
 
-// The allowlist: why <row> may not be batch-reviewed at <headSha>, or null.
-function batchTaskRefusal(db: TrajectoryDB, row: BatchTaskRow, headSha: string): string | null {
+// The allowlist checks that need no git: why <row> may not be batch-reviewed, or null.
+function batchTaskStateRefusal(row: BatchTaskRow): string | null {
   if (row.status !== 'closed') return `not_closed (status ${row.status})`;
   if (row.workflow_mode !== 'agile') return `not_agile (workflow_mode ${row.workflow_mode ?? 'null'})`;
   if (row.queued !== 1) return 'not_queued: no bro review_queued row names its current commit';
   if (row.batch_reviewed === 1) return 'already_batch_reviewed';
+  if (row.waived === 1) return 'already_waived: a bro review_waived row names its current commit';
   if (row.repo_path === null) return `repo_unknown: no repos row for ${JSON.stringify(row.repo)}`;
-  if (!isAncestor(repoRowPath(db, row.repo_path), row.commit_sha ?? '', headSha)) {
-    return `not_ancestor: ${row.commit_sha} is not an ancestor of ${headSha} in ${row.repo}`;
+  return null;
+}
+
+const ancestryKey = (repoPath: string, commitSha: string | null): string => `${repoPath}\0${commitSha ?? ''}`;
+
+// Whether each task's commit is an ancestor of headSha in its repo, keyed by
+// ancestryKey, for the tasks that pass the state checks. Runs before the
+// write transaction opens so no git process runs while it holds the lock.
+function batchAncestry(db: TrajectoryDB, batch: BatchArgs): Map<string, boolean> {
+  const ancestry = new Map<string, boolean>();
+  for (const id of batch.taskIds) {
+    const row = db.get<BatchTaskRow>(BATCH_TASK_SQL, [id]);
+    if (!row || row.repo_path === null || batchTaskStateRefusal(row) !== null) continue;
+    const key = ancestryKey(row.repo_path, row.commit_sha);
+    if (!ancestry.has(key)) ancestry.set(key, isAncestor(repoRowPath(db, row.repo_path), row.commit_sha ?? '', batch.headSha));
   }
+  return ancestry;
+}
+
+// The allowlist: why <row> may not be batch-reviewed at <headSha>, or null.
+function batchTaskRefusal(row: BatchTaskRow, headSha: string, ancestry: ReadonlyMap<string, boolean>): string | null {
+  const stateRefusal = batchTaskStateRefusal(row);
+  if (stateRefusal !== null) return stateRefusal;
+  const isAnc = ancestry.get(ancestryKey(row.repo_path ?? '', row.commit_sha));
+  // The task's commit or repo moved between the ancestry check and the transaction.
+  if (isAnc === undefined) return `task_changed: task ${row.id} changed while review_batch_record ran; call it again`;
+  if (!isAnc) return `not_ancestor: ${row.commit_sha} is not an ancestor of ${headSha} in ${row.repo}`;
   return null;
 }
 
@@ -249,6 +276,7 @@ interface BatchRecorded {
 }
 
 function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
+  const ancestry = batchAncestry(db, batch);
   return db.transaction(() => {
     const key = reviewBatchKey(batch.taskIds, batch.headSha);
     const latest = db.get<BatchObservation>(BATCH_OBSERVATION_SQL, [REVIEWER_OBSERVE_FROM_NODE, key]);
@@ -289,7 +317,7 @@ function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
     const refused: Array<{ task_id: number; reason: string }> = [];
     for (const id of batch.taskIds) {
       const row = db.get<BatchTaskRow>(BATCH_TASK_SQL, [id]);
-      const reason = row ? batchTaskRefusal(db, row, batch.headSha) : 'not_found';
+      const reason = row ? batchTaskRefusal(row, batch.headSha, ancestry) : 'not_found';
       if (reason !== null) refused.push({ task_id: id, reason });
       else if (row) rows.push(row);
     }
@@ -319,6 +347,61 @@ function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
       created_at: now,
     });
     return { audit_id: auditId, verdict: batch.verdict, task_ids: batch.taskIds, commit_shas: commitShas, reviewer_agent_id: reviewer.agentId };
+  });
+}
+
+interface WaiveArgs {
+  featureBranch: string;
+  humanAnswer: string;
+}
+
+function parseWaiveArgs(args: Record<string, unknown>): WaiveArgs {
+  const featureBranch = args['feature_branch'];
+  if (typeof featureBranch !== 'string' || featureBranch.trim() === '') {
+    throw new BatchRefused('invalid_args', 'feature_branch must be a non-empty string');
+  }
+  const humanAnswer = args['human_answer'];
+  if (typeof humanAnswer !== 'string' || humanAnswer.trim() === '') {
+    throw new BatchRefused('invalid_args', "human_answer must be the Human's AskUserQuestion answer, quoted verbatim and non-empty");
+  }
+  return { featureBranch: featureBranch.trim(), humanAnswer };
+}
+
+// The tasks of a feature branch that no grouped review has settled yet.
+const BRANCH_PENDING_SQL = `SELECT t.id, t.issue_id, t.commit_sha FROM tasks t
+   WHERE ${featureBranchTaskSql('t', ':branch')} AND ${AGILE_PENDING_REVIEW_SQL}
+   ORDER BY t.id`;
+
+interface WaiveRecorded {
+  audit_id: number;
+  feature_branch: string;
+  task_ids: number[];
+  commit_shas: string[];
+}
+
+function recordWaiver(db: TrajectoryDB, waive: WaiveArgs): WaiveRecorded {
+  return db.transaction(() => {
+    const tasks = db.all<{ id: number; issue_id: number; commit_sha: string }>(BRANCH_PENDING_SQL, [{ branch: waive.featureBranch }]);
+    if (tasks.length === 0) {
+      throw new BatchRefused('no_queued_task', `feature branch ${waive.featureBranch} has no queued agile task to waive; nothing was recorded.`);
+    }
+    const taskIds = tasks.map((t) => t.id);
+    const commitShas = tasks.map((t) => t.commit_sha);
+    const auditId = insertAudit(db, {
+      issue_id: tasks[0].issue_id,
+      branch_id: waive.featureBranch,
+      from_node: 'bro',
+      event_type: 'review_waived',
+      summary: `the Human waived the grouped review of tasks ${taskIds.join(', ')} on ${waive.featureBranch}`,
+      content_json: JSON.stringify({
+        feature_branch: waive.featureBranch,
+        task_ids: taskIds,
+        commit_shas: commitShas,
+        human_answer: waive.humanAnswer,
+      }),
+      created_at: nowISO(),
+    });
+    return { audit_id: auditId, feature_branch: waive.featureBranch, task_ids: taskIds, commit_shas: commitShas };
   });
 }
 
@@ -353,7 +436,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_batch_record',
       description:
-        'code-reviewer only: one verdict on a group of queued agile tasks at feature-branch head_sha. Refused, writing nothing, unless every task is closed agile, queued at its commit, not yet batch-reviewed, and that commit an ancestor of head_sha. ' +
+        'code-reviewer only: one verdict on a group of queued agile tasks at feature-branch head_sha. Refused, writing nothing, unless every task is closed agile, queued at its commit, not yet batch-reviewed or waived, and that commit an ancestor of head_sha. ' +
         'pass batch-reviews them all; fail leaves them queued.',
       inputSchema: {
         type: 'object',
@@ -366,6 +449,21 @@ export function reviewQueueTools(db: TrajectoryDB): {
           findings: { type: 'array', items: { type: 'object' }, description: 'Optional, in validation_record\'s finding shape.' },
         },
         required: ['agent', 'task_ids', 'feature_branch', 'head_sha', 'verdict'],
+      },
+    },
+    {
+      name: 'review_waive_record',
+      description:
+        'bro only. Call only after the Human answered Yes to your AskUserQuestion asking to merge feature_branch without the grouped review. ' +
+        'Waives every queued agile task of that branch at its current commit; refused, writing nothing, when none is queued.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          feature_branch: { type: 'string' },
+          human_answer: { type: 'string', description: "The Human's answer, quoted verbatim." },
+        },
+        required: ['agent', 'feature_branch', 'human_answer'],
       },
     },
   ];
@@ -395,6 +493,13 @@ export function reviewQueueTools(db: TrajectoryDB): {
       review_batch_record: requireRoles('review_batch_record', ['code-reviewer'], (args) => {
         try {
           return Promise.resolve(ok(recordBatch(db, parseBatchArgs(args))));
+        } catch (e) {
+          return Promise.resolve(e instanceof BatchRefused ? refusal(e) : err((e as Error).message));
+        }
+      }),
+      review_waive_record: requireRoles('review_waive_record', ['bro'], (args) => {
+        try {
+          return Promise.resolve(ok(recordWaiver(db, parseWaiveArgs(args))));
         } catch (e) {
           return Promise.resolve(e instanceof BatchRefused ? refusal(e) : err((e as Error).message));
         }

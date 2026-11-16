@@ -443,4 +443,23 @@ describe('close-issue-on-merge l3', () => {
     runHook(input(MERGE), REF_122);
     assert.equal(auditCount('review_gate_bypassed'), '0', 'no bypass over a bro waiver');
   });
+
+  it('(r) a task closed under workflow_mode agile gets no bypass row; a live task on the branch still does (GH 2225)', () => {
+    seedDb();
+    addIssue(5, 122);
+    addTask(1, 5, 'feat/x', 'closed');
+    sql("UPDATE tasks SET workflow_mode = 'agile' WHERE id = 1");
+    addSkip('review_queued', 'bro', 1);
+    addIssue(6, 123);
+    addTask(2, 6, 'feat/x', 'completed', 'def5678');
+    runHook(input(MERGE), REF_122);
+    assert.equal(taskStatus(1), 'closed');
+    assert.equal(taskStatus(2), 'closed', 'the live task is closed by the merge');
+    assert.equal(
+      q("SELECT content_json FROM audit WHERE event_type='review_gate_bypassed'"),
+      '{"task_id":2,"commit_sha":"def5678","closed_by":"close-issue-on-merge"}',
+      'only the truest task is recorded as a bypass',
+    );
+    assert.equal(auditCount('review_queued'), '1', 'the agile task stays queued');
+  });
 });

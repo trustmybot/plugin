@@ -17,6 +17,7 @@ import { GATE_NAME as DRIFT_WARN_GATE, deferredToolsDriftWarn } from './deferred
 import { GATE_NAME as ENSURE_GITIGNORE_GATE, ensureGitignore } from './ensure-gitignore.js';
 import { ensureMcpDepsInstalled } from './ensure-mcp-deps-installed.js';
 import { GATE_NAME as GIT_GUARDS_GATE, gitGuards } from './git-guards.js';
+import { GATE_NAME as FEATURE_MERGE_GATE, featureBranchMergeGate } from './feature-branch-merge-gate.js';
 import { GATE_NAME as PUSH_GUARD_GATE, gitPushGuard } from './git-push-guard.js';
 import { GATE_NAME as MCP_HEALTH_GATE, mcpHealthCheck } from './mcp-health-check.js';
 import { GATE_NAME as PREFLIGHT_GATE, codeReviewerPreflight } from './code-reviewer-preflight.js';
@@ -165,6 +166,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [WORKTREE_ADOPT_GATE, worktreeAdoptGuard],
   [WM_READ_GATE, wmReadBeforeProvision],
   [REF_MOVE_REINDEX_GATE, refMoveReindex],
+  [FEATURE_MERGE_GATE, featureBranchMergeGate],
 ]);
 
 export function findGate(name: string): Gate | undefined {
@@ -259,6 +261,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
   preToolUseGroup('Bash', [
     routerGate('containment-guard', 'enforcement'),
     routerGate(GIT_GUARDS_GATE, 'enforcement'),
+    routerGate(FEATURE_MERGE_GATE, 'enforcement'),
     routerGate(PUSH_GUARD_GATE, 'enforcement'),
     routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
     routerGate(NO_WORKTREE_BRANCH_CREATE_GATE, 'enforcement'),

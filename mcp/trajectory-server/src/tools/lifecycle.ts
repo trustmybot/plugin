@@ -1,7 +1,7 @@
 import type { TrajectoryDB } from '../db.js';
 import { insertAudit } from './audit.js';
 import { closeOpenRunsForTask } from './agent-runs.js';
-import { batchReviewedSql, GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL } from '../review-sql.js';
+import { batchReviewedSql, GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL, waivedSql } from '../review-sql.js';
 
 // Task statuses that still hold work open on an issue.
 export const LIVE_TASK_STATUSES = ['pending', 'running', 'needs_validation', 'completed'] as const;
@@ -42,13 +42,14 @@ function reviewStateAt(db: TrajectoryDB, taskId: number, commitSha: string | nul
   return { pass: row?.pass === 1, skipRecorded: row?.skip === 1 };
 }
 
-// Closed tasks of an issue with neither a passing review, a batch review nor
-// a recorded bypass/waiver for their current commit.
+// Closed tasks of an issue with neither a passing review, a batch review, an
+// agile review_waived row nor a recorded bypass/waiver for their current
+// commit.
 export function closedTasksWithoutReview(db: TrajectoryDB, issueId: number | string): LifecycleTask[] {
   return db.all<LifecycleTask>(
     `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
       WHERE t.issue_id = ? AND t.status = 'closed'
-        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL} AND NOT ${batchReviewedSql('t')}
+        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL} AND NOT ${batchReviewedSql('t')} AND NOT ${waivedSql('t')}
       ORDER BY t.id`,
     [issueId],
   );

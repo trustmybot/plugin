@@ -2,7 +2,7 @@
 // files[] overlap, with the doctor's agile_review_queued membership.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +14,7 @@ import { groupQueuedTasks, pathsOverlap, reviewQueueTools } from '../tools/revie
 import { AGILE_QUEUED_SQL, reviewBatchKey } from '../review-sql.js';
 import { closedTasksWithoutReview } from '../tools/lifecycle.js';
 import { issueTools } from '../tools/issues.js';
+import { __setGitRunnerForTests } from '../utils/git-run.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Group = { tasks: Array<{ id: number; commit_sha: string | null; updated_at: string }>; files: string[]; base: string | null; head: string | null };
@@ -654,6 +655,183 @@ describe('GH 2225 T4: review_batch_record', () => {
       } finally {
         db.close();
       }
+    });
+  });
+
+  describe('GH 2225 T5: review_waive_record', () => {
+    const FEATURE = 'feat/agile';
+    const ANSWER = 'Yes, merge feat/agile without the grouped review';
+
+    // A queued task cli feature-merge merged onto <branch>.
+    function seedMerged(db: TrajectoryDB, issue: number, commit: string, branch = FEATURE, opts: SeedOpts = {}): number {
+      const id = seedQueued(db, issue, commit, opts);
+      db.run(
+        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'feature_branch_merged', 'm', ?, ?)`,
+        [issue, JSON.stringify({ task_id: id, feature_branch: branch, commit_sha: commit, rebased: false }), iso()],
+      );
+      return id;
+    }
+
+    async function waive(db: TrajectoryDB, args: Record<string, unknown> = {}): Promise<RawResult> {
+      return (await reviewQueueTools(db).handlers['review_waive_record']({ agent: 'bro', feature_branch: FEATURE, human_answer: ANSWER, ...args })) as RawResult;
+    }
+
+    type WaiverRow = { from_node: string; branch_id: string | null; issue_id: number; content: Record<string, unknown> };
+    const waiverRows = (db: TrajectoryDB): WaiverRow[] =>
+      db
+        .all<{ from_node: string; branch_id: string | null; issue_id: number; content_json: string }>(
+          `SELECT from_node, branch_id, issue_id, content_json FROM audit WHERE event_type = 'review_waived' ORDER BY id`,
+        )
+        .map((r) => ({ from_node: r.from_node, branch_id: r.branch_id, issue_id: r.issue_id, content: JSON.parse(r.content_json) as Record<string, unknown> }));
+
+    const auditCount = (db: TrajectoryDB): number => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit')!.n;
+
+    describe('SC1: one bro row snapshots the branch\'s queued tasks; a refused call writes nothing', () => {
+      it('writes one review_waived row naming every queued task of the branch at its commit, and no other task', async () => {
+        const { db, issue } = batchDb();
+        try {
+          const a = seedMerged(db, issue, repo.base);
+          const b = seedMerged(db, issue, repo.head);
+          const reviewed = seedMerged(db, issue, repo.base);
+          assert.ok(!(await observedBatch(db, [reviewed], repo.head, 'pass')).isError);
+          const elsewhere = seedMerged(db, issue, repo.base, 'feat/agile-other');
+          const unmerged = seedQueued(db, issue, repo.base);
+          const before = auditCount(db);
+          const r = await waive(db);
+          assert.ok(!r.isError, r.content[0].text);
+          assert.deepEqual(JSON.parse(r.content[0].text), {
+            audit_id: (JSON.parse(r.content[0].text) as { audit_id: number }).audit_id,
+            feature_branch: FEATURE,
+            task_ids: [a, b],
+            commit_shas: [repo.base, repo.head],
+          });
+          assert.ok(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'review_waived'`)!.n > 0);
+          assert.equal(auditCount(db), before + 1, 'exactly one row');
+          assert.deepEqual(waiverRows(db), [
+            {
+              from_node: 'bro',
+              branch_id: FEATURE,
+              issue_id: issue,
+              content: { feature_branch: FEATURE, task_ids: [a, b], commit_shas: [repo.base, repo.head], human_answer: ANSWER },
+            },
+          ]);
+          assert.deepEqual(ids(await queueOk(db)), [elsewhere, unmerged].sort((x, y) => x - y));
+        } finally {
+          db.close();
+        }
+      });
+
+      it('refuses a caller other than bro, an empty human_answer or feature_branch, and a branch with no queued task', async () => {
+        const { db, issue } = batchDb();
+        try {
+          seedMerged(db, issue, repo.base);
+          const before = auditCount(db);
+          for (const agent of ['swe', 'code-reviewer', 'pm']) {
+            const body = refusedWith(await waive(db, { agent }), 'forbidden');
+            assert.deepEqual((body as unknown as { allowed_roles: string[] }).allowed_roles, ['bro']);
+          }
+          for (const human_answer of ['', '   ', undefined, 42]) refusedWith(await waive(db, { human_answer }), 'invalid_args');
+          for (const feature_branch of ['', ' ', undefined]) refusedWith(await waive(db, { feature_branch }), 'invalid_args');
+          refusedWith(await waive(db, { feature_branch: 'feat/none' }), 'no_queued_task');
+          assert.equal(auditCount(db), before, 'nothing is written');
+          assert.ok(!(await waive(db)).isError);
+          const after = auditCount(db);
+          refusedWith(await waive(db), 'no_queued_task');
+          assert.equal(auditCount(db), after, 'a second waiver with nothing left queued writes nothing');
+        } finally {
+          db.close();
+        }
+      });
+    });
+
+    describe('SC2: a waived task leaves review_queue, agile_review_queued and issue_close\'s refusal', () => {
+      it('drops the waived tasks from all three and refuses them to review_batch_record; a task merged after the waiver stays queued', async () => {
+        const { db, issue } = batchDb();
+        try {
+          const a = seedMerged(db, issue, repo.base, FEATURE, { updatedAt: iso(-25 * HOUR) });
+          assert.ok(!(await waive(db)).isError);
+          const later = seedMerged(db, issue, repo.head, FEATURE, { updatedAt: iso(-25 * HOUR) });
+
+          assert.deepEqual(ids(await queueOk(db)), [later]);
+          const contract = DATA_CONTRACTS.filter(isSqlContract).find((c): c is SqlContract => c.id === 'agile_review_queued')!;
+          assert.equal(runDataContracts(trajectoryDbReader(db), [contract], { env: {} }).violations.find((v) => v.id === 'agile_review_queued')?.actual, 1);
+          assert.deepEqual(closedTasksWithoutReview(db, issue).map((t) => t.id), [later]);
+          assert.ok(pushAdmits(db, a), 'the review_queued row stays, so the push guard still admits the waived commit');
+
+          observe(db, [a], repo.head);
+          const body = refusedWith(await batch(db, { task_ids: [a], head_sha: repo.head, verdict: 'pass' }), 'task_not_batchable');
+          assert.deepEqual(body.tasks?.map((t) => [t.task_id, t.reason.split(':')[0]]), [[a, 'already_waived']]);
+          assert.equal(batchRows(db).length, 0);
+
+          assert.ok(!(await waive(db)).isError);
+          assert.equal(runDataContracts(trajectoryDbReader(db), [contract], { env: {} }).violations.length, 0);
+          assert.equal((await queueOk(db)).total, 0);
+          const _spawnFn = () => ({ status: 0, stdout: '', stderr: '' });
+          const closed = (await issueTools(db, '/tmp/.claude/tmb/trajectory.db').handlers['issue_close']({ agent: 'bro', issue_id: String(issue), _spawnFn })) as RawResult;
+          assert.ok(!closed.isError, closed.content[0].text);
+        } finally {
+          db.close();
+        }
+      });
+
+      it('a waived task whose commit moves is queued again; a waiver row from another node, or naming another commit, waives nothing', async () => {
+        const { db, issue } = batchDb();
+        try {
+          const a = seedMerged(db, issue, repo.base);
+          assert.ok(!(await waive(db)).isError);
+          db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', [repo.head, a]);
+          db.run(
+            `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_queued', 'q', ?, ?)`,
+            [issue, JSON.stringify({ task_id: a, commit_sha: repo.head }), iso()],
+          );
+          assert.deepEqual(ids(await queueOk(db)), [a]);
+          const forge = (fromNode: string, commit: string) =>
+            db.run(
+              `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, ?, 'review_waived', 'f', ?, ?)`,
+              [issue, fromNode, JSON.stringify({ feature_branch: FEATURE, task_ids: [a], commit_shas: [commit], human_answer: 'Yes' }), iso()],
+            );
+          forge('swe', repo.head);
+          forge('bro', repo.side);
+          assert.deepEqual(ids(await queueOk(db)), [a]);
+        } finally {
+          db.close();
+        }
+      });
+    });
+
+    describe('F39-1: the ancestor checks run before the write transaction', () => {
+      it('runs every git merge-base before the transaction opens, with refusals and the pass unchanged', async () => {
+        const { db, issue } = batchDb();
+        const realTransaction = db.transaction.bind(db);
+        let inTransaction = false;
+        db.transaction = <T>(fn: () => T): T =>
+          realTransaction(() => {
+            inTransaction = true;
+            try {
+              return fn();
+            } finally {
+              inTransaction = false;
+            }
+          });
+        const ancestorRuns: boolean[] = [];
+        __setGitRunnerForTests((args, options) => {
+          if (args.includes('merge-base')) ancestorRuns.push(inTransaction);
+          return spawnSync('git', args, { timeout: 30_000, ...options });
+        });
+        try {
+          const a = seedQueued(db, issue, repo.base);
+          const offHead = seedQueued(db, issue, repo.side);
+          observe(db, [a, offHead], repo.head);
+          const body = refusedWith(await batch(db, { task_ids: [a, offHead], head_sha: repo.head, verdict: 'pass' }), 'task_not_batchable');
+          assert.deepEqual(body.tasks?.map((t) => [t.task_id, t.reason.split(':')[0]]), [[offHead, 'not_ancestor']]);
+          assert.ok(!(await observedBatch(db, [a], repo.head, 'pass')).isError);
+          assert.ok(ancestorRuns.length >= 3, `each ancestor check ran git (${ancestorRuns.length})`);
+          assert.deepEqual(ancestorRuns.filter(Boolean), [], 'no git merge-base ran while the write transaction was open');
+        } finally {
+          __setGitRunnerForTests();
+          db.close();
+        }
+      });
     });
   });
 });

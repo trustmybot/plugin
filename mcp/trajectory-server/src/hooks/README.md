@@ -24,6 +24,7 @@ Each gate here is one `<name>.ts`, wired through `hooks/hooks.json`. Every regis
 | `liveness-sentinel.ts` | Stop (`asyncRewake`, outside the router) | While bro is idle in an attended session, poll for silent runs and wake bro on a finding; reports only |
 | `git-guards.ts` | PreToolUse Bash | Block `reset --hard`, `clean -fd` and force-pushes to protected branches |
 | `git-push-guard.ts` | PreToolUse Bash | swe cannot push; a push needs a passing review |
+| `feature-branch-merge-gate.ts` | PreToolUse Bash | Deny opening a PR or MR from an agile feature branch while a task merged onto it is still queued for review, neither batch-reviewed nor waived |
 | `swe-boundary.ts` | PreToolUse Bash + Edit/Write | Keep swe inside its worktree and scope; swe and code-reviewer get read-only `git stash` |
 | `no-worktree-branch-create.ts` | PreToolUse Bash | bro creates branches; swe cannot `git worktree -b` |
 | `stay-on-base-guard.ts` | PreToolUse Bash | Block code edits and commits on the base branch |

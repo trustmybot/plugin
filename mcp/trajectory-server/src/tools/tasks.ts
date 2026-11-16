@@ -5,7 +5,7 @@ import type { Task, TaskInput } from '../types.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
-import { recordReviewBypassIfUnreviewed } from './lifecycle.js';
+import { recordReviewBypassIfUnreviewed, recordReviewQueuedIfUnreviewed } from './lifecycle.js';
 import {
   closeOpenRunsForTask,
   exitReasonForStatus,
@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
-import { EFFORT_LEVELS, computeEffort, isEffort, type Effort, type EffortReason } from './config.js';
+import { EFFORT_LEVELS, computeEffort, isEffort, readWorkflowMode, type Effort, type EffortReason } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import {
@@ -634,7 +634,7 @@ export function taskTools(db: TrajectoryDB): {
         "Update a task's status. A move to completed on a spec whose Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id and no unknown id; the report is stored and task_brief returns it. " +
         "report.concepts (at most 5, world_model_concept_upsert's shape) are only shape-checked here; scan_run applies them once the task closes with a passing code-reviewer verdict. " +
         'Only swe may pass report.wm_feedback; any other agent is refused with wm_feedback_invalid. ' +
-        'A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.',
+        'A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row (under workflow_mode agile, a review_queued row).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1548,7 +1548,14 @@ export function taskTools(db: TrajectoryDB): {
           : task.checkpoint;
 
       db.transaction(() => {
-        if (status === 'closed' && task.status !== 'closed') {
+        // Under workflow_mode 'agile' an unreviewed close is queued for the
+        // grouped review, as bro_atomic_close does, and the task is stamped
+        // agile so the queue reads it; otherwise it is recorded as a bypass.
+        const closing = status === 'closed' && task.status !== 'closed';
+        const agileClose = closing && readWorkflowMode(db) === 'agile';
+        if (agileClose) {
+          recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha ?? task.commit_sha ?? null }, now);
+        } else if (closing) {
           recordReviewBypassIfUnreviewed(
             db,
             { ...task, commit_sha: commitSha ?? task.commit_sha ?? null },
@@ -1568,6 +1575,7 @@ export function taskTools(db: TrajectoryDB): {
             [status, now, completedAt, completionReport, checkpoint, taskId],
           );
         }
+        if (agileClose) db.run(`UPDATE tasks SET workflow_mode = 'agile' WHERE id = ?`, [taskId]);
         if (TERMINAL_TASK_STATUSES.has(status)) {
           closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));
         }

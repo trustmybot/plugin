@@ -10,7 +10,7 @@
     },
     "PreToolUse:Bash": {
       "max_budget_ms": 16000,
-      "p99_sum_ms": 22029.2,
+      "p99_sum_ms": 22125.7,
       "group_budget_ms": 16000
     },
     "PreToolUse:Agent": {
@@ -292,6 +292,22 @@
       "floor_ms": 6000,
       "budget_ms": 6000,
       "date": "2026-10-31"
+    },
+    "feature-branch-merge-gate": {
+      "kind": "enforcement",
+      "bench_p50": 30.6,
+      "bench_p95": 55,
+      "bench_p99": 96.5,
+      "bench_runs": 640,
+      "bench_load_avg": 8.46,
+      "transcript_p99": null,
+      "reason": "born in TypeScript (GH 2225): no feature-branch-merge-gate PreToolUse hook attachment in any transcript yet",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-16"
     },
     "no-worktree-branch-create": {
       "kind": "enforcement",

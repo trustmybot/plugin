@@ -3,7 +3,8 @@
  * `glab mr merge` statement (heredoc bodies and quoted text never match), one
  * transaction closes the merged head branch's live tasks and their open
  * agent_runs, writes review_gate_bypassed for each of its tasks with no
- * passing review and no recorded skip, and closes each issue the PR names by
+ * passing review and no recorded skip (a task closed under workflow_mode
+ * 'agile' is queued instead and gets none), and closes each issue the PR names by
  * an explicit closing ref when no other task of it is live (else
  * issue_auto_close_deferred). Each closed issue's remote twin is then closed
  * while the sync gate is on; with it off, issue_auto_close_remote_skipped is
@@ -186,13 +187,18 @@ class Merge {
     return null;
   }
 
-  /** _cim_tasks_sql: a bypass row per unreviewed task of the branch, its open runs and live tasks closed. */
+  /**
+   * _cim_tasks_sql: a bypass row per unreviewed task of the branch, its open runs and live tasks closed.
+   * A task closed under workflow_mode 'agile' is already queued for the grouped
+   * review, so it gets no bypass row.
+   */
   private tasksSql(): string {
     const branch = sqlQuote(this.head);
     const now = sqlQuote(nowIso());
     const out: string[] = [];
     const rows = this.read(`SELECT t.id || '|' || t.issue_id || '|' || COALESCE(t.commit_sha, '') FROM tasks t
      WHERE t.branch_id = '${branch}' AND t.status IN (${LIVE}, 'closed')
+       AND COALESCE(t.workflow_mode, '') <> 'agile'
        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL} ORDER BY t.id;`);
     for (const row of rows.split('\n')) {
       if (row === '') continue;
