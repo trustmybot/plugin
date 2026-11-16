@@ -660,12 +660,16 @@ function scopeRowFor<T>(db: TrajectoryDB, eventType: string, taskId: number, com
   return row ? ((JSON.parse(row.content_json) as { scope?: Partial<T> }).scope ?? null) : null;
 }
 
+// A carried row names the reviewed commit reviewed_sha; an uncarried one
+// (exit 5, GH 3163) names it rebased_from.
 function integratedFrom(db: TrajectoryDB, taskId: number, commitSha: string): string | null {
   const row = db.get<{ reviewed_sha: string }>(
-    `SELECT json_extract(content_json, '$.reviewed_sha') AS reviewed_sha FROM audit
-      WHERE event_type = 'task_integrated' AND from_node = 'hook:integrate' AND json_valid(content_json)
-        AND json_extract(content_json, '$.task_id') = ? AND json_extract(content_json, '$.commit_sha') = ?
-        AND json_type(content_json, '$.reviewed_sha') = 'text'
+    `SELECT reviewed_sha FROM (SELECT created_at, id,
+          COALESCE(json_extract(content_json, '$.reviewed_sha'), json_extract(content_json, '$.rebased_from')) AS reviewed_sha
+        FROM audit
+        WHERE event_type = 'task_integrated' AND from_node = 'hook:integrate' AND json_valid(content_json)
+          AND json_extract(content_json, '$.task_id') = ? AND json_extract(content_json, '$.commit_sha') = ?)
+      WHERE typeof(reviewed_sha) = 'text'
       ORDER BY created_at DESC, id DESC LIMIT 1`,
     [taskId, commitSha],
   );

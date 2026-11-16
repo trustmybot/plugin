@@ -75,11 +75,13 @@
  *      against, so that pass covers the integrated head (Gerrit's
  *      TRIVIAL_REBASE copyCondition: same patch-ids, passing run, a base that
  *      missed the diff); then it prints the SHA. When the pass does not carry,
- *      the transaction sets tasks.commit_sha alone, with no task_integrated
- *      row, so no review is anchored to the rebased SHA and git-push-guard
- *      denies its push; integrate prints the SHA, names the reason and up to
- *      10 overlapping paths on stderr, and exits 5. When that
- *      write fails the branch has moved but the task row still names the
+ *      the task_integrated row carries task_id, rebased_from (the reviewed
+ *      SHA), commit_sha, base, run_id and carried=false, with no reviewed_sha
+ *      or review_anchor_at, so it anchors at its own created_at: the old pass
+ *      does not cover the rebased SHA and git-push-guard denies its push until
+ *      a code-reviewer pass recorded after it (GH 3163); integrate prints the
+ *      SHA, names the reason and up to 10 overlapping paths on stderr, and
+ *      exits 5. When that write fails the branch has moved but the task row still names the
  *      reviewed SHA → exit 4, and code-reviewer-preflight denies a review of
  *      the rebased SHA (sha_mismatch).
  *   5. The temporary worktree is removed on every exit. A run still open when
@@ -238,25 +240,23 @@ class Integration {
   }
 
   /**
-   * Points tasks.commit_sha at <newSha> and, when the pass carries, writes its
-   * task_integrated anchor, both or neither; false when the task moved off the
-   * reviewed SHA. With no anchor row no pass covers <newSha>.
+   * Points tasks.commit_sha at <newSha> and writes its task_integrated anchor,
+   * both or neither; false when the task moved off the reviewed SHA. A row
+   * that carries names reviewed_sha and its review_anchor_at, so the reviewed
+   * pass covers <newSha>. One that does not names the reviewed SHA as
+   * rebased_from and has neither key, so it anchors at its own created_at and
+   * only a pass recorded after it covers <newSha> (GH 3163).
    */
   private recordIntegrated(newSha: string, carry: boolean): boolean {
     const now = nowIso();
     const pointAtNewSha = `UPDATE tasks SET commit_sha = '${sqlQuote(newSha)}', updated_at = '${now}' WHERE id = ${this.taskId} AND commit_sha = '${sqlQuote(this.reviewedSha)}';`;
-    if (!carry) {
-      const r = this.record(`${pointAtNewSha}\nSELECT changes();`);
-      return r.ok && commandSubstitution(r.stdout) === '1';
-    }
-    const content = JSON.stringify({
-      task_id: Number(this.taskId),
-      reviewed_sha: this.reviewedSha,
-      review_anchor_at: this.reviewAnchorAt,
-      commit_sha: newSha,
-      base: this.base,
-      run_id: Number(this.runId),
-    });
+    const taskId = Number(this.taskId);
+    const runId = Number(this.runId);
+    const content = JSON.stringify(
+      carry
+        ? { task_id: taskId, reviewed_sha: this.reviewedSha, review_anchor_at: this.reviewAnchorAt, commit_sha: newSha, base: this.base, run_id: runId }
+        : { task_id: taskId, rebased_from: this.reviewedSha, commit_sha: newSha, base: this.base, run_id: runId, carried: false },
+    );
     const audit = auditSql(
       {
         issueId: this.issueId,

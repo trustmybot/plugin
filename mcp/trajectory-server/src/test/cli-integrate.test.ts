@@ -353,7 +353,13 @@ describe('cli.js integrate', () => {
       const r = integrate('main');
       assert.equal(r.code, 5, r.err);
       assert.match(r.err, /change 1 path\(s\) the task's diff or its dependents hold: p1\.txt;/);
-      assert.equal(q("SELECT COUNT(*) FROM audit WHERE event_type = 'task_integrated'"), '0', 'no carried anchor is recorded');
+      assert.equal(
+        q(`SELECT COUNT(*) FROM audit WHERE event_type = 'task_integrated'
+          AND (json_type(content_json, '$.reviewed_sha') IS NOT NULL OR json_type(content_json, '$.review_anchor_at') IS NOT NULL)`),
+        '0',
+        'no carried anchor is recorded',
+      );
+      assert.equal(hasPass(), '0', 'no pass covers the rebased SHA');
     });
 
     it('genuine drift in the task commit is still drift: exit 2, nothing recorded', () => {
@@ -1066,7 +1072,16 @@ describe('cli.js integrate', () => {
         'the passing run on the rebased SHA is recorded',
       );
       assert.equal(q('SELECT commit_sha FROM tasks WHERE id = 1'), next, 'tasks.commit_sha names the rebased SHA');
-      assert.equal(q("SELECT COUNT(*) FROM audit WHERE event_type = 'task_integrated'"), '0', 'no carried anchor is recorded');
+      const rows = q(`SELECT content_json FROM audit
+        WHERE event_type = 'task_integrated' AND from_node = 'hook:integrate'
+          AND json_extract(content_json, '$.task_id') = 1 AND json_extract(content_json, '$.commit_sha') = '${next}'`);
+      assert.equal(rows.split('\n').filter((row) => row !== '').length, 1, 'one task_integrated row names the task and the rebased SHA');
+      assert.equal(q("SELECT COUNT(*) FROM audit WHERE event_type = 'task_integrated'"), '1', 'no other task_integrated row');
+      const content = JSON.parse(rows) as Record<string, unknown>;
+      assert.equal(content.rebased_from, commit, 'rebased_from names the reviewed SHA');
+      assert.equal(content.carried, false, 'the row records that the pass did not carry');
+      assert.ok(!('reviewed_sha' in content), 'no reviewed_sha: a legacy-carry read would inherit the old anchor');
+      assert.ok(!('review_anchor_at' in content), 'no review_anchor_at: the row anchors at its own created_at');
       assert.equal(hasPass(), '0', 'no pass covers the rebased SHA');
       assert.match(r.err, why);
       assert.ok(r.err.includes(`a new code-reviewer pass is needed for ${next}`), 'stderr asks for a new review of the rebased SHA');
@@ -1136,6 +1151,13 @@ describe('cli.js integrate', () => {
       const denied = await pushDecision();
       assert.match(denied, /"permissionDecision":"deny"/, `a push of ${uncarried}`);
       assert.match(denied, /lack a code-reviewer pass verdict/, 'the deny names the missing review');
+
+      // GH 3163: the exit-5 row anchors the printed SHA, so a fresh pass
+      // recorded after it lets that push through.
+      const anchoredAt = q(`SELECT created_at FROM audit WHERE event_type = 'task_integrated'`);
+      recordPass(new Date(Date.parse(anchoredAt) + 1000).toISOString());
+      assert.equal(hasPass(), '1', 'a pass recorded after the exit-5 row covers the printed SHA');
+      assert.doesNotMatch(await pushDecision(), /"permissionDecision":"deny"/, `a push of ${uncarried} after a fresh pass`);
 
       rmSync(repo, { recursive: true, force: true });
       setup('clean');
