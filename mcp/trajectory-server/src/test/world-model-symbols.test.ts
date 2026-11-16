@@ -2196,6 +2196,39 @@ describe('coveredDirs: a value-taking flag keeps its value a path and its subcom
   }
 });
 
+describe('coveredDirs: pnpm -w takes no value (GH 3206)', () => {
+  const known = repoPaths(['run/a.ts', 'lint/rules.ts', 'web/a.ts']);
+  const cases: Array<[string, string[]]> = [
+    ['pnpm -w run lint', []],
+    ['pnpm -w lint', []],
+    ['pnpm -w test', ['.']],
+    ['npm -w web test', ['web']],
+    ['yarn -w web test', ['web']],
+  ];
+  for (const [command, dirs] of cases) {
+    it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, '.', known), dirs);
+    });
+  }
+});
+
+describe('coveredDirs: yarn workspace <name> <script> reads both as names (GH 3206)', () => {
+  const known = repoPaths(['test/a.test.ts', 'web/a.ts']);
+  const cases: Array<[string, string[]]> = [
+    ['yarn workspace web test', ['.']],
+    ['yarn workspace web run test', ['.']],
+    ['yarn workspace web lint', []],
+    ['yarn workspace web run lint', []],
+    ['yarn workspace web', []],
+    ['yarn workspace web test test', ['test']],
+  ];
+  for (const [command, dirs] of cases) {
+    it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, '.', known), dirs);
+    });
+  }
+});
+
 describe('scan_run records no covers edge for a script name or echo text (GH 2521)', () => {
   const ws = mkdtempSync(join(tmpdir(), 'wm-covers-names-'));
   const root = join(ws, 'app');

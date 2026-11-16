@@ -139,27 +139,58 @@ const TEST_SCRIPT = /^test(:.+)?$/;
 // a `--flag=value` form is one word. Any other flag is taken to have no value.
 const PM_VALUE_FLAGS = new Set(['--prefix', '--cwd', '-C', '--dir', '--filter', '-F', '--workspace', '-w']);
 
+// Whether flag takes the next word as its value under tool: pnpm's `-w` is
+// `--workspace-root` and takes none.
+function takesValue(tool: string, flag: string): boolean {
+  return PM_VALUE_FLAGS.has(flag) && !(tool === 'pnpm' && flag === '-w');
+}
+
 // The index of a package manager's first word at or after from that is neither
 // a flag nor a value-taking flag's value; words.length when there is none.
-function nextBare(words: Word[], from: number): number {
+function nextBare(tool: string, words: Word[], from: number): number {
   let i = from;
-  while (i < words.length && words[i]!.text.startsWith('-')) i += PM_VALUE_FLAGS.has(words[i].text) ? 2 : 1;
+  while (i < words.length && words[i]!.text.startsWith('-')) i += takesValue(tool, words[i].text) ? 2 : 1;
   return Math.min(i, words.length);
 }
 
+// The word indexes of a package-manager command that are names, subcommand
+// first: the subcommand, yarn's `workspace <name>` and the script after `run`
+// or after that name. script is the index of the script the command runs,
+// words.length when there is none.
+function packageManagerNames(tool: string, words: Word[]): { names: number[]; script: number } {
+  const names: number[] = [];
+  let script = nextBare(tool, words, 1);
+  if (script >= words.length) return { names, script };
+  names.push(script);
+  if (tool === 'yarn' && words[script].text === 'workspace') {
+    const workspace = nextBare(tool, words, script + 1);
+    if (workspace >= words.length) return { names, script: workspace };
+    names.push(workspace);
+    script = nextBare(tool, words, workspace + 1);
+    if (script >= words.length) return { names, script };
+    names.push(script);
+  }
+  if (RUN_SCRIPT.has(words[script].text)) {
+    script = nextBare(tool, words, script + 1);
+    if (script < words.length) names.push(script);
+  }
+  return { names, script };
+}
+
 // Whether one simple command is a package manager running its test script:
-// `npm test`, `pnpm test:unit`, `yarn run test`, flags allowed before each name.
+// `npm test`, `pnpm test:unit`, `yarn run test`, `yarn workspace web test`,
+// flags allowed before each name.
 function isPackageManagerTest(words: Word[]): boolean {
-  if (!PACKAGE_MANAGERS.has(posix.basename(words[0].text))) return false;
-  let sub = nextBare(words, 1);
-  if (sub < words.length && RUN_SCRIPT.has(words[sub].text)) sub = nextBare(words, sub + 1);
-  return sub < words.length && !words[sub].dynamic && TEST_SCRIPT.test(words[sub].text);
+  const tool = posix.basename(words[0].text);
+  if (!PACKAGE_MANAGERS.has(tool)) return false;
+  const { script } = packageManagerNames(tool, words);
+  return script < words.length && !words[script].dynamic && TEST_SCRIPT.test(words[script].text);
 }
 
 // The argument indexes of one simple command that are names, not paths: a
-// package manager's subcommand when it has no '/' and the script after its
-// `run`, each found past flags and the values of value-taking flags; every
-// echo/printf argument; and each bare make/just/task target.
+// package manager's subcommand when it has no '/', yarn's workspace name and
+// the script it runs, each found past flags and the values of value-taking
+// flags; every echo/printf argument; and each bare make/just/task target.
 function nameArgs(words: Word[]): Set<number> {
   const out = new Set<number>();
   const tool = posix.basename(words[0]!.text);
@@ -170,13 +201,9 @@ function nameArgs(words: Word[]): Set<number> {
   } else if (PACKAGE_MANAGERS.has(tool)) {
     // The subcommand is a name (`npm test`, `yarn lint`); one with a '/' is a
     // file the manager runs (`bun scripts/run.ts`).
-    const sub = nextBare(words, 1);
-    const subcommand = sub < words.length ? words[sub].text : null;
-    if (subcommand !== null && !subcommand.includes('/')) out.add(sub);
-    if (subcommand !== null && RUN_SCRIPT.has(subcommand)) {
-      const script = nextBare(words, sub + 1);
-      if (script < words.length) out.add(script);
-    }
+    const [subcommand, ...rest] = packageManagerNames(tool, words).names;
+    if (subcommand !== undefined && !words[subcommand].text.includes('/')) out.add(subcommand);
+    for (const i of rest) out.add(i);
   }
   return out;
 }
