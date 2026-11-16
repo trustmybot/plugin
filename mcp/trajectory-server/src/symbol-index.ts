@@ -86,6 +86,7 @@ export interface SymbolRow {
   body_hash: string;
   exported: number;
   run_order: number | null;
+  params_json: string | null;
 }
 
 export interface SymbolRef {
@@ -158,7 +159,7 @@ export interface BundleMap {
 }
 
 const SYMBOL_COLUMNS =
-  's.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order';
+  's.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order, s.params_json';
 
 const CALLABLE = new Set<SymbolKind>(['function', 'method', 'class', 'sh_function']);
 const TABLE_EDGES = new Set<EdgeKind>(['reads_table', 'writes_table', 'indexes', 'triggers_on']);
@@ -309,13 +310,14 @@ class SymbolWriter {
       const key = `${s.kind}\u0000${s.qualified_name}`;
       const row = existing.get(key);
       const runOrder = s.run_order ?? null;
+      const paramsJson = s.params_json ?? null;
       if (!row) {
         for (const n of namesOf(s.kind, s.qualified_name, path)) this.inserted.add(n);
         return Number(
           this.db.run(
-            `INSERT INTO wm_symbols (repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms, run_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [this.repo, path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder],
+            `INSERT INTO wm_symbols (repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms, run_order, params_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [this.repo, path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder, paramsJson],
           ).lastInsertRowid,
         );
       }
@@ -328,11 +330,12 @@ class SymbolWriter {
         row.body_hash !== s.body_hash ||
         Number(row.exported) !== s.exported ||
         row.terms !== terms ||
-        (row.run_order === null ? null : Number(row.run_order)) !== runOrder;
+        (row.run_order === null ? null : Number(row.run_order)) !== runOrder ||
+        row.params_json !== paramsJson;
       if (changed) {
         this.db.run(
-          `UPDATE wm_symbols SET signature = ?, doc = ?, start_line = ?, end_line = ?, body_hash = ?, exported = ?, terms = ?, run_order = ? WHERE id = ?`,
-          [s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder, row.id],
+          `UPDATE wm_symbols SET signature = ?, doc = ?, start_line = ?, end_line = ?, body_hash = ?, exported = ?, terms = ?, run_order = ?, params_json = ? WHERE id = ?`,
+          [s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder, paramsJson, row.id],
         );
       }
       return Number(row.id);
@@ -933,6 +936,7 @@ function normalizeRow<T extends SymbolRow>(r: T): SymbolRow {
     body_hash: r.body_hash,
     exported: Number(r.exported),
     run_order: r.run_order === null || r.run_order === undefined ? null : Number(r.run_order),
+    params_json: r.params_json ?? null,
   };
 }
 

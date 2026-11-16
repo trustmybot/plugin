@@ -36,6 +36,7 @@ import {
   type ScoredSymbol,
   type SymbolRow,
 } from '../symbol-index.js';
+import type { FunctionParams, ParamInfo } from '../parsing/extract.js';
 import {
   CLAIM_ARGS_SCHEMA,
   CLAIMS,
@@ -433,6 +434,31 @@ function framedSymbol(s: SymbolRow): SymbolRow {
     signature: s.signature ? frameUntrusted('symbol-signature', s.signature) : '',
     doc: s.doc ? frameUntrusted('symbol-doc', s.doc) : '',
   };
+}
+
+const PLAIN_PARAM_NAME = /^(\.\.\.)?[A-Za-z_$][\w$]*$/;
+
+// params_json as the card's params and returns (GH 3176), null when the symbol
+// has none. Types, defaults, the return type and any name that is not a plain
+// identifier (a destructured pattern's source text) are framed like the
+// signature they are copied from.
+function framedParams(paramsJson: string | null): { params: ParamInfo[] | null; returns: string | null } {
+  if (paramsJson === null) return { params: null, returns: null };
+  const parsed = JSON.parse(paramsJson) as FunctionParams;
+  return {
+    params: parsed.params.map((p) => ({
+      name: PLAIN_PARAM_NAME.test(p.name) ? p.name : frameUntrusted('symbol-param', p.name),
+      type: p.type === null ? null : frameUntrusted('symbol-param-type', p.type),
+      optional: p.optional,
+      ...(p.default !== undefined ? { default: frameUntrusted('symbol-param-default', p.default) } : {}),
+    })),
+    returns: parsed.returns === null ? null : frameUntrusted('symbol-returns', parsed.returns),
+  };
+}
+
+function framedCardSymbol(s: SymbolRow) {
+  const { params_json: paramsJson, ...framed } = framedSymbol(s);
+  return { ...framed, ...framedParams(paramsJson) };
 }
 
 interface SymbolSource {
@@ -1726,7 +1752,7 @@ export function worldModelTools(
           ...card,
           ...source,
           ...freshnessFields(fr),
-          symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale || isStale(fr, symbol.path) },
+          symbol: { ...framedCardSymbol(card.symbol), stale: card.symbol.stale || isStale(fr, symbol.path) },
           ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
           ...(args['source'] === true ? symbolSource(db, symbol) : {}),
           ...checkoutLag(db, symbol.repo),

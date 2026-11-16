@@ -168,7 +168,7 @@ describe('the v72 -> v73 migration backfills lanes and lane_issues (GH 3020)', (
   it('a lane per handoff or bro session, holding its handoff issue and every issue its agent_runs rows name', () => {
     const db = v72Db(SEED);
     const migrated = new TrajectoryDB(db, undefined, { migrate: true });
-    assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')?.v, 73);
+    assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')?.v, 74);
     migrated.close();
     assert.ok(count(db, 'lanes') > 0);
     assert.ok(count(db, 'lane_issues') > 0);

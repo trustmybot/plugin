@@ -50,6 +50,21 @@ export interface ExtractedSymbol {
   body_hash: string;
   exported: number;
   run_order?: number;
+  // A TS/JS function's or method's FunctionParams as JSON (GH 3176); absent
+  // on every other kind and language.
+  params_json?: string;
+}
+
+export interface ParamInfo {
+  name: string;
+  type: string | null;
+  optional: boolean;
+  default?: string;
+}
+
+export interface FunctionParams {
+  params: ParamInfo[];
+  returns: string | null;
 }
 
 // src indexes Extraction.symbols. hint is the import specifier of an
@@ -251,6 +266,53 @@ export function signatureOf(node: Node, src: string): string {
   const body = node.childForFieldName('body');
   const end = body ? body.startIndex : Math.min(node.endIndex, node.startIndex + 160);
   return clip(oneLine(src.slice(node.startIndex, end)), 200);
+}
+
+const PARAM_NAME_MAX = 80;
+const PARAM_TEXT_MAX = 120;
+
+// A type annotation's text without its leading colon, on one line.
+const annotationText = (annotation: Node | null): string | null =>
+  annotation ? clip(oneLine(annotation.text.replace(/^\s*:/, '')), PARAM_TEXT_MAX) : null;
+
+function paramInfo(name: Node, type: Node | null, questionMark: boolean, value: Node | null): ParamInfo {
+  return {
+    name: clip(oneLine(name.text), PARAM_NAME_MAX),
+    type: annotationText(type),
+    // A defaulted parameter may be omitted by a caller, as TypeScript's own
+    // declaration output marks it.
+    optional: questionMark || value !== null,
+    ...(value ? { default: clip(oneLine(value.text), PARAM_TEXT_MAX) } : {}),
+  };
+}
+
+// One entry of a formal_parameters list: TS required_parameter and
+// optional_parameter, or a bare JS pattern. A TS `this` parameter is not an
+// argument a caller passes, so it and comments give null.
+function paramOf(node: Node): ParamInfo | null {
+  if (node.type === 'required_parameter' || node.type === 'optional_parameter') {
+    const pattern = node.childForFieldName('pattern');
+    if (!pattern || pattern.type === 'this') return null;
+    return paramInfo(pattern, node.childForFieldName('type'), node.type === 'optional_parameter', node.childForFieldName('value'));
+  }
+  if (node.type === 'assignment_pattern') {
+    const left = node.childForFieldName('left');
+    return left ? paramInfo(left, null, false, node.childForFieldName('right')) : null;
+  }
+  if (node.type === 'comment') return null;
+  return paramInfo(node, null, false, null);
+}
+
+// The declared parameters and return type of a function-like node (GH 3176),
+// as stored in wm_symbols.params_json. Declared types only: nothing is inferred.
+export function functionParams(fn: Node): FunctionParams {
+  const single = fn.childForFieldName('parameter');
+  const list = fn.childForFieldName('parameters');
+  const nodes = single ? [single] : list ? named(list) : [];
+  return {
+    params: nodes.map(paramOf).filter((p): p is ParamInfo => p !== null),
+    returns: annotationText(fn.childForFieldName('return_type')),
+  };
 }
 
 const SQL_HINT = /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|REPLACE)\b/;
@@ -470,25 +532,27 @@ const FUNCTION_VALUES = new Set(['arrow_function', 'function_expression', 'funct
 // The key of a self-naming registration pair (GH 1970): its value is a call
 // whose argument chain holds a function value and, in some call, a string
 // literal equal to the key, as in `x: requireRoles('x', [...], wrap(async () => ...))`.
-function registeredKey(pair: Node): string | null {
+// handler is the first function value of that chain.
+function registration(pair: Node): { key: string; handler: Node } | null {
   const keyNode = pair.childForFieldName('key');
   const value = pair.childForFieldName('value');
   if (!keyNode || value?.type !== 'call_expression') return null;
   const key = keyNode.type === 'property_identifier' ? keyNode.text : literalText(keyNode);
   if (!key) return null;
-  let hasFn = false;
+  const functions: Node[] = [];
   let selfNamed = false;
   const walk = (call: Node): void => {
     const args = call.childForFieldName('arguments');
     if (!args) return;
     for (const arg of named(args)) {
-      if (FUNCTION_VALUES.has(arg.type)) hasFn = true;
+      if (FUNCTION_VALUES.has(arg.type)) functions.push(arg);
       else if (arg.type === 'call_expression') walk(arg);
       else if (literalText(arg) === key) selfNamed = true;
     }
   };
   walk(value);
-  return hasFn && selfNamed ? key : null;
+  const handler = functions[0];
+  return handler && selfNamed ? { key, handler } : null;
 }
 
 const GATE_NAME = /^[a-z0-9][a-z0-9-]*$/;
@@ -708,6 +772,7 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
       end_line: node.endPosition.row + 1,
       body_hash: normalizedHash(node),
       exported: node.parent?.type === 'export_statement' ? 1 : 0,
+      ...(kind === 'function' || kind === 'method' ? { params_json: JSON.stringify(functionParams(node)) } : {}),
     });
 
   const visit = (node: Node, scope: number, cls: string | null): void => {
@@ -750,6 +815,7 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
           end_line: decl.endPosition.row + 1,
           body_hash: normalizedHash(node),
           exported: holder === 'export_statement' ? 1 : 0,
+          ...(isFn ? { params_json: JSON.stringify(functionParams(value)) } : {}),
         });
       }
     } else if (t === 'call_expression' || t === 'new_expression') {
@@ -783,8 +849,9 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
       }
       return;
     } else if (t === 'pair') {
-      const key = registeredKey(node);
-      if (key) {
+      const registered = registration(node);
+      if (registered) {
+        const { key, handler } = registered;
         inner = out.symbol({
           kind: 'function',
           qualified_name: `tool:${key}`,
@@ -794,6 +861,7 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
           end_line: node.endPosition.row + 1,
           body_hash: normalizedHash(node),
           exported: 0,
+          params_json: JSON.stringify(functionParams(handler)),
         });
         if (inner !== scope) out.edge(scope, 'calls', `tool:${key}`, node.startPosition.row + 1);
       } else if (scope !== moduleSymbol) {

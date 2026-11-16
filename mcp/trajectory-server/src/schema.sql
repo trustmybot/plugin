@@ -468,7 +468,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 73, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 74, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -888,6 +888,10 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     symbol keeps its id. body_hash is the md5 of the body with comments and
 --     whitespace runs stripped. terms is the split-name text the FTS indexes
 --     (camelCase and snake_case split, plus kind and file basename).
+--     params_json (GH 3176; schema v74) is the declared parameter list and
+--     return type of a TS/JS 'function' or 'method', as JSON
+--     {"params":[{name,type,optional,default?}],"returns":string|null}; NULL
+--     on every other kind and language.
 --   wm_edges: one row per reference found in a symbol's body (or at module
 --     level, on the 'module' row). dst_name is the referenced name, kept when
 --     unresolved. resolution: 'exact' (same file, a resolved relative import or
@@ -903,7 +907,9 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     SELECT ... FROM plugin_config to each key it reads: dst_name is the key,
 --     dst_id NULL, resolution 'name', and no resolution pass rebinds it.
 --     The 'covers' edge kind and the 'runner' symbol kind (v60) are reserved
---     for GH 2326.
+--     for GH 2326. The 'references_value' (GH 1842), 'mentions_path' and
+--     'doc_link' (GH 2948) and 'generated_from' (GH 2949) edge kinds (v74)
+--     are reserved: nothing writes them yet.
 --   hook rows (GH 1680): each hooks/hooks.json entry is a kind='hook' symbol,
 --     qualified_name '<Event>#<pos>:<gate>', with run_order = event rank * 100
 --     + position (NULL on every other kind) and a 'runs' edge to its gate.
@@ -972,6 +978,7 @@ CREATE TABLE IF NOT EXISTS wm_symbols (
     exported        INTEGER NOT NULL DEFAULT 0,
     terms           TEXT    NOT NULL DEFAULT '',
     run_order       INTEGER,
+    params_json     TEXT,
     UNIQUE (repo, path, kind, qualified_name)
 );
 
@@ -979,7 +986,7 @@ CREATE TABLE IF NOT EXISTS wm_edges (
     src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
     dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
     dst_name    TEXT    NOT NULL,
-    kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers')),
+    kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers','references_value','mentions_path','doc_link','generated_from')),
     resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
     line        INTEGER,
     hint        TEXT

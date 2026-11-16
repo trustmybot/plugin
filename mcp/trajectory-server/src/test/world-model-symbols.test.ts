@@ -2504,3 +2504,150 @@ describe('references link only on proof (GH 3032)', () => {
     assert.deepEqual({ ...edge }, { dst_id: null, resolution: 'unresolved' });
   });
 });
+
+describe('symbol params and return types (GH 3176)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-params-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+
+  before(async () => {
+    const files: Record<string, string> = {
+      'src/greet.ts': [
+        'export function greet(name: string, greeting?: string, times: number = 1): string {',
+        '  return `${greeting ?? "hi"} ${name}`.repeat(times);',
+        '}',
+        'export function noArgs() {',
+        '  return 1;',
+        '}',
+        'export class Greeter {',
+        '  constructor(private readonly prefix: string) {}',
+        '  hello(this: Greeter, { who }: { who: string }, ...rest: string[]): void {',
+        '    void who;',
+        '  }',
+        '}',
+        'export const arrow = async (x: number) => x;',
+        'export const single = y => y;',
+        'export interface Shape {',
+        '  area(): number;',
+        '}',
+        'export type Id = string;',
+        'export const LIMIT = 3;',
+        '',
+      ].join('\n'),
+      'src/legacy.js': 'export function legacy(a, b = 2, ...rest) {\n  return a;\n}\n',
+      'src/tool.py': 'def py_fn(a: int) -> int:\n    return a\n',
+      'src/schema.sql': 'CREATE TABLE widgets (id INTEGER PRIMARY KEY);\n',
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, timeout: 30_000 });
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t.io');
+    git('config', 'user.name', 't');
+    git('add', '-A');
+    git('commit', '-qm', 'init');
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  const stored =(kind: string, name: string): unknown => {
+    const row = db.get<{ params_json: string | null }>(
+      `SELECT params_json FROM wm_symbols WHERE repo = 'app' AND kind = ? AND qualified_name = ?`,
+      [kind, name],
+    );
+    assert.ok(row, `${kind}:${name} is indexed`);
+    return row.params_json === null ? null : JSON.parse(row.params_json);
+  };
+
+  it('stores each TS function and method parameter with its type, optionality and default, and the return type', () => {
+    assert.deepEqual(stored('function', 'greet'), {
+      params: [
+        { name: 'name', type: 'string', optional: false },
+        { name: 'greeting', type: 'string', optional: true },
+        { name: 'times', type: 'number', optional: true, default: '1' },
+      ],
+      returns: 'string',
+    });
+    assert.deepEqual(stored('function', 'noArgs'), { params: [], returns: null });
+    assert.deepEqual(stored('method', 'Greeter.constructor'), {
+      params: [{ name: 'prefix', type: 'string', optional: false }],
+      returns: null,
+    });
+    assert.deepEqual(stored('method', 'Greeter.hello'), {
+      params: [
+        { name: '{ who }', type: '{ who: string }', optional: false },
+        { name: '...rest', type: 'string[]', optional: false },
+      ],
+      returns: 'void',
+    });
+    assert.deepEqual(stored('function', 'arrow'), { params: [{ name: 'x', type: 'number', optional: false }], returns: null });
+    assert.deepEqual(stored('function', 'single'), { params: [{ name: 'y', type: null, optional: false }], returns: null });
+  });
+
+  it('stores JS parameters with a null type and nothing inferred', () => {
+    assert.deepEqual(stored('function', 'legacy'), {
+      params: [
+        { name: 'a', type: null, optional: false },
+        { name: 'b', type: null, optional: true, default: '2' },
+        { name: '...rest', type: null, optional: false },
+      ],
+      returns: null,
+    });
+  });
+
+  it('leaves params_json NULL on every other kind and language', () => {
+    for (const [kind, name] of [
+      ['class', 'Greeter'],
+      ['interface', 'Shape'],
+      ['type', 'Id'],
+      ['const', 'LIMIT'],
+      ['module', 'src/greet.ts'],
+      ['sql_table', 'widgets'],
+      ['function', 'py_fn'],
+    ] as const) {
+      assert.equal(stored(kind, name), null, `${kind}:${name}`);
+    }
+  });
+
+  it('clips a long name to 80 characters and a long type or default to 120', async () => {
+    const long = 'x'.repeat(200);
+    const src = `export function wide({ ${long} }: { ${long}: string }, n = '${long}'): void {}\n`;
+    const fn = extractFile(await loadParsers(), 'src/wide.ts', 'typescript', src).symbols.find((s) => s.qualified_name === 'wide');
+    const [first, second] = (JSON.parse(fn!.params_json!) as { params: Array<{ name: string; type: string | null; default?: string }> }).params;
+    assert.equal(first.name.length, 80);
+    assert.equal(first.type!.length, 120);
+    assert.equal(second.default!.length, 120);
+  });
+
+  const card = async (name: string) =>
+    parse<{ symbol: Payload }>(await wm['world_model_symbol']({ agent: 'bro', repo: 'app', qualified_name: name })).symbol;
+
+  it('world_model_symbol returns params and returns framed as untrusted content, with no raw params_json', async () => {
+    const greet = await card('greet');
+    assert.deepEqual(greet['params'], [
+      { name: 'name', type: frameUntrusted('symbol-param-type', 'string'), optional: false },
+      { name: 'greeting', type: frameUntrusted('symbol-param-type', 'string'), optional: true },
+      { name: 'times', type: frameUntrusted('symbol-param-type', 'number'), optional: true, default: frameUntrusted('symbol-param-default', '1') },
+    ]);
+    assert.equal(greet['returns'], frameUntrusted('symbol-returns', 'string'));
+    assert.equal('params_json' in greet, false);
+    const hello = await card('Greeter.hello');
+    assert.deepEqual((hello['params'] as Payload[]).map((p) => p['name']), [frameUntrusted('symbol-param', '{ who }'), '...rest']);
+  });
+
+  it('world_model_symbol returns null params and returns for a class, a table and the other non-function kinds', async () => {
+    for (const name of ['Greeter', 'widgets', 'Shape', 'Id', 'LIMIT', 'py_fn']) {
+      const s = await card(name);
+      assert.equal(s['params'], null, `${name} params`);
+      assert.equal(s['returns'], null, `${name} returns`);
+    }
+  });
+});

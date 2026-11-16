@@ -16,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 73;
+export const TARGET_SCHEMA_VERSION = 74;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -851,6 +851,8 @@ function runMigrations(
   if (fromVersion < 72 && toVersion >= 72) migrateV71toV72(db);
   // v72→v73: lanes and lane_issues, the issues each session's lane owns (GH 3020)
   if (fromVersion < 73 && toVersion >= 73) migrateV72toV73(db);
+  // v73→v74: wm_symbols.params_json and four reserved wm_edges kinds (GH 3176, 1842, 2948, 2949)
+  if (fromVersion < 74 && toVersion >= 74) migrateV73toV74(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3712,6 +3714,52 @@ function migrateV72toV73(db: DatabaseSync): void {
          GROUP BY l.id, s.issue_id
         ON CONFLICT (lane_id, issue_id) DO NOTHING
       `);
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v73→v74: the world-model edge bundle. wm_symbols gains the nullable
+// params_json (GH 3176), and wm_edges is rebuilt, rows kept, so its kind CHECK
+// admits 'references_value' (GH 1842), 'mentions_path' and 'doc_link'
+// (GH 2948) and 'generated_from' (GH 2949), reserved until their writers ship;
+// its indexes drop with the old table and come back in the schema.sql reapply.
+// symbols_md5 is cleared so the next scan re-parses every file and fills
+// params_json.
+function migrateV73toV74(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'wm_symbols') && !hasColumn(db, 'wm_symbols', 'params_json')) {
+      db.exec('ALTER TABLE wm_symbols ADD COLUMN params_json TEXT');
+    }
+    if (tableExists(db, 'wm_edges') && !readTableSql(db, 'wm_edges').includes("'generated_from'")) {
+      rebuildTable(
+        db,
+        'wm_edges',
+        `
+          src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
+          dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+          dst_name    TEXT    NOT NULL,
+          kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers','references_value','mentions_path','doc_link','generated_from')),
+          resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+          line        INTEGER,
+          hint        TEXT
+        `,
+        [
+          ['src_id', '0'], ['dst_id', 'NULL'], ['dst_name', "''"], ['kind', "'calls'"],
+          ['resolution', "'unresolved'"], ['line', 'NULL'], ['hint', 'NULL'],
+        ],
+      );
+    }
+    if (tableExists(db, 'wm_files') && hasColumn(db, 'wm_files', 'symbols_md5')) {
+      db.exec('UPDATE wm_files SET symbols_md5 = NULL');
     }
     commitTransaction(db);
   } catch (err) {
