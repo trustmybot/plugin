@@ -36,7 +36,7 @@ These differences from real hardware are where the design decisions sit.
 
 1. **Hot storage charges rent.** RAM costs nothing to hold, but context is re-read on every call, so an item costs its size times the calls left in the session. An item read once comes back as a conclusion and does not stay.
 2. **No single item can be swapped out.** Context is append-only. The evictions that exist are ending the session, which is clean, and compaction, which is lossy and not ours to time. A subagent works like a separate process with its own address space: only its return value enters the caller's context. So most savings come from not loading an item and from ending sessions on time.
-3. **Write through, never write back.** Context is volatile, so a decision reaches the DB when it is made. Evicting then loses nothing.
+3. **Write through, never write back.** Context is volatile, so a decision reaches the DB when it is made. Evicting then loses nothing. A decision is anything a later step reads back, such as a status change, a verdict or a spec, and it is written before the work moves on. Telemetry that nothing on the hot path reads back, such as hook calls, run usage and upstream sync, may be queued and written in the background so it never blocks the work; losing a row of it breaks nothing.
 4. **Evict at boundaries.** A session ends when its dispatched work has returned and been closed or parked. The one timer that matters is prompt cache expiry: the next call then pays full price for the whole context, so a cold restart is usually cheaper.
 
 Since nothing in hot storage can be evicted, a hook cuts the long output of bro's routine read-only shell commands to its head and tail before it enters context.
