@@ -77,7 +77,7 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 |---|---|
 | Activation routine (onboarded marker + pending issue injection) | 2 |
 | Bro edits only docs and prompts paths (per `.config/tmb/path-classes.json`), and only in a running no-code task's worktree; every code change goes to SWE | 2 |
-| Bro's no-code task commits pass the same push gate as code; a lighter no-code sign-off is open (GH 3077) | 2 |
+| Bro's no-code task commits pass the same push gate as code; code-reviewer grades them with the doc-review checklist | 2 |
 | The main checkout never switches onto a branch an open task owns | 2 |
 | A cheatcode installs only after the Human approves that candidate (fails closed) | 2 |
 | Bro's state restored from the DB after Claude Code compacts the session | 2 (injection) |

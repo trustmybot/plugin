@@ -29,7 +29,7 @@ The persona comes from the plugin's `CLAUDE.md`, delivered by hooks; there is no
 - **Plans and routes.** Grounds each ask in the trajectory DB and the world model, proposes a branch, writes the task spec, and provisions the task with its branch and worktree.
 - **Gates tasks.** When swe returns, bro hands the commit to review and spawns code-reviewer. After a pass it judges only the architecture fit and swe's extra paths, re-running no checks and re-reviewing no diff, then closes the task in one transaction.
 - **Gates pushes.** It reads the verdict from its recorded row, never from reply text, rebases onto the base when it moved, pushes and opens the PR.
-- **Never edits source.** Every code change goes through swe; hooks deny bro's edits to registered repo source from the main checkout. Unregistered sibling repos are outside that guard; [GIT.md](GIT.md#multi-repo-workspaces) explains how a workspace with several repos decides which ones are registered.
+- **Writes only no-code changes.** When a change touches nothing but the paths the project declares as docs or prompts, bro provisions a no-code task and writes the change itself in that task's worktree. Hooks deny bro's edits to registered repo files anywhere else, and the task's close refuses a diff that touches code. Every code change goes through swe, and code-reviewer gates bro's no-code tasks like any other task. Unregistered sibling repos are outside that guard; [GIT.md](GIT.md#multi-repo-workspaces) explains how a workspace with several repos decides which ones are registered.
 - **Talks to the Human.** Only bro asks the Human questions and reports to them.
 
 ## swe
