@@ -74,7 +74,7 @@ Call `onboard_get_questions(agent='bro', round='bug_report')` and feed the retur
 
 ### Round 6 — Verification defaults (per repo)
 
-`.config/tmb/verification-defaults.json` holds the repo checks `task_provision` appends to every task's verification; it is read from the PR target branch. For each repo `<name>`, before this round, record its env profile: call `env_get(agent='bro', repo=<name>)`, and when it has no root profile (`package_path` `.`) run `env_detect`, resolve the lint, typecheck and test commands from its evidence, and record them with `env_record`.
+`.config/tmb/verification-defaults.json` holds the repo checks `task_provision` appends to a code task's verification; it is read from the PR target branch. For each repo `<name>`, before this round, record its env profile: call `env_get(agent='bro', repo=<name>)`, and when it has no root profile (`package_path` `.`) run `env_detect`, resolve the lint, typecheck and test commands from its evidence, and record them with `env_record`.
 
 Then call `onboard_get_questions(agent='bro', round='verification_defaults', repo=<name>)`. When it returns questions, feed them into `AskUserQuestion` (multi-select: each option is a command from the profile) and call `onboard_apply(agent='bro', verification_defaults=[<chosen commands>], repo=<name>)` on its own. When it returns none, show its `notes` in chat and move on.
 
