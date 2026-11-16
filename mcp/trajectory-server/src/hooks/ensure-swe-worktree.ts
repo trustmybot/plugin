@@ -3,8 +3,10 @@
  * first PREPARE step of agent-spawn-dispatch: before a swe spawn for
  * task_id=<N> it makes sure the task's branch has a linked worktree at
  * <repo>/.claude/worktrees/<slug>, creating it with `git worktree add` when
- * none is registered. Every skip is a stderr line and exit 0; it never
- * blocks the spawn. TMB_DISABLE_ENSURE_SWE_WORKTREE=1 bypasses it.
+ * none is registered. Every skip is a stderr line and exit 0. The one deny
+ * (GH 3150) is a TMB project whose Node lacks node:sqlite: the gate cannot
+ * read the task, and swe never runs without isolation.
+ * TMB_DISABLE_ENSURE_SWE_WORKTREE=1 bypasses it.
  *
  * GH 2032 (decision 703): a task with a recorded tasks.worktree_path, read
  * through taskLocation, already has its worktree when that path exists, so
@@ -15,6 +17,7 @@ import { existsSync } from 'node:fs';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { branchSlug, dbPath, haveSqlite, sqlInt, sqliteRo, stripTrailingNewlines } from './lib/db.js';
+import { type DenyFix, denyResult as deny } from './lib/deny.js';
 import { gitOk, gitRun, isDir } from './lib/git.js';
 import { jqCapture, jqInput, type JqInput } from './lib/jq-raw.js';
 import { commandSubstitution, posixDirname } from './lib/project-env.js';
@@ -23,6 +26,10 @@ import { normalizeRole } from './lib/role.js';
 import { promptTaskId } from './require-task-spec.js';
 
 export const GATE_NAME = 'ensure-swe-worktree';
+
+export const NO_NODE_SQLITE_REASON =
+  'BLOCKED: node:sqlite is unavailable in this Node, so ensure-swe-worktree cannot read the task and would spawn swe without an isolated worktree. Install Node.js 22.13 or later on PATH and restart Claude Code.';
+const NO_NODE_SQLITE_FIX: DenyFix = { allowed: 'the same swe spawn, once Claude Code runs on Node.js 22.13 or later' };
 
 /** `echo "$text" | cut -d'|' -f<n>` as a `$(...)` capture holds it. */
 export function cutField(text: string, n: number): string {
@@ -73,7 +80,8 @@ export const ensureSweWorktree: Gate = async (payload, env): Promise<GateResult>
   if (taskId === '') return ALLOW;
 
   const db = dbPath(env);
-  if (db === null || !haveSqlite(env)) return skip('no trajectory DB or sqlite3 — skipping (non-isolated fallback)');
+  if (db === null) return skip('no trajectory DB — skipping (non-isolated fallback)');
+  if (!haveSqlite(env)) return deny(NO_NODE_SQLITE_REASON, NO_NODE_SQLITE_FIX);
 
   const row = sqliteRo(db, `SELECT branch_id, repo FROM tasks WHERE id=${taskId};`, env);
   if (row === '') return skip(`no tasks row for task_id=${taskId} — skipping`);

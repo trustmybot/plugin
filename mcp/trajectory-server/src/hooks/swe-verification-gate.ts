@@ -116,7 +116,7 @@ const FAILURE_LINES = 15;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
 
 const DB_UNAVAILABLE_DENY = `${denyJson(
-  'BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read).',
+  'BLOCKED: trajectory DB unavailable — the verification gate could not read the task row through node:sqlite, so it refuses to fail open. Check the trajectory DB.',
   DB_RETRY_FIX,
 )}\n`;
 const WAIVER_UNRECORDED_DENY = `${denyJson(
