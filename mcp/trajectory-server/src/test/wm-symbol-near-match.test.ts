@@ -10,6 +10,7 @@ import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
 import type { TrajectoryDB } from '../db.js';
+import { nearSymbols } from '../symbol-index.js';
 import { resetEmbeddingModelForTests } from '../embeddings/model.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
@@ -61,6 +62,10 @@ describe('world_model_symbol near matches on a name miss (GH 3144)', () => {
         'export function quokkaSpin(): number { return 1; }',
         'export function unrelatedHelper(): number { return 2; }',
         'export function changeLog(): number { return 3; }',
+        // 1-3 character names are substrings of almost any query; they must not match by containment.
+        'export const n = 1;',
+        'export function t(): number { return 4; }',
+        "export const ch = 'x';",
         '',
       ].join('\n'),
     };
@@ -130,9 +135,33 @@ describe('world_model_symbol near matches on a name miss (GH 3144)', () => {
     }
   });
 
-  it('a miss with no candidate keeps the is_error result', async () => {
+  it('a miss with no candidate keeps the is_error result, with short-named symbols present', async () => {
+    for (const short of ['n', 't', 'ch']) {
+      assert.notEqual(parse(await symbol({ qualified_name: short }))['symbol'], null, `fixture indexes ${short}`);
+    }
     const r = await symbol({ qualified_name: 'zzzNoSuchThing' });
     assert.equal(r.isError, true);
     assert.match(text(r), /symbol zzzNoSuchThing not found in repo app/);
+  });
+});
+
+describe('nearSymbols containment floor (GH 3144)', () => {
+  const row = (id: number, qualified_name: string) => ({ id, repo: 'r', path: `${id}.ts`, kind: 'const', qualified_name, start_line: 1 });
+  const stubDB = (rows: ReturnType<typeof row>[]) => ({ all: () => rows }) as unknown as TrajectoryDB;
+
+  it('names shorter than 4 characters never match by containment', () => {
+    const db = stubDB([row(1, 'n'), row(2, 'ch'), row(3, 'Q'), row(4, 'foo')]);
+    assert.deepEqual(nearSymbols(db, ['r'], 'zzzNoSuchThing'), []);
+    assert.deepEqual(nearSymbols(db, ['r'], 'qwxv'), []);
+    assert.deepEqual(nearSymbols(db, ['r'], 'fo'), []);
+  });
+
+  it('containment still matches once the shorter side has 4 characters', () => {
+    // getScan's first token (get) is under 4 characters, so only containment can match here.
+    const db = stubDB([row(1, 'scan'), row(2, 'getScanAll'), row(3, 'can'), row(4, 'ch')]);
+    assert.deepEqual(
+      nearSymbols(db, ['r'], 'getScan').map((s) => s.qualified_name),
+      ['scan', 'getScanAll'],
+    );
   });
 });

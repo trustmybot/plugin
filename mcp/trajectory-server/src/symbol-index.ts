@@ -951,7 +951,8 @@ export function symbolsByName(db: TrajectoryDB, repo: string, qualifiedName: str
 }
 
 export const NEAR_MATCH_CAP = 5;
-const NEAR_MATCH_TOKEN_MIN = 4;
+// Shorter names or tokens (n, t, ch) are substrings of almost any query.
+const NEAR_MATCH_MIN_LENGTH = 4;
 
 export interface NearSymbol {
   id: number;
@@ -990,13 +991,14 @@ function editDistance(a: string, b: string): number {
 
 // Likely intended symbols for a qualified name that matched nothing in repos:
 // normalized names that contain or are contained in the query's, or that share
-// its first name token when that token is long enough to be distinctive. Ranked
+// its first name token, each only when the shorter side is long enough to be
+// distinctive. Ranked
 // by edit distance, definitions before module rows, then path.
 export function nearSymbols(db: TrajectoryDB, repos: string[], qualifiedName: string): NearSymbol[] {
   const query = normalizedName(qualifiedName);
   if (!query || repos.length === 0) return [];
   const first = nameTokens(qualifiedName)[0];
-  const token = first !== undefined && first.length >= NEAR_MATCH_TOKEN_MIN ? first : null;
+  const token = first !== undefined && first.length >= NEAR_MATCH_MIN_LENGTH ? first : null;
   const rows = db.all<{ id: number; repo: string; path: string; kind: SymbolKind; qualified_name: string; start_line: number }>(
     `SELECT s.id, s.repo, s.path, s.kind, s.qualified_name, s.start_line FROM wm_symbols s
       WHERE s.repo IN (${repos.map(() => '?').join(', ')})`,
@@ -1006,8 +1008,9 @@ export function nearSymbols(db: TrajectoryDB, repos: string[], qualifiedName: st
   for (const r of rows) {
     const candidate = normalizedName(r.qualified_name);
     if (!candidate) continue;
-    const related =
-      candidate.includes(query) || query.includes(candidate) || (token !== null && nameTokens(r.qualified_name).includes(token));
+    const contains =
+      Math.min(candidate.length, query.length) >= NEAR_MATCH_MIN_LENGTH && (candidate.includes(query) || query.includes(candidate));
+    const related = contains || (token !== null && nameTokens(r.qualified_name).includes(token));
     if (!related) continue;
     ranked.push({
       near: {
