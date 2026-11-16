@@ -13,7 +13,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nowIso } from '../hooks/lib/audit.js';
-import { closeLintsPlan, describeFailures, LINT_TIMED_OUT, reusableLintRun, runCloseLints, type CloseLintsRun, type LintRecordTarget } from '../hooks/lib/close-lints.js';
+import { closeLintsPlan, describeFailures, LINT_TIMED_OUT, lintBaseSha, reusableLintRun, runCloseLints, type CloseLintsRun, type LintRecordTarget } from '../hooks/lib/close-lints.js';
 import { CLOSE_LINTS_PATH, lintFingerprint } from '../hooks/lib/lint-fingerprint.js';
 import { childEnv, GIT_ENV, migratedDb, sandboxDir, sqlExec } from './db-test-fixtures.js';
 
@@ -240,6 +240,52 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         assert.equal(reusableLintRun(target(), sha, base, code.fingerprint, env), code.runId);
       } finally {
         setClass(null);
+      }
+    });
+  });
+
+  describe('lintBaseSha on a task stacked on a feature branch ahead of dev (GH 2225)', () => {
+    const STACKED = 5152;
+    const FEATURE = 'feat/milestone';
+
+    /** dev at <devBase>, FEATURE one commit ahead, and the task's commit <sha> on FEATURE. */
+    function stacked(): { repo: string; sha: string; devBase: string; featureBase: string } {
+      const { repo, base: devBase, sha: featureBase } = repoAt({ 'src/m.txt': 'milestone\n' });
+      const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      git('branch', FEATURE);
+      git('checkout', '-q', '-b', 'feat/stacked');
+      git('branch', '-f', 'dev', devBase);
+      writeFileSync(join(repo, 'src/a.txt'), 'two\n');
+      git('commit', '-qam', 'task');
+      const now = nowIso();
+      sqlExec(
+        db,
+        `INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('stacked', '${repo}', 'dev');
+INSERT OR REPLACE INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, created_at, updated_at)
+  VALUES (${STACKED}, ${TASK}, 'feat/stacked', '${FEATURE}', 'd', 'running', 'stacked', '${now}', '${now}');`,
+      );
+      return { repo, sha: git('rev-parse', 'HEAD'), devBase, featureBase };
+    }
+    const setMode = (mode: string | null) =>
+      sqlExec(
+        db,
+        mode === null
+          ? "DELETE FROM plugin_config WHERE key = 'workflow_mode';"
+          : `INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', '"${mode}"') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json;`,
+      );
+
+    it('agile: merge-base(feature branch, commit); truest or unset: merge-base(dev, commit) as before', async () => {
+      const { repo, sha, devBase, featureBase } = stacked();
+      assert.notEqual(devBase, featureBase);
+      try {
+        setMode('agile');
+        assert.equal(await lintBaseSha(repo, db, String(STACKED), sha, env), featureBase);
+        setMode('truest');
+        assert.equal(await lintBaseSha(repo, db, String(STACKED), sha, env), devBase);
+        setMode(null);
+        assert.equal(await lintBaseSha(repo, db, String(STACKED), sha, env), devBase);
+      } finally {
+        setMode(null);
       }
     });
   });

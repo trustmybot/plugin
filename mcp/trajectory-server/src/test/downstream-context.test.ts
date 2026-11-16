@@ -195,6 +195,39 @@ describe('GH 1990: downstream-context hooks over a seeded DB', () => {
     assert.equal(injected().filter((r) => r.role === 'code-reviewer' && r.task_id === BIG_TASK).length, 1);
   });
 
+  it("GH 2225: an agile task stacked on a feature branch ahead of main diffs from the feature branch, a truest one from main", async () => {
+    git(repo, 'checkout', '-q', '-b', 'feat/milestone', 'main');
+    writeFileSync(join(repo, 'src/a.ts'), 'export function foo(x: number): number {\n  return x + 2;\n}\n\nexport function solo(): void {}\n');
+    git(repo, 'commit', '-q', '-am', 'milestone reshapes foo');
+    git(repo, 'checkout', '-q', '-b', 'feat/stacked');
+    writeFileSync(join(repo, 'src/a.ts'), 'export function foo(x: number): number {\n  return x + 2;\n}\n\nexport function solo(): void { return; }\n');
+    git(repo, 'commit', '-q', '-am', 'task reshapes solo');
+    git(repo, 'branch', 'feat/stacked-2');
+    git(repo, 'checkout', '-q', 'main');
+    const [AGILE_TASK, TRUEST_TASK] = [14, 15];
+    for (const id of [AGILE_TASK, TRUEST_TASK]) {
+      db.run(
+        `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, files, worktree_path, created_at, updated_at) VALUES (?, 1, ?, 'feat/milestone', 'd', 'running', 'r', '["src/a.ts"]', ?, ?, ?)`,
+        [id, id === AGILE_TASK ? 'feat/stacked' : 'feat/stacked-2', repo, NOW, NOW],
+      );
+    }
+    const changedSymbols = async (taskId: number, mode: string): Promise<string> => {
+      db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [JSON.stringify(mode)]);
+      const start = JSON.stringify({ hook_event_name: 'SubagentStart', agent_id: `rev-${taskId}`, agent_type: 'tmb:code-reviewer', prompt: `task_id=${taskId}`, cwd: repo });
+      return context((await reviewerDownstreamContext(start, env)).stdout, 'SubagentStart');
+    };
+    try {
+      const agile = await changedSymbols(AGILE_TASK, 'agile');
+      assert.match(agile, /Changed symbols \(1\)/);
+      assert.match(agile, /- src\/a\.ts:5 solo/);
+      const truest = await changedSymbols(TRUEST_TASK, 'truest');
+      assert.match(truest, /Changed symbols \(2\)/);
+      assert.match(truest, /- src\/a\.ts:1 foo/);
+    } finally {
+      db.run(`DELETE FROM plugin_config WHERE key = 'workflow_mode'`);
+    }
+  });
+
   it('GH 1990: both hooks exit 0 silent on a bad payload, an unreadable DB and an empty index', async () => {
     for (const bad of ['', '{not json', '[]', 'null', '{"tool_name":"Edit"}']) {
       assert.deepEqual(sweDownstreamContext(bad, env), { stdout: '', code: 0 }, bad);

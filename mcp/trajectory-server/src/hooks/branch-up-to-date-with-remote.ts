@@ -5,16 +5,21 @@
  * TMB_ALLOW_STALE_BRANCH=1 bypasses. A git statement whose subcommand is not
  * literal text (gitSubcommandOf, GH 2641) is denied when the DB resolves.
  *
+ * An agile task's branch is measured against its parent feature branch
+ * instead (GH 2225): origin/<parent> after one bounded fetch, else the local
+ * parent, so no origin does not pass it.
+ *
  * A command tree-sitter-bash cannot parse is denied with git-guards'
  * PARSE_REASON when the DB resolves. The payload is read with no jq on PATH,
  * and the DB through node:sqlite with no sqlite3 CLI on PATH.
  */
-import { ALLOW, type Gate } from './gate.js';
+import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
 import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
+import { agileParentRef, gateWorkflowMode, normalizeBase } from './lib/git-refs.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { repoNameForRoot } from './lib/repo.js';
 import { payloadCwdOf, statementRows } from './lib/statement-rows.js';
@@ -73,17 +78,62 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
   const row = gateRead(db, `SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '${repo}' LIMIT 1;`, env);
   if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
   if (row === '') return ALLOW;
-  const prTarget = (row.startsWith('repo|') ? row.slice(5) : row) || 'main';
+  const targetBranch = row.startsWith('repo|') ? row.slice(5) : row;
+  const prTarget = targetBranch || 'main';
 
   if (!await gitOk(root, ['rev-parse', '--verify', branch], env)) return ALLOW;
-  if (await gitOut(root, ['remote', 'get-url', 'origin'], env) === '') return ALLOW;
-  await gitRun(root, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', 'origin', prTarget, '--quiet'], env);
+  const hasOrigin = await gitOut(root, ['remote', 'get-url', 'origin'], env) !== '';
+  const agileBase = await agileTaskBase(db, root, repo, branch, targetBranch, hasOrigin, env);
+  if (agileBase === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
+  if (agileBase !== null) return await behindDeny(root, branch, agileBase, env);
+  if (!hasOrigin) return ALLOW;
+  await fetchBounded(root, prTarget, env);
   if (!await gitOk(root, ['rev-parse', '--verify', `origin/${prTarget}`], env)) return ALLOW;
-  if (await gitOk(root, ['merge-base', '--is-ancestor', `origin/${prTarget}`, branch], env)) return ALLOW;
-
-  const behind = await behindCount(root, `${branch}..origin/${prTarget}`, env);
-  return denyResult(
-    `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`,
-    { allowed: `git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}, then the same worktree add` },
-  );
+  return await behindDeny(root, branch, `origin/${prTarget}`, env);
 };
+
+async function fetchBounded(root: string, branch: string, env: NodeJS.ProcessEnv): Promise<void> {
+  await gitRun(root, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', 'origin', branch, '--quiet'], env);
+}
+
+/**
+ * The base of an agile task on <branch> (GH 2225): its parent feature branch's ref as
+ * agileParentRef resolves it, after one bounded fetch of that branch when origin exists;
+ * null for any other task, which keeps origin/<pr_target>; GATE_READ_ERROR when the DB
+ * does not read.
+ */
+async function agileTaskBase(
+  db: string,
+  root: string,
+  quotedRepo: string,
+  branch: string,
+  targetBranch: string,
+  hasOrigin: boolean,
+  env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  const workflowMode = gateWorkflowMode(db, env);
+  if (workflowMode === GATE_READ_ERROR) return GATE_READ_ERROR;
+  if (workflowMode !== 'agile') return null;
+  const parent = gateRead(
+    db,
+    `SELECT COALESCE(parent_branch_id, '') FROM tasks
+      WHERE branch_id = '${sqlQuote(branch)}' AND (repo = '${quotedRepo}' OR COALESCE(repo, '') = '')
+      ORDER BY id DESC LIMIT 1;`,
+    env,
+  );
+  if (parent === GATE_READ_ERROR) return GATE_READ_ERROR;
+  if (parent === '') return null;
+  if (hasOrigin) await fetchBounded(root, await normalizeBase(root, parent, env), env);
+  return await agileParentRef(root, targetBranch, parent, workflowMode, env);
+}
+
+/** The deny while <branch> is behind <baseRef>, else ALLOW. */
+async function behindDeny(root: string, branch: string, baseRef: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
+  if (await gitOk(root, ['merge-base', '--is-ancestor', baseRef, branch], env)) return ALLOW;
+  const behind = await behindCount(root, `${branch}..${baseRef}`, env);
+  const fetch = baseRef.startsWith('origin/') ? `git fetch origin ${baseRef.slice('origin/'.length)} && ` : '';
+  return denyResult(
+    `BLOCKED: branch '${branch}' is behind ${baseRef} by ${behind} commit(s). bro must rebase the task branch onto the latest ${baseRef} (or recreate it) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`,
+    { allowed: `git branch -D ${branch} && ${fetch}git branch ${branch} ${baseRef}, then the same worktree add` },
+  );
+}

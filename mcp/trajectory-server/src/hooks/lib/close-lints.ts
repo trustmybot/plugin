@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { dbWrite, type WriteResult } from './audit.js';
 import { gateRead, GATE_READ_ERROR } from './db.js';
 import { gitText } from './doc-checks.js';
-import { prTargetRef } from './git-refs.js';
+import { gateWorkflowMode, prTargetRef } from './git-refs.js';
 import { CLOSE_LINTS_PATH, lintFingerprint } from './lint-fingerprint.js';
 import { type CloseLint, type CloseLints, latestLintRun, lintRunFinishSql, lintRunResultSql, lintRunStartSql, type LintRunSource, parseCloseLints } from './lint-runs.js';
 
@@ -105,7 +105,8 @@ export async function closeLintsPlan(repo: string, sha: string, env: NodeJS.Proc
 /**
  * merge-base(<sha>, the task's PR target ref), the target resolved as
  * code-reviewer-preflight does (an unreadable task row leaves only the repo
- * default); '' when none resolves.
+ * default); '' when none resolves or the workflow mode is unreadable, since
+ * the mode picks the base.
  */
 export async function lintBaseSha(repo: string, db: string, taskId: string, sha: string, env: NodeJS.ProcessEnv): Promise<string> {
   if (!/^[0-9]+$/.test(taskId)) return '';
@@ -118,7 +119,9 @@ export async function lintBaseSha(repo: string, db: string, taskId: string, sha:
   const bar = line.indexOf('|');
   const target = bar < 0 ? '' : line.slice(0, bar);
   const parent = bar < 0 ? '' : line.slice(bar + 1);
-  const ref = await prTargetRef(repo, target, parent, env);
+  const workflowMode = gateWorkflowMode(db, env);
+  if (workflowMode === GATE_READ_ERROR) return '';
+  const ref = await prTargetRef(repo, target, parent, workflowMode, env);
   if (ref === null) return '';
   const base = await gitText(repo, ['merge-base', ref, sha], env);
   return base.code === 0 ? base.stdout.trim() : '';

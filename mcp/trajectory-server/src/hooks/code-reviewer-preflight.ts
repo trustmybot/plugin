@@ -33,7 +33,7 @@ import { taskLocation } from './lib/agent-context.js';
 import { closeLintsPlan, taskNoCodeClass } from './lib/close-lints.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
 import { gitText, listed, revParse } from './lib/doc-checks.js';
-import { prTargetRef } from './lib/git-refs.js';
+import { gateWorkflowMode, prTargetRef } from './lib/git-refs.js';
 import { latestLintRun } from './lib/lint-runs.js';
 import { structuredDenyResult, type DenyFix } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
@@ -135,7 +135,9 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
     env,
   );
   if (targetRow === GATE_READ_ERROR) return dbUnavailable(env);
-  const targetRef = await prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch, env);
+  const workflowMode = gateWorkflowMode(db, env);
+  if (workflowMode === GATE_READ_ERROR) return dbUnavailable(env);
+  const targetRef = await prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch, workflowMode, env);
   const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
   const mergeBase = targetTip === null ? '' : (await gitText(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
 

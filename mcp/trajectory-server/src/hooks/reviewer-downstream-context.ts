@@ -21,7 +21,7 @@
  */
 import { open, stat } from 'node:fs/promises';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
-import { prTargetRef } from './lib/git-refs.js';
+import { gateWorkflowMode, prTargetRef } from './lib/git-refs.js';
 import { taskLocation } from './lib/agent-context.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote } from './lib/db.js';
 import { capSections, directDownstream, downstreamArm, downstreamLines, recordInjected, symbolLine, symbolsInRanges } from './lib/downstream.js';
@@ -158,7 +158,9 @@ async function changedSpans(db: string, taskId: number, env: NodeJS.ProcessEnv):
   const commitRev = task.commit_sha || `refs/heads/${task.branch_id}`;
   const commit = (await git(loc.repoRoot, ['rev-parse', '--verify', '--quiet', `${commitRev}^{commit}`], env))?.trim();
   if (!commit) return null;
-  const targetRef = await prTargetRef(loc.repoRoot, target.split('\n')[0] ?? '', task.parent_branch_id ?? '', env);
+  const workflowMode = gateWorkflowMode(db, env);
+  if (workflowMode === GATE_READ_ERROR) return null;
+  const targetRef = await prTargetRef(loc.repoRoot, target.split('\n')[0] ?? '', task.parent_branch_id ?? '', workflowMode, env);
   if (targetRef === null) return null;
   const base = (await git(loc.repoRoot, ['merge-base', targetRef, commit], env))?.trim();
   if (!base) return null;

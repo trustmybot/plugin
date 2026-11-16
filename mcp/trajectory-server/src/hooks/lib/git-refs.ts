@@ -5,6 +5,8 @@
  * take the gate's env and no timeout of their own, since the gate's deadline
  * bounds them.
  */
+import { parseWorkflowMode, WORKFLOW_MODE_KEY, type WorkflowMode } from '../../tools/config.js';
+import { GATE_READ_ERROR, gateRead } from './db.js';
 import { gitOk, gitRun } from './git.js';
 
 async function refResolves(repoPath: string, ref: string, env: NodeJS.ProcessEnv): Promise<boolean> {
@@ -41,8 +43,44 @@ export async function resolveRepoDefaultBranch(repoPath: string, env: NodeJS.Pro
   return await gitOutput(repoPath, ['symbolic-ref', '--short', 'HEAD'], env) ?? 'main';
 }
 
-/** The ref of a task's PR target, as bro_atomic_close resolves it: repos.target_branch, parent_branch_id, the repo default. */
-export async function prTargetRef(repoPath: string, targetBranch: string, parentBranch: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+/** The project's workflow mode as readWorkflowMode reads it (unset or unknown reads as truest), or GATE_READ_ERROR. */
+export function gateWorkflowMode(db: string, env: NodeJS.ProcessEnv): WorkflowMode | typeof GATE_READ_ERROR {
+  const out = gateRead(db, `SELECT value_json FROM plugin_config WHERE key = '${WORKFLOW_MODE_KEY}';`, env);
+  return out === GATE_READ_ERROR ? GATE_READ_ERROR : parseWorkflowMode(out);
+}
+
+/**
+ * An agile task's base (GH 2225): its parent feature branch's ref (origin/<parent>, else the
+ * local branch) when the workflow mode is agile and parent_branch_id is set, names a branch other
+ * than target_branch and resolves. null for every other task, which keeps prTargetRef's order.
+ */
+export async function agileParentRef(
+  repoPath: string,
+  targetBranch: string,
+  parentBranch: string,
+  workflowMode: WorkflowMode,
+  env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  if (workflowMode !== 'agile' || parentBranch === '') return null;
+  const parent = await normalizeBase(repoPath, parentBranch, env);
+  if (targetBranch !== '' && parent === await normalizeBase(repoPath, targetBranch, env)) return null;
+  return await resolveBaseRef(repoPath, parent, env);
+}
+
+/**
+ * The ref of a task's base for freshness, merge-base and scope checks: an agile task's parent
+ * feature branch (agileParentRef), else its PR target as bro_atomic_close resolves it:
+ * repos.target_branch, parent_branch_id, the repo default.
+ */
+export async function prTargetRef(
+  repoPath: string,
+  targetBranch: string,
+  parentBranch: string,
+  workflowMode: WorkflowMode,
+  env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  const agileBase = await agileParentRef(repoPath, targetBranch, parentBranch, workflowMode, env);
+  if (agileBase !== null) return agileBase;
   for (const candidate of [targetBranch, parentBranch]) {
     if (candidate === '') continue;
     const ref = await resolveBaseRef(repoPath, candidate, env);

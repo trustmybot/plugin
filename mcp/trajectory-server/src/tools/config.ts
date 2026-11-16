@@ -292,9 +292,14 @@ export function isWorkflowMode(value: unknown): value is WorkflowMode {
  */
 export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
   const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [WORKFLOW_MODE_KEY]);
-  if (!row) return 'truest';
+  return parseWorkflowMode(row?.value_json);
+}
+
+/** A stored workflow_mode value_json as readWorkflowMode reads it; the hooks read it through their own DB reader. */
+export function parseWorkflowMode(valueJson: string | null | undefined): WorkflowMode {
+  if (!valueJson) return 'truest';
   try {
-    const value: unknown = JSON.parse(row.value_json);
+    const value: unknown = JSON.parse(valueJson);
     if (isWorkflowMode(value)) return value;
   } catch {
     // An unparseable stored value reads as the default.
