@@ -3,7 +3,7 @@
  * `cli.js integrate` runs on the rebased SHA: the lints a repo's
  * .config/tmb/close-lints.json declares at <sha> (an allowlist; nothing else
  * runs; a task with a no_code_class runs its no_code_lints when present, GH 3160), each as `bash -c '<command>'` in the checkout under the env it is
- * given, recorded against <base> as one lint_runs row with a lint_run_results
+ * given plus TMB_LINT_BASE_SHA=<base>, recorded against <base> as one lint_runs row with a lint_run_results
  * row per lint, in that order. The changelog and stale-doc checks are not close
  * lints; doc-checks.ts runs them at swe's close.
  *
@@ -207,6 +207,8 @@ export async function runCloseLints(
     else write(target.db, s.sql, env);
   };
 
+  // A lint that checks only what changed (GH 3161) diffs against the base this run is recorded against.
+  const lintEnv = { ...env, TMB_LINT_BASE_SHA: baseSha };
   const scratch = mkdtempSync(join(tmpdir(), 'tmb-close-lints-'));
   try {
     const budgetStart = Date.now();
@@ -218,7 +220,7 @@ export async function runCloseLints(
       }
       const outPath = join(scratch, `out-${i + 1}`);
       const t0 = Date.now();
-      const rc = await execute(lint.command, repo, env, left, outPath);
+      const rc = await execute(lint.command, repo, lintEnv, left, outPath);
       const elapsedS = seconds(Date.now() - t0);
       let output = '';
       try {

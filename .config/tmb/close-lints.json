@@ -1,7 +1,7 @@
 {
   "version": 1,
   "lints": [
-    { "name": "l1", "command": "node --experimental-strip-types tests/run-all.ts --l1-only" }
+    { "name": "l1", "command": "node --experimental-strip-types tests/run-all.ts --l1-changed" }
   ],
   "no_code_lints": [
     { "name": "l1-local", "command": "node --experimental-strip-types tests/run-all.ts --l1-local" }

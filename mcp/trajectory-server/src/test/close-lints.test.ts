@@ -4,7 +4,7 @@
  * row with a lint_run_results row per lint in order; a failing lint keeps its
  * exit code and output tail, no config records a clean run with no results
  * over no fingerprint inputs, a lint past the budget records 124, and a
- * malformed config runs nothing.
+ * malformed config runs nothing; each lint sees the run base as TMB_LINT_BASE_SHA.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -147,6 +147,13 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     assert.match(text, /^Lint counts exited 3\.\nOutput \(last 15 lines\):\nline 16\n/);
     assert.ok(!text.includes('line 15\n'), text);
     assert.equal(reusableLintRun(target(), sha, base, run.fingerprint, env), null, 'a failed run is not reused');
+  });
+
+  it('gives each lint command the run base as TMB_LINT_BASE_SHA, over an inherited value (GH 3161)', async () => {
+    const { repo, base, sha } = repoAt({ [CLOSE_LINTS_PATH]: config([{ name: 'base', command: 'echo "base=$TMB_LINT_BASE_SHA"' }]) });
+    const run = ran(await runCloseLints(repo, sha, base, 30, { ...env, TMB_LINT_BASE_SHA: 'inherited' }, target()));
+    assert.equal(run.exitCode, 0);
+    assert.equal(run.results[0].output.trim(), `base=${base}`);
   });
 
   it('records a clean run with no results, fingerprinted over no inputs, when the repo has no close-lints.json', async () => {
