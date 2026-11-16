@@ -103,7 +103,7 @@
  * code-reviewer pass is needed for the printed SHA.
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { auditSql, dbWrite, nowIso } from '../hooks/lib/audit.js';
@@ -168,6 +168,23 @@ function verificationCommands(json: string): string | null {
 
 function lastLines(text: string, n: number): string {
   return text === '' ? '' : text.split('\n').slice(-n).join('\n');
+}
+
+/**
+ * Deletes what is left of a temporary worktree dir. When the whole tree
+ * refuses deletion (a sandbox, a read-only subdir), its `.git` file still
+ * goes: `git worktree prune` drops a registration only once that file is gone.
+ */
+function removeLeftovers(wt: string): void {
+  try {
+    rmSync(wt, { recursive: true, force: true });
+  } catch {
+    try {
+      rmSync(join(wt, '.git'), { recursive: true, force: true });
+    } catch {
+      /* the caller reports the dir still there */
+    }
+  }
 }
 
 /** What rebaseAndVerify leaves for the caller: the verified rebased SHA, the kept picks and the budget it ran under. */
@@ -297,11 +314,12 @@ export abstract class TaskRebase {
     if (this.scratch !== '') rmSync(this.scratch, { recursive: true, force: true });
     this.scratch = '';
     if (this.wt === '') return;
-    if (!this.g(['worktree', 'remove', '--force', this.wt]).ok) {
-      rmSync(this.wt, { recursive: true, force: true });
-      this.g(['worktree', 'prune']);
-    }
+    const wt = this.wt;
     this.wt = '';
+    this.g(['worktree', 'remove', '--force', wt]);
+    removeLeftovers(wt);
+    this.g(['worktree', 'prune']);
+    if (existsSync(wt)) this.say(`could not delete the temporary worktree dir ${wt}; its git registration is pruned, delete the dir by hand`);
   }
 
   /** Runs <cmd> in the worktree, output captured, killed with its process group after <seconds>. */
@@ -479,12 +497,6 @@ export abstract class TaskRebase {
       this.die(4, 'cannot create a temporary worktree dir');
     }
     if (!this.gitLoud(this.repoRoot, ['worktree', 'add', '-q', '--detach', this.wt, this.commitSha])) {
-      try {
-        rmdirSync(this.wt);
-      } catch {
-        /* not empty or gone */
-      }
-      this.wt = '';
       this.die(4, 'git worktree add failed');
     }
 

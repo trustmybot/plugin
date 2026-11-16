@@ -405,6 +405,38 @@ describe('cli.js integrate', () => {
     assertNoTempWorktree();
   });
 
+  it('git worktree add fails after a partial checkout: exit 4, the temp worktree unregistered and gone (GH 3110)', () => {
+    setup('clean');
+    // A failing post-checkout hook makes `git worktree add` exit non-zero after the
+    // worktree is registered and checked out, as a checkout that dies midway does.
+    const hooks = join(repo, '.git/hooks');
+    mkdirSync(hooks, { recursive: true });
+    writeFileSync(join(hooks, 'post-checkout'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const r = integrate('main');
+    assert.equal(r.code, 4, r.err);
+    assert.match(r.err, /git worktree add failed/, 'stderr names the failed step');
+    assert.doesNotMatch(git('worktree', 'list', '--porcelain'), /integrate-1\./, 'no integrate-1.* registration');
+    assertNoTempWorktree();
+    assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
+    assertNotIntegrated();
+  });
+
+  it('a temp worktree dir that refuses deletion: stderr names it, the registration is still pruned (GH 3110)', () => {
+    setup('clean', '["test -f a.txt", "mkdir locked && touch locked/f && chmod 555 locked && exit 3"]');
+    try {
+      const r = integrate('main');
+      assert.equal(r.code, 1, r.err);
+      const left = readdirSync(join(repo, '.claude/worktrees')).filter((n) => n.startsWith('integrate-1.'));
+      assert.equal(left.length, 1, 'the undeletable dir stays');
+      const leftPath = join(repo, '.claude/worktrees', left[0]);
+      assert.ok(r.err.includes(`could not delete the temporary worktree dir ${leftPath}`), `stderr names ${leftPath}: ${r.err}`);
+      assert.doesNotMatch(git('worktree', 'list', '--porcelain'), /integrate-1\./, 'no integrate-1.* registration');
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+    } finally {
+      spawnSync('chmod', ['-R', 'u+w', repo], { timeout: 10_000 });
+    }
+  });
+
   for (const [signal, want] of [
     ['SIGTERM', 143],
     ['SIGINT', 130],
