@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
-import { worldModelTools } from '../tools/world_model.js';
+import { draftFiles, isTestRunner, SCOPE_DRAFT_FILES_MAX, worldModelTools } from '../tools/world_model.js';
 import { resetEmbeddingModelForTests } from '../embeddings/model.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { pinScanEnv, tempDB } from './helpers.js';
@@ -115,10 +115,7 @@ describe('scope_suggest and world_model_get fields (GH 2327)', () => {
     );
     assert.equal(scope.runners[0]!.command, frameUntrusted('runner-command', 'eslint src'));
     assert.deepEqual(scope.draft.files, scope.files.map((f) => f.path));
-    assert.deepEqual(scope.draft.verification, [
-      frameUntrusted('runner-command', 'eslint src'),
-      frameUntrusted('runner-command', 'node --test tests/*.test.mjs'),
-    ]);
+    assert.deepEqual(scope.draft.verification, [frameUntrusted('runner-command', 'node --test tests/*.test.mjs')]);
   });
 
   it('SC2: with nothing qualifying, tests, runners and unresolved_anchors are empty arrays', async () => {
@@ -195,5 +192,119 @@ describe('scope_suggest and world_model_get fields (GH 2327)', () => {
     const r = await wm['world_model_get']!({ agent: 'bro', repo: 'app', path: 'src', fields: ['path', 'nope'] });
     assert.equal(r.isError, true);
     assert.match(text(r), /unknown field\(s\) nope; valid fields: path, summary, .*purpose, purpose_source, content_md5/);
+  });
+
+  it('GH 3158: a no-anchor objective drafts at most 8 files, each a search hit near the top score', async () => {
+    const scope = parse<Scope>(await suggest({ objective: 'chargeCard quokka ledger checkout report deep', k: 30 }));
+    assert.ok(scope.draft.files.length <= SCOPE_DRAFT_FILES_MAX, JSON.stringify(scope.draft.files));
+    const byPath = new Map(scope.files.map((f) => [f.path, f]));
+    const top = Math.max(...scope.files.map((f) => f.score));
+    for (const path of scope.draft.files) {
+      assert.deepEqual(byPath.get(path)?.via, ['search']);
+      assert.ok(byPath.get(path)!.score >= Math.max(0.1, top / 2), `${path} ${JSON.stringify(scope.files)}`);
+    }
+  });
+});
+
+describe('scope_suggest draft.verification keeps test runners only (GH 3145)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-scope-runners-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+  const workflow = [
+    'name: ci', 'on: push', 'jobs:', '  test:', '    runs-on: ubuntu-latest', '    steps:',
+    '      - run: bun install --cwd src', '      - run: node --test tests/*.test.mjs', '',
+  ].join('\n');
+  const files: Record<string, string> = {
+    'package.json': JSON.stringify({ name: 'app', scripts: { test: 'vitest run src', build: 'esbuild src/billing.ts --bundle --outdir=dist' } }, null, 2) + '\n',
+    '.github/workflows/ci.yml': workflow,
+    'src/billing.ts': 'export function chargeCard(amount: number): number {\n  return amount * 2;\n}\n',
+    'tests/billing.test.mjs': "import { chargeCard } from '../src/billing.js';\n\nchargeCard(1);\n",
+  };
+
+  before(async () => {
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.email', 't@t.io'], ['config', 'user.name', 't'], ['add', '-A'], ['commit', '-qm', 'c']]) {
+      execFileSync('git', args, { cwd: root, timeout: 30_000 });
+    }
+    parse((await scanTools(db, holder, ':memory:').handlers['scan_run']!({ agent: 'bro', session_dir: ws })) as CallToolResult);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('SC1: the test script and the node --test CI line are drafted; the build and bun install lines are not', async () => {
+    const scope = parse<Scope>(await wm['scope_suggest']!({ agent: 'bro', repo: 'app', anchors: ['chargeCard'] }));
+    const commands = scope.runners.map((r) => r.command);
+    for (const c of ['vitest run src', 'esbuild src/billing.ts --bundle --outdir=dist', 'bun install --cwd src', 'node --test tests/*.test.mjs']) {
+      assert.ok(commands.includes(frameUntrusted('runner-command', c)), `${c} not among ${JSON.stringify(commands)}`);
+    }
+    assert.deepEqual(
+      [...scope.draft.verification].sort(),
+      [frameUntrusted('runner-command', 'node --test tests/*.test.mjs'), frameUntrusted('runner-command', 'vitest run src')].sort(),
+    );
+  });
+});
+
+describe('isTestRunner allowlist (GH 3145)', () => {
+  it('SC1: test and test:* scripts and known test-runner commands count; build, install and dev lines do not', () => {
+    const yes: Array<[string, string]> = [
+      ['test', 'eslint . && tsc'],
+      ['test:unit', 'whatever'],
+      ['ci:7', 'node --test tests/'],
+      ['ci:8', 'bun run build:tsc && node --experimental-strip-types --test src/a.test.ts'],
+      ['ci:9', 'bash tests/run-all.sh'],
+      ['check', 'npx vitest run'],
+      ['check', 'jest --ci'],
+      ['check', 'node_modules/.bin/mocha'],
+      ['check', 'python -m pytest -q'],
+      ['ci:3', 'cd sub && bun test'],
+      ['ci:4', 'go test ./...'],
+      ['ci:5', 'cargo test --all'],
+    ];
+    const no: Array<[string, string]> = [
+      ['build', 'esbuild src/index.ts --bundle'],
+      ['build:web', 'vite build'],
+      ['dev', 'vite'],
+      ['ci:1', 'bun install --frozen-lockfile'],
+      ['ci:2', 'git config user.name ci'],
+      ['testing', 'tsc --noEmit'],
+      ['lint', 'eslint jest.config.js'],
+      ['ci:6', 'node scripts/build.mjs --tests'],
+    ];
+    for (const [runner, command] of yes) assert.ok(isTestRunner({ runner, command }), `${runner}: ${command}`);
+    for (const [runner, command] of no) assert.ok(!isTestRunner({ runner, command }), `${runner}: ${command}`);
+  });
+});
+
+describe('draftFiles (GH 3145, GH 3158)', () => {
+  const file = (path: string, score: number, via: string[]) => ({ path, score, via });
+
+  it('SC2: an anchor and a 0.6 search hit draft beside a 1.0 hit; a 0.02 hit stays out', () => {
+    const ranked = [
+      file('src/anchor.ts', 1, ['anchor']),
+      file('src/top.ts', 1, ['search']),
+      file('src/mid.ts', 0.6, ['search']),
+      file('src/noise.ts', 0.02, ['search']),
+    ];
+    const search = new Map([['src/top.ts', 1], ['src/mid.ts', 0.6], ['src/noise.ts', 0.02]]);
+    assert.deepEqual(draftFiles(ranked, search), ['src/anchor.ts', 'src/top.ts', 'src/mid.ts']);
+  });
+
+  it('SC2: a linked path drafts whatever its score; a search hit under 0.1 never does', () => {
+    const ranked = [file('src/caller.ts', 0.5, ['caller:x']), file('src/weak.ts', 0.09, ['search'])];
+    assert.deepEqual(draftFiles(ranked, new Map([['src/weak.ts', 0.09]])), ['src/caller.ts']);
+  });
+
+  it('SC3: with no anchors only strong search hits draft, capped at 8', () => {
+    const ranked = Array.from({ length: 12 }, (_, i) => file(`src/f${i}.ts`, 1 - i * 0.01, ['search']));
+    const search = new Map(ranked.map((f) => [f.path, f.score]));
+    assert.deepEqual(draftFiles(ranked, search), ranked.slice(0, SCOPE_DRAFT_FILES_MAX).map((f) => f.path));
   });
 });
