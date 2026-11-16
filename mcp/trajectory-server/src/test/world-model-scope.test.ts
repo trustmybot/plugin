@@ -232,7 +232,7 @@ describe('scope_suggest draft.verification keeps test runners only (GH 3145)', (
     for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.email', 't@t.io'], ['config', 'user.name', 't'], ['add', '-A'], ['commit', '-qm', 'c']]) {
       execFileSync('git', args, { cwd: root, timeout: 30_000 });
     }
-    parse((await scanTools(db, holder, ':memory:').handlers['scan_run']!({ agent: 'bro', session_dir: ws })) as CallToolResult);
+    parse(await scanTools(db, holder, ':memory:').handlers['scan_run']({ agent: 'bro', session_dir: ws }));
   });
 
   after(() => {
@@ -241,7 +241,7 @@ describe('scope_suggest draft.verification keeps test runners only (GH 3145)', (
   });
 
   it('SC1: the test script and the node --test CI line are drafted; the build and bun install lines are not', async () => {
-    const scope = parse<Scope>(await wm['scope_suggest']!({ agent: 'bro', repo: 'app', anchors: ['chargeCard'] }));
+    const scope = parse<Scope>(await wm['scope_suggest']({ agent: 'bro', repo: 'app', anchors: ['chargeCard'] }));
     const commands = scope.runners.map((r) => r.command);
     for (const c of ['vitest run src', 'esbuild src/billing.ts --bundle --outdir=dist', 'bun install --cwd src', 'node --test tests/*.test.mjs']) {
       assert.ok(commands.includes(frameUntrusted('runner-command', c)), `${c} not among ${JSON.stringify(commands)}`);
