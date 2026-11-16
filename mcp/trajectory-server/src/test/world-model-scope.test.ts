@@ -196,12 +196,13 @@ describe('scope_suggest and world_model_get fields (GH 2327)', () => {
 
   it('GH 3158: a no-anchor objective drafts at most 8 files, each a search hit near the top score', async () => {
     const scope = parse<Scope>(await suggest({ objective: 'chargeCard quokka ledger checkout report deep', k: 30 }));
+    assert.ok(scope.draft.files.length >= 1, JSON.stringify(scope.files));
     assert.ok(scope.draft.files.length <= SCOPE_DRAFT_FILES_MAX, JSON.stringify(scope.draft.files));
     const byPath = new Map(scope.files.map((f) => [f.path, f]));
     const top = Math.max(...scope.files.map((f) => f.score));
     for (const path of scope.draft.files) {
       assert.deepEqual(byPath.get(path)?.via, ['search']);
-      assert.ok(byPath.get(path)!.score >= Math.max(0.1, top / 2), `${path} ${JSON.stringify(scope.files)}`);
+      assert.ok(byPath.get(path)!.score >= top / 2, `${path} ${JSON.stringify(scope.files)}`);
     }
   });
 });
@@ -286,25 +287,33 @@ describe('isTestRunner allowlist (GH 3145)', () => {
 describe('draftFiles (GH 3145, GH 3158)', () => {
   const file = (path: string, score: number, via: string[]) => ({ path, score, via });
 
-  it('SC2: an anchor and a 0.6 search hit draft beside a 1.0 hit; a 0.02 hit stays out', () => {
+  it('SC2: on the RRF scale an anchor and the 0.016 and 0.010 hits draft; the 0.004 hit stays out', () => {
     const ranked = [
       file('src/anchor.ts', 1, ['anchor']),
-      file('src/top.ts', 1, ['search']),
-      file('src/mid.ts', 0.6, ['search']),
-      file('src/noise.ts', 0.02, ['search']),
+      file('src/top.ts', 0.016, ['search']),
+      file('src/mid.ts', 0.01, ['search']),
+      file('src/noise.ts', 0.004, ['search']),
     ];
-    const search = new Map([['src/top.ts', 1], ['src/mid.ts', 0.6], ['src/noise.ts', 0.02]]);
+    const search = new Map([['src/top.ts', 0.016], ['src/mid.ts', 0.01], ['src/noise.ts', 0.004]]);
     assert.deepEqual(draftFiles(ranked, search), ['src/anchor.ts', 'src/top.ts', 'src/mid.ts']);
   });
 
-  it('SC2: a linked path drafts whatever its score; a search hit under 0.1 never does', () => {
-    const ranked = [file('src/caller.ts', 0.5, ['caller:x']), file('src/weak.ts', 0.09, ['search'])];
-    assert.deepEqual(draftFiles(ranked, new Map([['src/weak.ts', 0.09]])), ['src/caller.ts']);
+  it('SC2: a linked path drafts whatever its score; a search hit under half the top search score does not', () => {
+    const ranked = [
+      file('src/caller.ts', 0.5, ['caller:x']),
+      file('src/top.ts', 0.03, ['search']),
+      file('src/weak.ts', 0.0149, ['search']),
+    ];
+    const search = new Map([['src/top.ts', 0.03], ['src/weak.ts', 0.0149]]);
+    assert.deepEqual(draftFiles(ranked, search), ['src/caller.ts', 'src/top.ts']);
   });
 
-  it('SC3: with no anchors only strong search hits draft, capped at 8', () => {
-    const ranked = Array.from({ length: 12 }, (_, i) => file(`src/f${i}.ts`, 1 - i * 0.01, ['search']));
+  it('SC3: with no anchors only search hits at least half the top RRF score draft, capped at 8', () => {
+    const strong = Array.from({ length: 12 }, (_, i) => file(`src/f${String(i).padStart(2, '0')}.ts`, 0.033 - i * 0.001, ['search']));
+    const ranked = [...strong, file('src/weak.ts', 0.016, ['search'])];
     const search = new Map(ranked.map((f) => [f.path, f.score]));
-    assert.deepEqual(draftFiles(ranked, search), ranked.slice(0, SCOPE_DRAFT_FILES_MAX).map((f) => f.path));
+    assert.deepEqual(draftFiles(ranked, search), strong.slice(0, SCOPE_DRAFT_FILES_MAX).map((f) => f.path));
+    const sparse = [file('src/a.ts', 0.033, ['search']), file('src/b.ts', 0.02, ['search']), file('src/c.ts', 0.016, ['search'])];
+    assert.deepEqual(draftFiles(sparse, new Map(sparse.map((f) => [f.path, f.score]))), ['src/a.ts', 'src/b.ts']);
   });
 });

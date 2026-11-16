@@ -712,7 +712,6 @@ export const SCOPE_K_MAX = 30;
 export const SCOPE_FILES_MAX = 50;
 export const SCOPE_VERIFICATION_MAX = 5;
 export const SCOPE_DRAFT_FILES_MAX = 8;
-const DRAFT_SEARCH_FLOOR = 0.1;
 const DRAFT_SEARCH_SHARE = 0.5;
 const ANCHOR_SCORE = 1;
 const LINKED_SCORE = 0.5;
@@ -732,10 +731,11 @@ export function isTestRunner(runner: Pick<CoveringRunner, 'runner' | 'command'>)
 
 // The draft's files[] from score-ordered paths: a linked path (anchor, caller,
 // importer) always drafts; a search-only hit drafts only when it scores near
-// the top search hit.
+// the top search hit. The bar is relative only: hybrid search scores are RRF
+// values (max about 0.033), so no fixed floor fits every mode.
 export function draftFiles(ranked: ScopeFile[], searchScores: Map<string, number>): string[] {
   const topSearch = Math.max(0, ...searchScores.values());
-  const floor = Math.max(DRAFT_SEARCH_FLOOR, DRAFT_SEARCH_SHARE * topSearch);
+  const floor = DRAFT_SEARCH_SHARE * topSearch;
   return ranked
     .filter((f) => f.via.some((v) => v !== 'search') || (searchScores.get(f.path) ?? 0) >= floor)
     .slice(0, SCOPE_DRAFT_FILES_MAX)
