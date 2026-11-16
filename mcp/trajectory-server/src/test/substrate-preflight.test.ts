@@ -72,11 +72,10 @@ describe('substrate-preflight: the DEGRADED banner and the offline note', () => 
     return dir;
   }
 
-  function run(opts: { path?: string; db?: string; sqlite?: 'cli' } = {}): { stdout: string; status: number | null } {
+  function run(opts: { path?: string; db?: string } = {}): { stdout: string; status: number | null } {
     const env: NodeJS.ProcessEnv = { ...sb.env };
     if (opts.path !== undefined) env.PATH = opts.path;
     if (opts.db !== undefined) env.TRAJECTORY_DB_PATH = opts.db;
-    if (opts.sqlite !== undefined) env.TMB_HOOKS_SQLITE = opts.sqlite;
     const r = runGate(GATE, { cwd: sb.dir, env, input: '{}' });
     return { stdout: r.stdout, status: r.status };
   }
@@ -126,12 +125,6 @@ describe('substrate-preflight: the DEGRADED banner and the offline note', () => 
 
     it('sqlite3 CLI missing with node:sqlite: no banner', () => {
       assert.equal(run({ path: stubDirWith('git', 'node'), db: dbWithRemote }).stdout, '');
-    });
-
-    it('sqlite3 CLI missing and node:sqlite off: a TMB DEGRADED banner naming sqlite3', () => {
-      const out = run({ path: stubDirWith('git', 'node'), db: dbWithRemote, sqlite: 'cli' }).stdout;
-      assert.ok(out.includes('TMB DEGRADED'), out);
-      assert.ok(out.includes('missing sqlite3'), out);
     });
 
     it('git and node missing: both named in one banner', () => {

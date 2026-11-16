@@ -149,11 +149,6 @@ describe('git-guards: the TypeScript gate', () => {
     const r = await gitGuards(payload('git commit -m x', sibling), { ...env, PATH: gitOnly });
     assert.deepEqual(r, { stdout: '', code: 0 });
   });
-
-  it('with the CLI backend and no sqlite3 on PATH it falls back to the defaults, as the .sh does', async () => {
-    const r = await gitGuards(payload('git commit -m x', sibling), { ...env, PATH: gitOnly, TMB_HOOKS_SQLITE: 'cli' });
-    assert.match(reason(r.stdout), /^BLOCKED: main is a shared workflow base/);
-  });
 });
 
 describe('git-guards: the Rule 2 recovery names the forge of the remote (GH 2713)', () => {

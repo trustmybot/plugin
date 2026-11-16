@@ -17,7 +17,7 @@ import { noRemoteUrl, substratePreflight } from '../hooks/substrate-preflight.js
 import { candidateDirs, listsClaudeDir } from '../hooks/ensure-gitignore.js';
 import { broTurnUsage, jqCompare, jqIntText } from '../hooks/bro-turn-usage.js';
 import { duplicateInstalls, userInstalls } from '../hooks/lib/install.js';
-import { sqliteBackend } from '../hooks/lib/sqlite-shell.js';
+import { loadNodeSqlite } from '../hooks/lib/sqlite-shell.js';
 
 const SCHEMA = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/schema.sql'), 'utf8');
 const NO_COMMANDS = '/nonexistent-tmb-path';
@@ -146,14 +146,7 @@ describe('substrate-preflight helpers', () => {
     assert.ok(ctx.startsWith('TMB DEGRADED: '), ctx);
     assert.ok(!ctx.includes('jq'), ctx);
     for (const bin of ['git', 'node']) assert.ok(ctx.includes(`missing ${bin} — `), bin);
-    assert.equal(ctx.includes('missing sqlite3 — '), sqliteBackend({ PATH: NO_COMMANDS }) === 'cli', ctx);
-  });
-
-  it('names sqlite3 when neither node:sqlite nor the sqlite3 CLI is available', async () => {
-    const r = await substratePreflight('{}', { PATH: NO_COMMANDS, TMB_HOOKS_SQLITE: 'cli' });
-    const ctx = (JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
-    assert.ok(ctx.includes('missing sqlite3 — '), ctx);
-    assert.ok(!ctx.includes('jq'), ctx);
+    assert.equal(ctx.includes('missing sqlite3 — '), loadNodeSqlite() === null, ctx);
   });
 });
 

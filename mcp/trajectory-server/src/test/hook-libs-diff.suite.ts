@@ -1,13 +1,14 @@
 /**
  * Golden test of the TS hook libs (src/hooks/lib/), GH 1692. The TS ports run
- * every case twice, through node:sqlite and through the sqlite3 CLI fallback,
- * and each pass must match tests/fixtures/hook-libs/expected.jsonl: the
- * outcomes the shell libs they replace produced, frozen once. The fixture holds
- * one line per case {id, fn, out, rc, err?} (err only for STDERR_FNS), then one
- * {auditRows} line and one {coldDbs} line; the sandbox root is stored as <R>
- * and the plugin root as <PLUGIN_ROOT>.
- * The two TS passes split across hook-libs-diff.shard-<k>of<n>.test.ts
- * (GH 1947); shard 1 also runs the checks on the fixture alone.
+ * every case through node:sqlite, and the pass must match
+ * tests/fixtures/hook-libs/expected.jsonl: the outcomes the shell libs they
+ * replace produced, frozen once. The fixture holds one line per case
+ * {id, fn, out, rc, err?} (err only for STDERR_FNS), then one {auditRows} line
+ * and one {coldDbs} line; the sandbox root is stored as <R> and the plugin
+ * root as <PLUGIN_ROOT>.
+ * The pass and the checks on the fixture alone run in
+ * hook-libs-diff.shard-1of2.test.ts (GH 1947); shard 2 ran the sqlite3 CLI
+ * pass, gone since GH 3150, and now registers nothing.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -50,8 +51,7 @@ import { auditAppend, auditEventsFile, auditSql, auditWriterCheck, dedupeGuard, 
 import { agentRole, normalizeRole } from '../hooks/lib/role.js';
 import { agentContext, agentTranscript, ctxInWorktree, pathCanonical, taskLocation } from '../hooks/lib/agent-context.js';
 import { pluginName } from '../hooks/lib/project-env.js';
-import { loadNodeSqlite, sqliteBackend } from '../hooks/lib/sqlite-shell.js';
-import { shardOf } from './shard.js';
+import { loadNodeSqlite } from '../hooks/lib/sqlite-shell.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -774,7 +774,7 @@ function buildCases(): Case[] {
   return cases;
 }
 
-function runTs(cases: Case[], backend: 'node' | 'cli'): Outcome[] {
+function runTs(cases: Case[]): Outcome[] {
   const home = process.cwd();
   const results: Outcome[] = [];
   let env: NodeJS.ProcessEnv = {};
@@ -784,7 +784,6 @@ function runTs(cases: Case[], backend: 'node' | 'cli'): Outcome[] {
       if (!c.keep) env = {};
       for (const k of Object.keys(env)) delete env[k];
       Object.assign(env, { PATH: process.env.PATH, HOME: R, PWD: cwd }, c.env ?? {});
-      if (backend === 'cli') env.TMB_HOOKS_SQLITE = 'cli';
       process.chdir(cwd);
       const adapter = ADAPTERS[c.fn];
       assert.ok(adapter, `no TS adapter for ${c.fn}`);
@@ -838,10 +837,11 @@ function loadExpected(): Expected {
 
 export function hookLibsDiffShard(k: number, n: number): void {
   describe(`hook libs: TS ports vs the frozen .sh outcomes (shard ${k} of ${n})`, () => {
+    // One pass is left since the sqlite3 CLI pass went (GH 3150): shard 1 runs it, the others have none.
+    if (k !== 1) return;
     let cases: Case[] = [];
     let expected: Expected = { ids: [], cases: new Map(), auditRows: [], coldDbs: [] };
-    const passes: { backend: 'node' | 'cli'; out: Outcome[]; rows: string[]; cold: string[] }[] = [];
-    const backends: ('node' | 'cli')[] = loadNodeSqlite() ? ['node', 'cli'] : ['cli'];
+    let pass: { out: Outcome[]; rows: string[]; cold: string[] } = { out: [], rows: [], cold: [] };
     const byId = (id: string): ExpectedCase => {
       const e = expected.cases.get(id);
       assert.ok(e, `no fixture line for ${id}`);
@@ -853,11 +853,9 @@ export function hookLibsDiffShard(k: number, n: number): void {
       await startHolder();
       cases = buildCases();
       expected = loadExpected();
-      for (const backend of shardOf(backends, k, n)) {
-        restoreMut();
-        const out = runTs(cases, backend);
-        passes.push({ backend, out, rows: auditRows(), cold: coldDbs() });
-      }
+      restoreMut();
+      const out = runTs(cases);
+      pass = { out, rows: auditRows(), cold: coldDbs() };
     });
 
     after(async () => {
@@ -865,64 +863,51 @@ export function hookLibsDiffShard(k: number, n: number): void {
       if (R) rmSync(R, { recursive: true, force: true });
     });
 
-    if (k === 1) {
-      it('runs the TS ports through node:sqlite and through the sqlite3 CLI', (t) => {
-        assert.equal(sqliteBackend({ TMB_HOOKS_SQLITE: 'cli' }), 'cli');
-        const counts = new Map<string, number>();
-        for (const c of cases) counts.set(c.fn, (counts.get(c.fn) ?? 0) + 1);
-        t.diagnostic(`cases: ${cases.length}; ${[...counts].map(([fn, n]) => `${fn}=${n}`).join(' ')}`);
-        t.diagnostic(`backends: ${backends.join(', ')}`);
-        if (loadNodeSqlite()) assert.equal(sqliteBackend({}), 'node');
-        assert.ok(backends.includes('cli'));
-      });
+    it('runs the TS ports through node:sqlite', (t) => {
+      assert.ok(loadNodeSqlite(), 'this Node has a usable node:sqlite');
+      const counts = new Map<string, number>();
+      for (const c of cases) counts.set(c.fn, (counts.get(c.fn) ?? 0) + 1);
+      t.diagnostic(`cases: ${cases.length}; ${[...counts].map(([fn, n]) => `${fn}=${n}`).join(' ')}`);
+    });
 
-      it('every case id is unique and the fixture holds exactly the case ids', () => {
-        const ids = new Set<string>();
-        for (const c of cases) {
-          assert.ok(!ids.has(c.id), `duplicate case id ${c.id}`);
-          ids.add(c.id);
-        }
-        assert.deepEqual(expected.ids, cases.map((c) => c.id));
-      });
+    it('every case id is unique and the fixture holds exactly the case ids', () => {
+      const ids = new Set<string>();
+      for (const c of cases) {
+        assert.ok(!ids.has(c.id), `duplicate case id ${c.id}`);
+        ids.add(c.id);
+      }
+      assert.deepEqual(expected.ids, cases.map((c) => c.id));
+    });
 
-      it('the fixture holds no absolute path from the recording machine', () => {
-        const raw = readFileSync(EXPECTED, 'utf8');
-        assert.doesNotMatch(raw, /\/Users\/|\/home\/|\/private\/|\/var\/folders\//);
-        assert.ok(!raw.includes(PLUGIN_ROOT), 'fixture names this checkout; store it as <PLUGIN_ROOT>');
-      });
-    }
+    it('the fixture holds no absolute path from the recording machine', () => {
+      const raw = readFileSync(EXPECTED, 'utf8');
+      assert.doesNotMatch(raw, /\/Users\/|\/home\/|\/private\/|\/var\/folders\//);
+      assert.ok(!raw.includes(PLUGIN_ROOT), 'fixture names this checkout; store it as <PLUGIN_ROOT>');
+    });
 
     it('every case matches the frozen .sh outcome', () => {
       const mismatches: string[] = [];
       const check = (actual: unknown, want: unknown, label: string) => {
         if (actual !== want) mismatches.push(`${label}: ts=${JSON.stringify(actual)} sh=${JSON.stringify(want)}`);
       };
-      for (const pass of passes) {
-        cases.forEach((c, i) => {
-          const s = byId(c.id);
-          const ts = pass.out[i];
-          const where = `${pass.backend} ${c.id}`;
-          check(c.fn, s.fn, `${where}: fn`);
-          check(ts.out, s.out, `${where}: output`);
-          check(ts.rc, s.rc, `${where}: exit code`);
-          if (STDERR_FNS.has(c.fn)) check(ts.err ?? '', s.err ?? '', `${where}: stderr`);
-        });
-      }
+      cases.forEach((c, i) => {
+        const s = byId(c.id);
+        const ts = pass.out[i];
+        check(c.fn, s.fn, `${c.id}: fn`);
+        check(ts.out, s.out, `${c.id}: output`);
+        check(ts.rc, s.rc, `${c.id}: exit code`);
+        if (STDERR_FNS.has(c.fn)) check(ts.err ?? '', s.err ?? '', `${c.id}: stderr`);
+      });
       assert.deepEqual(mismatches, []);
     });
 
     it('auditAppend writes the rows the .sh wrote', () => {
-      for (const pass of passes) assert.deepEqual(pass.rows, expected.auditRows, `${pass.backend}: audit rows`);
+      assert.deepEqual(pass.rows, expected.auditRows, 'audit rows');
     });
 
     it('leaves a cold WAL DB cold wherever the .sh did', () => {
-      for (const pass of passes) {
-        if (pass.backend === 'cli') assert.deepEqual(pass.cold, expected.coldDbs, 'cli: cold WAL DBs');
-        else for (const n of expected.coldDbs) assert.ok(pass.cold.includes(n), `${pass.backend}: cold-${n}.db warmed`);
-      }
+      for (const n of expected.coldDbs) assert.ok(pass.cold.includes(n), `cold-${n}.db warmed`);
     });
-
-    if (k !== 1) return;
 
     it('covers every dbState value, the run budget and the dedupe hit', () => {
       assert.equal(byId('tmb_db_state:unresolved').out, 'unresolved');
