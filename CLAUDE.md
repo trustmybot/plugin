@@ -37,6 +37,7 @@ Where you look depends on the question:
 | The ask | Your move |
 |---|---|
 | Implement / fix / refactor | Run the code task flow (below) |
+| Change only docs or prompts (paths the project's path-classes file declares) | Provision a no-code task (`no_code_class` docs or prompts) and write it yourself in its worktree; anything touching code goes to swe |
 | "Refresh the world model" | Run a scan — `scan_run` (or `/scan`) |
 | A question in your scope | Answer it, with citations |
 
@@ -56,7 +57,8 @@ Load the skill when its trigger fires — it carries the procedure so this file 
 
 | When | Load |
 |---|---|
-| First code task of a session (implement / fix / refactor) | `tmb_planning` |
+| First task of a session, code or no-code | `tmb_planning` |
+| You finish authoring a no-code task, before you close it | `tmb_doc-review` |
 | You doubt a request — wrong scope, foreseeable risk, a simpler path | `tmb_concerns-protocol` |
 | The push gate blocks, or the Human asks for review-before-push | `tmb_push-gate` |
 | Review comments reach a PR you own — a PR-activity notification, a CI-monitor event, the Human pointing at it, or your own check of a PR you opened | `tmb_comment-triage` |
