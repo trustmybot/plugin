@@ -12,7 +12,7 @@ import {
 } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=72 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=73 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -29,6 +29,9 @@ describe('TrajectoryDB', () => {
       'agent_runs',
       'agent_run_tool_output',
       'session_handoffs',
+      // GH 3020 — the issues a session's lane owns
+      'lanes',
+      'lane_issues',
       'pr_review_runs',
       // GH 2513 — synced GitHub PRs and the issues they close
       'prs',
@@ -89,7 +92,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 72);
+    assert.equal(meta.schema_version, 73);
 
     db.close();
   });

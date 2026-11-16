@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 72`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 73`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -15,7 +15,7 @@ The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of tru
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 72`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 73`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -49,6 +49,8 @@ erDiagram
     repos |o--o{ agent_runs : "repo (RESTRICT)"
     agent_runs |o--o{ agent_runs : "resumed_from (NO ACTION)"
     issues |o--o{ session_handoffs : "issue_id (NO ACTION)"
+    lanes ||--o{ lane_issues : "lane_id (CASCADE)"
+    issues ||--o{ lane_issues : "issue_id (NO ACTION)"
     agent_runs ||--o{ agent_run_tool_output : "run_id (CASCADE)"
     tasks |o--o{ pr_review_runs : "task_id (NO ACTION)"
     prs ||--o{ pr_closes : "pr_id (CASCADE)"
@@ -348,6 +350,19 @@ erDiagram
         TEXT updated_at "NOT NULL"
         TEXT consumed_at
         TEXT consumed_by_session
+    }
+
+    lanes {
+        INTEGER id PK "NOT NULL"
+        TEXT session_id UK "NOT NULL"
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+    }
+
+    lane_issues {
+        INTEGER lane_id PK,FK "NOT NULL; → lanes.id CASCADE"
+        INTEGER issue_id PK,FK "NOT NULL; → issues.id NO ACTION"
+        TEXT added_at "NOT NULL"
     }
 
     agent_run_tool_output {
@@ -894,6 +909,27 @@ Table constraints:
 | `consumed_at` | TEXT | nullable |  |  |
 | `consumed_by_session` | TEXT | nullable |  |  |
 
+### `lanes`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `session_id` | TEXT | NOT NULL |  | UNIQUE |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+
+### `lane_issues`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `lane_id` | INTEGER | NOT NULL |  | FK → `lanes.id` ON DELETE CASCADE |
+| `issue_id` | INTEGER | NOT NULL |  | FK → `issues.id` ON DELETE NO ACTION |
+| `added_at` | TEXT | NOT NULL |  |  |
+
+Table constraints:
+
+- PRIMARY KEY `(lane_id, issue_id)`
+
 ### `agent_run_tool_output`
 
 | Column | Type | Null | Default | Constraints |
@@ -1186,6 +1222,8 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `agent_runs` | `repo` | `repos(name)` | RESTRICT |
 | `agent_runs` | `resumed_from` | `agent_runs(id)` | NO ACTION |
 | `session_handoffs` | `issue_id` | `issues(id)` | NO ACTION |
+| `lane_issues` | `lane_id` | `lanes(id)` | CASCADE |
+| `lane_issues` | `issue_id` | `issues(id)` | NO ACTION |
 | `agent_run_tool_output` | `run_id` | `agent_runs(id)` | CASCADE |
 | `pr_review_runs` | `task_id` | `tasks(id)` | NO ACTION |
 | `pr_closes` | `pr_id` | `prs(id)` | CASCADE |
@@ -1235,6 +1273,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_agent_runs_spawn` | `agent_runs` | `task_id, spawn_id` | yes | `spawn_id IS NOT NULL AND resumed_from IS NULL` |
 | `idx_agent_runs_resumed` | `agent_runs` | `resumed_from` | yes | `resumed_from IS NOT NULL` |
 | `idx_agent_runs_session` | `agent_runs` | `session_id` |  | `session_id IS NOT NULL` |
+| `idx_lane_issues_issue` | `lane_issues` | `issue_id` |  |  |
 | `idx_agent_run_tool_output_run` | `agent_run_tool_output` | `run_id` |  |  |
 | `idx_audit_event_type` | `audit` | `event_type` |  |  |
 | `idx_audit_issue_branch` | `audit` | `issue_id, branch_id` |  |  |
@@ -1254,6 +1293,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | _UNIQUE constraint_ | `repo_env` | `repo, package_path, ecosystem` | yes | |
 | _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
 | _UNIQUE constraint_ | `agents` | `name` | yes | |
+| _UNIQUE constraint_ | `lanes` | `session_id` | yes | |
 | _UNIQUE constraint_ | `agent_run_tool_output` | `run_id, tool_name` | yes | |
 | _UNIQUE constraint_ | `pr_review_runs` | `pr_number, repo` | yes | |
 | _UNIQUE constraint_ | `prs` | `repo, number` | yes | |

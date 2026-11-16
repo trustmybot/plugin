@@ -5,7 +5,10 @@
  * session_handoffs row when the session has a bro agent_runs row, re-arming a
  * row an earlier compaction consumed. The SessionStart with source 'compact'
  * that follows takes that same session's row in session-start-persona's
- * context: the issue, its live tasks and its newest decision. The gate never
+ * context: the open issues the session's lane owns (GH 3020, recorded by
+ * lane-membership) with their live task counts, then the issue, its live tasks
+ * and its newest decision. The lane listing goes first because it is bounded
+ * and the decision is not, so the cap never cuts it first. The gate never
  * blocks and never prints, because blocking an auto compact fails the
  * request: any error exits 0 with no output. Bypass:
  * TMB_DISABLE_SESSION_HANDOFF_HOOK=1.
@@ -16,11 +19,13 @@
 import { SESSION_ID_LINE } from './activation-routine.js';
 import { ALLOW, type SyncGate } from './gate.js';
 import { dbWrite } from './lib/audit.js';
-import { dbPath, sqlQuote } from './lib/db.js';
+import { dbPath, sqliteRo, sqlQuote } from './lib/db.js';
 
 export const GATE_NAME = 'session-handoff';
 
 const LIVE_TASK_LIMIT = 20;
+const LANE_ISSUE_LIMIT = 30;
+const LANE_OBJECTIVE_CHARS = 160;
 const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed','escalated'";
 const CONSUME_SOURCE = 'compact';
 const HOOK_CONTEXT_CAP = 10_000;
@@ -32,6 +37,19 @@ interface LiveTask {
   id: number;
   status: string;
   title: string;
+}
+
+interface LaneIssue {
+  id: number;
+  objective: string;
+  live_tasks: number;
+  tasks: number;
+}
+
+interface LaneIssues {
+  open_count: number;
+  closed_count: number;
+  open: LaneIssue[];
 }
 
 interface ConsumedHandoff {
@@ -114,8 +132,47 @@ RETURNING json_object(
 `;
 }
 
-function handoffBlock(h: ConsumedHandoff): string {
+/** The lane's open issues, newest first, at most LANE_ISSUE_LIMIT of them, and its open and closed issue counts. */
+function laneSql(sessionId: string): string {
+  const owned = `FROM lane_issues li JOIN lanes l ON l.id = li.lane_id JOIN issues i ON i.id = li.issue_id WHERE l.session_id = '${sessionId}'`;
+  return `
+SELECT json_object(
+  'open_count', (SELECT count(*) ${owned} AND i.status = 'open'),
+  'closed_count', (SELECT count(*) ${owned} AND i.status <> 'open'),
+  'open', json((SELECT json_group_array(json_object('id', o.id, 'objective', o.objective, 'live_tasks', o.live_tasks, 'tasks', o.tasks))
+                  FROM (SELECT i.id, i.objective,
+                               (SELECT count(*) FROM tasks t WHERE t.issue_id = i.id AND t.status IN (${LIVE_TASK_STATUSES})) AS live_tasks,
+                               (SELECT count(*) FROM tasks t WHERE t.issue_id = i.id) AS tasks
+                          ${owned} AND i.status = 'open'
+                         ORDER BY i.id DESC LIMIT ${LANE_ISSUE_LIMIT}) o)));
+`;
+}
+
+/** The lane listing, or none when the read fails or the lane owns no issue. */
+function laneLines(lane: LaneIssues | null): string[] {
+  if (lane === null || lane.open_count + lane.closed_count === 0) return [];
+  const lines = [`This session's lane owns ${lane.open_count} open and ${lane.closed_count} closed issues.${lane.open_count > 0 ? ' Its open issues:' : ''}`];
+  for (const i of lane.open) {
+    const objective = truncated(i.objective.replace(/\s+/g, ' ').trim(), LANE_OBJECTIVE_CHARS);
+    lines.push(`- #${i.id} ${objective} (${i.live_tasks} live tasks)${i.tasks === 0 ? ' unstarted' : ''}`);
+  }
+  const hidden = lane.open_count - lane.open.length;
+  if (hidden > 0) lines.push(`+${hidden} more`);
+  return lines;
+}
+
+function laneIssues(db: string, sessionId: string, env: NodeJS.ProcessEnv): LaneIssues | null {
+  try {
+    const out = sqliteRo(db, laneSql(sessionId), env).trim();
+    return out === '' ? null : (JSON.parse(out) as LaneIssues);
+  } catch {
+    return null;
+  }
+}
+
+function handoffBlock(h: ConsumedHandoff, lane: LaneIssues | null): string {
   const lines = ['[Compaction restore: Claude Code compacted this bro session; its state below was read from the DB just now]'];
+  lines.push(...laneLines(lane));
   if (h.issue_id === null) lines.push('No issue was recorded for this session.');
   else {
     const status = h.issue_status === null || h.issue_status === 'open' ? '' : ` (status: ${h.issue_status})`;
@@ -145,7 +202,7 @@ export function withHandoff(context: string, payload: string, env: NodeJS.Proces
     if (db === null) return context;
     const written = dbWrite(db, consumeSql(sessionId), { env, caller: GATE_NAME });
     if (!written.ok || written.stdout.trim() === '') return context;
-    const block = handoffBlock(JSON.parse(written.stdout) as ConsumedHandoff);
+    const block = handoffBlock(JSON.parse(written.stdout) as ConsumedHandoff, laneIssues(db, sessionId, env));
     return `${context}${CONTEXT_SEPARATOR}${truncated(block, room)}`;
   } catch {
     return context;

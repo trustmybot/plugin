@@ -16,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 72;
+export const TARGET_SCHEMA_VERSION = 73;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -849,6 +849,8 @@ function runMigrations(
   if (fromVersion < 71 && toVersion >= 71) migrateV70toV71(db);
   // v71→v72: tasks.no_code_class, the docs or prompts class of a task bro authors (GH 3075)
   if (fromVersion < 72 && toVersion >= 72) migrateV71toV72(db);
+  // v72→v73: lanes and lane_issues, the issues each session's lane owns (GH 3020)
+  if (fromVersion < 73 && toVersion >= 73) migrateV72toV73(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3643,6 +3645,73 @@ function migrateV71toV72(db: DatabaseSync): void {
   try {
     if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'no_code_class')) {
       db.exec("ALTER TABLE tasks ADD COLUMN no_code_class TEXT CHECK (no_code_class IS NULL OR no_code_class IN ('docs','prompts'))");
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v72→v73: lanes and lane_issues (GH 3020), the issues a session's lane owns.
+// Each session with a session_handoffs row or a bro agent_runs row gets a lane;
+// its handoff issue and every issue its agent_runs rows name join it. Rows
+// already there are kept, so a rerun adds nothing.
+function migrateV72toV73(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS lanes (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id  TEXT    NOT NULL UNIQUE,
+          created_at  TEXT    NOT NULL,
+          updated_at  TEXT    NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS lane_issues (
+          lane_id   INTEGER NOT NULL REFERENCES lanes(id) ON DELETE CASCADE,
+          issue_id  INTEGER NOT NULL REFERENCES issues(id),
+          added_at  TEXT    NOT NULL,
+          PRIMARY KEY (lane_id, issue_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_lane_issues_issue ON lane_issues(issue_id);
+    `);
+    const handoffs = tableExists(db, 'session_handoffs');
+    const runs = tableExists(db, 'agent_runs');
+    const laneSources = [
+      handoffs ? 'SELECT session_id, created_at AS at FROM session_handoffs' : null,
+      runs ? "SELECT session_id, started_at AS at FROM agent_runs WHERE agent_type = 'bro' AND session_id IS NOT NULL" : null,
+    ].filter((s): s is string => s !== null);
+    // An INSERT that adds no row still writes a sqlite_sequence row for lanes, so
+    // a DB with no session skips it and keeps sqlite_sequence as it was.
+    const anySession = (sources: string[]): boolean =>
+      (db.prepare(`SELECT EXISTS (${sources.join(' UNION ALL ')}) AS found`).get() as { found: number }).found === 1;
+    if (laneSources.length > 0 && anySession(laneSources)) {
+      db.exec(`
+        INSERT INTO lanes (session_id, created_at, updated_at)
+        SELECT session_id, COALESCE(MIN(at), ${ISO_NOW_DEFAULT}), COALESCE(MAX(at), ${ISO_NOW_DEFAULT})
+          FROM (${laneSources.join(' UNION ALL ')})
+         GROUP BY session_id
+        ON CONFLICT (session_id) DO NOTHING
+      `);
+    }
+    const issueSources = [
+      handoffs ? 'SELECT session_id, issue_id, created_at AS at FROM session_handoffs WHERE issue_id IS NOT NULL' : null,
+      runs ? 'SELECT session_id, issue_id, started_at AS at FROM agent_runs WHERE issue_id IS NOT NULL AND session_id IS NOT NULL' : null,
+    ].filter((s): s is string => s !== null);
+    if (issueSources.length > 0 && tableExists(db, 'issues')) {
+      db.exec(`
+        INSERT INTO lane_issues (lane_id, issue_id, added_at)
+        SELECT l.id, s.issue_id, COALESCE(MIN(s.at), ${ISO_NOW_DEFAULT})
+          FROM (${issueSources.join(' UNION ALL ')}) s
+          JOIN lanes l ON l.session_id = s.session_id
+          JOIN issues i ON i.id = s.issue_id
+         GROUP BY l.id, s.issue_id
+        ON CONFLICT (lane_id, issue_id) DO NOTHING
+      `);
     }
     commitTransaction(db);
   } catch (err) {
