@@ -28,8 +28,8 @@ import { promptTaskId } from './require-task-spec.js';
 export const GATE_NAME = 'ensure-swe-worktree';
 
 export const NO_NODE_SQLITE_REASON =
-  'BLOCKED: node:sqlite is unavailable in this Node, so ensure-swe-worktree cannot read the task and would spawn swe without an isolated worktree. Install Node.js 22.13 or later on PATH and restart Claude Code.';
-const NO_NODE_SQLITE_FIX: DenyFix = { allowed: 'the same swe spawn, once Claude Code runs on Node.js 22.13 or later' };
+  'BLOCKED: node:sqlite is unavailable in this Node, so ensure-swe-worktree cannot read the task and would spawn swe without an isolated worktree. Install Node.js 22.16 or later on PATH and restart Claude Code.';
+const NO_NODE_SQLITE_FIX: DenyFix = { allowed: 'the same swe spawn, once Claude Code runs on Node.js 22.16 or later' };
 
 /** `echo "$text" | cut -d'|' -f<n>` as a `$(...)` capture holds it. */
 export function cutField(text: string, n: number): string {

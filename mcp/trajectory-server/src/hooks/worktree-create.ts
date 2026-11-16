@@ -95,7 +95,7 @@ export async function worktreeCreateRun(payload: string, env: NodeJS.ProcessEnv,
       stderr,
     );
   }
-  if (!haveSqlite(env)) return fail(stderr, 'tmb worktree-create: node:sqlite unavailable, so the task branch cannot be read from the trajectory DB. Install Node.js 22.13 or later on PATH and restart Claude Code.\n');
+  if (!haveSqlite(env)) return fail(stderr, 'tmb worktree-create: node:sqlite unavailable, so the task branch cannot be read from the trajectory DB. Install Node.js 22.16 or later on PATH and restart Claude Code.\n');
   const repo = branchRepo(db, branch, env);
   const worktree = `${repo}/.claude/worktrees/${slug}`;
   if (!await gitOk(repo, ['rev-parse', '--is-inside-work-tree'], env)) {
