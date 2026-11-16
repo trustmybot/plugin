@@ -59,6 +59,10 @@ Hooks hold the rest of this model in place, each enforcing the policy of the rep
 
 swe never fetches, rebases or pulls. When `<base>` moves after a task passed review, bro rebases the reviewed commit in a scratch worktree, refuses when the rebased patch differs from the reviewed one or conflicts, and re-runs the task's verification on the result. Only on a pass do the branch and the task's recorded commit move to the rebased commit. Because the patch is unchanged, the review carries over, the way Gerrit carries a vote across a trivial rebase; any other new commit needs a fresh review. The push gate applies the same patch-identity rule to rebased commits no task records.
 
+## Agile feature branches
+
+Planned (GH 2225). In agile review mode a long-lived feature branch stands between the task branches and `<base>`. Each `<feature>` is cut from the feature branch's tip instead of `<base>`, and bro merges it back into the feature branch locally once the task closes, with no PR. bro pushes the feature branch as a backup and brings `<base>` into it when `<base>` moves. Only the feature branch itself reaches `<base>`, as one PR after its review passes or the Human waives it. [AGILE.md](AGILE.md) covers every case.
+
 ## Multi-repo workspaces
 
 A workspace can hold several inner git repos, siblings or submodules, under one trajectory DB. A scan discovers them and maps each one to a repo row in the DB:

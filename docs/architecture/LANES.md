@@ -31,7 +31,7 @@ bro asks this first, before any planning, because a lane run ends with many PRs.
 ```mermaid
 flowchart LR
     A[Lane run proposed] --> B{Who merges lane PRs?}
-    B -- bro, recommended --> C[bro merges once the push gate passed, CI is green and required approvals are in]
+    B -- bro, recommended --> C[bro merges once the gates its task's mode requires passed, CI is green and required approvals are in]
     B -- Human --> D[bro opens each PR and hands it to the Human]
     C --> E[Choice recorded on the lane run, scoped to the parent session]
     D --> E
@@ -43,7 +43,7 @@ flowchart LR
 
 ## 2. Split, check conflicts, set priority
 
-bro groups the candidate issues by area and by the files they will likely touch, using the world model. Groups that would collide are merged into one lane or ordered. The Human then approves the lanes and gives each one a priority.
+bro groups the candidate issues by area and by the files they will likely touch, using the world model. Groups that would collide are merged into one lane or ordered. The Human then approves the lanes and gives each one a priority and a review mode.
 
 ```mermaid
 flowchart LR
@@ -56,15 +56,17 @@ flowchart LR
     D --> G
     E --> G
     F --> G
-    G --> H{Human approves lanes and priority}
+    G --> R[bro recommends a review mode per lane, with a reason for each lane that differs from the global one]
+    R --> H{Human approves lanes, priority and review modes}
     H -- edit --> B
-    H -- approve --> I[Lanes recorded with their owned issues and priority]
+    H -- approve --> I[Lanes recorded with their owned issues, priority and review mode]
 ```
 
 - **One owner per issue.** Each issue belongs to exactly one lane. Planned: GH 3025.
 - **Dependencies cross lanes.** An issue may be blocked by an issue another lane owns. Planned: GH 3026.
 - **Schema versions are reserved up front**, in priority order, so two lanes never claim the same number. Planned: GH 3027.
 - **Priority** is High, Medium or Low per lane, or a ranking when there are many lanes. It orders the merge queue and the schema reservations. Planned: GH 3025, or GH 3148 if GH 3025 ships without it.
+- **Review mode** is truest or agile per lane ([AGILE.md](AGILE.md)). The question opens with the default, such as "Default: truest (global review mode)". bro recommends a mode for each lane and shows the lanes it suggests for the other mode, already selected, with a one-line reason each: a prototype or MVP lane may go agile, while a bug-fix lane keeps truest. The Human accepts the set in one answer or edits it, and a lane left unselected takes the global mode. One question offers at most four choices, so with more than four lanes bro splits them across up to four questions, or asks with a checklist in prose. An agile lane builds on its own long-lived feature branch, and that branch enters the merge queue as one PR once its review passes or the Human waives it. Planned: GH 3025, with the lane lookup at the close and the lane's feature branch in GH 2225.
 
 ## 3. Start the lanes
 
@@ -78,17 +80,17 @@ flowchart LR
     B -- passes --> D[Start a session with the lane brief]
     D --> E[Child registers its stable id and parent]
     E --> F[Child takes ownership of its issues]
-    F --> G[Lane runs 3.1 or 3.2]
+    F --> G[Lane runs 3.1, 3.2 or 3.9]
 ```
 
-- **The brief** holds the lane's owned issues, its priority, the merge choice, its branch naming and any reviewer rule that applies to its PRs.
+- **The brief** holds the lane's owned issues, its priority, its review mode, its feature branch when the lane is agile, the merge choice, its branch naming and any reviewer rule that applies to its PRs.
 - **Registration survives compaction.** A lane restores its whole queue by its stable session id, not one issue. Planned: GH 3025, completing GH 3020.
 - **Fresh worktrees install dependencies** before they build. Planned: GH 3146.
 - **Lanes share notes** in the folder the host hands them. Planned: GH 1818.
 
 ## 4. Inside a lane
 
-A lane is a normal 3.1 or 3.2 run, except that setting up a task respects other lanes' claims. A refusal becomes a recorded blocker, and the lane moves on to other work rather than negotiating over messages.
+A lane is a normal 3.1, 3.2 or 3.9 run, except that setting up a task respects other lanes' claims. A refusal becomes a recorded blocker, and the lane moves on to other work rather than negotiating over messages.
 
 ```mermaid
 flowchart LR
@@ -115,7 +117,7 @@ The parent takes lane PRs in priority order. A PR that conflicts or fails CI goe
 
 ```mermaid
 flowchart LR
-    A[Lane PR passed the push gate and is pushed] --> B[Queued at its lane's priority]
+    A[Lane PR pushed: a truest task's PR after its review, or an agile lane's feature branch PR after the branch review or a waiver] --> B[Queued at its lane's priority]
     B --> C[Parent takes the next ready PR]
     C --> D{Updates cleanly on base?}
     D -- conflict --> E[Back to its lane to rebase, then requeued]
@@ -136,7 +138,7 @@ flowchart LR
 
 ## 6. Change or recover a lane
 
-Lanes live in the trajectory DB, not in any bro's memory. Each lane has one record: its parent, its session, its owned issues, its priority, its state (active, paused or archived) and the run's merge choice. Every change is written there first, with the request that caused it. A bro acts only on what the record says, so a change survives compaction, a restart, or a session that has dropped off the host's list.
+Lanes live in the trajectory DB, not in any bro's memory. Each lane has one record: its parent, its session, its owned issues, its priority, its review mode, its state (active, paused or archived) and the run's merge choice. Every change is written there first, with the request that caused it. A bro acts only on what the record says, so a change survives compaction, a restart, or a session that has dropped off the host's list.
 
 ```mermaid
 flowchart LR
@@ -145,7 +147,9 @@ flowchart LR
     C -- priority --> D[Merge queue and schema order re-sorted]
     C -- pause or resume --> E[Lane stops or restarts taking tasks]
     C -- archive --> F[Lane's leases released, its open issues handed back to the parent]
+    C -- review mode --> M[The lane's later closes use the new mode; closed tasks keep theirs]
     D --> G[Each lane bro reads its record on its next turn and follows it]
+    M --> G
     E --> G
     F --> G
     H[Session compacted, restarted, or gone] --> I[bro restores lanes from the registry]
@@ -154,6 +158,6 @@ flowchart LR
     J --> G
 ```
 
-- **Any of the Human's sessions can change a lane.** The Human can raise a priority or archive a lane from the parent or from the lane itself. A lane bro never changes another lane on its own. Planned: GH 3025, with the per-session approval gate in GH 3028.
+- **Any of the Human's sessions can change a lane.** The Human can raise a priority, change a review mode or archive a lane from the parent or from the lane itself. A lane bro never changes another lane on its own. Planned: GH 3025, with the per-session approval gate in GH 3028.
 - **Records are kept.** An archived lane keeps its record and history, so it can be listed and reopened later. Archiving the Claude session itself is the host's feature, which bro may offer alongside.
 - **Recovery uses the stable session id.** A new session that takes over a lane gets its brief rebuilt from the record, not from a message. Planned: GH 3025.

@@ -34,10 +34,11 @@ The first bro turn on a project that isn't onboarded runs `/onboard` before any 
 | 3 | Remote shape | Issue sync | the issue-sync setting |
 | 4 | Always | Bash sandbox | the sandbox setting |
 | 5 | Always | Opt-in TMB bug reports (flow 5.1) | the consent, no by default |
+| Planned (GH 2225) | Always, after round 5 | The project review mode: truest, or agile on a long-lived feature branch ([AGILE.md](AGILE.md)) | the review mode, truest by default |
 | 6 | Per repo, when its PR target has no verification defaults | Which of the [environment profile](ENVIRONMENT.md)'s lint, typecheck and test commands every task runs | a verification-defaults file in the repo's working tree |
 | 7 | Per repo, when docs or prompts paths are detected on its PR target | Whether to class the detected paths as docs and prompts, keep everything code, or keep the current classes; every other path stays code | a path-classes file in the repo's working tree when the Human takes the detected classes |
 
 - **Fresh evidence each round.** Each question shows the evidence behind its recommended option, listed first.
 - **Re-runs keep what stands.** A re-run pre-selects the current values; identity is the onboarded marker alone.
-- **All or nothing.** The answers to rounds 0–5 land together with the marker, so an interrupted run leaves the project not onboarded.
+- **All or nothing.** The answers to rounds 0–5, and to the planned review-mode question, land together with the marker, so an interrupted run leaves the project not onboarded.
 - **Repo files stay the Human's to commit.** Rounds 6 and 7 apply on their own, outside that transaction. Each writes its file to the repo's working tree, never commits it, and never overwrites a different existing file. The file takes effect once the Human commits it to the PR target, because tasks read it from there.
