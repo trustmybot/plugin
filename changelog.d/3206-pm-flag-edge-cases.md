@@ -1,0 +1,2 @@
+### Fixed
+- **`pnpm -w run lint` and `yarn workspace web test` no longer cover a directory named after a script or workspace** (GH 3206): pnpm's `-w` (`--workspace-root`) is now read as taking no value, so the word after it is the subcommand, while `npm -w web` and `yarn -w web` still read `web` as the workspace. In `yarn workspace <name> <script>`, the workspace name and the script, with or without `run`, are names, and `yarn workspace web test` covers the directory it runs from like `yarn test`.
