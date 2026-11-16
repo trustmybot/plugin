@@ -20,7 +20,7 @@ Flows are grouped by when they run, and numbered within their group.
 | 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
 | 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
 | 3. Agent task handling | 3.8 | [Parallel lanes](#38-parallel-lanes) | Several independent streams of work, each too large for one turn (planned, GH 3024) | bro (parent) → one bro per lane session, each with its own swe and code-reviewer | lanes with their owned issues and priority, the run's merge choice, a merge queue of lane PRs |
-| 3. Agent task handling | 3.9 | [Agile mode](#39-agile-mode) (planned, GH 2225) | A code task in a project or lane the Human set to agile | bro → swe; bro closes without review and merges into a long-lived feature branch; code-reviewer later, one per group of its tasks | a feature branch of tasks closed without review; group verdicts, then one PR into the working branch, or a Human waiver |
+| 3. Agent task handling | 3.9 | [Agile mode](#39-agile-mode) (project mode partly shipped; batch review, grouped queue, agile prompts and lane mode planned, GH 2225) | A code or no-code task in a project or lane the Human set to agile | bro → swe; bro closes without review and merges into a long-lived feature branch; code-reviewer later, one per group of its tasks | a feature branch of tasks closed without review; group verdicts, then one PR into the working branch, or a Human waiver |
 | 4. Extending the team | 4.1 | [Cheatcode lifecycle](#41-cheatcode-lifecycle) | A capability wall, the Human says "cheatcode", or a reuse check before building | bro (Human approves install) | the capability registry and its attachments |
 | 4. Extending the team | 4.2 | [Agent creation](#42-agent-creation) | Routing hits a role the project has no agent for | bro | a project agent file |
 | 4. Extending the team | 4.3 | [Skill creation](#43-skill-creation) | Recurring pattern needs encoding | bro | a registered skill |
@@ -182,18 +182,20 @@ flowchart LR
 
 ### 3.9 Agile mode
 
-Planned (GH 2225). The review mode, truest or agile, decides who reviews a task and when. /onboard sets it for the project, and a lane may take its own at its start. Agile work builds up on one long-lived feature branch, so the Human can try a feature, such as an MVP, as a whole before it reaches the working branch. bro closes each task without a code-reviewer pass, still judging swe's report and the architecture fit, and merges it into the feature branch locally, with no PR and no CI run of its own; the task is queued for review. When the Human says the feature is ready, code-reviewer reviews the branch's net diff in groups, one per set of tasks that changed overlapping files, and a passing group's tasks become batch-reviewed together. Only then does the branch go to the working branch as one PR with one CI run, unless the Human waives the review. Truest stays the default. [AGILE.md](AGILE.md) holds every case.
+Partly shipped for the project review mode. The batch review of the feature branch, grouping the queue by the files each task changed, the agent prompts for agile mode, and lane review modes are planned (GH 2225, GH 3025); until the batch review ships, the Human's waiver is the only way through the merge gate. The review mode, truest or agile, decides who reviews a task and when. /onboard sets it for the project, and a lane may take its own at its start. Agile work builds up on one long-lived feature branch per milestone, such as an MVP, pushed to origin only as a backup, with no PR, so no CI or review runs on it. The Human tries it in a separate worktree, never by switching the shared checkout, which every lane reads on the working branch. bro closes each task without a code-reviewer pass, still judging swe's report and the architecture fit, folds it into the feature branch locally and deletes the task branch; the task is queued for review. An agile task's freshness, merge-base and scope checks use its feature branch as the base; the working branch is the base only for the milestone PR. At the milestone, bro syncs the working branch into the feature branch and fixes its conflicts once, and an optional periodic sync keeps that fix small. Then one batch review runs on the net diff against the working branch, in groups of tasks that changed overlapping files, and a passing group's tasks become batch-reviewed together. Only then does the branch go to the working branch as one PR, with one CI run and one merge-queue run, unless the Human waives the review. After the merge, TMB deletes the local branch, and the remote copy is deleted on merge. Truest stays the default. [AGILE.md](AGILE.md) holds every case.
 
 ```mermaid
 flowchart LR
-    A[Human approves an agile feature branch] --> B[bro provisions a task off it]
+    A[Human approves a milestone's feature branch] --> B[bro provisions a task off it]
     B --> C[swe implements and closes]
-    C --> D[bro closes without review, merges into the feature branch locally]
+    C --> D[bro closes without review, folds it into the feature branch locally, deletes the task branch]
     D --> F[Task queued for review]
     F --> B
-    F --> G[Feature ready: one code-reviewer per group, on the branch's net diff]
+    F --> S[Milestone: sync the working branch in, fix conflicts once]
+    S --> G[One batch review on the net diff, one code-reviewer per group]
     G --> H[One PR into the working branch: nothing queued, or Human waiver]
-    H --> I[One CI run; merged per the merge policy]
+    H --> I[One CI run and one merge-queue run; merged per the merge policy]
+    I --> J[Local branch deleted; remote copy deleted on merge]
     G -. fail .-> K[New fix task on the feature branch, reviewed as in 3.1]
     K -.-> G
 ```
