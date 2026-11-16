@@ -1,8 +1,8 @@
 /**
  * SessionStart hook (GH 1692): a TMB DEGRADED banner naming each needed tool
- * missing from PATH (sqlite3 only when node:sqlite is unavailable too, git and
- * node), and, when a SQLite engine is available, the offline note for a
- * project repo with no remote URL. It never denies.
+ * that is missing (node:sqlite in this Node, git and node on PATH), and, when
+ * node:sqlite is available, the offline note for a project repo with no
+ * remote URL. It never denies.
  */
 import { ALLOW, type Gate } from './gate.js';
 import { dbPath, projectRoot } from './lib/db.js';
@@ -16,7 +16,7 @@ export const GATE_NAME = 'substrate-preflight';
 type Probe = readonly [bin: string, why: string, present: (env: NodeJS.ProcessEnv) => boolean];
 
 export const PROBES: readonly Probe[] = [
-  ['sqlite3', 'task/spawn gates cannot verify state', haveSqlite],
+  ['node:sqlite', 'task/spawn gates cannot verify state (needs Node.js 22.16 or later)', haveSqlite],
   ['git', 'branch guards and commit-message lint are inoperative', (env) => commandOnPath('git', env)],
   ['node', 'MCP trajectory-server and scan tooling cannot start', (env) => commandOnPath('node', env)],
 ];

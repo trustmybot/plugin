@@ -3,7 +3,9 @@
  * PreToolUse(Agent) dispatcher: it runs the nine spawn gates of CHAIN in
  * order, in-process through the gate lookup it is given, with their stderr
  * dropped. The first deny is printed verbatim and ends the run. Otherwise the
- * PREPARE steps (ensure-swe-worktree, record-swe-spawn, record-reviewer-spawn) run fail-open, and
+ * PREPARE steps (ensure-swe-worktree, record-swe-spawn, record-reviewer-spawn) run fail-open,
+ * except that an ensure-swe-worktree deny (GH 3150: swe never runs without
+ * isolation) is printed verbatim and ends the run before anything is recorded, and
  * the gates' additionalContext parts, joined by a `---` line, come out as one
  * PreToolUse additionalContext. It always exits 0 and needs no jq.
  */
@@ -28,6 +30,9 @@ export const CHAIN: readonly string[] = [
 ];
 
 export const PREPARE: readonly string[] = ['ensure-swe-worktree', 'record-swe-spawn', 'record-reviewer-spawn'];
+
+/** The PREPARE steps whose deny ends the run like a chain gate's. */
+export const PREPARE_DENIES: ReadonlySet<string> = new Set(['ensure-swe-worktree']);
 
 export const CONTEXT_SEPARATOR = '\n\n---\n\n';
 
@@ -58,7 +63,11 @@ export async function agentSpawnDispatch(payload: string, env: NodeJS.ProcessEnv
     const ctx = jqCapture(reply, ['hookSpecificOutput', 'additionalContext']);
     if (ctx !== '') parts.push(ctx);
   }
-  for (const name of PREPARE) await quietly(find(name), input, env);
+  for (const name of PREPARE) {
+    const out = commandSubstitution(await quietly(find(name), input, env));
+    if (!PREPARE_DENIES.has(name) || out === '') continue;
+    if (jqCapture(jqInput(out), ['hookSpecificOutput', 'permissionDecision']) === 'deny') return { stdout: `${out}\n`, code: 0 };
+  }
   if (parts.length === 0) return ALLOW;
   const merged = parts.join(CONTEXT_SEPARATOR);
   return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: merged } })}\n`, code: 0 };

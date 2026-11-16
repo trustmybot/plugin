@@ -1,0 +1,2 @@
+### Fixed
+- **A missing or too-old Node gives one clear install message** (GH 3150): the SessionStart and WorktreeCreate hooks now check that Node's `node:sqlite` has `StatementSync.prototype.setReturnArrays`, so a Node older than 22.16 stops with the same `TMB DEGRADED` line as a missing one, asking for Node.js 22.16 or later. A swe spawn on a Node without a usable `node:sqlite` is now blocked instead of running without an isolated worktree. Hook messages name `node:sqlite` rather than the sqlite3 CLI, and the MCP server starts without the `--experimental-sqlite` flag.

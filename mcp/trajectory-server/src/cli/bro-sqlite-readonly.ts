@@ -77,7 +77,7 @@ function errorText(e: unknown): string {
 
 function sqlite(): SqliteModule {
   const mod = loadNodeSqlite();
-  if (!mod) throw new ReadFailure('node:sqlite is unavailable in this Node (needs Node 22.13+ with node:sqlite)');
+  if (!mod) throw new ReadFailure('node:sqlite is unavailable in this Node (needs Node 22.16+ with node:sqlite)');
   return mod;
 }
 

@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
-import { DENY, gateEnv, git, hasNot, sql } from './git-push-guard-l3.js';
+import { DENY, gateEnv, git, has, hasNot, sql } from './git-push-guard-l3.js';
 
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const NO_DB = '/nonexistent.db';
@@ -155,5 +155,31 @@ describe('ensure-swe-worktree l3', () => {
     const out = runHook('swe', 'task_id=1 You are SWE.', '/nonexistent/trajectory.db');
     hasNot(out, DENY, 'missing DB must never deny');
     assert.equal(existsSync(join(repo, '.claude/worktrees/1-foo-bar')), false, 'missing DB must not create a worktree');
+  });
+
+  describe('a Node without node:sqlite (GH 3150)', () => {
+    /** NODE_OPTIONS preloading a module that hides node:sqlite from the runtime probe, as on a Node older than 22.16. */
+    function hideNodeSqlite(): NodeJS.ProcessEnv {
+      const preload = join(sb.dir, 'hide-node-sqlite.mjs');
+      writeFileSync(preload, "const real = process.getBuiltinModule;\nprocess.getBuiltinModule = (id) => (id === 'node:sqlite' ? undefined : real.call(process, id));\n");
+      return { NODE_OPTIONS: `--import=${preload}` };
+    }
+
+    it('swe + task → deny naming node:sqlite and Node.js 22.16, no worktree', () => {
+      const db = setup('fix/1-foo-bar', 1);
+      const out = runHook('swe', 'task_id=1 You are SWE.', db, hideNodeSqlite());
+      has(out, DENY, 'a swe spawn without node:sqlite is denied');
+      has(out, 'node:sqlite is unavailable', 'the deny names node:sqlite');
+      has(out, 'Node.js 22.16 or later', 'the deny names the Node floor');
+      hasNot(out, 'sqlite3', 'the deny never names sqlite3');
+      assert.equal(existsSync(join(repo, '.claude/worktrees/1-foo-bar')), false, 'no worktree without node:sqlite');
+    });
+
+    it('keeps its other skips: no DB, a non-swe spawn and the bypass allow', () => {
+      const db = setup('fix/1-foo-bar', 1);
+      hasNot(runHook('swe', 'task_id=1 You are SWE.', '/nonexistent/trajectory.db', hideNodeSqlite()), DENY, 'no DB still skips');
+      hasNot(runHook('code-reviewer', 'task_id=1 You are code-reviewer.', db, hideNodeSqlite()), DENY, 'non-swe still allows');
+      hasNot(runHook('swe', 'task_id=1 You are SWE.', db, { ...hideNodeSqlite(), TMB_DISABLE_ENSURE_SWE_WORKTREE: '1' }), DENY, 'bypass still allows');
+    });
   });
 });

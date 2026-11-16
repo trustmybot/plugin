@@ -428,7 +428,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read). Allowed form: the same call again, once the trajectory DB reads\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row through node:sqlite, so it refuses to fail open. Check the trajectory DB. Allowed form: the same call again, once the trajectory DB reads\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
