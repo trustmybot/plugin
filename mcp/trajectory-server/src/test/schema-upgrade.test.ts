@@ -5898,14 +5898,26 @@ describe('schema upgrade — v50 -> v51 pr-reviewer renamed to code-reviewer (GH
         ],
         'rows with no matching JSON value are untouched',
       );
+      // The migration renames the reviewer in every plugin-seeded description;
+      // the builtin skill rows then take the current seed text on the same open
+      // (GH 3124), while the marketplace `tmb` row keeps the migration's rename.
+      const fresh = new TrajectoryDB(':memory:');
+      const seedText = (name: string): string | undefined =>
+        fresh.get<{ description: string }>(`SELECT description FROM cheatcodes WHERE name = ? AND origin = 'builtin'`, [name])?.description;
+      const expectedCheatcodes: Record<string, string> = {
+        ...Object.fromEntries(SEEDED_DESCRIPTIONS.map(([name, , renamed]) => [name, seedText(name) ?? renamed])),
+        'other-plugin': EXTERNAL_DESC,
+      };
+      fresh.close();
       assert.deepEqual(
         after.cheatcodes,
-        {
-          ...Object.fromEntries(SEEDED_DESCRIPTIONS.map(([name, , renamed]) => [name, renamed])),
-          'other-plugin': EXTERNAL_DESC,
-        },
+        expectedCheatcodes,
         'plugin-seeded descriptions say code-reviewer; a third-party row stays as written',
       );
+      for (const name of ['tmb_review', 'tmb_push-gate', 'tmb']) {
+        assert.match(after.cheatcodes[name] ?? '', /code-reviewer/, `${name} names code-reviewer`);
+        assert.doesNotMatch(after.cheatcodes[name] ?? '', /pr-reviewer/i, `${name} no longer names pr-reviewer`);
+      }
 
       assert.doesNotThrow(() => migrated.run("INSERT INTO audit_fts(audit_fts, rank) VALUES ('integrity-check', 1)"));
       assert.deepEqual(ftsHits(migrated, 'tmb code reviewer'), [31], 'audit_fts indexes the rewritten content_json');

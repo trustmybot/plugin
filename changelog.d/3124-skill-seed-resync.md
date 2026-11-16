@@ -1,0 +1,2 @@
+### Fixed
+- **Skill catalog rows now say what each shipped skill says, in new and existing DBs** (GH 3124, GH 3059, GH 3067, GH 3121): the builtin skill seed had drifted from the `description:` in 10 of the 13 SKILL.md files and was insert-only, so older DBs kept stale text such as tmb_planning's "branch_id confirm". The seed now matches each SKILL.md and rewrites any builtin row that differs every time the DB opens; a test fails on drift. intent_start's `branch_id` parameter now reads "Proposed branch_id (from branch_id_propose), used without asking the Human."
