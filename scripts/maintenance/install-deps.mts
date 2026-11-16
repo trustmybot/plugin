@@ -1,6 +1,8 @@
 // Installs the dependencies of each lockfile root (the repo root and dashboard/) that has no node_modules yet, so a fresh clone or worktree can build (GH 3151, GH 3146).
 //
-//   node --experimental-strip-types scripts/maintenance/install-deps.ts
+//   node --experimental-strip-types scripts/maintenance/install-deps.mts
+//
+// .mts, not .ts: the root package.json has no "type", so Node would print a module-type warning for a .ts file.
 //
 // A root that already has node_modules (installed, or linked from the main checkout by the
 // env gate) is skipped. Uses only node: built-ins because it runs before any install.
