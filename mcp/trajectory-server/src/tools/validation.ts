@@ -7,6 +7,7 @@ import { insertAudit } from './audit.js';
 import type { Effort } from './config.js';
 import { applyReopenInTx, atLeastReworkFloor, insertEffortRaised, type ClearedCompletion, type ReopenTask } from './reopen.js';
 import { PROBE_SHAPE, parseProbes, probesJson, type ReviewProbe } from './review-probes.js';
+import { parseResponseFormat, responseFormatSchema, withoutKeys } from './response-format.js';
 import { FINDING_ORDER_SQL, PASS_RUN_SQL, VERIFICATION_RUN_REQUIRED, latestVerificationRun, passRunRefusal, type PassRunRow } from './verification-runs.js';
 import { SPAWN_NOTE_MAX_CHARS, WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
 
@@ -414,7 +415,7 @@ export function validationTools(db: TrajectoryDB): {
       name: 'validation_history',
       description:
         'All validation attempts for a task by attempt_n ascending. Each row carries reviewed_sha, the commit reviewed (or null), verification_run, the latest gate run the attempt started (null when none), findings, the review_findings rows of that attempt, and probes (null when none; both withheld wherever feedback is). ' +
-        'Without limit, a bare array; with limit, {rows, next_cursor}.',
+        'Without limit, a bare array; with limit, {rows, next_cursor}. Concise by default.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -428,6 +429,7 @@ export function validationTools(db: TrajectoryDB): {
             items: { type: 'string' },
             description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, reviewed_sha, created_at, verification_run, findings, probes. Unknown fields return a named error. Default: all columns.',
           },
+          response_format: responseFormatSchema('omits feedback, probes and verification_run and cuts each finding to id, criterion_id, status, severity'),
         },
         required: ['agent', 'task_id'],
       },
@@ -613,6 +615,7 @@ export function validationTools(db: TrajectoryDB): {
       const limitArg = args['limit'] as number | undefined;
       const cursorArg = args['cursor'] as string | undefined;
       const fieldsArg = args['fields'] as string[] | undefined;
+      const concise = parseResponseFormat(args) === 'concise' && fieldsArg === undefined;
 
       const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'reviewed_sha', 'created_at', 'verification_run', 'findings', 'probes']);
 
@@ -626,14 +629,21 @@ export function validationTools(db: TrajectoryDB): {
       const findingCols = ['id', 'criterion_id', 'status', 'probe_cmd', 'expected', 'observed', 'severity', 'class'].filter(
         (c) => (db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = ?`, [c])?.n ?? 0) > 0,
       );
+      const CONCISE_FINDING_COLS = new Set(['id', 'criterion_id', 'status', 'severity']);
+      const selectedFindingCols = concise ? findingCols.filter((c) => CONCISE_FINDING_COLS.has(c)) : findingCols;
       function attemptFindings(attemptN: number): Record<string, unknown>[] {
         return db.all<Record<string, unknown>>(
-          `SELECT ${findingCols.join(', ')} FROM review_findings WHERE task_id = ? AND attempt_n = ? ORDER BY rowid`,
+          `SELECT ${selectedFindingCols.join(', ')} FROM review_findings WHERE task_id = ? AND attempt_n = ? ORDER BY rowid`,
           [taskId, attemptN],
         );
       }
 
       function projectRow(redacted: Partial<ValidationAttempt>): Record<string, unknown> {
+        if (concise) {
+          const attempt = withoutKeys(redacted, ['feedback', 'probes_json']);
+          // findings stay gated exactly as in the detailed form: only where feedback is visible.
+          return 'feedback' in redacted ? { ...attempt, findings: attemptFindings(Number(redacted.attempt_n)) } : attempt;
+        }
         const { probes, ...attempt } = withProbes(redacted);
         const row: Record<string, unknown> = {
           ...attempt,

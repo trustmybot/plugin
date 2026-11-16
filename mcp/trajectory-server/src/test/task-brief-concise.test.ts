@@ -231,7 +231,7 @@ describe('task_brief response_format (GH 1958)', () => {
       [id],
     );
     const rows = JSON.parse(
-      ((await validationTools(db).handlers['validation_history']({ agent: 'bro', task_id: id })).content[0] as { text: string }).text,
+      ((await validationTools(db).handlers['validation_history']({ agent: 'bro', task_id: id, response_format: 'detailed' })).content[0] as { text: string }).text,
     ) as Array<{ verification_run: { commands: Array<Record<string, unknown>> } }>;
     assert.equal(rows[0].verification_run.commands.length, 3);
     for (const c of rows[0].verification_run.commands) assert.equal('output_tail' in c, false, 'history rows carry no output_tail');

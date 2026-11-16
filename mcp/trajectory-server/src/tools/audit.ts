@@ -14,6 +14,7 @@ import {
   type AuditEventType,
   type Writer,
 } from '../audit-events.js';
+import { parseResponseFormat, responseFormatSchema, withoutKeys } from './response-format.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -202,7 +203,7 @@ export function auditTools(db: TrajectoryDB): {
     },
     {
       name: 'audit_list',
-      description: "An issue's audit records: without limit a bare array of up to 500 rows; with limit {rows, next_cursor}.",
+      description: "An issue's audit records: without limit a bare array of up to 500 rows; with limit {rows, next_cursor}. Concise by default.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -217,6 +218,7 @@ export function auditTools(db: TrajectoryDB): {
             items: { type: 'string' },
             description: 'Optional column projection. Allowed: id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at. Unknown fields return an error. Default: all columns.',
           },
+          response_format: responseFormatSchema('omits content_json'),
         },
         required: ['agent', 'issue_id'],
       },
@@ -443,6 +445,7 @@ export function auditTools(db: TrajectoryDB): {
       const cursorArg = args['cursor'] as string | undefined;
       const offset = Math.max(0, (args['offset'] as number | undefined) ?? 0);
       const fieldsArg = args['fields'] as string[] | undefined;
+      const concise = parseResponseFormat(args) === 'concise';
 
       const ALLOWED_AUDIT_FIELDS = new Set(['id', 'issue_id', 'branch_id', 'from_node', 'event_type', 'summary', 'content_json', 'created_at']);
 
@@ -454,7 +457,7 @@ export function auditTools(db: TrajectoryDB): {
       }
 
       function projectRow(row: Record<string, unknown>): Record<string, unknown> {
-        if (!fieldsArg) return row;
+        if (!fieldsArg) return concise ? withoutKeys(row, ['content_json']) : row;
         const out: Record<string, unknown> = {};
         for (const f of fieldsArg) out[f] = row[f];
         return out;

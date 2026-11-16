@@ -6,6 +6,7 @@ import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-s
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
 import { backfillMissing } from '../embeddings/backfill.js';
 import { resolveIssueRepo } from './audit.js';
+import { parseResponseFormat, responseFormatSchema } from './response-format.js';
 import { toFtsQuery, withFtsGuard } from '../fts-query.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -15,6 +16,11 @@ const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note
 const CROSS_ISSUE_TASK_KINDS = new Set(['note', 'analysis']);
 
 const MAX_BODY_BYTES = 65_536;
+
+// Concise discussion_list keeps decision and intent bodies whole (they carry the
+// issue's binding choices) and cuts every other body to a preview.
+const FULL_BODY_KINDS = new Set(['decision', 'intent']);
+const CONCISE_BODY_CHARS = 200;
 
 const HUMAN_AUTHOR = 'human';
 
@@ -204,7 +210,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_list',
       description:
-        "An issue's discussion entries by created_at ASC.",
+        "An issue's discussion entries by created_at ASC. Concise by default.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -218,6 +224,9 @@ export function discussionTools(db: TrajectoryDB): {
             items: { type: 'string' },
             description: 'Optional column projection. Allowed: id, issue_id, author, kind, body, created_at. Unknown fields return an error. Default: all columns.',
           },
+          response_format: responseFormatSchema(
+            `cuts body to ${CONCISE_BODY_CHARS} chars with body_truncated: true on rows whose kind is not decision or intent`,
+          ),
         },
         required: ['agent', 'issue_id'],
       },
@@ -525,6 +534,7 @@ export function discussionTools(db: TrajectoryDB): {
       const cursorArg = args['cursor'] as string | undefined;
       const rawOffset = (args['offset'] as number | undefined) ?? 0;
       const fieldsArg = args['fields'] as string[] | undefined;
+      const concise = parseResponseFormat(args) === 'concise';
 
       const ALLOWED_DISCUSSION_FIELDS = new Set(['id', 'issue_id', 'author', 'kind', 'body', 'created_at']);
 
@@ -536,7 +546,11 @@ export function discussionTools(db: TrajectoryDB): {
       }
 
       function projectRow(row: Discussion): Record<string, unknown> {
-        if (!fieldsArg) return row as unknown as Record<string, unknown>;
+        if (!fieldsArg) {
+          const keepWhole = !concise || FULL_BODY_KINDS.has(row.kind) || row.body.length <= CONCISE_BODY_CHARS;
+          if (keepWhole) return row as unknown as Record<string, unknown>;
+          return { ...row, body: row.body.slice(0, CONCISE_BODY_CHARS), body_truncated: true };
+        }
         const out: Record<string, unknown> = {};
         for (const f of fieldsArg) out[f] = (row as unknown as Record<string, unknown>)[f];
         return out;

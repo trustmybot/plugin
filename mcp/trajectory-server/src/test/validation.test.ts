@@ -130,7 +130,7 @@ describe('validation_record probes (GH 2866)', () => {
     assert.notEqual(stored.probes_json, null);
     assert.deepEqual(JSON.parse(stored.probes_json!), expected);
 
-    const latest = await historyOf({});
+    const latest = await historyOf({ response_format: 'detailed' });
     assert.deepEqual(latest.probes, expected);
     assert.ok(!('probes_json' in latest));
     const projected = await historyOf({ fields: ['attempt_n', 'probes'] });
@@ -1140,7 +1140,7 @@ describe('validation_history findings per attempt (GH 1955)', () => {
     call(validationTools(db).handlers, 'validation_history', { task_id: taskId, ...args });
 
   it('each row carries the findings of its attempt with their text, severity and class', async () => {
-    const rows = parseResult(await history({ agent: 'bro' })) as Array<{ attempt_n: number; findings: unknown }>;
+    const rows = parseResult(await history({ agent: 'bro', response_format: 'detailed' })) as Array<{ attempt_n: number; findings: unknown }>;
     assert.deepEqual(rows.map((r) => r.findings), [
       [{ id: `F${taskId}-1`, criterion_id: 'SC1', status: 'fixed', probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1', severity: 'blocking', class: 'off-by-one' }],
       [{ id: `F${taskId}-2`, criterion_id: null, status: 'open', probe_cmd: 'npm run lint', expected: 'clean', observed: '1 warning', severity: 'nit', class: null }],
@@ -1156,9 +1156,9 @@ describe('validation_history findings per attempt (GH 1955)', () => {
   });
 
   it('swe gets findings exactly where it gets feedback', async () => {
-    const own = parseResult(await history({ agent: 'swe', own_task_id: taskId })) as Array<Record<string, unknown>>;
+    const own = parseResult(await history({ agent: 'swe', own_task_id: taskId, response_format: 'detailed' })) as Array<Record<string, unknown>>;
     assert.ok(own.every((r) => 'feedback' in r && Array.isArray(r['findings'])));
-    const other = parseResult(await history({ agent: 'swe', own_task_id: otherTaskId })) as Array<Record<string, unknown>>;
+    const other = parseResult(await history({ agent: 'swe', own_task_id: otherTaskId, response_format: 'detailed' })) as Array<Record<string, unknown>>;
     assert.ok(other.length === 2 && other.every((r) => !('feedback' in r) && !('findings' in r)));
   });
 
