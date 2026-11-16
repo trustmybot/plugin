@@ -28,7 +28,14 @@ import {
   type RunContext,
 } from './agent-runs.js';
 import { outsideProject } from './containment.js';
-import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks, taskHasPassingReview } from './lifecycle.js';
+import {
+  closedTasksWithoutReview,
+  liveTasksOfIssue,
+  recordReviewBypassIfUnreviewed,
+  recordReviewQueuedIfUnreviewed,
+  sweepStaleTasks,
+  taskHasPassingReview,
+} from './lifecycle.js';
 import {
   syncIssueCloseRemotes,
   resolveDefaultMilestone,
@@ -472,9 +479,12 @@ export interface CloseScope {
 // under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
-// row. Returns whether the issue was closed (so the caller can mirror the
-// close to the remote after the transaction commits) and, when it was left
-// open, why.
+// row. bro_atomic_close under workflow_mode 'agile' instead queues an
+// unreviewed task for the grouped review with one review_queued row: a bypass
+// row would take it out of the review queue. Returns whether the issue was
+// closed (so the caller can mirror the close to the remote after the
+// transaction commits), when it was left open, why, and whether the task was
+// queued.
 function closeTaskInTx(
   db: TrajectoryDB,
   task: { id: number; issue_id: number; branch_id: string; status: string; commit_sha: string | null },
@@ -484,7 +494,8 @@ function closeTaskInTx(
   closeIssueIfLast: boolean,
   bypassClosedBy: string | null = null,
   scope: CloseScope | null = null,
-): { issue_closed: boolean; issue_left_open: IssueLeftOpen | null; review_gate_bypassed: boolean } {
+): { issue_closed: boolean; issue_left_open: IssueLeftOpen | null; review_gate_bypassed: boolean; review_queued: boolean } {
+  const workflowMode = readWorkflowMode(db);
   // 1. bro_verification_pass audit row — the review anchor of this commit;
   // bro_atomic_close adds the close-time scope record task_brief reads.
   insertAudit(db, {
@@ -497,8 +508,10 @@ function closeTaskInTx(
     created_at: now,
   });
 
-  // 2. review bypass for a non-atomic closer, judged against that anchor.
+  // 2. review bypass for a non-atomic closer, or the agile queue entry for
+  // bro_atomic_close, judged against that anchor.
   let reviewGateBypassed = false;
+  let reviewQueued = false;
   if (bypassClosedBy !== null) {
     reviewGateBypassed = recordReviewBypassIfUnreviewed(
       db,
@@ -507,6 +520,8 @@ function closeTaskInTx(
       'bro',
       now,
     );
+  } else if (workflowMode === 'agile') {
+    reviewQueued = recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha }, now);
   }
 
   // 3. flip task to closed, stamping the workflow mode it closed under.
@@ -514,7 +529,7 @@ function closeTaskInTx(
     `UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?, workflow_mode=?
       WHERE id=?`,
-    [commitSha, now, now, readWorkflowMode(db), task.id],
+    [commitSha, now, now, workflowMode, task.id],
   );
 
   // 4. close every open agent_runs row of the task (bro and swe).
@@ -544,7 +559,7 @@ function closeTaskInTx(
     }
   }
 
-  return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed };
+  return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed, review_queued: reviewQueued };
 }
 
 interface ScopedTask {
@@ -1590,7 +1605,8 @@ export function compositeTools(
       name: 'bro_atomic_close',
       description:
         "Bro's task close after code-reviewer passed: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
-        "Refuses with review_pass_missing until a passing verdict follows the task's review_handoff for its commit_sha, which must name the task's current commit. " +
+        "Refuses with review_pass_missing until a passing verdict follows the task's review_handoff for its commit_sha (the task's current commit); " +
+        'in agile mode it closes queued (review_queued: true). ' +
         'An issue left open reports issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes on merge or via issue_close. ' +
         'The scope gate refuses changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base). ' +
         'PostToolUse hooks fire on bro_atomic_close, not task_update_status.',
@@ -3742,7 +3758,9 @@ export function compositeTools(
               `Close the commit code-reviewer passed; new work goes through swe, review_handoff and a fresh review first.`,
           );
         }
-        if (!taskHasPassingReview(db, task.id)) {
+        // Under agile review mode an unreviewed task closes and is queued for
+        // the grouped review; every other gate below still applies.
+        if (readWorkflowMode(db) !== 'agile' && !taskHasPassingReview(db, task.id)) {
           return err(
             `review_pass_missing: task ${task.id} has no passing code-reviewer verdict recorded after its review_handoff for commit ${commitSha}. ` +
               `Call review_handoff(task_id=${task.id}, session_id=...), spawn the reviewer_spawn it returns, and retry bro_atomic_close once the verdict is a pass; ` +
@@ -3837,6 +3855,7 @@ export function compositeTools(
             base_moved: baseMoved,
             ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
             ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),
+            ...(closed.review_queued ? { review_queued: true } : {}),
             ...(closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}),
           };
         });

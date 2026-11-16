@@ -537,3 +537,108 @@ describe('git-push-guard l3: GH 1518 rebased task commits need a verification ru
     hasNot(pushBranch('feat/r-rebased'), DENY, "the reviewed task's integrated rebase ships");
   });
 });
+
+/** Task <id>, closed under agile review mode, queued for review by a <fromNode> review_queued row naming its commit_sha. */
+function queueAgileTask(db: string, id: number, fromNode = 'bro'): void {
+  sql(db, "UPDATE tasks SET workflow_mode = 'agile' WHERE id = ?", id);
+  sql(
+    db,
+    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+       SELECT 1, ?, 'review_queued', 'queued', json_object('task_id', id, 'commit_sha', commit_sha), ? FROM tasks WHERE id = ?`,
+    fromNode,
+    new Date().toISOString(),
+    id,
+  );
+}
+
+describe('git-push-guard l3: GH 2225 queued agile commits go to any branch but the target', () => {
+  let r: Repo;
+  let db: string;
+  beforeEach(() => {
+    r = setupRepo();
+    db = newDb(r.repo);
+    git(r.sb.env, r.repo, 'checkout', '-q', '-b', 'feat/agile');
+    insertRepo(db, 'agile', r.repo, 'main');
+    insertTask(db, 1, r.sha1);
+    queueAgileTask(db, 1);
+  });
+  afterEach(() => r.sb.remove());
+  const run = (cmd: string) => push(r.sb, cmd, { cwd: r.repo, db });
+
+  it('a queued agile commit pushed to the feature branch: allowed', () => {
+    hasNot(run('git push origin feat/agile'), DENY, 'the feature branch takes a queued agile commit as a backup');
+    hasNot(run('git push -u origin HEAD:refs/heads/feat/agile'), DENY, 'a full destination ref names the same branch');
+  });
+
+  it('the same queued commit pushed to the target branch: BLOCKED', () => {
+    for (const cmd of ['git push origin feat/agile:main', 'git push origin HEAD:refs/heads/main', 'git push origin main', 'git push origin feat/agile:main feat/agile']) {
+      const out = run(cmd);
+      has(out, DENY, `${cmd} writes the target branch`);
+      has(out, 'task_id=1', `${cmd}: the deny names the queued task`);
+    }
+  });
+
+  it('a push whose destination the refspecs do not name: BLOCKED', () => {
+    git(r.sb.env, r.repo, 'config', 'push.default', 'current');
+    has(run('git push'), DENY, 'a bare push names no destination to read');
+    git(r.sb.env, r.repo, 'config', 'remote.origin.push', 'refs/heads/feat/agile:refs/heads/main');
+    has(run('git push origin feat/agile'), DENY, 'remote.origin.push may map the source onto the target');
+  });
+
+  it('a repo with no resolvable target branch admits no queued commit', () => {
+    sql(db, 'DELETE FROM repos');
+    has(run('git push origin feat/agile'), DENY, 'with no target to compare, the queued commit is not admitted');
+  });
+
+  it('a truest task commit without a pass beside a queued one: BLOCKED, only the truest task listed', () => {
+    insertTask(db, 2, r.sha2);
+    sql(db, "UPDATE tasks SET workflow_mode = 'truest' WHERE id = 2");
+    const out = run('git push origin feat/agile');
+    has(out, DENY, 'a truest commit needs its pass on any branch');
+    has(out, 'task_id=2', 'the deny lists the truest task');
+    hasNot(out, 'task_id=1 ', 'the queued task is admitted');
+  });
+
+  it('SC4: a review_queued row from another author than bro does not queue the task', () => {
+    sql(db, "DELETE FROM audit WHERE event_type = 'review_queued'");
+    queueAgileTask(db, 1, 'swe');
+    has(run('git push origin feat/agile'), 'task_id=1', 'a non-bro row is no queue entry');
+  });
+
+  it('a queued row for an earlier commit does not admit the task\'s new commit', () => {
+    sql(db, 'UPDATE tasks SET commit_sha = ? WHERE id = 1', r.sha2);
+    has(run('git push origin feat/agile'), 'task_id=1', 'the queue entry names one commit');
+  });
+
+  describe('a rebase (same patch-id) of a queued agile commit', () => {
+    let rebased: string;
+    beforeEach(() => {
+      const { env } = r.sb;
+      git(env, r.repo, 'checkout', '-q', '-b', 'feat/r', 'origin/main');
+      const rsha = commit(env, r.repo, 'feat: R', { 'r.txt': 'feat R\n' });
+      git(env, r.repo, 'checkout', '-q', '-b', 'feat/r-rebased', 'main');
+      git(env, r.repo, 'cherry-pick', rsha);
+      rebased = git(env, r.repo, 'rev-parse', 'HEAD');
+      sql(db, 'DELETE FROM tasks WHERE id = 1');
+      insertTask(db, 5, rsha);
+      queueAgileTask(db, 5);
+    });
+
+    it('pushed to a feature branch with no verification run of its own: allowed', () =>
+      hasNot(run('git push origin feat/r-rebased'), DENY, 'a queued task needs no pass for its rebase off the target'));
+
+    it('pushed to the target branch: BLOCKED as unreviewed', () => {
+      const out = run('git push origin feat/r-rebased:main');
+      has(out, DENY, 'the target branch never takes a queued rebase');
+      has(out, rebased, 'the deny names the rebased SHA');
+      has(out, 'the task has no passing review', 'the deny says the task is unreviewed');
+    });
+
+    it('a truest task with the same patch-id is still BLOCKED off the target', () => {
+      sql(db, "UPDATE tasks SET workflow_mode = 'truest' WHERE id = 5");
+      const out = run('git push origin feat/r-rebased');
+      has(out, DENY, 'an unreviewed truest rebase needs review anywhere');
+      has(out, rebased, 'the deny names the rebased SHA');
+    });
+  });
+});

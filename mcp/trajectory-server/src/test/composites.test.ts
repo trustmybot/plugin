@@ -20,6 +20,7 @@ import { embed } from '../embeddings/model.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
 import { DATA_CONTRACTS, isSqlContract } from '../data-contracts.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
+import { reviewQueueTools } from '../tools/review-queue.js';
 
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
@@ -5723,6 +5724,115 @@ describe('task_update_status report.case_sweep (GH 1955)', () => {
     const r = await complete({ criteria: CRITERIA });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
     assert.deepEqual(JSON.parse(stored(db, id).completion_report!), { criteria: CRITERIA });
+    db.close();
+  });
+});
+
+describe('bro_atomic_close under agile review mode (GH 2225)', () => {
+  const HOUR = 3_600_000;
+  const at = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
+  const SHA = 'abc1234def5678abc1234def5678abc1234def56';
+
+  // A completed task with a passing verification run of its commit and no
+  // code-reviewer verdict; the scope gate is waived because no git repo backs it.
+  function seed(mode: 'agile' | 'truest' | null): { db: TrajectoryDB; issue: number; task: number; close: (extra?: Record<string, unknown>) => Promise<RawResult> } {
+    const db = tempDB();
+    if (mode !== null) db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)`, [JSON.stringify(mode)]);
+    db.run(`INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('agile', 'open', ?, ?)`, [at(0), at(0)]);
+    const issue = db.get<{ id: number }>('SELECT MAX(id) AS id FROM issues')!.id;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, description, status, commit_sha, created_at, updated_at, completed_at)
+       VALUES (?, 'feat/agile-close', 'd', 'completed', ?, ?, ?, ?)`,
+      [issue, SHA, at(-3 * HOUR), at(-3 * HOUR), at(-3 * HOUR)],
+    );
+    const task = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+    db.run(
+      `INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+       VALUES (?, ?, 'gate', ?, ?, 0, 900, 0)`,
+      [task, SHA, at(-2 * HOUR), at(-2 * HOUR)],
+    );
+    const handlers = compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers;
+    const close = (extra: Record<string, unknown> = {}) =>
+      call(handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: String(task), commit_sha: SHA.slice(0, 12), verification_summary: 'ok',
+        waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', ...extra,
+      });
+    return { db, issue, task, close };
+  }
+
+  const count = (db: TrajectoryDB, eventType: string, task: number) =>
+    db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM audit WHERE event_type = ? AND json_extract(content_json, '$.task_id') = ?`,
+      [eventType, task],
+    )!.n;
+
+  it('SC1/SC2: closes an unreviewed task, stamps agile and writes one bro review_queued row and no review_gate_bypassed', async () => {
+    const { db, task, close } = seed('agile');
+    const r = await close();
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(parse(r)['review_queued'], true);
+    const row = db.get<{ status: string; workflow_mode: string }>('SELECT status, workflow_mode FROM tasks WHERE id = ?', [task])!;
+    assert.deepEqual({ ...row }, { status: 'closed', workflow_mode: 'agile' });
+    assert.equal(count(db, 'review_queued', task), 1);
+    assert.equal(count(db, 'review_gate_bypassed', task), 0);
+    const queued = db.get<{ from_node: string; content_json: string }>(`SELECT from_node, content_json FROM audit WHERE event_type = 'review_queued'`)!;
+    assert.equal(queued.from_node, 'bro');
+    assert.deepEqual(JSON.parse(queued.content_json), { task_id: task, commit_sha: SHA });
+    db.close();
+  });
+
+  it('SC2: the queued task is in review_queue and agile_review_queued once past the grace window, not in closed_tasks_reviewed', async () => {
+    const { db, task, close } = seed('agile');
+    assert.ok(!(await close()).isError);
+    db.run('UPDATE tasks SET updated_at = ? WHERE id = ?', [at(-25 * HOUR), task]);
+    const queue = JSON.parse(((await reviewQueueTools(db).handlers['review_queue']({ agent: 'bro', grace_hours: 24 })) as RawResult).content[0].text) as {
+      groups: Array<{ tasks: Array<{ id: number }> }>;
+    };
+    assert.deepEqual(queue.groups.flatMap((g) => g.tasks.map((t) => t.id)), [task]);
+    const contracts = DATA_CONTRACTS.filter(isSqlContract).filter((c) => c.id === 'agile_review_queued' || c.id === 'closed_tasks_reviewed');
+    const report = runDataContracts(trajectoryDbReader(db), contracts, { env: {} });
+    assert.equal(report.violations.find((v) => v.id === 'agile_review_queued')?.actual, 1);
+    assert.equal(report.violations.find((v) => v.id === 'closed_tasks_reviewed'), undefined);
+    db.close();
+  });
+
+  for (const mode of ['truest', null] as const) {
+    it(`SC1: with workflow_mode ${mode ?? 'unset'} the review_pass_missing refusal is unchanged`, async () => {
+      const { db, task, close } = seed(mode);
+      const r = await close();
+      assert.equal(r.isError, true);
+      assert.match(String(parse(r)['error']), /^review_pass_missing: /);
+      assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [task])!.status, 'completed');
+      assert.equal(count(db, 'review_queued', task), 0);
+      db.close();
+    });
+  }
+
+  it('an agile task with a passing review closes reviewed, with no review_queued row', async () => {
+    const { db, issue, task, close } = seed('agile');
+    seedReviewedCommit(db, issue, task, SHA);
+    const r = await close();
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(parse(r)['review_queued'], undefined);
+    assert.equal(count(db, 'review_queued', task), 0);
+    db.close();
+  });
+
+  it('every other gate still holds: commit_sha_mismatch refuses an agile close', async () => {
+    const { db, task, close } = seed('agile');
+    const r = await close({ commit_sha: 'fff0000' });
+    assert.match(String(parse(r)['error']), /^commit_sha_mismatch: /);
+    assert.equal(count(db, 'review_queued', task), 0);
+    db.close();
+  });
+
+  it('close_issue_if_last_task keeps the issue open over a queued agile task (tasks_without_review)', async () => {
+    const { db, issue, task, close } = seed('agile');
+    const out = parse(await close({ close_issue_if_last_task: true }));
+    assert.equal(out['issue_closed'], false);
+    assert.equal((out['issue_left_open'] as { reason: string }).reason, 'tasks_without_review');
+    assert.equal(db.get<{ status: string }>('SELECT status FROM issues WHERE id = ?', [issue])!.status, 'open');
+    assert.equal(count(db, 'review_queued', task), 1);
     db.close();
   });
 });
