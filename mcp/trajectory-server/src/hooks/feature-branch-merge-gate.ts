@@ -1,10 +1,11 @@
 /**
  * PreToolUse(Bash) gate (GH 2225), born in TypeScript: an agile feature
  * branch is proposed for merge only once the grouped review has settled every
- * task merged onto it. It judges only `gh pr create` and `glab mr create`
- * statements. The head is `--head` / `-H` (glab: `--source-branch` / `-s`),
- * else the branch checked out in the statement's dir, resolved as git-guards
- * resolves it. A head is a feature branch when some task's parent_branch_id
+ * task merged onto it. It judges only the statements prCreateOf recognises
+ * as opening a PR or MR. The head is the one the statement names (`--head` /
+ * `-H`, glab's `--source-branch` / `-s`, a `gh api` `head=` field or a graphql
+ * `headRefName`), else the branch checked out in the statement's dir, resolved
+ * as git-guards resolves it. A head is a feature branch when some task's parent_branch_id
  * names it and a bro feature_branch_merged row names it as feature_branch; the
  * statement is denied while a task such a row names for that branch is closed
  * agile and queued, neither batch-reviewed nor waived at its current commit.
@@ -18,32 +19,16 @@ import { dbPath, haveSqlite, sqliteRo, sqlQuote, stripTrailingNewlines } from '.
 import { gitOut, isDir } from './lib/git.js';
 import { denyResult } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
+import { type PrCreate, prCreateOf } from './lib/pr-create.js';
 import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
 
 export const GATE_NAME = 'feature-branch-merge-gate';
 
 const NEEDS_GATE = /(^|[^A-Za-z0-9_.-])(gh|glab)([ \t\n\v\f\r]|$)/;
-const SPACE = '[ \\t\\n\\v\\f\\r]';
-const NONSPACE = '[^ \\t\\n\\v\\f\\r]';
 
-type Forge = 'gh' | 'glab';
-
-function forgeOf(stmt: string): Forge | null {
-  if (stmt === 'gh pr create' || stmt.startsWith('gh pr create ')) return 'gh';
-  if (stmt === 'glab mr create' || stmt.startsWith('glab mr create ')) return 'glab';
-  return null;
-}
-
-/** The value of the first `--long` or `-s` option in <stmt>, "" when neither is given. */
-function optionValue(stmt: string, long: string, short: string): string {
-  const m = new RegExp(`(^|${SPACE})(--${long}|-${short})(=|${SPACE}+)(${NONSPACE}+)`).exec(stmt);
-  return m ? m[4] : '';
-}
-
-/** The head <stmt> names; gh's `owner:branch` form names the branch after the colon, which git refnames never hold. */
-function namedHead(stmt: string, forge: Forge): string {
-  const raw = forge === 'gh' ? optionValue(stmt, 'head', 'H') : optionValue(stmt, 'source-branch', 's');
-  return raw.slice(raw.lastIndexOf(':') + 1);
+/** The head <create> names; gh's `owner:branch` form names the branch after the colon, which git refnames never hold. */
+function namedHead(create: PrCreate): string {
+  return create.head.slice(create.head.lastIndexOf(':') + 1);
 }
 
 async function checkedOutBranch(dir: string, cwd: string, env: NodeJS.ProcessEnv): Promise<string> {
@@ -93,9 +78,9 @@ export const featureBranchMergeGate: Gate = async (payload, env) => {
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return ALLOW;
   for (const { dir, stmt } of listed.statements) {
-    const forge = forgeOf(stmt);
-    if (forge === null) continue;
-    const head = namedHead(stmt, forge) || (await checkedOutBranch(dir, cwd, env));
+    const create = prCreateOf(stmt);
+    if (create === null) continue;
+    const head = namedHead(create) ||(await checkedOutBranch(dir, cwd, env));
     if (head === '') continue;
     const queued = queuedFeatureTasks(db, head, env);
     if (queued.length > 0) return queuedDeny(head, queued);

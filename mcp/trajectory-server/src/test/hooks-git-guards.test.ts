@@ -114,6 +114,35 @@ describe('git-guards: the TypeScript gate', () => {
     assert.match(reason(r.stdout), /^BLOCKED: main is a shared workflow base/);
   });
 
+  it('applies the PR-target rule to every PR-create spelling, reading the base from --base, -B or a base= field (GH 2225)', async () => {
+    for (const command of [
+      'gh -R o/r pr create --base dev --head feat/x',
+      'gh pr new -B dev',
+      'gh --repo=o/r pr create',
+      'gh api repos/o/r/pulls -f head=feat/x -f base=dev',
+      'gh api --method POST /repos/o/r/pulls --input body.json',
+      `gh api graphql -f query='mutation { createPullRequest(input: {baseRefName: "dev", headRefName: "feat/x"}) { pullRequest { id } } }'`,
+      'glab -R o/r mr new --target-branch dev --source-branch feat/x',
+    ]) {
+      assert.match(reason((await gitGuards(payload(command, main), env)).stdout), /^BLOCKED: (PR|MR)s must target main/, command);
+    }
+    for (const command of [
+      'gh -R o/r pr create --base main --head feat/x',
+      'gh pr new -B main',
+      'gh api repos/o/r/pulls -f head=feat/x -f base=main',
+      `gh api graphql -f query='mutation { createPullRequest(input: {baseRefName: "main", headRefName: "feat/x"}) { pullRequest { id } } }'`,
+      'glab --repo o/r mr new -b main -s feat/x',
+      'gh pr view 3',
+      'gh -R o/r pr list',
+      'gh api repos/o/r/pulls',
+      'gh api -X GET repos/o/r/pulls -f state=open',
+      'gh api repos/o/r/pulls/3 -X PATCH -f base=dev',
+      'gh api graphql -f query=\'{ viewer { login } }\'',
+    ]) {
+      assert.deepEqual(await gitGuards(payload(command, main), env), { stdout: '', code: 0 }, command);
+    }
+  });
+
   for (const command of ["git -C '' commit -m x", 'git -C "" commit -m x'])
     it(`${command} on a protected branch gets the deny git commit -m x gets (GH 2549)`, async () => {
       const bare = await gitGuards(payload('git commit -m x', main), env);

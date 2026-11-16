@@ -2,8 +2,8 @@
  * PreToolUse gate (GH 1692): the git
  * workflow rules of the repo's branching model, judged per executable
  * statement against the repo and branch of that statement's dir.
- *   1. A PR (gh pr create) or MR (glab mr create) targets pr_target; dev → main
- *      is the one release merge when pr_target is dev.
+ *   1. A PR or MR, in any spelling prCreateOf recognises, targets pr_target;
+ *      dev → main is the one release merge when pr_target is dev.
  *   2. No merge / rebase / cherry-pick in a main checkout (a fast-forward of a
  *      branch to its own upstream aside), and no commit on a shared workflow base.
  *   3. No force push to a protected branch.
@@ -40,6 +40,7 @@ import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqAlternatives, jqCompact, jqRawElements, jsonStream } from './lib/jq.js';
 import { posixBasename } from './lib/project-env.js';
+import { type PrCreate, prCreateOf } from './lib/pr-create.js';
 import { lineStatements } from './lib/statement-rows.js';
 import { repoDefaultBranch, repoIsRegistered, repoNameForRoot, repoResolve } from './lib/repo.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -48,7 +49,6 @@ export const GATE_NAME = 'git-guards';
 
 const NEEDS_GUARD = /(^|[^A-Za-z0-9_.-])(git|gh|glab)([ \t\n\v\f\r]|$)/;
 const SPACE = '[ \\t\\n\\v\\f\\r]';
-const NONSPACE = '[^ \\t\\n\\v\\f\\r]';
 const GUARDED_SUB = /^(commit|merge|rebase|cherry-pick|push)( |$)|^(checkout -b|switch -c) /;
 const INTEGRATION_SUB = /^(merge|rebase|cherry-pick)( |$)/;
 const FF_SYNC_QUIET = new Set(['-q', '--quiet', '-v', '--verbose', '--stat', '--no-stat', '-n', '--progress', '--no-progress']);
@@ -129,11 +129,6 @@ function words(s: string): string[] {
   return (s.split('\n')[0] ?? '').split(/[ \t]+/).filter((w) => w !== '');
 }
 
-/** `printf '%s' "$s" | grep -oE -- <find> | head -1 | sed -E 's/<strip>//'`. */
-function optionValue(s: string, find: string, strip: string): string {
-  const m = new RegExp(find).exec(s);
-  return m ? m[0].replace(new RegExp(strip), '') : '';
-}
 
 /** `$(printf '%s' <text> | cut -d'|' -f<n>)`. */
 function cutField(text: string, n: number): string {
@@ -374,12 +369,12 @@ class GitGuards {
     return await this.git(dir, 'rev-parse', '--symbolic-full-name', target) === up;
   }
 
-  private async ghRule(stmt: string, dir: string, unresolved: boolean): Promise<void> {
+  private async ghRule(create: PrCreate, stmt: string, dir: string, unresolved: boolean): Promise<void> {
     const pr = this.prTarget;
-    const base = optionValue(stmt, `--base[= ]${NONSPACE}+`, '--base[= ]+');
+    const base = create.base;
     if (base !== '' && base === pr) return;
     if (pr === 'dev' && base === 'main') {
-      let head = optionValue(stmt, `--head[= ]${NONSPACE}+`, '--head[= ]+');
+      let head = create.head;
       if (head === '' && this.needDir(dir, stmt, unresolved)) head = await this.git(dir, 'branch', '--show-current');
       if (head !== 'dev') {
         throw deny(`BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${pr}. Got --head=${head}.`, {
@@ -393,14 +388,10 @@ class GitGuards {
     });
   }
 
-  private async glabRule(stmt: string, dir: string, unresolved: boolean): Promise<void> {
+  private async glabRule(create: PrCreate, stmt: string, dir: string, unresolved: boolean): Promise<void> {
     const pr = this.prTarget;
-    const target =
-      optionValue(stmt, `--target-branch[= ]${NONSPACE}+`, '--target-branch[= ]+') ||
-      optionValue(stmt, `(^|${SPACE})-b[= ]${NONSPACE}+`, `^${SPACE}*-b[= ]+`);
-    let source =
-      optionValue(stmt, `--source-branch[= ]${NONSPACE}+`, '--source-branch[= ]+') ||
-      optionValue(stmt, `(^|${SPACE})-s[= ]${NONSPACE}+`, `^${SPACE}*-s[= ]+`);
+    const target = create.base;
+    let source = create.head;
     if (target === pr) return;
     if (pr === 'dev' && target === 'main') {
       if (source === '' && this.needDir(dir, stmt, unresolved)) source = await this.git(dir, 'branch', '--show-current');
@@ -489,10 +480,8 @@ class GitGuards {
     if (stmt === '') return;
     const statement = this.statementAt(idx);
     const sub = gitSubcommandOf(statement);
-    let forge = '';
-    if (stmt === 'gh pr create' || stmt.startsWith('gh pr create ')) forge = 'gh';
-    else if (stmt === 'glab mr create' || stmt.startsWith('glab mr create ')) forge = 'glab';
-    if (sub !== undefined && !GUARDED_SUB.test(sub) && forge === '') return;
+    const create = prCreateOf(stmt);
+    if (sub !== undefined && !GUARDED_SUB.test(sub) && create === null) return;
 
     let dir = this.dirs[idx];
     let unresolved = false;
@@ -508,8 +497,8 @@ class GitGuards {
       const what = typeof statement === 'string' ? statement : (statement.src ?? statement.stmt);
       throw deny(ambiguousSubcommandReason(what, 'commits, merges, rebases, cherry-picks, pushes or creates a branch'), UNKNOWN_FIX);
     }
-    if (forge === 'gh') return await this.ghRule(stmt, dir, unresolved);
-    if (forge === 'glab') return await this.glabRule(stmt, dir, unresolved);
+    if (create?.forge === 'gh') return await this.ghRule(create, stmt, dir, unresolved);
+    if (create?.forge === 'glab') return await this.glabRule(create, stmt, dir, unresolved);
     if (INTEGRATION_SUB.test(sub)) return await this.integrationRule(idx, sub, stmt, dir, unresolved);
     if (sub === 'commit' || sub.startsWith('commit ')) return await this.commitRule(stmt, dir, unresolved);
     if (sub === 'push' || sub.startsWith('push ')) return await this.forcePushRule(sub, stmt, dir, unresolved);

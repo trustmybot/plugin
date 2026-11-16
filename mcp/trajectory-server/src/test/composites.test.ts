@@ -1302,6 +1302,43 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     }
   });
 
+  for (const mode of ['agile', null] as const) {
+    const agile = mode === 'agile';
+    it(`with workflow_mode ${mode ?? 'unset'}, review_handoff and bro_atomic_close take the merge-base from ${agile ? 'the parent feature branch' : 'the PR target'} (GH 2225)`, async () => {
+      const { db, composites, taskId, sha, baseSha, siblingSha, cleanup } = await setup(['src/'], ['src/a.ts', 'rogue.ts'], {
+        sibling: ['docs/sibling.md'],
+        devAdvance: ['docs/dev-only.md'],
+      });
+      try {
+        if (mode !== null) db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)`, [JSON.stringify(mode)]);
+        const mergeBase = agile ? siblingSha : baseSha;
+
+        const handoff = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: taskId });
+        assert.ok(!handoff.isError, JSON.stringify(parse(handoff)));
+        const row = db.get<{ content_json: string }>(
+          `SELECT content_json FROM audit WHERE event_type = 'review_handoff' AND json_extract(content_json, '$.task_id') = ? ORDER BY id DESC LIMIT 1`,
+          [Number(taskId)],
+        )!;
+        const scope = (JSON.parse(row.content_json) as { scope: { extras: Array<{ path: string }>; base_moved: boolean; merge_base: string } }).scope;
+        assert.deepEqual(scope.extras.map((e) => e.path), ['rogue.ts'], 'neither the feature-branch nor the dev-only commits are extras');
+        assert.equal(scope.base_moved, false);
+        assert.equal(scope.merge_base, mergeBase);
+
+        const r = await call(composites.handlers, 'bro_atomic_close', {
+          agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+        });
+        assert.equal(r.isError, true);
+        const out = parse(r);
+        assert.match(out['error'] as string, /rogue\.ts/);
+        assert.doesNotMatch(out['error'] as string, /dev-only|sibling\.md/);
+        assert.equal(out['base_moved'], false);
+        assert.equal(out['merge_base'], mergeBase);
+      } finally {
+        cleanup();
+      }
+    });
+  }
+
   it('fails closed when the repo/commit cannot be resolved (no git checkout)', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'bac-nogit-'));
     const notARepo = join(ws, 'notgit');
