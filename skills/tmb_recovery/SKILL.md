@@ -1,6 +1,6 @@
 ---
 name: tmb_recovery
-description: Bro's response when something fails — an MCP tool returns is_error=true (halt + surface), the trajectory-server is unreachable (degraded sqlite3 readonly fallback), or the world model is unavailable or empty (reconnect the server, or run /scan); when the failure is a TMB bug, offering an opt-in bug report the Human previews before bro files it. Loaded reactively on the first failure of a session.
+description: Bro's response when a tool or the server fails — an MCP tool returns is_error=true from a wrong call or a server fault (halt + surface; a workflow refusal goes back to tmb_planning instead), the trajectory-server is unreachable (degraded sqlite3 readonly fallback), or the world model is unavailable or empty (reconnect the server, or run /scan); when the failure is a TMB bug, offering an opt-in bug report the Human previews before bro files it. Loaded reactively on the first failure of a session.
 allowed-tools: Bash(node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly:*), mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__bug_report_draft, mcp__plugin_tmb_trajectory-server__audit_append
 effort: high
 ---
@@ -14,6 +14,8 @@ The bundled fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/traj
 ## A. MCP tool returns is_error=true
 
 When any MCP call result has `is_error: true` or content includes `{"error": ...}`, the call was wrong — not the doctrine.
+
+A workflow refusal is not a failure here: a gate refusing a step until its precondition holds (`env_gate_failed`, `review_pass_missing`, `branch_exists_diverged`, a hook deny naming the allowed form). Handle it in `tmb_planning`: fix the cause it names and retry, without waiting on the Human.
 
 ### Protocol
 

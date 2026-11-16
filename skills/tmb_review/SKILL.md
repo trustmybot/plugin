@@ -63,7 +63,7 @@ Then judge whether the diff breaks behaviour beyond its own checks:
 
 ## Prompt and docs changes
 
-When the task is prompt-bearing (`task_get` returns `prompt_bearing: 1`) or a changed path is in the project's prompts or docs class, also grade it with the preloaded `tmb_doc-review` checklist, after the review above. swe owns its steps 1–4 and records their results in `completion_report.case_sweep`: read them, and run step 5 on them and on your own probes of the diff's dependents. Re-run a step 1–4 check only to spot-check a claim swe recorded no probe for, or one you doubt. Its findings and probes go into this review's one `validation_record` verdict, and its own fail bar grades them in place of the one above, because a false claim or a contradiction in a prompt misleads every agent that loads it even where no code breaks.
+When the task is prompt-bearing (`task_get` returns `prompt_bearing: 1`) or a changed path is in the project's prompts or docs class, also grade it with the preloaded `tmb_doc-review` checklist, after the review above. The change's author (swe on a task it executes, bro on its no-code change) owns its steps 1–4 and records their results in `completion_report.case_sweep`: read them, and run step 5 on them and on your own probes of the diff's dependents. Re-run a step 1–4 check only to spot-check a claim the author recorded no probe for, or one you doubt. Its findings and probes go into this review's one `validation_record` verdict, and its own fail bar grades them in place of the one above, because a false claim or a contradiction in a prompt misleads every agent that loads it even where no code breaks.
 
 ## Probe what the gate did not
 
@@ -103,7 +103,7 @@ A `pass` records `probes[]`: your own checks of dependents' behaviour from step 
 
 ## Worktree discipline
 
-The parent Claude Code session's main checkout may be on any branch, so verification that depends on the working tree reads that branch's state, not the commit under review.
+The parent Claude Code session's main checkout stays on the base branch for the whole task, so verification that depends on the working tree reads the base's state there, not the commit under review.
 
 For working-tree-dependent verification call `pr_monitor_worktree` with `repo_path`, `commit_sha` and the `command` to run; it checks out a worktree at that commit, runs the command there, and removes the worktree.
 

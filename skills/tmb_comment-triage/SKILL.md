@@ -1,6 +1,6 @@
 ---
 name: tmb_comment-triage
-description: Bro's PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per group without waiting on the Human. Loaded by bro when review comments reach a PR it owns.
+description: Bro's PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch each group without waiting on the Human — to swe, or as a no-code task bro writes itself when the group touches only docs or prompts. Loaded by bro when review comments reach a PR it owns.
 allowed-tools: Task, mcp__plugin_tmb_trajectory-server
 ---
 
@@ -41,6 +41,6 @@ Group the other task-worthy comments by file or shared concept; one task per gro
 
 Dispatch every group; none waits for the Human to pick:
 - **A closed task on the PR's branch owns the touched surface:** `task_reopen(task_id, reason, files_add?)` with the comments in `reason`, so the fix lands on the same branch and PR.
-- **Otherwise:** `task_provision(issue_id, branch_id, decision_body, task)` on the carrier issue — it creates the branch and worktree.
+- **Otherwise:** `task_provision(issue_id, branch_id, decision_body, task)` on the carrier issue — it creates the branch and worktree. For a group that touches only docs or prompts, set `task.no_code_class` to `docs` or `prompts`: you write that task yourself instead of spawning swe.
 
-Then run the same chain as `tmb_planning` §5-6: swe → `review_handoff` → code-reviewer → `bro_atomic_close` → push. If arch-impact, invoke `scan_run` once its PR merges to refresh the world model.
+Then run the same chain as `tmb_planning` §5-6: swe, or your own edit on a no-code task, checked with `tmb_doc-review` steps 1–4 → `review_handoff` → code-reviewer → `bro_atomic_close` → push. If arch-impact, invoke `scan_run` once its PR merges to refresh the world model.

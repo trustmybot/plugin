@@ -1,6 +1,6 @@
 ---
 name: tmb_planning
-description: Bro's code task flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, hand off to code-reviewer, atomic-close after its pass. Loaded on the first code task of a session.
+description: Bro's code task flow — verify world model, triage the requirement (reuse vs build), name the branch, write spec, dispatch SWE, hand off to code-reviewer, atomic-close after its pass. Loaded on the first code task of a session.
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
 effort: high
 ---
@@ -36,7 +36,7 @@ Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', k
 
 Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle or `tmb_skill-creator` — and do **not** proceed through the branch+spec+swe steps below. Feature reuse and from-scratch are both builds: they flow on to steps 3–6.
 
-## 3. Propose a branch
+## 3. Name the branch
 
 You pick the base and the name yourself, because the environment is your layer. Base the new branch on the configured `pr_target`, or on the unmerged branch tip the task stacks on (§1), passed as `task_provision`'s `base`.
 
@@ -130,7 +130,7 @@ Hand off, review and close each task as it returns; a task's close waits on noth
 2. **Architecture fit.** Whether the change fits the design and the spec's intent, judged from `task_brief` and the commit's changed paths (`git -C <repo path> show --stat <commit_sha>`, the repo path from `repos_list`). A misfit goes back to your spec: record it with `bro_verification_fail_record` (name the misfit and why; it changes no status), amend the spec with `task_update_spec`, then move the task back to `running` with `task_reopen` and spawn swe; the new commit takes a new `review_handoff`. A misfit that needs a redesign moves the task to `escalated` with `task_update_status` first, because `task_retry` takes only a failed or escalated task.
 
 - **Hand off.** After SWE returns `status=completed`, call `review_handoff(task_id, session_id)` on the completed task. It refuses without a completion report covering every `SC<n>` id or without a passing verification run for the task's `commit_sha` (the gate reuses a passing run for the same task and commit), and a refusal goes back to swe. It records the review anchor and the reviewer effort, leaves the status `completed`, and returns `reviewer_spawn`. Spawn code-reviewer with that `reviewer_spawn` as is — the anchors only, which the spawn-shape hook enforces; the spawn gate denies a code-reviewer spawn on a completed task with no handoff for its commit. Context the reviewer cannot read from `task_brief` goes in `review_handoff`'s `spawn_note` (300 characters max).
-- **Close after a PASS.** Call `bro_atomic_close` (`close_issue_if_last_task=true` when it's the last task); it refuses with `review_pass_missing` until a passing verdict follows the handoff of the task's current commit, and keeps the scope gate on the extras. The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read.
+- **Close after a PASS.** Call `bro_atomic_close`; it refuses with `review_pass_missing` until a passing verdict follows the handoff of the task's current commit, and keeps the scope gate on the extras. Leave the issue open: it closes when the PR that ships it merges. The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read.
 - **Rework after a FAIL.** The FAIL already reopened the task at `high` with a `spawn_note`; surface it, hold the push, and spawn swe (below); the reworked commit takes a new `review_handoff`.
 
 ### Integrate after the review pass
