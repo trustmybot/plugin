@@ -642,3 +642,88 @@ describe('git-push-guard l3: GH 2225 queued agile commits go to any branch but t
     });
   });
 });
+
+describe('git-push-guard l3: GH 3168 a push skips commits already on origin/<base>', () => {
+  let r: Repo;
+  let db: string;
+  let rebasedFeature: string;
+  beforeEach(() => {
+    r = setupRepo();
+    db = newDb(r.repo);
+    const { env } = r.sb;
+    git(env, r.repo, 'push', '-q', 'origin', 'main');
+    git(env, r.repo, 'checkout', '-q', '-b', 'feat/f');
+    commit(env, r.repo, 'feat: F', { 'f.txt': 'feat F\n' });
+    git(env, r.repo, 'push', '-qu', 'origin', 'feat/f');
+    git(env, r.repo, 'checkout', '-q', '-b', 'feat/o', 'main');
+    const other = commit(env, r.repo, 'feat: O', { 'o.txt': 'feat O\n' });
+    git(env, r.repo, 'checkout', '-q', 'main');
+    const unsignedOnBase = commit(env, r.repo, 'feat: U', { 'u.txt': 'feat U\n' });
+    git(env, r.repo, 'cherry-pick', other);
+    git(env, r.repo, 'push', '-q', 'origin', 'main');
+    git(env, r.repo, 'checkout', '-q', 'feat/f');
+    git(env, r.repo, 'rebase', '-q', 'origin/main');
+    rebasedFeature = git(env, r.repo, 'rev-parse', 'HEAD');
+    insertTask(db, 8, other);
+    signTask(db, 8);
+    insertTask(db, 9, unsignedOnBase);
+  });
+  afterEach(() => r.sb.remove());
+  const run = (cmd: string) => push(r.sb, cmd, { cwd: r.repo, db });
+  const refspecPush = () => run(`git -C ${r.repo} push --force-with-lease origin feat/f`);
+  const barePush = () => run('git push --force-with-lease');
+
+  it('a reviewed task commit rebased past a stale origin/<feature>: only it is judged → allowed', () => {
+    insertTask(db, 7, rebasedFeature);
+    signTask(db, 7);
+    hasNot(refspecPush(), DENY, "origin/main's unsigned task commit and its rebase of task 8 are already on the remote");
+  });
+
+  it('a bare push past a stale @{u}: the base commits are skipped the same way → allowed', () => {
+    insertTask(db, 7, rebasedFeature);
+    signTask(db, 7);
+    hasNot(barePush(), DENY, '@{u}..HEAD minus origin/main holds only the reviewed task commit');
+  });
+
+  for (const [name, pushIt] of [
+    ['refspec', refspecPush],
+    ['bare', barePush],
+  ] as const) {
+    it(`an unsigned task commit pushed after the rebase (${name} push) → BLOCKED as unsigned, base commits not listed`, () => {
+      insertTask(db, 7, rebasedFeature);
+      const out = pushIt();
+      has(out, 'unsigned commit(s)', 'a commit not on origin/main is still judged');
+      has(out, 'task_id=7', 'the deny names the pushed task');
+      hasNot(out, 'task_id=9', 'the unsigned commit already on origin/main is not judged');
+      hasNot(out, 'rebased task commit', "task 8's rebase on origin/main is not judged");
+    });
+  }
+});
+
+describe('git-push-guard l3: GH 3168 a local-only base is never subtracted (fail-closed)', () => {
+  let r: Repo;
+  let db: string;
+  beforeEach(() => {
+    r = setupRepo();
+    db = newDb(r.repo);
+    const { env } = r.sb;
+    insertRepo(db, 'local-base', r.repo, 'dev');
+    git(env, r.repo, 'checkout', '-q', '-b', 'feat/l', 'origin/main');
+    git(env, r.repo, 'push', '-qu', 'origin', 'feat/l');
+    git(env, r.repo, 'checkout', '-q', '-b', 'dev', 'main');
+    insertTask(db, 9, commit(env, r.repo, 'feat: U', { 'u.txt': 'feat U\n' }));
+    git(env, r.repo, 'checkout', '-q', 'feat/l');
+    git(env, r.repo, 'rebase', '-q', 'dev');
+    insertTask(db, 7, commit(env, r.repo, 'feat: L', { 'l.txt': 'feat L\n' }));
+    signTask(db, 7);
+  });
+  afterEach(() => r.sb.remove());
+
+  for (const cmd of ['git push origin feat/l', 'git push']) {
+    it(`'${cmd}' still judges the unpushed commits of the local base dev → BLOCKED`, () => {
+      const out = push(r.sb, cmd, { cwd: r.repo, db });
+      has(out, 'unsigned commit(s)', 'with no origin/dev the range is the one past the upstream');
+      has(out, 'task_id=9', "the local base's unsigned task commit is judged");
+    });
+  }
+});
