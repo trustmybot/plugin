@@ -45,6 +45,7 @@ import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js'
 import { envReaderFor } from './env/collect.js';
 import type { KeywordMatch } from './graph.js';
 import { isTestPath } from './utils/test-paths.js';
+import { nestedCheckoutFilter } from './world-model/nested-checkouts.js';
 
 export const EXTRACTOR_VERSION = 16;
 const MAX_PARSE_BYTES = 1_000_000;
@@ -603,7 +604,8 @@ export function bundleMaps(files: ReadonlyArray<{ path: string; content_md5: str
 
 // The git-ignored source maps a build left on disk (dist/ is built, not
 // committed: GH 2054) whose generated .js, .mjs or .cjs bundle is on disk too.
-// A repo git cannot list yields none.
+// A map inside a nested checkout (a task worktree or a directory with its own
+// .git) is not the repo's (GH 3031). A repo git cannot list yields none.
 export async function builtBundleMaps(repoPath: string): Promise<BundleMap[]> {
   let listed: string;
   try {
@@ -618,9 +620,10 @@ export async function builtBundleMaps(repoPath: string): Promise<BundleMap[]> {
     return [];
   }
   const maps: BundleMap[] = [];
+  const inNestedCheckout = nestedCheckoutFilter(repoPath);
   for (const path of listed.split('\0')) {
     const bundle = path.slice(0, -'.map'.length);
-    if (!path.endsWith('.map') || !/\.[cm]?js$/.test(bundle) || !isGeneratedPath(bundle) || !existsSync(join(repoPath, bundle))) continue;
+    if (!path.endsWith('.map') || !/\.[cm]?js$/.test(bundle) || !isGeneratedPath(bundle) || inNestedCheckout(path) || !existsSync(join(repoPath, bundle))) continue;
     const content_md5 = fileMd5(join(repoPath, path));
     if (content_md5) maps.push({ path, content_md5 });
   }
@@ -675,8 +678,11 @@ interface BundlePass {
 // The bundle rows to rewrite: a bundle whose module row is stamped with
 // another map md5 or extractor version is re-read, one with no in-repo
 // source (or an unreadable map) loses its row, and a bundle row whose map is
-// no longer listed is gone. A path in `dropped` loses its rows before the
-// pass is applied, so its stamp does not count.
+// no longer listed is gone. Any other path whose symbols have neither a row in
+// `kept` (the repo's wm_files paths) nor a listed map is gone too, so a
+// path the scan stopped indexing keeps no symbols (GH 3031). A path in
+// `dropped` loses its rows before the pass is applied, so its stamp does not
+// count.
 async function readBundles(
   db: TrajectoryDB,
   repo: string,
@@ -684,6 +690,7 @@ async function readBundles(
   maps: BundleMap[],
   version: string,
   read: SourceReader,
+  kept: ReadonlySet<string>,
   dropped: ReadonlySet<string>,
 ): Promise<BundlePass> {
   const fromDisk = diskReader(repoPath);
@@ -710,7 +717,11 @@ async function readBundles(
       pass.write.push({ path: bundle, extraction: null });
     }
   }
-  pass.gone = [...stamps.keys()].filter((p) => !listed.has(p));
+  const orphans = db
+    .all<{ path: string }>(`SELECT DISTINCT path FROM wm_symbols WHERE repo = ?`, [repo])
+    .map((r) => r.path)
+    .filter((p) => !kept.has(p) && !dropped.has(p));
+  pass.gone = [...new Set([...stamps.keys(), ...orphans])].filter((p) => !listed.has(p));
   return pass;
 }
 
@@ -806,7 +817,7 @@ export async function planRepoSymbols(
     }
   }
   const bundles: BundlePass = maps
-    ? await readBundles(db, repo, repoPath, maps, version, read, dropped)
+    ? await readBundles(db, repo, repoPath, maps, version, read, kept, dropped)
     : { write: [], gone: [], failed: [] };
   return { repo, version, parsed, failed, bundles, dropped: storedNames(db, repo, dropped) };
 }

@@ -1,0 +1,2 @@
+### Fixed
+- **The world model no longer keeps symbols for task worktrees or other paths it does not index** (GH 3031): a built bundle inside `.claude/worktrees/` or a nested checkout with its own `.git` was stored as a module symbol that no scan ever removed. Those bundles are now skipped, and every scan or reindex deletes symbols, and their edges, whose path has no indexed file and is not one of the repo's own built bundles.
