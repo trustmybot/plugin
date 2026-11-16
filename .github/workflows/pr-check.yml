@@ -39,7 +39,14 @@ jobs:
           bun install --frozen-lockfile
           (cd dashboard && bun install --frozen-lockfile)
 
+      # A pull request runs only the L1 steps whose declared inputs it changes (GH 3161); a merge_group
+      # run has no base ref, so it runs the full L1.
+      - name: L1 lints for the changed paths (build:payload runs first)
+        if: github.event_name == 'pull_request'
+        run: node --experimental-strip-types tests/run-all.ts --l1-changed --base origin/${{ github.base_ref }}
+
       - name: L1 lints (build:payload runs first)
+        if: github.event_name != 'pull_request'
         run: node --experimental-strip-types tests/run-all.ts --l1-only
 
   dashboard:

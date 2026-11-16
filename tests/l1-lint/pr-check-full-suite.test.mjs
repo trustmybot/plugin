@@ -1,4 +1,4 @@
-// L1 lint: no pr-check.yml job runs `tests/run-all.ts` without `--l1-only`, since the full L1-L4 sweep runs only at the rc release gate (GH 2805); pr-check.yml runs on merge_group with a concurrency group that falls back to github.ref (GH 2820); release-gate's `tests` job uses the `./.github/actions/fetch-bge-model` composite action with no inline copy of the fetch, and CONTRIBUTING.md never tells a contributor to run the whole `tests/run-all.ts` locally (GH 2497).
+// L1 lint: no pr-check.yml job runs `tests/run-all.ts` without `--l1-only` or `--l1-changed` (an L1-only run), since the full L1-L4 sweep runs only at the rc release gate (GH 2805); pr-check.yml runs on merge_group with a concurrency group that falls back to github.ref (GH 2820); release-gate's `tests` job uses the `./.github/actions/fetch-bge-model` composite action with no inline copy of the fetch, and CONTRIBUTING.md never tells a contributor to run the whole `tests/run-all.ts` locally (GH 2497).
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -11,7 +11,7 @@ const PR_CHECK = join(WORKFLOWS, 'pr-check.yml');
 const RELEASE_GATE = join(WORKFLOWS, 'release-gate.yml');
 const CONTRIBUTING = join(ROOT, 'CONTRIBUTING.md');
 const ACTION_USE = /^ {6}- uses: \.\/\.github\/actions\/fetch-bge-model$/m;
-const FULL_SWEEP = /tests\/run-all\.ts(?!\s+--l1-only)/;
+const FULL_SWEEP = /tests\/run-all\.ts(?!\s+--l1-(?:only|changed)\b)/;
 const INLINE_FETCH = /EXPECTED_SHA256=|hf-bge-small-/;
 
 function jobBlocks(text) {
@@ -70,6 +70,8 @@ test('fixtures: fullSweepJobs flags each job running the full run-all.ts', () =>
   assert.deepEqual(fullSweepJobs(L1_ONLY_WORKFLOW + SUITE_JOB.replace('run-all.ts\n', 'run-all.ts --skip-l4\n')), ['suite']);
   assert.deepEqual(fullSweepJobs(L1_ONLY_WORKFLOW.replace('run-all.ts --l1-only', 'run-all.ts')), ['l1']);
   assert.deepEqual(fullSweepJobs(L1_ONLY_WORKFLOW + SUITE_JOB.replace('run-all.ts\n', 'run-all.ts --l1-only\n')), []);
+  assert.deepEqual(fullSweepJobs(L1_ONLY_WORKFLOW + SUITE_JOB.replace('run-all.ts\n', 'run-all.ts --l1-changed --base origin/dev\n')), []);
+  assert.deepEqual(fullSweepJobs(L1_ONLY_WORKFLOW + SUITE_JOB.replace('run-all.ts\n', 'run-all.ts --l1-changedx\n')), ['suite']);
 });
 
 test('fixtures: localSweepLines flags a local full-sweep instruction', () => {
@@ -78,7 +80,7 @@ test('fixtures: localSweepLines flags a local full-sweep instruction', () => {
   assert.deepEqual(localSweepLines('Its `l1` job reruns `tests/run-all.ts --l1-only`.'), []);
 });
 
-test('pr-check.yml has no job running tests/run-all.ts without --l1-only', () => {
+test('pr-check.yml has no job running tests/run-all.ts without --l1-only or --l1-changed', () => {
   const text = readFileSync(PR_CHECK, 'utf8');
   assert.ok(jobBlocks(text).size > 0, 'pr-check.yml has no jobs');
   assert.deepEqual(fullSweepJobs(text), [], 'these pr-check.yml jobs run the full L1-L4 sweep, which runs only at the rc release gate');
@@ -104,5 +106,5 @@ test("release-gate.yml's tests job uses fetch-bge-model with no inline copy", ()
 
 test('CONTRIBUTING.md never tells a contributor to run the whole run-all.ts locally', () => {
   const stale = localSweepLines(readFileSync(CONTRIBUTING, 'utf8')).map((n) => `CONTRIBUTING.md:${n}`);
-  assert.deepEqual(stale, [], 'these lines name tests/run-all.ts without --l1-only');
+  assert.deepEqual(stale, [], 'these lines name tests/run-all.ts without --l1-only or --l1-changed');
 });

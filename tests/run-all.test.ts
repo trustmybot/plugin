@@ -1,7 +1,8 @@
 // node:test suite for run-all.ts's pure helpers: TMB_L1_SKIP matching, the --l1-local step list, the
-// unwired-lint self-check, the HOME footprint filter, the mise env derivation from PATH, the post-L1 env,
-// the generated live-CLI stubs, SIGINT/SIGTERM stopping a run and --l1-local's SKIP lines (stub bun on
-// PATH, so no real step runs).
+// --l1-changed base, diff and step selector, the unwired-lint and declared-inputs self-checks, the HOME
+// footprint filter, the mise env derivation from PATH, the post-L1 env, the generated live-CLI stubs,
+// SIGINT/SIGTERM stopping a run and the --l1-local and --l1-changed SKIP lines (stub bun on PATH, so no
+// real step runs).
 // Run: node --experimental-strip-types --test tests/run-all.test.ts
 
 import assert from 'node:assert/strict';
@@ -13,14 +14,21 @@ import { fileURLToPath } from 'node:url';
 import { after, describe, test } from 'node:test';
 import {
   abortSignal,
+  changedBase,
+  changedPaths,
   homeLeaks,
   l1LintFiles,
   l1LocalSteps,
   l1Skipped,
   l1Steps,
+  l1TailSteps,
+  matchesInput,
   miseEnv,
   parseArgs,
   postL1Env,
+  selectL1Steps,
+  type Step,
+  undeclaredInputSteps,
   unwiredLints,
   walkTree,
   writeStubs,
@@ -46,9 +54,116 @@ describe('parseArgs', () => {
     assert.equal(parseArgs(['--l1-only']).l1Local, false);
   });
   test('--l1-local as the first arg stops after L1 and selects the local tier', () => {
-    assert.deepEqual(parseArgs(['--l1-local']), { l1Only: true, l1Local: true });
-    assert.deepEqual(parseArgs([]), { l1Only: false, l1Local: false });
-    assert.deepEqual(parseArgs(['x', '--l1-local']), { l1Only: false, l1Local: false });
+    assert.deepEqual(parseArgs(['--l1-local']), { l1Only: true, l1Local: true, l1Changed: false });
+    assert.deepEqual(parseArgs([]), { l1Only: false, l1Local: false, l1Changed: false });
+    assert.deepEqual(parseArgs(['x', '--l1-local']), { l1Only: false, l1Local: false, l1Changed: false });
+  });
+  test('--l1-changed as the first arg stops after L1 and selects by diff; --base names its base', () => {
+    assert.deepEqual(parseArgs(['--l1-changed']), { l1Only: true, l1Local: false, l1Changed: true });
+    assert.deepEqual(parseArgs(['--l1-changed', '--base', 'origin/dev']), { l1Only: true, l1Local: false, l1Changed: true, base: 'origin/dev' });
+    assert.deepEqual(parseArgs(['x', '--l1-changed']), { l1Only: false, l1Local: false, l1Changed: false });
+    assert.equal(parseArgs(['--l1-changed', '--base']).base, undefined, '--base with no ref sets none');
+  });
+});
+
+describe('changedBase', () => {
+  test('--base wins, else TMB_LINT_BASE_SHA, else none', () => {
+    assert.equal(changedBase('origin/dev', 'abc1234'), 'origin/dev');
+    assert.equal(changedBase(undefined, 'abc1234'), 'abc1234');
+    assert.equal(changedBase('', 'abc1234'), 'abc1234');
+    assert.equal(changedBase(undefined, ''), null);
+    assert.equal(changedBase(undefined, '  '), null);
+    assert.equal(changedBase(undefined, undefined), null);
+  });
+});
+
+describe('changedPaths', () => {
+  function repo(): { dir: string; base: string } {
+    const dir = tempDir();
+    const git = (...args: string[]) =>
+      spawnSync('git', ['-C', dir, ...args], {
+        encoding: 'utf8',
+        timeout: 30000,
+        env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.com' },
+      }).stdout.trim();
+    git('init', '-q', '-b', 'dev');
+    mkdirSync(join(dir, 'docs'));
+    writeFileSync(join(dir, 'docs', 'old.md'), 'x\n');
+    writeFileSync(join(dir, 'keep.md'), 'x\n');
+    git('add', '-A');
+    git('commit', '-qm', 'base');
+    const base = git('rev-parse', 'HEAD');
+    git('mv', 'docs/old.md', 'docs/new.md');
+    writeFileSync(join(dir, 'añadido.md'), 'y\n');
+    git('add', '-A');
+    git('commit', '-qm', 'change');
+    return { dir, base };
+  }
+  test('lists every path the base...HEAD diff touches, a rename as both its old and new path', () => {
+    const { dir, base } = repo();
+    assert.deepEqual(changedPaths(dir, base)?.sort(), ['añadido.md', 'docs/new.md', 'docs/old.md']);
+  });
+  test('an unknown base, or one that reads as an option, is null', () => {
+    const { dir } = repo();
+    assert.equal(changedPaths(dir, 'no-such-ref'), null);
+    assert.equal(changedPaths(dir, '--output=x'), null);
+  });
+});
+
+describe('selectL1Steps', () => {
+  const table = [...l1Steps(HERE), ...Object.values(l1TailSteps(HERE))];
+  const names = (steps: Step[]) => steps.map(([label]) => label);
+  const labelOf = (file: string) => table.find(([, argv]) => argv.at(-1)!.endsWith(`/${file}`))![0];
+
+  test('a docs-only change selects the lints that read docs, not tsc or eslint', () => {
+    const selected = names(selectL1Steps(table, ['docs/architecture/X.md']));
+    assert.ok(selected.includes(labelOf('link-check.test.mjs')), 'link-check runs');
+    assert.ok(selected.includes(labelOf('stale-framing-prose.test.mjs')), 'stale-framing-prose runs');
+    assert.ok(!selected.includes(labelOf('tsc-noemit.test.mjs')), 'tsc is skipped');
+    assert.ok(!selected.includes(labelOf('eslint.test.mjs')), 'eslint is skipped');
+    assert.ok(!selected.includes(l1TailSteps(HERE).equivalence[0]), 'wm-equivalence is skipped');
+    assert.ok(selected.length < table.length);
+  });
+  test('a server source change selects tsc, eslint and wm-equivalence', () => {
+    const selected = names(selectL1Steps(table, ['mcp/trajectory-server/src/db.ts']));
+    for (const file of ['tsc-noemit.test.mjs', 'eslint.test.mjs', 'no-destructive-sql.test.mjs']) assert.ok(selected.includes(labelOf(file)), file);
+    assert.ok(selected.includes(l1TailSteps(HERE).equivalence[0]));
+    assert.ok(!selected.includes(labelOf('skill-frontmatter.test.mjs')), 'skill-frontmatter is skipped');
+  });
+  test('a nested package.json selects contributor-setup, which reads every package.json', () => {
+    for (const manifest of ['dashboard/package.json', 'mcp/trajectory-server/package.json']) {
+      assert.ok(names(selectL1Steps(table, [manifest])).includes(labelOf('contributor-setup.test.mjs')), manifest);
+    }
+  });
+  test('a dot-directory path matches a ** glob', () => {
+    assert.ok(names(selectL1Steps(table, ['.github/workflows/pr-check.yml'])).includes(labelOf('pr-check-full-suite.test.mjs')));
+    assert.equal(matchesInput('.github/workflows/x.yml', '**'), true);
+    assert.equal(matchesInput('a/b/tsconfig.base.json', '**/tsconfig*.json'), true);
+    assert.equal(matchesInput('docs/a.md', 'mcp/**'), false);
+  });
+  test('a shared input, or no changed list, selects every step', () => {
+    for (const shared of ['package.json', 'bun.lock', 'dashboard/tsconfig.json', 'tests/run-all.ts', 'tests/l1-lint/x.test.mjs', 'tests/lib/a.mjs', '.config/tmb/close-lints.json']) {
+      assert.deepEqual(selectL1Steps(table, ['docs/a.md', shared]), table, shared);
+    }
+    assert.deepEqual(selectL1Steps(table, null), table);
+  });
+  test('an empty diff selects only steps with no declared inputs', () => {
+    const bare: Step = ['bare', ['x']];
+    assert.deepEqual(selectL1Steps([...table, bare], []), [bare]);
+  });
+});
+
+describe('undeclaredInputSteps', () => {
+  test('names each step with no or empty inputs', () => {
+    const steps: Step[] = [
+      ['ok', ['a'], ['docs/**']],
+      ['none', ['b']],
+      ['empty', ['c'], []],
+    ];
+    assert.deepEqual(undeclaredInputSteps(steps), ['none', 'empty']);
+  });
+  test('every L1 step in the table and tail declares inputs', () => {
+    assert.deepEqual(undeclaredInputSteps([...l1Steps(HERE), ...Object.values(l1TailSteps(HERE))]), []);
   });
 });
 
@@ -57,7 +172,7 @@ describe('l1LocalSteps', () => {
   const local = l1LocalSteps(table);
   const lintNames = (steps: typeof table) => steps.map(([, argv]) => argv.at(-1)!.split('/').pop());
   test('is the L1 table minus exactly its slow-flagged steps, in table order', () => {
-    const slow = table.filter(([, , isSlow]) => isSlow === true);
+    const slow = table.filter(([, , , isSlow]) => isSlow === true);
     assert.ok(slow.length > 0, 'the L1 table flags at least one slow step');
     assert.equal(local.length, table.length - slow.length);
     assert.deepEqual(local, table.filter((step) => !slow.includes(step)));
@@ -236,11 +351,47 @@ describe('a run with a stub bun', () => {
       killSignal: 'SIGKILL',
     });
     assert.equal(r.status, 0, r.stdout);
-    for (const [label] of l1Steps(HERE).filter(([, , slow]) => slow === true)) {
+    for (const [label] of l1Steps(HERE).filter(([, , , slow]) => slow === true)) {
       assert.ok(r.stdout.includes(`=== ${label} ===\n→ SKIP (--l1-local)`), `${label} skipped:\n${r.stdout}`);
     }
     assert.match(r.stdout, /=== L1 world model: incremental reindex equals a clean rebuild \(wm-equivalence\.test\.js\) ===\n→ SKIP \(--l1-local\)/);
     assert.match(r.stdout, /=== L1 lint: typescript-eslint against the suppressions baseline ===\n→ SKIP \(TMB_L1_SKIP\)/);
+    assert.doesNotMatch(r.stdout, /=== L2/);
+  });
+
+  test('--l1-changed --base HEAD selects no step, still runs both self-checks, then stops after L1', () => {
+    const { env } = fixture('process.exit(0);');
+    const r = spawnSync(process.execPath, ['--experimental-strip-types', runAll, '--l1-changed', '--base', 'HEAD'], {
+      encoding: 'utf8',
+      env: { ...env, TMB_LINT_BASE_SHA: 'no-such-ref' },
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    assert.equal(r.status, 0, r.stdout);
+    assert.match(r.stdout, /→ --l1-changed: 0 paths changed since HEAD; 0 of \d+ L1 steps selected/);
+    const { bench, equivalence } = l1TailSteps(HERE);
+    for (const [label] of [...l1Steps(HERE), bench, equivalence]) {
+      assert.ok(r.stdout.includes(`=== ${label} ===\n→ SKIP (--l1-changed)`), `${label} skipped:\n${r.stdout}`);
+    }
+    assert.match(r.stdout, /=== L1 self-check: every tests\/l1-lint\/\*\.sh and \*\.test\.mjs runs here ===\n→ PASS/);
+    assert.match(r.stdout, /=== L1 self-check: every L1 step declares its input globs ===\n→ PASS/);
+    assert.doesNotMatch(r.stdout, /=== L2/);
+  });
+
+  test('--l1-changed with an unresolvable TMB_LINT_BASE_SHA runs the full L1', () => {
+    const { env } = fixture('process.exit(0);');
+    const everyStepFile = l1Steps(HERE)
+      .map(([, argv]) => argv.at(-1)!.split('/').pop())
+      .concat('selftest.test.mjs', 'wm_equivalence');
+    const r = spawnSync(process.execPath, ['--experimental-strip-types', runAll, '--l1-changed'], {
+      encoding: 'utf8',
+      env: { ...env, TMB_LINT_BASE_SHA: 'no-such-ref', TMB_L1_SKIP: everyStepFile.join(' ') },
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    assert.equal(r.status, 0, r.stdout);
+    assert.match(r.stdout, /→ --l1-changed: git diff no-such-ref\.\.\.HEAD failed, so the full L1 runs/);
+    assert.doesNotMatch(r.stdout, /SKIP \(--l1-changed\)/);
     assert.doesNotMatch(r.stdout, /=== L2/);
   });
 });

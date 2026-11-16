@@ -7,11 +7,14 @@
 //   node --experimental-strip-types tests/run-all.ts            # L1-L4
 //   node --experimental-strip-types tests/run-all.ts --l1-only  # stop after L1 (PR check, GH 2064)
 //   node --experimental-strip-types tests/run-all.ts --l1-local # L1 minus its slow-flagged steps and wm-equivalence (swe close, GH 2866)
+//   node --experimental-strip-types tests/run-all.ts --l1-changed [--base <ref>]
+//     # only the L1 steps whose declared inputs the diff <ref>...HEAD touches (GH 3161); the base falls
+//     # back to TMB_LINT_BASE_SHA, and no base, a failing diff or a shared input runs the full L1
 //
 // TMB_L1_SKIP: space-separated lint basenames whose steps print SKIP instead of running.
 // A run started with an empty HOME must end with that HOME holding nothing but .cache/huggingface.
 
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -26,10 +29,22 @@ import {
   writeSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, join, matchesGlob } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export type Step = [label: string, argv: string[], slow?: true];
+/** inputs: the repo-relative globs an L1 step reads, which --l1-changed matches against the diff. */
+export type Step = [label: string, argv: string[], inputs?: readonly string[], slow?: true];
+
+/** A changed path matching one of these runs the full L1: every step reads them. */
+export const SHARED_INPUTS: readonly string[] = [
+  'package.json',
+  'bun.lock',
+  '**/tsconfig*.json',
+  'tests/run-all.ts',
+  'tests/l1-lint/**',
+  'tests/lib/**',
+  '.config/tmb/**',
+];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = dirname(HERE);
@@ -47,15 +62,81 @@ function lastSegment(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
 }
 
-/** --l1-only and --l1-local (first argument) both stop after L1; --l1-local also skips the slow L1 steps. */
-export function parseArgs(argv: string[]): { l1Only: boolean; l1Local: boolean } {
+export interface RunArgs {
+  l1Only: boolean;
+  l1Local: boolean;
+  l1Changed: boolean;
+  /** The ref after --base, when given. */
+  base?: string;
+}
+
+/**
+ * --l1-only, --l1-local and --l1-changed (first argument) all stop after L1; --l1-local also skips the
+ * slow L1 steps, --l1-changed runs only the steps its diff selects.
+ */
+export function parseArgs(argv: string[]): RunArgs {
   const l1Local = argv[0] === '--l1-local';
-  return { l1Only: l1Local || argv[0] === '--l1-only', l1Local };
+  const l1Changed = argv[0] === '--l1-changed';
+  const args: RunArgs = { l1Only: l1Local || l1Changed || argv[0] === '--l1-only', l1Local, l1Changed };
+  const at = argv.indexOf('--base');
+  if (at >= 0 && at + 1 < argv.length) args.base = argv[at + 1];
+  return args;
 }
 
 /** The L1 steps --l1-local runs: the L1 table minus its slow-flagged steps. */
 export function l1LocalSteps(steps: Step[]): Step[] {
-  return steps.filter(([, , slow]) => slow !== true);
+  return steps.filter(([, , , slow]) => slow !== true);
+}
+
+const DOT_MASK = '\u0001';
+
+function maskDots(s: string): string {
+  return s.replace(/(^|\/)\./g, `$1${DOT_MASK}`);
+}
+
+/**
+ * path.matchesGlob, except that `*` and `**` also match a segment starting with a dot (matchesGlob alone
+ * skips them), so `**` matches `.github/x.yml`; the same rule as the close-lint fingerprint's matcher.
+ */
+export function matchesInput(path: string, glob: string): boolean {
+  return matchesGlob(path, glob) || matchesGlob(maskDots(path), maskDots(glob));
+}
+
+function touches(changed: readonly string[], globs: readonly string[]): boolean {
+  return changed.some((path) => globs.some((glob) => matchesInput(path, glob)));
+}
+
+/**
+ * The steps whose declared inputs match a changed path, in table order. It fails closed: a null list
+ * (no base, or the diff failed) or one touching a shared input returns every step, and a step that
+ * declares no inputs is always kept.
+ */
+export function selectL1Steps(steps: Step[], changed: readonly string[] | null, shared: readonly string[] = SHARED_INPUTS): Step[] {
+  if (changed === null || touches(changed, shared)) return steps;
+  return steps.filter(([, , inputs]) => inputs === undefined || inputs.length === 0 || touches(changed, inputs));
+}
+
+/** The labels of the steps that declare no input globs. */
+export function undeclaredInputSteps(steps: Step[]): string[] {
+  return steps.filter(([, , inputs]) => inputs === undefined || inputs.length === 0).map(([label]) => label);
+}
+
+/** The base --l1-changed diffs against: --base, else TMB_LINT_BASE_SHA; null when neither is set. */
+export function changedBase(baseArg: string | undefined, envBase: string | undefined): string | null {
+  for (const ref of [baseArg, envBase]) if (ref !== undefined && ref.trim() !== '') return ref.trim();
+  return null;
+}
+
+/** The paths `git diff <base>...HEAD` changed, renames as delete + add; null when git fails or the base is not a ref. */
+export function changedPaths(repo: string, base: string): string[] | null {
+  if (base.startsWith('-')) return null;
+  const r = spawnSync('git', ['-C', repo, 'diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 60_000,
+  });
+  if (r.status !== 0) return null;
+  return r.stdout.split('\0').filter((path) => path !== '');
 }
 
 /** True when any argv word's last path segment is one of the TMB_L1_SKIP basenames. */
@@ -163,98 +244,152 @@ export function writeStubs(dir: string, sentinel: string): void {
   }
 }
 
-// SLOW marks a step measured above 30 s on a dev machine; --l1-local skips it, --l1-only and CI run it.
+// SLOW marks a step measured above 30 s on a dev machine; --l1-local skips it, --l1-only, --l1-changed and CI run it.
 const SLOW = true;
 
+// Input globs shared by several steps. A step lists every repo path it reads (fixtures and allowlists sit
+// under tests/l1-lint/, a shared input); over-declaring only runs a step more often, under-declaring
+// lets a change skip the lint that guards it. A step that reads the whole tree, or git history, uses '**'.
+const EVERY = ['**'];
+const PROMPTS = ['CLAUDE.md', 'agents/**', 'commands/**', 'skills/**', 'templates/**'];
+const DOCS = ['*.md', 'docs/**', ...PROMPTS];
+const SERVER = ['mcp/trajectory-server/**'];
+const SERVER_SRC = ['mcp/trajectory-server/src/**'];
+const SERVER_TESTS = ['mcp/trajectory-server/src/test/**'];
+const SCRIPTS = ['scripts/**'];
+const AGENTS = ['agents/**', 'templates/agents/**'];
+const WORKFLOWS = ['.github/**'];
+
 export function l1Steps(here: string): Step[] {
-  const lint = (label: string, file: string, slow?: true): Step => {
+  const lint = (label: string, file: string, inputs: readonly string[], slow?: true): Step => {
     const argv = ['node', '--test', join(here, 'l1-lint', file)];
-    return slow ? [label, argv, slow] : [label, argv];
+    return slow ? [label, argv, inputs, slow] : [label, argv, inputs];
   };
   return [
-    lint('L1 lint: agent template line budget', 'agent-line-budget.test.mjs'),
-    lint('L1 lint: agent frontmatter declares experimental.cacheTtl', 'agent-cache-ttl.test.mjs'),
-    lint('L1 lint: agent template byte-identity (swe + code-reviewer)', 'agent-template-byte-identity.test.mjs'),
-    lint('L1 lint: local agent overrides retain workflow primitives', 'local-agent-primitives.test.mjs'),
-    lint('L1 lint: shipped swe/code-reviewer task_brief contract (#300)', 'agent-task-brief-contract.test.mjs'),
-    lint('L1 lint: skill frontmatter + name=dirname', 'skill-frontmatter.test.mjs'),
-    lint('L1 lint: command frontmatter (description + argument-hint)', 'command-frontmatter.test.mjs'),
-    lint('L1 lint: frontmatter values hold no unquoted colon-space', 'frontmatter-plain-scalar.test.mjs'),
-    lint('L1 lint: manifest shape (plugin/.mcp/hooks)', 'manifest-shape.test.mjs'),
-    lint('L1 lint: legacy reviewer name only where allowlisted (GH 1641)', 'legacy-reviewer-name.test.mjs'),
-    lint('L1 lint: version sync (3 manifests agree)', 'version-sync.test.mjs'),
-    lint('L1 lint: changelog top section current', 'changelog-current.test.mjs'),
-    lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs'),
-    lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs'),
-    lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs'),
-    lint('L1 lint: no tracked shell files outside the allowlist (GH 2662)', 'no-shell-files.test.mjs'),
-    lint('L1 lint: contributor setup pins Bun and installs missing deps (GH 3151)', 'contributor-setup.test.mjs'),
-    lint('L1 lint: no bare mktemp (explicit path template)', 'no-bare-mktemp.test.mjs'),
-    lint('L1 lint: no grep -q in L6 chain-manifest pipelines', 'no-grep-q-in-pipelines.test.mjs'),
-    lint('L1 lint: no wall-clock asserts in tests', 'no-wall-clock-asserts.test.mjs'),
-    lint('L1 lint: no destructive SQL in migrations', 'no-destructive-sql.test.mjs'),
-    lint('L1 lint: tsc --noEmit on MCP server + dashboard', 'tsc-noemit.test.mjs'),
-    lint('L1 lint: typescript-eslint against the suppressions baseline', 'eslint.test.mjs'),
-    lint('L1 lint: dist entrypoints are esbuild bundles', 'dist-bundles.test.mjs'),
-    lint('L1 lint: bundle whitespace preserves string constants', 'bundle-whitespace-safety.test.mjs'),
-    lint('L1 lint: labels.json triage rule + LABELS.md generated fresh', 'labels.test.mjs'),
-    lint('L1 lint: no generated output tracked in git', 'no-tracked-generated.test.mjs'),
-    lint('L1 lint: bug.yml matches the bug-report FORM_FIELDS', 'bug-form.test.mjs'),
-    lint('L1 lint: new ts/tsx/sh files open with a purpose header', 'purpose-header.test.mjs'),
-    lint('L1 lint: shipped skills match builtin seed', 'skill-catalog-sync.test.mjs'),
-    lint('L1 lint: ENUMs.md vs code parity', 'enums-stable.test.mjs'),
-    lint('L1 lint: ENUMS.md event table + audit-events.txt generated fresh', 'enums-doc-fresh.test.mjs'),
-    lint('L1 lint: build generators create scripts/hooks/lib/', 'generators-create-lib-dir.test.mjs'),
-    lint('L1 lint: ERD.md generated from schema.sql', 'erd-doc-fresh.test.mjs'),
-    lint('L1 lint: CONFIG_KEYS.md generated from code', 'config-keys-doc-fresh.test.mjs'),
-    lint('L1 lint: tool docs list every family + tool', 'tool-families-documented.test.mjs'),
-    lint('L1 lint: no negative directives in prompts', 'no-negative-directives.test.mjs'),
-    lint('L1 lint: issue_sync test must mock spawn', 'issue-sync-test-isolation.test.mjs'),
-    lint('L1 lint: no audit_append without from_node', 'no-audit-log-without-from-node.test.mjs'),
-    lint('L1 lint: no citations in prompts', 'no-citations-in-prompts.test.mjs'),
-    lint('L1 lint: no kuzu in prompts', 'no-kuzu-in-prompts.test.mjs'),
-    lint('L1 lint: no repository paths in prompts', 'no-repo-paths-in-prompts.test.mjs'),
-    lint('L1 lint: explicit paths and git -C in prompts', 'prompt-explicit-paths.test.mjs'),
-    lint('L1 lint: no file_registry refs (v7 retirement)', 'no-file-registry-refs.test.mjs'),
-    lint('L1 lint: no audit_append kind= arg', 'no-audit-log-kind.test.mjs'),
-    lint('L1 lint: single audit write path (insertAudit)', 'single-audit-write-path.test.mjs'),
-    lint('L1 lint: no developer paths in artifacts', 'no-developer-paths.test.mjs'),
-    lint('L1 lint: no stale framing prose', 'stale-framing-prose.test.mjs'),
-    lint('L1 lint: no hardcoded plugin name', 'no-hardcoded-plugin-name.test.mjs'),
-    lint('L1 lint: CI workflow file refs exist', 'ci-workflow-refs-exist.test.mjs'),
-    lint('L1 lint: workflow-run scripts build before importing dist', 'workflow-scripts-no-dist.test.mjs'),
-    lint('L1 lint: symlink targets all resolve', 'symlink-targets.test.mjs'),
-    lint('L1 lint: hooks.json commands executable', 'hooks-executable.test.mjs'),
-    lint('L1 lint: valid permissionDecision values', 'valid-permission-decisions.test.mjs'),
-    lint('L1 lint: no citations of the retired shell gates', 'no-retired-hook-gate-paths.test.mjs'),
-    lint('L1 lint: no directories-table refs', 'no-directories-table-refs.test.mjs'),
-    lint('L1 lint: RAG schema invariants', 'rag-schema-invariants.test.mjs'),
-    lint('L1 lint: tool-description byte budget', 'tool-description-budget.test.mjs'),
-    lint('L1 lint: dir toolchain allowlist', 'dir-toolchain.test.mjs'),
-    lint('L1 lint: data-contract SQL is read-only', 'gate-read-sql-readonly.test.mjs'),
-    lint('L1 lint: no direct sqlite3 writes in scripts', 'no-direct-sqlite-write.test.mjs'),
-    lint('L1 lint: every sqlite3 call sets a busy timeout', 'sqlite3-needs-timeout.test.mjs'),
-    lint('L1 lint: one trajectory-DB path rule (no private copies)', 'no-private-db-path.test.mjs'),
-    lint('L1 lint: no writes under the home directory', 'no-home-writes.test.mjs'),
-    lint('L1 lint: claude CLI config calls pinned to project scope', 'cli-config-scope.test.mjs'),
-    lint('L1 lint: no in-session plugin commands prescribed', 'no-in-session-plugin-commands.test.mjs'),
-    lint('L1 lint: no hard-coded /tmp writes', 'no-tmp-writes.test.mjs', SLOW),
-    ['L1 lint: live-db shim survives a plain parent directory', ['node', '--test', join(here, 'lib', 'live-db-shim.test.mjs')]],
-    lint("L1 lint: no datetime('now') in scripts", 'no-datetime-now-in-hooks.test.mjs'),
-    lint('L1 lint: no secrets in tracked source', 'no-secrets-in-source.test.mjs'),
-    lint('L1 lint: main-source-guard + CODEOWNERS present', 'main-guard-files-present.test.mjs'),
-    lint('L1 lint: no filesystem writes at module load', 'no-module-load-writes.test.mjs'),
-    lint('L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH', 'no-unpinned-scan-in-tests.test.mjs'),
-    lint('L1 lint: no .tmp-* scratch dir in the checkout', 'no-scratch-in-tree.test.mjs'),
-    lint('L1 lint: nothing finds the project or a repo from the cwd', 'no-cwd-reads.test.mjs'),
-    lint('L1 lint: per-file L1 lint runner (file-lint.ts)', 'file-lint.test.mjs'),
-    lint('L1 lint: /onboard option wording is plain language', 'onboard-option-wording.test.mjs'),
-    lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
-    lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
-    lint('L1 lint: pr-check runs no full sweep', 'pr-check-full-suite.test.mjs'),
+    lint('L1 lint: agent template line budget', 'agent-line-budget.test.mjs', AGENTS),
+    lint('L1 lint: agent frontmatter declares experimental.cacheTtl', 'agent-cache-ttl.test.mjs', AGENTS),
+    lint('L1 lint: agent template byte-identity (swe + code-reviewer)', 'agent-template-byte-identity.test.mjs', ['templates/agents/**']),
+    lint('L1 lint: local agent overrides retain workflow primitives', 'local-agent-primitives.test.mjs', AGENTS),
+    lint('L1 lint: shipped swe/code-reviewer task_brief contract (#300)', 'agent-task-brief-contract.test.mjs', ['agents/**']),
+    lint('L1 lint: skill frontmatter + name=dirname', 'skill-frontmatter.test.mjs', ['skills/**']),
+    lint('L1 lint: command frontmatter (description + argument-hint)', 'command-frontmatter.test.mjs', ['commands/**']),
+    lint('L1 lint: frontmatter values hold no unquoted colon-space', 'frontmatter-plain-scalar.test.mjs', ['agents/**', 'commands/**', 'skills/**']),
+    lint('L1 lint: manifest shape (plugin/.mcp/hooks)', 'manifest-shape.test.mjs', ['.claude-plugin/**', '.mcp.json', 'hooks/**']),
+    lint('L1 lint: legacy reviewer name only where allowlisted (GH 1641)', 'legacy-reviewer-name.test.mjs', EVERY),
+    lint('L1 lint: version sync (3 manifests agree)', 'version-sync.test.mjs', ['.claude-plugin/**', 'mcp/trajectory-server/package.json']),
+    // It also reads the branch's commit subjects, which any change carries.
+    lint('L1 lint: changelog top section current', 'changelog-current.test.mjs', EVERY),
+    lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs', ['mcp/trajectory-server/package.json']),
+    // A link target anywhere in the tree can move or go away.
+    lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs', EVERY),
+    lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs', ['scripts/**', 'tests/**']),
+    lint('L1 lint: no tracked shell files outside the allowlist (GH 2662)', 'no-shell-files.test.mjs', ['**/*.sh', '**/*.bash']),
+    lint('L1 lint: contributor setup pins Bun and installs missing deps (GH 3151)', 'contributor-setup.test.mjs', [
+      '.bun-version',
+      'scripts/maintenance/**',
+      'mcp/trajectory-server/package.json',
+      'dashboard/package.json',
+    ]),
+    lint('L1 lint: no bare mktemp (explicit path template)', 'no-bare-mktemp.test.mjs', ['tests/**', 'scripts/**']),
+    lint('L1 lint: no grep -q in L6 chain-manifest pipelines', 'no-grep-q-in-pipelines.test.mjs', ['tests/l5-l6/l6-chain/**']),
+    lint('L1 lint: no wall-clock asserts in tests', 'no-wall-clock-asserts.test.mjs', ['tests/**', 'dashboard/test/**', ...SERVER_TESTS]),
+    lint('L1 lint: no destructive SQL in migrations', 'no-destructive-sql.test.mjs', SERVER_SRC),
+    lint('L1 lint: tsc --noEmit on MCP server + dashboard', 'tsc-noemit.test.mjs', [...SERVER, 'dashboard/**']),
+    lint('L1 lint: typescript-eslint against the suppressions baseline', 'eslint.test.mjs', [
+      ...SERVER,
+      'dashboard/**',
+      'eslint.config.mjs',
+      'eslint-suppressions.json',
+    ]),
+    lint('L1 lint: dist entrypoints are esbuild bundles', 'dist-bundles.test.mjs', SERVER),
+    lint('L1 lint: bundle whitespace preserves string constants', 'bundle-whitespace-safety.test.mjs', SERVER),
+    lint('L1 lint: labels.json triage rule + LABELS.md generated fresh', 'labels.test.mjs', [
+      ...WORKFLOWS,
+      'docs/contributing/LABELS.md',
+      'scripts/maintenance/**',
+      ...SERVER,
+    ]),
+    lint('L1 lint: no generated output tracked in git', 'no-tracked-generated.test.mjs', EVERY),
+    lint('L1 lint: bug.yml matches the bug-report FORM_FIELDS', 'bug-form.test.mjs', ['.github/ISSUE_TEMPLATE/**', ...SERVER]),
+    lint('L1 lint: new ts/tsx/sh files open with a purpose header', 'purpose-header.test.mjs', ['**/*.ts', '**/*.tsx', '**/*.sh', ...SERVER]),
+    lint('L1 lint: shipped skills match builtin seed', 'skill-catalog-sync.test.mjs', ['skills/**', ...SERVER_SRC]),
+    lint('L1 lint: ENUMs.md vs code parity', 'enums-stable.test.mjs', ['docs/contributing/ENUMS.md', ...SERVER, ...SCRIPTS]),
+    lint('L1 lint: ENUMS.md event table + audit-events.txt generated fresh', 'enums-doc-fresh.test.mjs', [
+      'docs/contributing/ENUMS.md',
+      ...SERVER,
+      ...SCRIPTS,
+    ]),
+    lint('L1 lint: build generators create scripts/hooks/lib/', 'generators-create-lib-dir.test.mjs', [...SCRIPTS, ...SERVER]),
+    lint('L1 lint: ERD.md generated from schema.sql', 'erd-doc-fresh.test.mjs', ['docs/architecture/ERD.md', ...SERVER, 'scripts/maintenance/**']),
+    lint('L1 lint: CONFIG_KEYS.md generated from code', 'config-keys-doc-fresh.test.mjs', ['docs/architecture/CONFIG_KEYS.md', ...SERVER, ...SCRIPTS]),
+    lint('L1 lint: tool docs list every family + tool', 'tool-families-documented.test.mjs', SERVER),
+    lint('L1 lint: no negative directives in prompts', 'no-negative-directives.test.mjs', PROMPTS),
+    lint('L1 lint: issue_sync test must mock spawn', 'issue-sync-test-isolation.test.mjs', SERVER_TESTS),
+    lint('L1 lint: no audit_append without from_node', 'no-audit-log-without-from-node.test.mjs', PROMPTS),
+    lint('L1 lint: no citations in prompts', 'no-citations-in-prompts.test.mjs', PROMPTS),
+    lint('L1 lint: no kuzu in prompts', 'no-kuzu-in-prompts.test.mjs', PROMPTS),
+    lint('L1 lint: no repository paths in prompts', 'no-repo-paths-in-prompts.test.mjs', PROMPTS),
+    lint('L1 lint: explicit paths and git -C in prompts', 'prompt-explicit-paths.test.mjs', PROMPTS),
+    lint('L1 lint: no file_registry refs (v7 retirement)', 'no-file-registry-refs.test.mjs', EVERY),
+    lint('L1 lint: no audit_append kind= arg', 'no-audit-log-kind.test.mjs', DOCS),
+    lint('L1 lint: single audit write path (insertAudit)', 'single-audit-write-path.test.mjs', SERVER_SRC),
+    lint('L1 lint: no developer paths in artifacts', 'no-developer-paths.test.mjs', DOCS),
+    lint('L1 lint: no stale framing prose', 'stale-framing-prose.test.mjs', DOCS),
+    lint('L1 lint: no hardcoded plugin name', 'no-hardcoded-plugin-name.test.mjs', [...SCRIPTS, ...SERVER_SRC]),
+    // A referenced file anywhere in the tree can move or go away.
+    lint('L1 lint: CI workflow file refs exist', 'ci-workflow-refs-exist.test.mjs', EVERY),
+    lint('L1 lint: workflow-run scripts build before importing dist', 'workflow-scripts-no-dist.test.mjs', [...WORKFLOWS, ...SCRIPTS, 'mcp/**']),
+    lint('L1 lint: symlink targets all resolve', 'symlink-targets.test.mjs', EVERY),
+    lint('L1 lint: hooks.json commands executable', 'hooks-executable.test.mjs', ['hooks/**', ...SCRIPTS, ...SERVER]),
+    lint('L1 lint: valid permissionDecision values', 'valid-permission-decisions.test.mjs', ['mcp/trajectory-server/src/hooks/**']),
+    lint('L1 lint: no citations of the retired shell gates', 'no-retired-hook-gate-paths.test.mjs', EVERY),
+    lint('L1 lint: no directories-table refs', 'no-directories-table-refs.test.mjs', EVERY),
+    lint('L1 lint: RAG schema invariants', 'rag-schema-invariants.test.mjs', SERVER_SRC),
+    lint('L1 lint: tool-description byte budget', 'tool-description-budget.test.mjs', SERVER),
+    lint('L1 lint: dir toolchain allowlist', 'dir-toolchain.test.mjs', ['tests/benchmarks/**']),
+    lint('L1 lint: data-contract SQL is read-only', 'gate-read-sql-readonly.test.mjs', [...SERVER, ...SCRIPTS]),
+    lint('L1 lint: no direct sqlite3 writes in scripts', 'no-direct-sqlite-write.test.mjs', SCRIPTS),
+    lint('L1 lint: every sqlite3 call sets a busy timeout', 'sqlite3-needs-timeout.test.mjs', [...SCRIPTS, 'skills/**', 'hooks/**']),
+    lint('L1 lint: one trajectory-DB path rule (no private copies)', 'no-private-db-path.test.mjs', SCRIPTS),
+    lint('L1 lint: no writes under the home directory', 'no-home-writes.test.mjs', ['tests/l5-l6/**', ...SERVER_SRC]),
+    lint('L1 lint: claude CLI config calls pinned to project scope', 'cli-config-scope.test.mjs', ['**/*.{mjs,js,ts}']),
+    lint('L1 lint: no in-session plugin commands prescribed', 'no-in-session-plugin-commands.test.mjs', ['**/*.{md,ts,mjs,js,json,yml}']),
+    lint('L1 lint: no hard-coded /tmp writes', 'no-tmp-writes.test.mjs', [...SCRIPTS, 'skills/**', 'agents/**', 'commands/**', ...SERVER_SRC], SLOW),
+    ['L1 lint: live-db shim survives a plain parent directory', ['node', '--test', join(here, 'lib', 'live-db-shim.test.mjs')], ['tests/lib/**']],
+    lint("L1 lint: no datetime('now') in scripts", 'no-datetime-now-in-hooks.test.mjs', [...SCRIPTS, ...SERVER_SRC]),
+    lint('L1 lint: no secrets in tracked source', 'no-secrets-in-source.test.mjs', EVERY),
+    lint('L1 lint: main-source-guard + CODEOWNERS present', 'main-guard-files-present.test.mjs', WORKFLOWS),
+    lint('L1 lint: no filesystem writes at module load', 'no-module-load-writes.test.mjs', SERVER_SRC),
+    lint('L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH', 'no-unpinned-scan-in-tests.test.mjs', SERVER_TESTS),
+    lint('L1 lint: no .tmp-* scratch dir in the checkout', 'no-scratch-in-tree.test.mjs', EVERY),
+    lint('L1 lint: nothing finds the project or a repo from the cwd', 'no-cwd-reads.test.mjs', [...SCRIPTS, 'skills/**', ...SERVER_SRC, 'tests/lib/**']),
+    // Each lint's per-file scope must select the same repo files as its whole-tree test.
+    lint('L1 lint: per-file L1 lint runner (file-lint.ts)', 'file-lint.test.mjs', EVERY),
+    lint('L1 lint: /onboard option wording is plain language', 'onboard-option-wording.test.mjs', ['mcp/trajectory-server/src/tools/**']),
+    lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs', WORKFLOWS),
+    lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs', [...WORKFLOWS, 'CONTRIBUTING.md']),
+    lint('L1 lint: pr-check runs no full sweep', 'pr-check-full-suite.test.mjs', [...WORKFLOWS, 'CONTRIBUTING.md']),
     // node --test expands the glob itself, so the step runs the same files as pr-check's dashboard job.
-    ['L1 dashboard: node:test suite (dashboard/test/*.test.mjs)', ['node', '--test', join(dirname(here), 'dashboard', 'test', '*.test.mjs')]],
+    [
+      'L1 dashboard: node:test suite (dashboard/test/*.test.mjs)',
+      ['node', '--test', join(dirname(here), 'dashboard', 'test', '*.test.mjs')],
+      ['dashboard/**', ...SERVER],
+    ],
   ];
+}
+
+/** The L1 steps after the table and its self-checks: the bench selftest and the wm-equivalence reindex check. */
+export function l1TailSteps(here: string): { bench: Step; equivalence: Step } {
+  return {
+    bench: ['L1 bench: measurement harness selftest', ['node', '--test', join(here, 'benchmarks', 'selftest.test.mjs')], ['tests/benchmarks/**']],
+    // Its argv names the check, which main() runs as a build followed by the dist test; --l1-local skips it.
+    equivalence: [
+      'L1 world model: incremental reindex equals a clean rebuild (wm-equivalence.test.js)',
+      ['wm_equivalence'],
+      SERVER,
+      SLOW,
+    ],
+  };
 }
 
 export function l3Steps(here: string): Step[] {
@@ -368,12 +503,12 @@ function emptyDir(dir: string): boolean {
 }
 
 export async function main(args: string[]): Promise<number> {
-  const { l1Only, l1Local } = parseArgs(args);
+  const runArgs = parseArgs(args);
   const runTmp = mkdtempSync(join(tmpdir(), 'tmb-run-all.'));
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
   try {
-    return await run(l1Only, l1Local, runTmp);
+    return await run(runArgs, runTmp);
   } catch (e) {
     if (!(e instanceof Aborted)) throw e;
     out(`\n→ ABORTED: ${e.signal}, no further steps run\n`);
@@ -385,7 +520,21 @@ export async function main(args: string[]): Promise<number> {
   }
 }
 
-async function run(l1Only: boolean, l1Local: boolean, runTmp: string): Promise<number> {
+/** The L1 steps a run selects: --l1-changed by its diff, --l1-local the non-slow ones, else all. */
+function runnableL1(args: RunArgs, steps: Step[]): Step[] {
+  if (args.l1Local) return l1LocalSteps(steps);
+  if (!args.l1Changed) return steps;
+  const base = changedBase(args.base, process.env.TMB_LINT_BASE_SHA);
+  const changed = base === null ? null : changedPaths(PLUGIN_ROOT, base);
+  const selected = selectL1Steps(steps, changed);
+  if (base === null) out('\n→ --l1-changed: no --base or TMB_LINT_BASE_SHA, so the full L1 runs\n');
+  else if (changed === null) out(`\n→ --l1-changed: git diff ${base}...HEAD failed, so the full L1 runs\n`);
+  else out(`\n→ --l1-changed: ${changed.length} paths changed since ${base}; ${selected.length} of ${steps.length} L1 steps selected\n`);
+  return selected;
+}
+
+async function run(args: RunArgs, runTmp: string): Promise<number> {
+  const { l1Only } = args;
   let fail = false;
   const home = process.env.HOME ?? homedir();
   const homeIsolated = emptyDir(home);
@@ -417,7 +566,8 @@ async function run(l1Only: boolean, l1Local: boolean, runTmp: string): Promise<n
       fail = true;
     }
   };
-  const skipLocal = (label: string) => out(`\n=== ${label} ===\n→ SKIP (--l1-local)\n`);
+  const skipMode = args.l1Changed ? '--l1-changed' : '--l1-local';
+  const skipUnselected = (label: string) => out(`\n=== ${label} ===\n→ SKIP (${skipMode})\n`);
   const liveCliCheck = (step: string) => {
     const calls = readFileSync(sentinel, 'utf8');
     if (calls !== '') {
@@ -433,29 +583,32 @@ async function run(l1Only: boolean, l1Local: boolean, runTmp: string): Promise<n
 
   const l1Env = { ...base, PATH: stubPath, TMB_L1_OFFLINE: '1' };
   const steps = l1Steps(HERE);
-  const runnable = new Set(l1Local ? l1LocalSteps(steps) : steps);
-  for (const step of steps) {
+  const { bench, equivalence } = l1TailSteps(HERE);
+  const everyL1 = [...steps, bench, equivalence];
+  const runnable = new Set(runnableL1(args, everyL1));
+  const runL1 = async (step: Step, check?: () => boolean | Promise<boolean>) => {
     const [label, argv] = step;
-    if (runnable.has(step)) await runStep(label, argv, l1Env);
-    else skipLocal(label);
-  }
+    if (runnable.has(step)) await runStep(label, argv, l1Env, check);
+    else skipUnselected(label);
+  };
+  for (const step of steps) await runL1(step);
   await runStep('L1 self-check: every tests/l1-lint/*.sh and *.test.mjs runs here', ['l1_lints_all_wired'], l1Env, () => {
     const missing = unwiredLints(l1LintFiles(join(HERE, 'l1-lint')), steps);
     for (const lint of missing) err(`  ✗ tests/l1-lint/${lint} has no step in tests/run-all.ts\n`);
     return missing.length === 0;
   });
-  await runStep('L1 bench: measurement harness selftest', ['node', '--test', join(HERE, 'benchmarks', 'selftest.test.mjs')], l1Env);
+  await runStep('L1 self-check: every L1 step declares its input globs', ['l1_inputs_declared'], l1Env, () => {
+    const undeclared = undeclaredInputSteps(everyL1);
+    for (const label of undeclared) err(`  ✗ "${label}" declares no input globs in tests/run-all.ts\n`);
+    return undeclared.length === 0;
+  });
+  await runL1(bench);
   const serverDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server');
   const equivalenceTest = join('dist', 'test', 'wm-equivalence.test.js');
-  const equivalenceLabel = 'L1 world model: incremental reindex equals a clean rebuild (wm-equivalence.test.js)';
-  if (l1Local) {
-    skipLocal(equivalenceLabel);
-  } else {
-    await runStep(equivalenceLabel, ['wm_equivalence'], l1Env, async () => {
-      if (!(await runArgv(['bun', 'run', 'build'], l1Env, serverDir))) return false;
-      return await runArgv(['node', '--experimental-sqlite', '--test', equivalenceTest], { ...l1Env, ...forbidLive }, serverDir);
-    });
-  }
+  await runL1(equivalence, async () => {
+    if (!(await runArgv(['bun', 'run', 'build'], l1Env, serverDir))) return false;
+    return await runArgv(['node', '--experimental-sqlite', '--test', equivalenceTest], { ...l1Env, ...forbidLive }, serverDir);
+  });
   liveCliCheck('L1');
   if (l1Only) return fail ? 1 : 0;
 
