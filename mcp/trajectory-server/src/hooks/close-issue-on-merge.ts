@@ -7,7 +7,8 @@
  * an explicit closing ref when no other task of it is live (else
  * issue_auto_close_deferred). Each closed issue's remote twin is then closed
  * while the sync gate is on; with it off, issue_auto_close_remote_skipped is
- * written instead. gh runs bounded to 10 s.
+ * written instead. A named issue a task close already closed locally gets only
+ * that remote close, or that skipped row (GH 3115). gh runs bounded to 10 s.
  *
  * Advisory: it prints nothing on stdout and always exits 0. Bypasses:
  * TMB_DISABLE_CLOSE_ISSUE_ON_MERGE=1, and TMB_DISABLE_REMOTE_SYNC for the
@@ -161,6 +162,7 @@ export function closingRefs(json: string): string[] {
 class Merge {
   private sql: string[] = [];
   private readonly closedIds: string[] = [];
+  private readonly remoteOnlyIds: string[] = [];
 
   constructor(
     private readonly db: string,
@@ -273,16 +275,37 @@ class Merge {
     if (closed === null) return out.join('\n');
     out.push(closed);
     if (ghIid !== '' && !this.syncOn) {
-      const skipped = this.audit({
-        issueId: id,
-        branchId: '',
-        eventType: 'issue_auto_close_remote_skipped',
-        summary: `Remote close of gh #${ghIid} skipped: issue sync is off`,
-        contentJson: `{"gh_iid":${ghIid},"reason":"sync_gate_off"}`,
-      });
+      const skipped = this.remoteSkippedAudit(id, ghIid);
       if (skipped !== null) out.push(skipped);
     }
     return out.join('\n');
+  }
+
+  private remoteSkippedAudit(id: string, ghIid: string): string | null {
+    return this.audit({
+      issueId: id,
+      branchId: '',
+      eventType: 'issue_auto_close_remote_skipped',
+      summary: `Remote close of gh #${ghIid} skipped: issue sync is off`,
+      contentJson: `{"gh_iid":${ghIid},"reason":"sync_gate_off"}`,
+    });
+  }
+
+  /**
+   * An issue a task close already closed locally (GH 3115): its remote twin
+   * stayed open for this merge, so it joins the remote closes while the sync
+   * gate is on, else gets the skipped row. No UPDATE and no second close row.
+   */
+  private alreadyClosedSql(localId: string): string {
+    const id = sqlInt(localId);
+    if (id === '') return '';
+    const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
+    if (ghIid === '') return '';
+    if (this.syncOn) {
+      this.remoteOnlyIds.push(id);
+      return '';
+    }
+    return this.remoteSkippedAudit(id, ghIid) ?? '';
   }
 
   build(prJson: string): string {
@@ -290,6 +313,11 @@ class Merge {
     for (const ref of closingRefs(prJson)) {
       const localId = this.localIssue(ref);
       if (localId === '') continue;
+      if (this.read(`SELECT status FROM issues WHERE id = ${localId};`) === 'closed') {
+        const remoteSql = this.alreadyClosedSql(localId);
+        if (remoteSql !== '') this.sql.push(remoteSql);
+        continue;
+      }
       const issueSql = this.issueSql(localId);
       if (issueSql === '') continue;
       this.sql.push(issueSql);
@@ -298,18 +326,22 @@ class Merge {
     return this.sql.join('\n');
   }
 
-  /** After the commit: each closed issue's note, then its remote close while the sync gate is on. */
+  /** After the commit: each closed issue's note, then its remote close while the sync gate is on; then each already-closed issue's remote close. */
   closeRemotes(): void {
     for (const raw of this.closedIds) {
       const id = sqlInt(raw);
       if (id === '') continue;
       process.stderr.write(`tmb: auto-closed issue ${id} on merge\n`);
-      if (!this.syncOn) continue;
-      const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
-      if (ghIid === '') continue;
-      if (gh(['issue', 'view', ghIid, '--json', 'state', '-q', '.state'], this.repoDir, this.env) !== 'CLOSED') {
-        gh(['issue', 'close', ghIid], this.repoDir, this.env);
-      }
+      if (this.syncOn) this.closeRemote(id);
+    }
+    for (const id of this.remoteOnlyIds) this.closeRemote(id);
+  }
+
+  private closeRemote(id: string): void {
+    const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
+    if (ghIid === '') return;
+    if (gh(['issue', 'view', ghIid, '--json', 'state', '-q', '.state'], this.repoDir, this.env) !== 'CLOSED') {
+      gh(['issue', 'close', ghIid], this.repoDir, this.env);
     }
   }
 }
@@ -355,11 +387,12 @@ async function close(payload: string, env: NodeJS.ProcessEnv): Promise<void> {
 
   const merge = new Merge(db, head, syncOn(db, env), repoDir, env);
   const sql = merge.build(prJson);
-  if (sql === '') return;
-  const w = dbWrite(db, sql, { caller: GATE_NAME, env });
-  if (!w.ok) {
-    process.stderr.write(`${w.error}\n`);
-    return;
+  if (sql !== '') {
+    const w = dbWrite(db, sql, { caller: GATE_NAME, env });
+    if (!w.ok) {
+      process.stderr.write(`${w.error}\n`);
+      return;
+    }
   }
   merge.closeRemotes();
 }

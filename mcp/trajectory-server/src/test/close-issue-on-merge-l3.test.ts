@@ -4,7 +4,8 @@
  * pinned to it and PWD set, against a schema.sql DB, with a node `gh` stub on
  * PATH that logs every call (no network). After a successful merge the merged
  * tasks close, explicit closing refs close their issues locally unless another
- * task is live, and the remote twin closes only while issue sync is on.
+ * task is live, and the remote twin closes only while issue sync is on, also
+ * for an issue a task close already closed locally.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -152,6 +153,8 @@ describe('close-issue-on-merge l3', () => {
   }
 
   const resetLog = () => writeFileSync(ghLog, '');
+  /** The stub's remote state file of gh issue <n>; an earlier case's `issue close` leaves it CLOSED. */
+  const remoteState = (n: number) => join(sb.dir, `remote-${n}.state`);
   const log = () => readFileSync(ghLog, 'utf8').replace(/\n+$/, '');
   const issueStatus = (id: number) => q('SELECT status FROM issues WHERE id = ?', id);
   const taskStatus = (id: number) => q('SELECT status FROM tasks WHERE id = ?', id);
@@ -211,14 +214,48 @@ describe('close-issue-on-merge l3', () => {
     assert.equal(ghIssueCalls(), '0', 'no remote issue call');
   });
 
-  it('(c) already-closed → idempotent no-op (no second audit row)', () => {
+  it('(c) already closed locally by a task close → only its remote twin closes (GH 3115)', () => {
     seedDb();
+    addIssue(5, 122, 'closed');
+    rmSync(remoteState(122), { force: true });
+    resetLog();
+    runHook(input(MERGE), REF_122);
+    assert.equal(issueStatus(5), 'closed', 'stays closed');
+    assert.equal(q('SELECT updated_at FROM issues WHERE id = 5'), NOW_MINUS_2H, 'no UPDATE of the closed issue');
+    assert.equal(auditCount('issue_auto_closed_on_merge', 5), '0', 'no second close row');
+    assert.equal(auditCount('issue_auto_close_remote_skipped', 5), '0', 'no skipped row with sync on');
+    has(log(), 'issue view 122 --json state -q .state', 'remote state read first');
+    has(log(), 'issue close 122', 'open remote twin closed');
+  });
+
+  it("(c') already closed locally, remote already CLOSED → no gh issue close", () => {
+    seedDb();
+    addIssue(5, 122, 'closed');
+    writeFileSync(remoteState(122), 'CLOSED\n');
+    resetLog();
+    runHook(input(MERGE), REF_122);
+    assert.equal(ghIssueCalls(), '1', 'only the state read');
+    assert.equal(log().includes('issue close'), false, 'a CLOSED remote is left alone');
+  });
+
+  it("(c'') already closed locally, issue_sync off → no gh issue call, remote-skipped audit", () => {
+    seedDb('off');
     addIssue(5, 122, 'closed');
     resetLog();
     runHook(input(MERGE), REF_122);
     assert.equal(issueStatus(5), 'closed', 'stays closed');
-    assert.equal(auditCount('issue_auto_closed_on_merge', 5), '0', 'no audit row for already-closed issue');
-    assert.equal(ghIssueCalls(), '0', 'no remote call for already-closed issue');
+    assert.equal(ghIssueCalls(), '0', 'no gh issue view/close with sync off');
+    assert.equal(auditCount('issue_auto_closed_on_merge', 5), '0', 'no second close row');
+    assert.equal(auditCount('issue_auto_close_remote_skipped', 5), '1', 'remote-skipped audit row');
+  });
+
+  it("(c''') already closed locally with no gh_iid → nothing to close or skip", () => {
+    seedDb();
+    sql("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'closed', ?, ?)", NOW_MINUS_2H, NOW_MINUS_2H);
+    resetLog();
+    runHook(input('gh pr merge feat/z --squash'), { CLOSING_REFS: '9', PR_BODY: '', HEAD_REF: 'feat/z' });
+    assert.equal(ghIssueCalls(), '0', 'no remote twin, no gh issue call');
+    assert.equal(auditCount('issue_auto_close_remote_skipped', 9), '0', 'no skipped row');
   });
 
   it('(d) non-merge command → no-op (silent)', () => {

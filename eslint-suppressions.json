@@ -918,7 +918,7 @@
   },
   "mcp/trajectory-server/src/test/composites.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 139
+      "count": 137
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
@@ -1404,7 +1404,7 @@
   },
   "mcp/trajectory-server/src/test/issue-close-remote-gate.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
+      "count": 3
     }
   },
   "mcp/trajectory-server/src/test/issue-reconcile-remote.test.ts": {
