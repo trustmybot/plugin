@@ -590,11 +590,16 @@ interface ScopedTask {
 }
 
 // The task's own changes (merge-base with origin/<pr_target> .. commit)
-// against its typed files[], with the repo path it resolved. Unchecked, with
-// a reason, when the repo or the PR target does not resolve.
+// against its typed files[], with the repo path it resolved. An agile task
+// stacked on a feature branch lands there, not on the PR target, so its
+// parent branch is tried first. Unchecked, with a reason, when the repo or
+// the PR target does not resolve.
 function taskScopeCheck(db: TrajectoryDB, task: ScopedTask, commitSha: string): { scope: ScopeCheck; repoPath: string | null } {
   const repoPath = resolveRepoPath(db, task.repo);
-  const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
+  const repoTarget = readRepoTargetBranch(db, task.repo);
+  const parentFirst = readWorkflowMode(db) === 'agile' && !!task.parent_branch_id && task.parent_branch_id !== repoTarget;
+  const ordered = parentFirst ? [task.parent_branch_id, repoTarget] : [repoTarget, task.parent_branch_id];
+  const targetCandidates = [...ordered, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
     (b): b is string => typeof b === 'string' && b.length > 0,
   );
   let targetRef: string | null = null;
