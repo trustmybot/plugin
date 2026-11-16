@@ -136,7 +136,7 @@ flowchart LR
 
 ## 6. Change or recover a lane
 
-Lanes live in the trajectory DB, not in any bro's memory. Each lane has one record: its parent, its session, its owned issues, its priority, its state (active, paused or archived) and the run's merge choice. Every change is written there first, with the request that caused it. A bro acts only on what the record says, so a change survives compaction, a restart, or a session the host no longer lists.
+Lanes live in the trajectory DB, not in any bro's memory. Each lane has one record: its parent, its session, its owned issues, its priority, its state (active, paused or archived) and the run's merge choice. Every change is written there first, with the request that caused it. A bro acts only on what the record says, so a change survives compaction, a restart, or a session that has dropped off the host's list.
 
 ```mermaid
 flowchart LR
