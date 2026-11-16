@@ -80,7 +80,7 @@ export const ensureSweWorktree: Gate = async (payload, env): Promise<GateResult>
   if (taskId === '') return ALLOW;
 
   const db = dbPath(env);
-  if (db === null) return skip('no trajectory DB — skipping (non-isolated fallback)');
+  if (db === null) return skip('no trajectory DB, so not a TMB project — skipping');
   if (!haveSqlite(env)) return deny(NO_NODE_SQLITE_REASON, NO_NODE_SQLITE_FIX);
 
   const row = sqliteRo(db, `SELECT branch_id, repo FROM tasks WHERE id=${taskId};`, env);
@@ -102,5 +102,5 @@ export const ensureSweWorktree: Gate = async (payload, env): Promise<GateResult>
   if (await gitOk(repoRoot, ['worktree', 'add', wtRel, branch], env)) {
     return skip(`created worktree ${wtAbs} for branch ${branch}`);
   }
-  return skip(`'git worktree add ${wtRel} ${branch}' failed — skipping (non-isolated fallback)`);
+  return skip(`'git worktree add ${wtRel} ${branch}' failed — skipping, so swe runs in the main checkout`);
 };

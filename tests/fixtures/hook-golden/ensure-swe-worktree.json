@@ -1356,7 +1356,7 @@
   "06-add-fails.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stderr": "ensure-swe-worktree: 'git worktree add .claude/worktrees/missing-branch feat/missing-branch' failed — skipping (non-isolated fallback)\n",
+      "stderr": "ensure-swe-worktree: 'git worktree add .claude/worktrees/missing-branch feat/missing-branch' failed — skipping, so swe runs in the main checkout\n",
       "stdout": "",
       "tree": {
         "bad/": null,
@@ -1888,7 +1888,7 @@
   "08-no-db.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stderr": "ensure-swe-worktree: no trajectory DB — skipping (non-isolated fallback)\n",
+      "stderr": "ensure-swe-worktree: no trajectory DB, so not a TMB project — skipping\n",
       "stdout": "",
       "tree": {
         "bad/": null,
