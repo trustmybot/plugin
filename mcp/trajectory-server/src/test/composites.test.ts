@@ -2949,6 +2949,23 @@ describe('task_brief scope across cli.js integrate (GH 3103)', () => {
     db.close();
   });
 
+  it('an exit-5 row (rebased_from, carried false) walks back to the reviewed commit, alone and after a carried hop (GH 3163)', async () => {
+    const uncarried = (db: TrajectoryDB, id: number, from: string, to: string): void => {
+      audit(db, 'hook:integrate', 'task_integrated', {
+        task_id: id, rebased_from: from, commit_sha: to, base: 'dev', run_id: 1, carried: false,
+      });
+      db.run(`UPDATE tasks SET commit_sha = ? WHERE id = ?`, [to, id]);
+    };
+    const db = tempDB();
+    const id = seedReviewed(db);
+    uncarried(db, id, REVIEWED, 'rebased1');
+    assert.deepEqual(await scope(db, id), reviewedScope);
+    integrate(db, id, 'rebased1', 'rebased2');
+    uncarried(db, id, 'rebased2', 'rebased3');
+    assert.deepEqual(await scope(db, id), reviewedScope, 'a chain mixing carried and uncarried rows');
+    db.close();
+  });
+
   it('a task_integrated row from another author is not followed', async () => {
     const db = tempDB();
     const id = seedReviewed(db);
