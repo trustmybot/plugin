@@ -7,7 +7,7 @@
  *
  *   sha_mismatch       refs/heads/<branch_id> in the task repo is tasks.commit_sha
  *   no_passing_run     a verification_runs row for (task, commit) with exit 0, not timed out
- *   no_lint_record    the task's newest finished lint_runs row for the commit exists
+ *   no_lint_record     the task's newest finished lint_runs row for the commit exists
  *                      and exited 0
  *   stale_lint_record  that run's fingerprint is the close-lints fingerprint of the commit,
  *                      its base_sha is merge-base(<pr_target tip>, <commit>), and its

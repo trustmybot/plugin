@@ -159,6 +159,21 @@ describe('task_brief response_format (GH 1958)', () => {
     db.close();
   });
 
+  it('core carries the task kind: prompt_bearing and no_code_class, 0 and null when unset (GH 3090)', async () => {
+    const db = tempDB();
+    const id = seedTask(db);
+    const unset = await brief(db, null, { task_id: id, section: 'core' });
+    assert.equal(unset['prompt_bearing'], 0);
+    assert.ok('no_code_class' in unset);
+    assert.equal(unset['no_code_class'], null);
+
+    db.run(`UPDATE tasks SET prompt_bearing = 1, no_code_class = 'prompts' WHERE id = ?`, [id]);
+    const noCode = await brief(db, null, { task_id: id, section: 'core' });
+    assert.equal(noCode['prompt_bearing'], 1);
+    assert.equal(noCode['no_code_class'], 'prompts');
+    db.close();
+  });
+
   it('response_format_hint names detailed when something was trimmed', async () => {
     const db = tempDB();
     const id = seedTask(db);
