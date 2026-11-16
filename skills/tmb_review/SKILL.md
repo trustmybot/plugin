@@ -63,7 +63,7 @@ Then judge whether the diff breaks behaviour beyond its own checks:
 
 ## Prompt and docs changes
 
-When the task is prompt-bearing (`task_get` returns `prompt_bearing: 1`) or a changed path is in the project's prompts or docs class, also grade it with the preloaded `tmb_doc-review` checklist, after the review above. The change's author (swe on a task it executes, bro on its no-code change) owns its steps 1–4 and records their results in `completion_report.case_sweep`: read them, and run step 5 on them and on your own probes of the diff's dependents. Re-run a step 1–4 check only to spot-check a claim the author recorded no probe for, or one you doubt. Its findings and probes go into this review's one `validation_record` verdict, and its own fail bar grades them in place of the one above, because a false claim or a contradiction in a prompt misleads every agent that loads it even where no code breaks.
+When the task is prompt-bearing (`task_get` returns `prompt_bearing: 1`) or a changed path is in the project's prompts or docs class, also grade it with the preloaded `tmb_doc-review` checklist, after the review above. Read the author's step 1–4 results in `completion_report.case_sweep` and run step 5 on them and on your own probes of the diff's dependents; `tmb_doc-review` says who owns steps 1–4 and when you re-run one. Its findings and probes go into this review's one `validation_record` verdict, and its own fail bar grades them in place of the one above, because a false claim or a contradiction in a prompt misleads every agent that loads it even where no code breaks.
 
 ## Probe what the gate did not
 

@@ -13,9 +13,9 @@ The bundled fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/traj
 
 ## A. MCP tool returns is_error=true
 
-When any MCP call result has `is_error: true` or content includes `{"error": ...}`, the call was wrong — not the doctrine.
+First tell a workflow refusal apart: a gate refusing a step until its precondition holds (`env_gate_failed`, `review_pass_missing`, `branch_exists_diverged`, a hook deny naming the allowed form). It is not a failure, so this section does not apply: handle it in `tmb_planning`, fixing the cause it names and retrying without waiting on the Human.
 
-A workflow refusal is not a failure here: a gate refusing a step until its precondition holds (`env_gate_failed`, `review_pass_missing`, `branch_exists_diverged`, a hook deny naming the allowed form). Handle it in `tmb_planning`: fix the cause it names and retry, without waiting on the Human.
+Any other MCP call result with `is_error: true`, or content that includes `{"error": ...}`, means the call was wrong or the server faulted — not the doctrine.
 
 ### Protocol
 
