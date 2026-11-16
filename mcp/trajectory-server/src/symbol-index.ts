@@ -43,6 +43,7 @@ import {
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js';
 import { envReaderFor } from './env/collect.js';
+import { anyTermPoolSize, orderByMatchedTerms } from './fts-query.js';
 import type { KeywordMatch } from './graph.js';
 import { isTestPath } from './utils/test-paths.js';
 import { nestedCheckoutFilter } from './world-model/nested-checkouts.js';
@@ -887,7 +888,8 @@ function queryWords(query: string): string[] {
 }
 
 // bm25 over wm_symbols_fts with a name match weighted above a signature or
-// doc match: every word first, then any word when that finds fewer than 3.
+// doc match: every word first, then any word when that finds fewer than 3,
+// those ranked by matched-word count before bm25 (GH 3157).
 // Module rows are left to the file hits. CROSS JOIN keeps the FTS match as the
 // outer loop.
 export function keywordSearchSymbols(
@@ -898,20 +900,22 @@ export function keywordSearchSymbols(
 ): { hits: ScoredSymbol[]; match: KeywordMatch } {
   const words = queryWords(query);
   if (words.length === 0) return { hits: [], match: 'all_terms' };
-  const search = (op: 'AND' | 'OR') =>
+  const terms = words.map((w) => `"${w}"`);
+  const search = (op: 'AND' | 'OR', poolSize: number) =>
     db.all<SymbolRow & { rank: number }>(
       `SELECT ${SYMBOL_COLUMNS}, bm25(wm_symbols_fts, 10.0, 3.0, 4.0) AS rank
          FROM wm_symbols_fts CROSS JOIN wm_symbols s ON s.id = wm_symbols_fts.rowid
         WHERE wm_symbols_fts MATCH ? AND s.repo = ? AND s.kind <> 'module'
         ORDER BY rank, s.id
         LIMIT ?`,
-      [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit],
+      [terms.join(` ${op} `), repo, poolSize],
     );
-  const all = search('AND');
+  const all = search('AND', limit);
   const toHit = (r: SymbolRow & { rank: number }): ScoredSymbol => ({ ...normalizeRow(r), score: -r.rank });
   if (all.length >= OR_FALLBACK_MIN_HITS || words.length < 2) return { hits: all.map(toHit), match: 'all_terms' };
   const seen = new Set(all.map((r) => r.id));
-  const any = search('OR').filter((r) => !seen.has(r.id));
+  const pool = search('OR', anyTermPoolSize(limit)).filter((r) => !seen.has(r.id));
+  const any = orderByMatchedTerms(db, 'wm_symbols_fts', terms, pool);
   return { hits: [...all, ...any].slice(0, limit).map(toHit), match: any.length > 0 ? 'any_term' : 'all_terms' };
 }
 

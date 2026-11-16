@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { toFtsQuery, withFtsGuard } from '../fts-query.js';
+import { anyTermPoolSize, toFtsOrQuery, toFtsOrTerms, toFtsQuery, withFtsGuard } from '../fts-query.js';
 
 describe('toFtsQuery', () => {
   it('quotes each hyphenated token', () => {
@@ -49,5 +49,24 @@ describe('withFtsGuard', () => {
   it('passes other errors and results through', () => {
     assert.equal(withFtsGuard(() => 7), 7);
     assert.throws(() => withFtsGuard(() => { throw new Error('disk full'); }), /^Error: disk full$/);
+  });
+});
+
+describe('toFtsOrTerms', () => {
+  it('returns the distinct quoted non-stopword terms toFtsOrQuery ORs', () => {
+    assert.deepEqual(toFtsOrTerms('how does the alpha alpha bravo work'), ['"alpha"', '"bravo"', '"work"']);
+    assert.equal(toFtsOrQuery('how does the alpha alpha bravo work'), '"alpha" OR "alpha" OR "bravo" OR "work"');
+  });
+
+  it('returns no terms for a stopword-only query', () => {
+    assert.deepEqual(toFtsOrTerms('how is it'), []);
+  });
+});
+
+describe('anyTermPoolSize', () => {
+  it('fetches 4x k, capped at 200 but never below k', () => {
+    assert.equal(anyTermPoolSize(5), 20);
+    assert.equal(anyTermPoolSize(100), 200);
+    assert.equal(anyTermPoolSize(500), 500);
   });
 });

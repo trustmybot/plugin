@@ -3,7 +3,15 @@
 // file is a wm_files row hung off its directory by dir. FTS5 indexes cover
 // directory summaries and file purposes (GH 1632).
 import type { TrajectoryDB } from './db.js';
-import { toFtsOrQuery, toFtsQuery, withFtsGuard } from './fts-query.js';
+import {
+  anyTermPoolSize,
+  orderByMatchedTerms,
+  toFtsOrQuery,
+  toFtsOrTerms,
+  toFtsQuery,
+  withFtsGuard,
+  type WmFtsTable,
+} from './fts-query.js';
 import { markOrphanedEdges } from './symbol-index.js';
 import { laneOf, type Lane } from './utils/test-paths.js';
 
@@ -126,14 +134,25 @@ function toFileNode(r: FileRow): FileNode {
 }
 
 // bm25-ranked FTS rows for the all-terms query; when that matches nothing, the
-// same search over any non-stopword term.
-function rankWithFallback<R>(query: string, search: (fts: string) => R[]): { rows: R[]; match: KeywordMatch } {
+// same search over any non-stopword term, drawn from a wider pool and ordered
+// by matched-term count before bm25 (GH 3157).
+function rankWithFallback<R extends { id: number | bigint }>(
+  db: TrajectoryDB,
+  ftsTable: WmFtsTable,
+  query: string,
+  k: number,
+  search: (fts: string, limit: number) => R[],
+): { rows: R[]; match: KeywordMatch } {
   const allTerms = toFtsQuery(query);
-  const all = withFtsGuard(() => search(allTerms));
+  const all = withFtsGuard(() => search(allTerms, k));
   if (all.length > 0) return { rows: all, match: 'all_terms' };
   const any = toFtsOrQuery(query);
   if (any === null || any === allTerms) return { rows: all, match: 'all_terms' };
-  return { rows: withFtsGuard(() => search(any)), match: 'any_term' };
+  const rows = withFtsGuard(() => {
+    const pool = search(any, anyTermPoolSize(k));
+    return orderByMatchedTerms(db, ftsTable, toFtsOrTerms(query), pool);
+  });
+  return { rows: rows.slice(0, k), match: 'any_term' };
 }
 
 function placeholders(n: number): string {
@@ -276,14 +295,14 @@ export class WorldModelGraph {
   // path/purpose substring hits at score 0. CROSS JOIN keeps the FTS match as
   // the outer loop; a plain JOIN lets the planner walk every repo row instead.
   keywordSearchFiles(repo: string, query: string, k: number): KeywordResult<FileNode> {
-    const { rows: ranked, match } = rankWithFallback(query, (fts) =>
+    const { rows: ranked, match } = rankWithFallback(this.db, 'wm_files_fts', query, k, (fts, limit) =>
       this.db.all<FileRow & { rank: number }>(
         `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
            FROM wm_files_fts CROSS JOIN wm_files f ON f.id = wm_files_fts.rowid
           WHERE wm_files_fts MATCH ? AND f.repo = ?
           ORDER BY rank, f.path
           LIMIT ?`,
-        [fts, repo, k],
+        [fts, repo, limit],
       ),
     );
     const hits = ranked.map((r) => ({ ...toFileNode(r), score: -r.rank }));
@@ -436,14 +455,14 @@ export class WorldModelGraph {
   // better; any-term fallback per rankWithFallback), then case-insensitive
   // path/summary substring hits at score 0.
   keywordSearchDirectories(repo: string, query: string, k: number): KeywordResult<DirectoryNode> {
-    const { rows: ranked, match } = rankWithFallback(query, (fts) =>
+    const { rows: ranked, match } = rankWithFallback(this.db, 'wm_directories_fts', query, k, (fts, limit) =>
       this.db.all<DirectoryRow & { rank: number }>(
         `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
            FROM wm_directories_fts CROSS JOIN wm_directories d ON d.id = wm_directories_fts.rowid
           WHERE wm_directories_fts MATCH ? AND d.repo = ?
           ORDER BY rank, d.path
           LIMIT ?`,
-        [fts, repo, k],
+        [fts, repo, limit],
       ),
     );
     const hits = ranked.map((r) => ({ ...toDirectoryNode(r), score: -r.rank }));
