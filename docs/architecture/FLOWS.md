@@ -19,6 +19,7 @@ Flows are grouped by when they run, and numbered within their group.
 | 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe, or bro itself, per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
 | 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
 | 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
+| 3. Agent task handling | 3.8 | [Parallel lanes](#38-parallel-lanes) | Several independent streams of work, each too large for one turn (planned, GH 3024) | bro (parent) → one bro per lane session, each with its own swe and code-reviewer | lanes with their owned issues and priority, the run's merge choice, a merge queue of lane PRs |
 | 4. Extending the team | 4.1 | [Cheatcode lifecycle](#41-cheatcode-lifecycle) | A capability wall, the Human says "cheatcode", or a reuse check before building | bro (Human approves install) | the capability registry and its attachments |
 | 4. Extending the team | 4.2 | [Agent creation](#42-agent-creation) | Routing hits a role the project has no agent for | bro | a project agent file |
 | 4. Extending the team | 4.3 | [Skill creation](#43-skill-creation) | Recurring pattern needs encoding | bro | a registered skill |
@@ -161,6 +162,21 @@ When the Human's prompt names what to delete, bro does it in one step with no re
 ```mermaid
 flowchart LR
     A[Human names what to delete] --> B[bro deletes in one step]
+```
+
+### 3.8 Parallel lanes
+
+Planned (epic GH 3024; merge queue GH 3148). When the Human's ask holds several independent streams of work, each too large for one turn, bro proposes lanes. bro first settles who merges, because a lane run ends with many PRs. A lane is a child session running its own bro on flow 3.1 or 3.2 for the issues it owns. The parent bro keeps the lanes from colliding, then merges their PRs in priority order or hands each one to the Human, as the Human chose at the start. Starting sessions and messaging between them are Claude's own features; TMB adds ownership, gates, merge order and a lane registry in the trajectory DB, so the Human can recover a lane or change its priority or state at any time without relying on any bro's memory. [LANES.md](LANES.md) holds every case.
+
+```mermaid
+flowchart LR
+    A[Human asks for parallel work] --> B{Human picks who merges lane PRs}
+    B --> C[bro splits the work into lanes and checks their conflicts]
+    C --> D[Human approves the lanes and their priority]
+    D --> E[bro starts one session per lane]
+    E --> F[Each lane runs 3.1 or 3.2 on its own issues]
+    F --> G[Lane PRs enter the merge queue]
+    G --> H[bro integrates and merges PRs in priority order, per B]
 ```
 
 ## 4. Extending the team

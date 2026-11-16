@@ -41,6 +41,7 @@ Looking for one answer instead?
 | Which agent may do Z? | [RESPONSIBILITIES.md](RESPONSIBILITIES.md) |
 | What does an agent see at the start of a turn? | [MEMORY.md](MEMORY.md) |
 | How does bro know where code lives? | [WORLD_MODEL.md](WORLD_MODEL.md) |
+| How do several sessions work in parallel without colliding? | [LANES.md](LANES.md) |
 | Which branch is the work on, and which repo? | [GIT.md](GIT.md) |
 | May TMB write to this path? | [CONTAINMENT.md](CONTAINMENT.md) |
 | How does bro add a published skill or MCP server? | [CHEATCODES.md](CHEATCODES.md) |
@@ -56,6 +57,7 @@ Looking for one answer instead?
 - [ONBOARD.md](ONBOARD.md) — First contact: its rounds, what each records, and how a re-run keeps what still stands.
 - [ENVIRONMENT.md](ENVIRONMENT.md) — How bro learns and caches a repo's install, test and lint commands, with the repo as the source of truth.
 - [TASKS.md](TASKS.md) — Every case of a task from ask to merge: the code task and the non-code task with each step's owner, the push gate both share, retry and escalation, PR comment triage, the quality-layer rules, and debugging a stuck task.
+- [LANES.md](LANES.md) — Planned: every case of flow 3.8, how parallel lanes run as nested sessions, with issue ownership, conflict checks, the merge choice and the merge queue.
 - [EXTENDING.md](EXTENDING.md) — How a project gains agents, skills, consultants and roundtables, and what each path refuses.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — What each shipped agent is for, what it may and may not do, and why the roles are split this way.
 - [MEMORY.md](MEMORY.md) — The memory model every agent follows: cold storage in the trajectory DB, hot session context, and pinned prompts, with the cost of each tier.
