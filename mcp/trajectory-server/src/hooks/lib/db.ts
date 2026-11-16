@@ -9,7 +9,7 @@ import { claudeProjectDir, homeDir, pluginName, posixBasename, posixDirname, she
 import { type DenyFix, denyJson } from './deny.js';
 import { jqAlternatives, jqContentStrings } from './jq.js';
 import { agentRole } from './role.js';
-import { haveSqlite, sqliteBackend, sqliteRun } from './sqlite-shell.js';
+import { haveSqlite, sqliteRun } from './sqlite-shell.js';
 
 export { haveSqlite } from './sqlite-shell.js';
 
@@ -119,19 +119,13 @@ export function immutableUri(db: string, env: NodeJS.ProcessEnv = process.env): 
 /**
  * _tmb_db_read_ro <db> <sql>: a read that never writes the DB, through an
  * immutable URI when the DB is a cold WAL; __ERR__ when it fails. node:sqlite
- * opens a cold WAL read-only where the CLI cannot, creating -shm and -wal
- * beside it, so that path goes to the immutable URI first.
+ * opens a cold WAL read-only by creating -shm and -wal beside it, so a cold
+ * WAL goes to the immutable URI instead.
  */
 export function dbReadRo(db: string, sql: string, env: NodeJS.ProcessEnv = process.env): string {
   const ms = readTimeoutMs(env);
   if (db === '' || !isFile(db)) return GATE_READ_ERROR;
-  let r: { code: number; out: string };
-  if (sqliteBackend(env) === 'node' && walCold(db)) {
-    r = sqliteOnce(true, ms, immutableUri(db, env), sql, env);
-  } else {
-    r = sqliteOnce(true, ms, db, sql, env);
-    if (r.code !== 0 && walCold(db)) r = sqliteOnce(true, ms, immutableUri(db, env), sql, env);
-  }
+  const r = sqliteOnce(true, ms, walCold(db) ? immutableUri(db, env) : db, sql, env);
   return r.code === 0 ? r.out : GATE_READ_ERROR;
 }
 

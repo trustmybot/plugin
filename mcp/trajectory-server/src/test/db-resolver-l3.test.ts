@@ -10,7 +10,7 @@
  * - the probe never writes the DB (GH 1636): a WAL DB held open with its -shm,
  *   a WAL-cold copy whose rows sit only in a non-empty -wal, and a detached WAL
  *   DB all resolve, every SQLite open is read-only, and the main file and -wal
- *   stay byte-for-byte and mtime as they were. Run once per SQLite backend.
+ *   stay byte-for-byte and mtime as they were.
  * - a session in a subdirectory of a workspace resolves the workspace DB
  *   (GH 1553), on the hook side and the server's resolveClaudeDbPath; a
  *   `standalone` marker ends the walk; a DB in $HOME itself is never picked.
@@ -20,13 +20,12 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { accessSync, chmodSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { spawnSync } from 'node:child_process';
 import { after, before, describe, it } from 'node:test';
 import { dbPath, dbState, projectRoot, repoPathAbs, stateDir } from '../hooks/lib/db.js';
-import { sqliteBackend } from '../hooks/lib/sqlite-shell.js';
+import { loadNodeSqlite } from '../hooks/lib/sqlite-shell.js';
 import { resolveClaudeDbPath } from '../platform.js';
 import { sandboxDir, sqlExec } from './db-test-fixtures.js';
 
@@ -46,18 +45,6 @@ class TracedDatabase extends realSqlite.DatabaseSync {
 const tracedSqlite = { ...realSqlite, DatabaseSync: TracedDatabase };
 process.getBuiltinModule = ((id: string) =>
   id === 'node:sqlite' || id === 'sqlite' ? tracedSqlite : builtin(id)) as typeof process.getBuiltinModule;
-
-function onPath(command: string): string | null {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    try {
-      accessSync(join(dir || '.', command), constants.X_OK);
-      return join(dir || '.', command);
-    } catch {
-      /* next dir */
-    }
-  }
-  return null;
-}
 
 interface Resolved {
   path: string | null;
@@ -144,186 +131,134 @@ function fingerprint(path: string): string {
   return `${st.size} ${st.mtimeMs} ${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
 }
 
-const REAL_SQLITE3 = onPath('sqlite3');
+describe('db-resolver-l3: the probe never writes the DB (GH 1636)', { skip: loadNodeSqlite() === null && 'this Node has no usable node:sqlite' }, () => {
+  let tmp: string;
+  let fakeHome: string;
+  let pristine: string;
+  let held: string;
+  let holder: DatabaseSync | null = null;
+  let rc: number;
+  let out: string;
 
-for (const backend of ['node', 'cli'] as const) {
-  const skip =
-    backend === 'cli' && REAL_SQLITE3 === null
-      ? 'sqlite3 not installed'
-      : backend === 'node' && sqliteBackend({}) !== 'node'
-        ? 'this Node has no usable node:sqlite'
-        : false;
+  /** <home>/<name>/.claude/tmb/trajectory.db with a `standalone` marker beside it. */
+  function project(name: string): string {
+    const db = dbIn(join(fakeHome, name));
+    mkdirSync(dirname(db), { recursive: true });
+    writeFileSync(join(dirname(db), 'standalone'), '');
+    return db;
+  }
 
-  describe(`db-resolver-l3: the probe never writes the DB (GH 1636), ${backend} backend`, { skip }, () => {
-    let tmp: string;
-    let fakeHome: string;
-    let bin: string;
-    let cliLog: string;
-    let pristine: string;
-    let held: string;
-    let holder: DatabaseSync | null = null;
-    let rc: number;
-    let out: string;
+  /** dbPath as a hook sees it, from CLAUDE_PROJECT_DIR=<dir>; sets rc and out, arms the open log. */
+  function resolveFrom(dir: string): void {
+    nodeOpens = [];
+    const path = dbPath({ HOME: fakeHome, PATH: process.env.PATH, CLAUDE_PROJECT_DIR: dir });
+    rc = path === null ? 1 : 0;
+    out = path ?? '';
+  }
+  const opens = () => nodeOpens ?? [];
 
-    /** <home>/<name>/.claude/tmb/trajectory.db with a `standalone` marker beside it. */
-    function project(name: string): string {
-      const db = dbIn(join(fakeHome, name));
-      mkdirSync(dirname(db), { recursive: true });
-      writeFileSync(join(dirname(db), 'standalone'), '');
-      return db;
-    }
+  function assertReadonlyOpens(): void {
+    assert.ok(opens().length > 0, 'no SQLite open was logged');
+    assert.deepEqual(
+      opens().filter((l) => !l.startsWith('-readonly ')),
+      [],
+      'every SQLite open is -readonly',
+    );
+  }
 
-    /** dbPath as a hook sees it, from CLAUDE_PROJECT_DIR=<dir>; sets rc and out, arms the open log. */
-    function resolveFrom(dir: string): void {
-      writeFileSync(cliLog, '');
-      nodeOpens = [];
-      try {
-        const path = dbPath({
-          HOME: fakeHome,
-          PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
-          CLAUDE_PROJECT_DIR: dir,
-          ...(backend === 'cli' ? { TMB_HOOKS_SQLITE: 'cli' } : {}),
-        });
-        rc = path === null ? 1 : 0;
-        out = path ?? '';
-      } finally {
-        if (backend === 'cli') nodeOpens = readFileSync(cliLog, 'utf8').split('\n').filter((l) => l !== '');
-      }
-    }
-    const opens = () => nodeOpens ?? [];
+  before(() => {
+    tmp = sandboxDir('db-probe-readonly');
+    fakeHome = join(tmp, 'home');
+    mkdirSync(fakeHome, { recursive: true });
 
-    function assertReadonlyOpens(): void {
-      assert.ok(opens().length > 0, 'no SQLite open was logged');
-      assert.deepEqual(
-        opens().filter((l) => !l.startsWith('-readonly ')),
-        [],
-        'every SQLite open is -readonly',
-      );
-    }
+    held = project('held');
+    sqlExec(held, `PRAGMA journal_mode=WAL; ${SCHEMA}`);
+    holder = new DatabaseSync(held);
+    holder.prepare('SELECT count(*) FROM sqlite_master').get();
+    sqlExec(held, ROWS);
+    pristine = join(tmp, 'pristine');
+    mkdirSync(pristine, { recursive: true });
+    copyFileSync(held, join(pristine, 'trajectory.db'));
+    copyFileSync(`${held}-wal`, join(pristine, 'trajectory.db-wal'));
+  });
+  after(() => {
+    nodeOpens = null;
+    holder?.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('WAL DB with its -shm: resolves from CLAUDE_PROJECT_DIR, the DB is unchanged', () => {
+    utimesSync(held, OLD, OLD);
+    const mainBefore = fingerprint(held);
+    const walBefore = fingerprint(`${held}-wal`);
+    assert.ok(existsSync(`${held}-shm`) && statSync(`${held}-wal`).size > 0, 'setup: no -shm or an empty -wal');
+    resolveFrom(join(fakeHome, 'held'));
+    assert.equal(rc, 0, 'resolution succeeded');
+    assert.equal(out, held, 'dbPath is the planted DB');
+    assertReadonlyOpens();
+    assert.equal(fingerprint(held), mainBefore, 'main file size, mtime and content unchanged');
+    assert.equal(fingerprint(`${held}-wal`), walBefore, '-wal size, mtime and checksum unchanged');
+    holder?.close();
+    holder = null;
+  });
+
+  describe('the same DB copied without its -shm: WAL-cold, -wal non-empty', () => {
+    let cold: string;
 
     before(() => {
-      tmp = sandboxDir(`db-probe-readonly-${backend}`);
-      fakeHome = join(tmp, 'home');
-      bin = join(tmp, 'bin');
-      cliLog = join(tmp, 'sqlite3.log');
-      mkdirSync(fakeHome, { recursive: true });
-      mkdirSync(bin, { recursive: true });
-      writeFileSync(cliLog, '');
-      if (backend === 'cli') {
-        writeFileSync(
-          join(bin, 'sqlite3'),
-          `#!${process.execPath}
-const { appendFileSync } = require('node:fs');
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-appendFileSync(${JSON.stringify(cliLog)}, args.join(' ') + '\\n');
-const r = spawnSync(${JSON.stringify(REAL_SQLITE3)}, args, { stdio: 'inherit' });
-process.exit(r.status ?? 1);
-`,
-        );
-        chmodSync(join(bin, 'sqlite3'), 0o755);
+      cold = project('cold');
+      copyFileSync(join(pristine, 'trajectory.db'), cold);
+      copyFileSync(join(pristine, 'trajectory.db-wal'), `${cold}-wal`);
+      utimesSync(cold, OLD, OLD);
+      utimesSync(`${cold}-wal`, OLD, OLD);
+    });
+
+    it('setup: the WAL-cold copy has a non-empty -wal and no -shm', () => {
+      assert.ok(statSync(`${cold}-wal`).size > 0 && !existsSync(`${cold}-shm`), 'the copy is not WAL-cold');
+      const d = new DatabaseSync(`file:${join(pristine, 'trajectory.db')}?immutable=1`, { readOnly: true });
+      try {
+        const row = d.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'wal_only'").get() as { n: number };
+        assert.equal(row.n, 0, 'the main file lacks what the -wal holds');
+      } finally {
+        d.close();
       }
-
-      held = project('held');
-      sqlExec(held, `PRAGMA journal_mode=WAL; ${SCHEMA}`);
-      holder = new DatabaseSync(held);
-      holder.prepare('SELECT count(*) FROM sqlite_master').get();
-      sqlExec(held, ROWS);
-      pristine = join(tmp, 'pristine');
-      mkdirSync(pristine, { recursive: true });
-      copyFileSync(held, join(pristine, 'trajectory.db'));
-      copyFileSync(`${held}-wal`, join(pristine, 'trajectory.db-wal'));
-    });
-    after(() => {
-      nodeOpens = null;
-      holder?.close();
-      rmSync(tmp, { recursive: true, force: true });
     });
 
-    it('WAL DB with its -shm: resolves from CLAUDE_PROJECT_DIR, the DB is unchanged', () => {
-      utimesSync(held, OLD, OLD);
-      const mainBefore = fingerprint(held);
-      const walBefore = fingerprint(`${held}-wal`);
-      assert.ok(existsSync(`${held}-shm`) && statSync(`${held}-wal`).size > 0, 'setup: no -shm or an empty -wal');
-      resolveFrom(join(fakeHome, 'held'));
+    it('WAL-cold DB with a non-empty -wal: resolves, nothing is checkpointed', () => {
+      const mainBefore = fingerprint(cold);
+      const walBefore = fingerprint(`${cold}-wal`);
+      resolveFrom(join(fakeHome, 'cold'));
       assert.equal(rc, 0, 'resolution succeeded');
-      assert.equal(out, held, 'dbPath is the planted DB');
+      assert.equal(out, cold, 'dbPath is the planted DB');
       assertReadonlyOpens();
-      assert.equal(fingerprint(held), mainBefore, 'main file size, mtime and content unchanged');
-      assert.equal(fingerprint(`${held}-wal`), walBefore, '-wal size, mtime and checksum unchanged');
-      holder?.close();
-      holder = null;
-    });
-
-    describe('the same DB copied without its -shm: WAL-cold, -wal non-empty', () => {
-      let cold: string;
-
-      before(() => {
-        cold = project('cold');
-        copyFileSync(join(pristine, 'trajectory.db'), cold);
-        copyFileSync(join(pristine, 'trajectory.db-wal'), `${cold}-wal`);
-        utimesSync(cold, OLD, OLD);
-        utimesSync(`${cold}-wal`, OLD, OLD);
-      });
-
-      it('setup: the WAL-cold copy has a non-empty -wal and no -shm', () => {
-        assert.ok(statSync(`${cold}-wal`).size > 0 && !existsSync(`${cold}-shm`), 'the copy is not WAL-cold');
-        const d = new DatabaseSync(`file:${join(pristine, 'trajectory.db')}?immutable=1`, { readOnly: true });
-        try {
-          const row = d.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'wal_only'").get() as { n: number };
-          assert.equal(row.n, 0, 'the main file lacks what the -wal holds');
-        } finally {
-          d.close();
-        }
-      });
-
-      it('WAL-cold DB with a non-empty -wal: resolves, nothing is checkpointed', () => {
-        const mainBefore = fingerprint(cold);
-        const walBefore = fingerprint(`${cold}-wal`);
-        resolveFrom(join(fakeHome, 'cold'));
-        assert.equal(rc, 0, 'resolution succeeded');
-        assert.equal(out, cold, 'dbPath is the planted DB');
-        assertReadonlyOpens();
-        assert.equal(fingerprint(cold), mainBefore, 'main file size, mtime and content unchanged');
-        assert.equal(fingerprint(`${cold}-wal`), walBefore, '-wal size, mtime and checksum unchanged');
-      });
-    });
-
-    describe('a detached WAL DB: no -wal, no -shm', () => {
-      let det: string;
-      let readonlyOpens = false;
-
-      before(() => {
-        det = project('detached');
-        sqlExec(det, `PRAGMA journal_mode=WAL; ${SCHEMA} ${ROWS} PRAGMA wal_checkpoint(TRUNCATE);`);
-        rmSync(`${det}-wal`, { force: true });
-        rmSync(`${det}-shm`, { force: true });
-        utimesSync(det, OLD, OLD);
-        if (backend === 'cli' && REAL_SQLITE3 !== null) {
-          const capability = join(tmp, 'capability.db');
-          copyFileSync(det, capability);
-          readonlyOpens = spawnSync(REAL_SQLITE3, ['-readonly', capability, 'SELECT 1;'], { stdio: 'ignore' }).status === 0;
-        }
-      });
-
-      it('detached WAL DB: resolves, the main file is unchanged, no -wal is written', (t) => {
-        const mainBefore = fingerprint(det);
-        resolveFrom(join(fakeHome, 'detached'));
-        assert.equal(rc, 0, 'resolution succeeded');
-        assert.equal(out, det, 'dbPath is the planted DB');
-        assertReadonlyOpens();
-        assert.equal(fingerprint(det), mainBefore, 'main file size, mtime and content unchanged');
-        assert.ok(!existsSync(`${det}-wal`) || statSync(`${det}-wal`).size === 0, 'the probe wrote a -wal');
-        if (readonlyOpens) {
-          t.diagnostic('sqlite3 -readonly opens a detached WAL DB on this platform; the immutable retry is not exercised');
-          return;
-        }
-        assert.ok(opens().join('\n').includes('immutable=1'), `-readonly failed or node:sqlite, so the probe read immutable: ${opens().join('; ')}`);
-        assert.equal(`${fingerprint(`${det}-wal`)} ${fingerprint(`${det}-shm`)}`, 'absent absent', 'no -wal or -shm created');
-      });
+      assert.equal(fingerprint(cold), mainBefore, 'main file size, mtime and content unchanged');
+      assert.equal(fingerprint(`${cold}-wal`), walBefore, '-wal size, mtime and checksum unchanged');
     });
   });
-}
+
+  describe('a detached WAL DB: no -wal, no -shm', () => {
+    let det: string;
+
+    before(() => {
+      det = project('detached');
+      sqlExec(det, `PRAGMA journal_mode=WAL; ${SCHEMA} ${ROWS} PRAGMA wal_checkpoint(TRUNCATE);`);
+      rmSync(`${det}-wal`, { force: true });
+      rmSync(`${det}-shm`, { force: true });
+      utimesSync(det, OLD, OLD);
+    });
+
+    it('detached WAL DB: resolves through the immutable URI, the main file is unchanged, no -wal or -shm is created', () => {
+      const mainBefore = fingerprint(det);
+      resolveFrom(join(fakeHome, 'detached'));
+      assert.equal(rc, 0, 'resolution succeeded');
+      assert.equal(out, det, 'dbPath is the planted DB');
+      assertReadonlyOpens();
+      assert.equal(fingerprint(det), mainBefore, 'main file size, mtime and content unchanged');
+      assert.ok(opens().join('\n').includes('immutable=1'), `the probe read immutable: ${opens().join('; ')}`);
+      assert.equal(`${fingerprint(`${det}-wal`)} ${fingerprint(`${det}-shm`)}`, 'absent absent', 'no -wal or -shm created');
+    });
+  });
+});
 
 describe('db-resolver-l3: a session in a workspace subdirectory resolves the workspace DB (GH 1553)', () => {
   let base: string;

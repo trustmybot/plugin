@@ -1,14 +1,11 @@
 /**
- * One sqlite3 invocation (GH 1692): through node:sqlite when this Node ships
- * it unflagged, else through the sqlite3 CLI. The node path reproduces what the CLI
- * prints in list mode (`|`-separated, no header), its exit codes (arg mode: the
- * primary error code of the first failure; stdin mode: 1 on any error) and the
- * first stderr line of a stdin-mode error, so callers read either path alike.
+ * One sqlite3-shell invocation (GH 1692, GH 3150), always through node:sqlite;
+ * the sqlite3 CLI is never spawned. It reproduces what the CLI prints in list
+ * mode (`|`-separated, no header), its exit codes (arg mode: the primary error
+ * code of the first failure; stdin mode: 1 on any error) and the first stderr
+ * line of a stdin-mode error, since callers parse that output.
  */
-import { spawnSync } from 'node:child_process';
-import { accessSync, constants } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { noteSpawn, spawnLimit, spawnOptions } from './deadline.js';
 
 type SqliteModule = typeof import('node:sqlite');
 type Database = InstanceType<SqliteModule['DatabaseSync']>;
@@ -33,11 +30,8 @@ export interface SqliteResult {
   stderr: string;
 }
 
-export type SqliteBackend = 'node' | 'cli';
-
 const KILLED_CODE = 124;
 const NOT_FOUND_CODE = 127;
-const MAX_BUFFER = 64 * 1024 * 1024;
 
 let nodeSqlite: SqliteModule | null | undefined;
 
@@ -83,60 +77,21 @@ export function loadNodeSqlite(): SqliteModule | null {
   return nodeSqlite;
 }
 
-/** `cli` when TMB_HOOKS_SQLITE=cli or this Node has no usable node:sqlite. */
-export function sqliteBackend(env: NodeJS.ProcessEnv = process.env): SqliteBackend {
-  return env.TMB_HOOKS_SQLITE === 'cli' || loadNodeSqlite() === null ? 'cli' : 'node';
+// haveSqlite and sqliteRun keep the env parameter their callers pass, but
+// node:sqlite reads nothing from it (GH 3150): it only chose the CLI backend.
+
+/** tmb_have_sqlite: a SQLite engine this process can read with, which is node:sqlite alone. */
+export function haveSqlite(env?: NodeJS.ProcessEnv): boolean;
+export function haveSqlite(): boolean {
+  return loadNodeSqlite() !== null;
 }
 
-function onPath(command: string, env: NodeJS.ProcessEnv): boolean {
-  for (const dir of (env.PATH ?? '').split(':')) {
-    try {
-      accessSync(`${dir === '' ? '.' : dir}/${command}`, constants.X_OK);
-      return true;
-    } catch {
-      /* next dir */
-    }
-  }
-  return false;
-}
-
-/** tmb_have_sqlite: a SQLite engine this process can read with. */
-export function haveSqlite(env: NodeJS.ProcessEnv = process.env): boolean {
-  return sqliteBackend(env) === 'node' || onPath('sqlite3', env);
-}
-
-export function sqliteRun(call: SqliteCall, env: NodeJS.ProcessEnv = process.env): SqliteResult {
-  const sqlite = sqliteBackend(env) === 'node' ? loadNodeSqlite() : null;
-  return sqlite ? runNode(sqlite, call) : runCli(call, env);
-}
-
-export function cliArgs(call: SqliteCall): string[] {
-  const args: string[] = [];
-  if (call.bail) args.push('-bail');
-  if (call.readonly) args.push('-readonly');
-  args.push('-cmd', `.timeout ${call.timeoutMs}`, call.target);
-  if (call.sql !== undefined) args.push(call.sql);
-  return args;
-}
-
-function runCli(call: SqliteCall, env: NodeJS.ProcessEnv): SqliteResult {
-  const limit = spawnLimit(call.killAfterMs, 'SIGKILL');
-  const r = spawnSync('sqlite3', cliArgs(call), {
-    env,
-    input: call.sql === undefined ? (call.script ?? '') : undefined,
-    stdio: [call.sql === undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-    encoding: 'utf8',
-    maxBuffer: MAX_BUFFER,
-    ...spawnOptions(limit),
-  });
-  noteSpawn(limit, r);
-  const stdout = r.stdout ?? '';
-  const stderr = r.stderr ?? '';
-  const errno = (r.error as NodeJS.ErrnoException | undefined)?.code;
-  if (errno === 'ENOENT') return { code: NOT_FOUND_CODE, stdout: '', stderr: 'sqlite3: command not found\n' };
-  if (errno === 'ETIMEDOUT' || r.signal === 'SIGKILL') return { code: KILLED_CODE, stdout, stderr: '' };
-  if (r.error) return { code: 1, stdout, stderr: stderr || `${r.error.message}\n` };
-  return { code: r.status ?? 1, stdout, stderr };
+/** Without node:sqlite the call fails (127) instead of throwing, like a missing engine. */
+export function sqliteRun(call: SqliteCall, env?: NodeJS.ProcessEnv): SqliteResult;
+export function sqliteRun(call: SqliteCall): SqliteResult {
+  const sqlite = loadNodeSqlite();
+  if (sqlite === null) return { code: NOT_FOUND_CODE, stdout: '', stderr: 'node:sqlite: not available in this Node\n' };
+  return runNode(sqlite, call);
 }
 
 // ── node:sqlite emulation of the sqlite3 shell ──────────────────────────────

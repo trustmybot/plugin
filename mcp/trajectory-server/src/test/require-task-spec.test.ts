@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
-import { REAL_SQLITE3, walDetach, walGateCases } from './wal-gate-cases.js';
+import { walDetach, walGateCases } from './wal-gate-cases.js';
 
 const GATE = 'require-task-spec';
 const DIST = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -225,7 +225,7 @@ describe('require-task-spec: swe spawns need a pending or idle running task with
   it('a TRAJECTORY_DB_PATH with no file (project not onboarded) allows the spawn', () =>
     assert.equal(run('task_id=1', { TRAJECTORY_DB_PATH: join(sb.dir, 'nonexistent.db') }), ''));
 
-  describe('WAL reads through the sqlite3 CLI', { skip: REAL_SQLITE3 === '' && 'needs the sqlite3 CLI' }, () => {
+  describe('WAL reads', () => {
     let walDb: string;
     let walProj: string;
     before(() => {

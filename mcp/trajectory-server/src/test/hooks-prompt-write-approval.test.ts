@@ -197,11 +197,10 @@ describe('prompt-write-approval (GH 2927)', () => {
     assert.equal(run('NotebookEdit', { notebook_path: skill('x') }), null);
   });
 
-  it('SC4: a missing DB or no sqlite denies, failing closed', () => {
+  it('SC4: a missing DB denies, failing closed', () => {
     approve(skill('x'), 'full');
     const reason = denied(write(skill('x'), {}, env({ TRAJECTORY_DB_PATH: join(base, 'nowhere/trajectory.db') })));
     assert.match(reason, /trajectory DB is unavailable/);
-    denied(write(skill('x'), {}, env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })));
   });
 
   describe('Bash (GH 2942)', () => {
@@ -256,7 +255,6 @@ describe('prompt-write-approval (GH 2927)', () => {
     it('SC3: a write elsewhere and a read need no DB; a swe is exempt', async () => {
       assert.equal(await bash('echo x > docs/x.md', {}, noDb()), null);
       assert.equal(await bash(`cat ${skill('x')}`, {}, noDb()), null);
-      assert.equal(await bash('echo x > docs/x.md', {}, env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })), null);
       assert.equal(await bash('echo x > .claude/skills/x/SKILL.md', { agent_type: 'tmb:swe', agent_id: 'a1' }), null);
     });
 
@@ -365,19 +363,19 @@ describe('prompt-write-approval (GH 2927)', () => {
           ...["cp -r x/skills .cl$'a'ude/", "cp -r x/skills $'\\x2e'claude/", "cp -r x/skills $'\\056claude'/", 'cp -r x/skills $"x"/', 'cp -r x/skills .c*/', 'cp -r x/skills .[cC]laude/', 'cp -r x/skills .$X/', 'cp -r x/skills x/.{a,b}/'].map((c) => c + TRAILER),
         ];
         const UNPARSED = [...NAMES_CLAUDE, 'echo "unterminated', 'ls $(', `cp -r x/skills build/${TRAILER}`, `cat a.txt b.md > out.log${TRAILER}`];
-        const standAside = (): NodeJS.ProcessEnv[] => [noDb(), env({ TMB_HOOKS_SQLITE: 'cli', PATH: join(base, 'empty-path') })];
+        const standAside = (): NodeJS.ProcessEnv[] => [noDb()];
 
         it('SC9: with a trajectory DB it is denied, since nothing it writes can be told', async () => {
           for (const command of UNPARSED) assert.match(denied(await bash(command)), /cannot be judged: the command could not be parsed/, command);
         });
 
-        it('SC9, F876-7: with no DB or no sqlite it is denied when its text may name .claude: any case or quoting, ANSI-C or locale quoting, or a dot with a glob, brace or $ after it', async () => {
+        it('SC9, F876-7: with no DB it is denied when its text may name .claude: any case or quoting, ANSI-C or locale quoting, or a dot with a glob, brace or $ after it', async () => {
           for (const runEnv of standAside()) {
             for (const command of NAMES_CLAUDE) assert.match(denied(await bash(command, {}, runEnv)), /trajectory DB is unavailable/, command);
           }
         });
 
-        it('SC9: with no DB or no sqlite any other gets containment-guard\'s decision', async () => {
+        it('SC9: with no DB any other gets containment-guard\'s decision', async () => {
           for (const runEnv of standAside()) {
             for (const command of UNPARSED.filter((c) => !NAMES_CLAUDE.includes(c))) {
               const payload = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: 'Bash', tool_input: { command }, agent_type: 'tmb:code-reviewer', agent_id: 'z' });

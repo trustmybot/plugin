@@ -41,6 +41,7 @@ import { createRequire } from 'node:module';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ALLOW, type SyncGate, type GateResult } from './gate.js';
+import { dbProbe } from './lib/db.js';
 import {
   TRANSFORMERS_PACKAGE,
   TRANSFORMERS_VERSION,
@@ -418,16 +419,11 @@ function pluginName(root: string): string {
 
 type DbProbe = 'current' | 'stale' | 'error';
 
+const DB_PROBE: Record<0 | 1 | 2, DbProbe> = { 0: 'current', 1: 'stale', 2: 'error' };
+
+/** The tasks schema read read-only through node:sqlite; 'current' when this Node has none. */
 function probeDb(db: string, env: NodeJS.ProcessEnv): DbProbe {
-  if (!isFile(db)) return 'stale';
-  const sqlite = onPath('sqlite3', env);
-  if (!sqlite) return 'current';
-  const r = spawnSync(sqlite, ['-readonly', '-cmd', '.timeout 1500', db, "SELECT name FROM pragma_table_info('tasks');"], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
-  if (r.status !== 0) return 'error';
-  return r.stdout.includes('prompt_bearing') ? 'current' : 'stale';
+  return DB_PROBE[dbProbe(db, env)];
 }
 
 /** The trajectory DB the way dbResolve in lib/db.ts finds it. */

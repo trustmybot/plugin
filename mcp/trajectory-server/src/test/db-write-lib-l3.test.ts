@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { auditAppend, auditSql, dbWrite, nowIso, type AuditRow } from '../hooks/lib/audit.js';
@@ -24,10 +24,23 @@ import { dbReadBudget, gateRead, sqliteRo } from '../hooks/lib/db.js';
 import { reusableRun, runCommandSql, runFinishSql, runStartSql, type VerificationRunSource } from '../hooks/lib/verification-runs.js';
 import { childEnv, sqlExec, sqlRows } from './db-test-fixtures.js';
 import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
-import { sqliteLogWrapper, walDetach } from './wal-gate-cases.js';
+import { walDetach } from './wal-gate-cases.js';
 
 const SCHEMA = join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql');
 const CALLER = 'db-write-lib-l3';
+
+/** node:sqlite opens the hook lib makes through process.getBuiltinModule, counted while non-null. */
+let sqliteOpens: number | null = null;
+const builtin = process.getBuiltinModule.bind(process);
+const realSqlite = builtin('node:sqlite');
+class CountedDatabase extends realSqlite.DatabaseSync {
+  constructor(...args: ConstructorParameters<typeof realSqlite.DatabaseSync>) {
+    if (sqliteOpens !== null) sqliteOpens += 1;
+    super(...args);
+  }
+}
+const countedSqlite = { ...realSqlite, DatabaseSync: CountedDatabase };
+process.getBuiltinModule = (id: string) => (id === 'node:sqlite' || id === 'sqlite' ? countedSqlite : builtin(id));
 
 interface Holder {
   release(): Promise<void>;
@@ -278,48 +291,44 @@ INSERT INTO issues (id, objective, description, status, repo, created_at, update
   });
 
   describe('a WAL DB with no holder, and gateRead retrying only an unopenable DB', () => {
-    let roBin: string;
-    let roLog: string;
-    const cli = (extra: Record<string, string> = {}) =>
-      childEnv({ TMB_HOOKS_SQLITE: 'cli', PATH: [roBin, process.env.PATH ?? ''].join(delimiter), ...extra });
-    const logLines = () => readFileSync(roLog, 'utf8').split('\n').filter((l) => l !== '').length;
+    /** The node:sqlite opens <read> makes. */
+    const opensDuring = (read: () => void): number => {
+      sqliteOpens = 0;
+      try {
+        read();
+        return sqliteOpens;
+      } finally {
+        sqliteOpens = null;
+      }
+    };
 
-    before(() => {
-      roBin = join(sb.dir, 'ro-bin');
-      roLog = join(sb.dir, 'ro-sqlite3.log');
-      sqliteLogWrapper(roBin, roLog);
+    it('gateRead, sqliteRo and dbReadBudget read a WAL DB with no holder', () => {
+      const cold = join(sb.dir, 'cold/trajectory.db');
+      mkdirSync(join(sb.dir, 'cold'));
+      sqlExec(DB, `VACUUM INTO '${cold}';`);
+      const sql = "SELECT value_json FROM plugin_config WHERE key='dbw_ok';";
+      walDetach(cold);
+      assert.equal(gateRead(cold, sql, env()), '1', 'gateRead');
+      walDetach(cold);
+      assert.equal(sqliteRo(cold, sql, env()), '1', 'sqliteRo');
+      walDetach(cold);
+      assert.equal(dbReadBudget(cold, '1500', `${sql}\n`, env()).out, '1', 'dbReadBudget');
     });
 
-    for (const backend of ['node', 'cli'] as const) {
-      it(`gateRead, sqliteRo and dbReadBudget read a WAL DB with no holder (${backend} backend)`, () => {
-        const e = () => (backend === 'cli' ? cli() : env());
-        const cold = join(sb.dir, `cold-${backend}/trajectory.db`);
-        mkdirSync(join(sb.dir, `cold-${backend}`));
-        sqlExec(DB, `VACUUM INTO '${cold}';`);
-        const sql = "SELECT value_json FROM plugin_config WHERE key='dbw_ok';";
-        walDetach(cold);
-        assert.equal(gateRead(cold, sql, e()), '1', 'gateRead');
-        walDetach(cold);
-        assert.equal(sqliteRo(cold, sql, e()), '1', 'sqliteRo');
-        walDetach(cold);
-        assert.equal(dbReadBudget(cold, '1500', `${sql}\n`, e()).out, '1', 'dbReadBudget');
-      });
-    }
-
-    it('gateRead retries nothing but an unopenable DB: a SQL error runs sqlite3 once', () => {
-      writeFileSync(roLog, '');
-      assert.equal(gateRead(DB, 'SELECT * FROM no_such_table;', cli()), '__ERR__', 'query error');
-      assert.equal(logLines(), 1, 'one sqlite3 run');
+    it('gateRead retries nothing but an unopenable DB: a SQL error opens the DB once', () => {
+      const opens = opensDuring(() => assert.equal(gateRead(DB, 'SELECT * FROM no_such_table;', env()), '__ERR__', 'query error'));
+      assert.equal(opens, 1, 'one open');
     });
 
-    it('gateRead retries nothing but an unopenable DB: a locked DB runs sqlite3 once', async () => {
+    it('gateRead retries nothing but an unopenable DB: a locked DB opens the DB once', async () => {
       const locked = join(sb.dir, 'locked.db');
       sqlExec(locked, 'CREATE TABLE x (a);');
       const holder = await holdLock(locked, 'EXCLUSIVE', 'INSERT INTO x VALUES (1);');
       try {
-        writeFileSync(roLog, '');
-        assert.equal(gateRead(locked, 'SELECT count(*) FROM x;', cli({ TMB_DB_WRITE_TIMEOUT_MS: '100' })), '__ERR__', 'locked DB');
-        assert.equal(logLines(), 1, 'one sqlite3 run');
+        const opens = opensDuring(() =>
+          assert.equal(gateRead(locked, 'SELECT count(*) FROM x;', env({ TMB_DB_WRITE_TIMEOUT_MS: '100' })), '__ERR__', 'locked DB'),
+        );
+        assert.equal(opens, 1, 'one open');
       } finally {
         await holder.release();
       }

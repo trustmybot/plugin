@@ -14,7 +14,6 @@ import {
   parseCloseLints,
   type LintRunSource,
 } from '../hooks/lib/lint-runs.js';
-import { sqliteBackend } from '../hooks/lib/sqlite-shell.js';
 import { childEnv, migratedDb, sandboxDir, sqlExec } from './db-test-fixtures.js';
 
 function sqlRows(db: string, sql: string): Record<string, unknown>[] {
@@ -205,20 +204,13 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
 
   after(() => rmSync(dir, { recursive: true, force: true }));
 
-  for (const backend of ['cli', 'node'] as const) {
-    it(`reads a finished run with result rows through the ${backend} backend`, (t) => {
-      const env = childEnv({ TMB_HOOKS_SQLITE: backend === 'cli' ? 'cli' : undefined });
-      if (sqliteBackend(env) !== backend) {
-        t.skip('this Node has no usable node:sqlite');
-        return;
-      }
-      const run = latestLintRun(db, TASK, SHA, env);
-      assert.ok(run, 'the finished run is read');
-      assert.ok(Array.isArray(run.results), `results is an array, got ${typeof run.results}`);
-      assert.equal(run.results.length, 2);
-      assert.deepEqual(run.results.map((r) => r.name), ['first', 'second']);
-    });
-  }
+  it('reads a finished run with result rows through node:sqlite', () => {
+    const run = latestLintRun(db, TASK, SHA, childEnv());
+    assert.ok(run, 'the finished run is read');
+    assert.ok(Array.isArray(run.results), `results is an array, got ${typeof run.results}`);
+    assert.equal(run.results.length, 2);
+    assert.deepEqual(run.results.map((r) => r.name), ['first', 'second']);
+  });
 });
 
 describe('parseCloseLints (GH 2570)', () => {

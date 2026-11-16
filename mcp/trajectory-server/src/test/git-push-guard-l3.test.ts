@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { afterEach, before, beforeEach, after, describe, it } from 'node:test';
 import { makeSandbox, type Sandbox } from './hook-sandbox.js';
 import { anchorTask, commit, DENY, GATE, gateEnv, git, has, hasNot, initRepo, insertRepo, insertTask, INTEGRATE, newDb, NO_DB, passTask, push, recordRun, signTask, sql } from './git-push-guard-l3.js';
-import { REAL_SQLITE3, walGateCases } from './wal-gate-cases.js';
+import { walGateCases } from './wal-gate-cases.js';
 
 interface Repo {
   sb: Sandbox;
@@ -341,7 +341,7 @@ describe('git-push-guard l3: WAL reads on a first push bounded by the repos row 
   it('fixture precondition: the push of the signed feature commit is allowed', () =>
     hasNot(push(r.sb, 'git push origin feat/wal', { cwd: r.repo, db }), DENY, 'an empty target read would fall back to main and gate the unsigned dev commit'));
 
-  describe('through the sqlite3 CLI', { skip: REAL_SQLITE3 === '' && 'needs the sqlite3 CLI' }, () => {
+  describe('WAL reads', () => {
     walGateCases({
       label: GATE,
       gate: GATE,

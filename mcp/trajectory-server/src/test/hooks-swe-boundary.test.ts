@@ -259,14 +259,6 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
     assert.match(decision(r.stdout)?.permissionDecisionReason ?? '', /^BLOCKED: SWE may only edit files inside its assigned worktree/);
   });
 
-  it('enforces nothing with neither node:sqlite nor the CLI, as the .sh does without the CLI', async () => {
-    const bare = { ...env, PATH: noCli, TMB_HOOKS_SQLITE: 'cli' };
-    assert.equal(haveSqlite(bare), false);
-    const input = payload('Write', { file_path: join(dir, 'outside/x.txt'), content: 'x' });
-    const r = await sweBoundary(input, bare);
-    assert.equal(r.stdout, '');
-  });
-
   it('leaves never-judged write targets to containment-guard', async () => {
     const command = `perl -i -pe 'BEGIN{open(F,"skills/s/SKILL.md")}' src/a.ts`;
     const lines = await writePaths(command, { cwd: wt, root: wt, env });
