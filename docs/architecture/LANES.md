@@ -26,7 +26,7 @@ One change with independent parts stays in one session as parallel swe tasks (fl
 
 ## 1. Who merges lane PRs
 
-bro asks this first, before any planning, because a lane run ends with many PRs. The answer covers this lane run only. A permanent change to the project's merge policy still goes through `/onboard`. Under either answer, a PR whose gate requires a named GitHub approval, such as a prompt change, still waits for that approval.
+bro asks this first, before any planning, because a lane run ends with many PRs. The answer covers this lane run only. Making the choice permanent for the project is planned as a merge-policy setting (GH 3148). Under either answer, a PR whose gate requires a named GitHub approval, such as a prompt change, still waits for that approval.
 
 ```mermaid
 flowchart LR
@@ -36,7 +36,7 @@ flowchart LR
     C --> E[Choice recorded on the lane run, scoped to the parent session]
     D --> E
     E --> F[Every lane brief carries the choice]
-    E -. Human wants it permanent .-> G[Point to /onboard]
+    E -. Human wants it permanent .-> G[Planned: a project merge-policy setting, GH 3148]
 ```
 
 - **The choice is the parent's.** It counts only in the parent session that recorded it, so a lane can't merge by citing it. Planned: GH 3148, enforced by the per-session approval gate in GH 3028.
