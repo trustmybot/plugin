@@ -55,6 +55,7 @@ Each gate here is one `<name>.ts`, wired through `hooks/hooks.json`. Every regis
 | `roundtable-cleanup-postcheck.ts` | PostToolUse `roundtable_close` | Check the roundtable's outcome was captured |
 | `post-atomic-close-readme.ts` | PostToolUse `bro_atomic_close` | Nudge bro about touched directories whose README is stale or missing |
 | `post-task-create-spawn-hint.ts` | PostToolUse task creation | Remind bro to spawn swe after provisioning a task |
+| `lane-membership.ts` | PostToolUse `intent_start`, `issue_create`, `issue_adopt_remote`, `task_provision` | Record the issues a session's lane owns, for the compaction restore; `TMB_DISABLE_LANE_MEMBERSHIP_HOOK=1` turns it off |
 | `bash-output-trim.ts` | PostToolUse Bash | Trim long output of provably read-only commands in bro's main thread |
 | `attribution-footer.ts` | PostToolUse Bash | Append co-author and session attribution to commits |
 | `clean-merged-branch.ts` | PostToolUse Bash | Prune local branches once their PR merges |
@@ -64,7 +65,7 @@ Each gate here is one `<name>.ts`, wired through `hooks/hooks.json`. Every regis
 | `swe-spawn-bind.ts` | PostToolUse Agent | Bind an accepted swe spawn's run row to its agent id |
 | `swe-spawn-rollback.ts` | PermissionDenied Agent | Roll back a swe spawn that auto mode refused |
 | `bro-turn-usage.ts` | Stop | Meter bro's token usage per session, asynchronously |
-| `session-handoff.ts` | PreCompact | Record bro's state before a compaction for the persona to restore; `TMB_DISABLE_SESSION_HANDOFF_HOOK=1` turns it off |
+| `session-handoff.ts` | PreCompact | Record bro's state before a compaction for the persona to restore, with the open issues the session's lane owns; `TMB_DISABLE_SESSION_HANDOFF_HOOK=1` turns it off |
 | `reviewer-downstream-context.ts` | SubagentStart `tmb:code-reviewer` | In the downstream-context experiment's `on` arm, give code-reviewer the diff's direct downstream |
 | `swe-atomic-close.ts` | SubagentStop | Close a swe task that committed with a passing verification run, else tell bro to resume it; record run metrics |
 | `consultant-persistence-gate.ts` | SubagentStop | Persist a consultant's output before it exits |

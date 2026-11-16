@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, session-handoff, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge and prompt-write-approval have no hook-corpus
+ * liveness-alert, session-handoff, lane-membership, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge and prompt-write-approval have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -75,6 +75,7 @@ export const ROUTER_CORPUS_GATES = [
   'roundtable-cleanup-postcheck',
   'post-atomic-close-readme',
   'post-task-create-spawn-hint',
+  'lane-membership',
   'task-overrun-alert',
   'liveness-alert',
   'bash-output-trim',
@@ -456,6 +457,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   }
 
   if (want('session-handoff')) cases.push(...sessionHandoffCases(join(root, 'session-handoff'), emptyProject));
+  if (want('lane-membership')) cases.push(...laneMembershipCases(join(root, 'lane-membership'), emptyProject));
   if (want('task-overrun-alert')) cases.push(...overrunCases(join(root, 'task-overrun-alert'), emptyProject));
   if (want('liveness-alert')) cases.push(...livenessCases(join(root, 'liveness-alert'), emptyProject));
 
@@ -635,6 +637,35 @@ function sessionHandoffCases(dir: string, cwd: string): RouterCase[] {
     ['bad-session-id', true, false, payload({ session_id: "bad'id" })],
   ];
   return scenarios.map(([file, broRow, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(broRow, openRun) }));
+}
+
+/** lane-membership's PostToolUse cases, on a DB holding one open issue and no lane, rebuilt per case. */
+function laneMembershipCases(dir: string, cwd: string): RouterCase[] {
+  const db = join(dir, 'trajectory.db');
+  mkdirSync(dir, { recursive: true });
+  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const build = (): void => {
+    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
+    const d = new DatabaseSync(db);
+    d.exec(schema);
+    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (602, 'o', 'open', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
+    d.close();
+  };
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
+  const tool = (name: string): string => `mcp__plugin_tmb_trajectory-server__${name}`;
+  const text = (body: object): object => ({ content: [{ type: 'text', text: JSON.stringify(body) }] });
+  const payload = (name: string, input: object, response: object, extra: object = {}): string =>
+    JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 'sess-lane-one', cwd, tool_name: tool(name), tool_input: input, tool_response: response, ...extra });
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['intent-start', payload('intent_start', { objective: 'o' }, text({ issue_id: 602, branch_id: 'fix/x' }))],
+    ['issue-create', payload('issue_create', { objective: 'o' }, text({ id: 602, objective: 'o' }))],
+    ['issue-adopt-remote', payload('issue_adopt_remote', { issue_id: '602', remote_iid: 3020 }, text({ id: 602 }))],
+    ['task-provision', payload('task_provision', { issue_id: 602 }, text({ task_id: 22, branch_id: 'fix/x' }))],
+    ['error-response', payload('task_provision', { issue_id: 602 }, { ...text({ error: 'env_gate_failed' }), is_error: true })],
+    ['unknown-issue', payload('issue_create', { objective: 'o' }, text({ id: 999 }))],
+    ['bad-session-id', payload('intent_start', {}, text({ issue_id: 602 }), { session_id: "bad'id" })],
+  ];
+  return scenarios.map(([file, input]) => ({ gate: 'lane-membership', file, input, env, cwd, fakeUid: false, reset: build }));
 }
 
 /** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */

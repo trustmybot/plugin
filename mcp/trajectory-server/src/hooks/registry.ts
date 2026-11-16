@@ -53,6 +53,7 @@ import { GATE_NAME as SWE_BRIEF_GATE, sweBriefGate } from './swe-brief-gate.js';
 import { GATE_NAME as SWE_SPAWN_BIND_GATE, sweSpawnBind } from './swe-spawn-bind.js';
 import { GATE_NAME as SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback } from './swe-spawn-rollback.js';
 import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-task-create-spawn-hint.js';
+import { GATE_NAME as LANE_MEMBERSHIP_GATE, laneMembership } from './lane-membership.js';
 import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
@@ -134,6 +135,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [SWE_SPAWN_BIND_GATE, sweSpawnBind],
   [SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback],
   [SPAWN_HINT_GATE, postTaskCreateSpawnHint],
+  [LANE_MEMBERSHIP_GATE, laneMembership],
   [AGENT_ARG_GATE, agentArgMatchesCaller],
   [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
   [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
@@ -296,6 +298,10 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(README_STALENESS_GATE, 'advisory', 'bro_atomic_close'),
     routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'bro_atomic_close'),
     routerGate(SPAWN_HINT_GATE, 'advisory', 'task_create_batch'),
+    routerGate(LANE_MEMBERSHIP_GATE, 'advisory', 'intent_start'),
+    routerGate(LANE_MEMBERSHIP_GATE, 'advisory', 'issue_create'),
+    routerGate(LANE_MEMBERSHIP_GATE, 'advisory', 'issue_adopt_remote'),
+    routerGate(LANE_MEMBERSHIP_GATE, 'advisory', 'task_provision'),
     routerGate(OVERRUN_GATE, 'advisory'),
     routerGate(LIVENESS_ALERT_GATE, 'advisory'),
   ]),

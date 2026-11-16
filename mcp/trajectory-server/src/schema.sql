@@ -468,7 +468,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 72, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 73, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -605,6 +605,29 @@ CREATE TABLE IF NOT EXISTS session_handoffs (
     consumed_at         TEXT,
     consumed_by_session TEXT
 );
+
+-- lanes and lane_issues (GH 3020; schema v73): the issues a lane owns. A lane
+-- is one Claude Code session for now, keyed by its session_id. The
+-- lane-membership PostToolUse gate upserts the lane and adds an issue after a
+-- successful intent_start, issue_create, issue_adopt_remote or task_provision
+-- call on it; migrateV72toV73 backfilled both from session_handoffs and
+-- agent_runs. An issue may sit in several lanes. The compaction restore lists
+-- the lane's open issues.
+CREATE TABLE IF NOT EXISTS lanes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT    NOT NULL UNIQUE,
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lane_issues (
+    lane_id   INTEGER NOT NULL REFERENCES lanes(id) ON DELETE CASCADE,
+    issue_id  INTEGER NOT NULL REFERENCES issues(id),
+    added_at  TEXT    NOT NULL,
+    PRIMARY KEY (lane_id, issue_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lane_issues_issue ON lane_issues(issue_id);
 
 -- agent_run_tool_output (GH 1957; schema v53): how much text each tool returned
 -- into one agent run, one row per (run, tool). calls counts the run's

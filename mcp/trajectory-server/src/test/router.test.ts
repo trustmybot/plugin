@@ -572,6 +572,9 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
     assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-atomic-close-readme', 'cleanup-worktree-on-task-close', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert', 'liveness-alert']);
+    for (const tool of ['intent_start', 'issue_create', 'issue_adopt_remote', 'task_provision']) {
+      assert.deepEqual(names('PostToolUse', mcp(tool)), ['lane-membership', 'task-overrun-alert', 'liveness-alert'], tool);
+    }
     assert.deepEqual(names('PostToolUse', 'Bash'), ['bash-output-trim', 'attribution-footer', 'clean-merged-branch', 'close-issue-on-merge', 'ref-move-reindex']);
     assert.deepEqual(names('PostToolUse', 'Agent'), ['swe-spawn-bind']);
     assert.deepEqual(names('PermissionDenied', 'Agent'), ['swe-spawn-rollback']);

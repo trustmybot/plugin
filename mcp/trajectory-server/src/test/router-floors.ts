@@ -11,6 +11,7 @@
  * the lightest advisory one, wm-read-before-provision, which writes an audit row, the 5 s its 3.5 s audit run budget plus 1 s
  * needs, reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one, and
  * prompt-write-approval, which reads the DB, the 6 s of cheatcode-install-approval, the DB-reading approval gate it mirrors.
+ * lane-membership, which writes the DB after a tool call, takes the 6 s of session-handoff, the DB-writing gate it mirrors.
  * swe-edit-lint, born in the router too, takes the 10 s its spec sets for the
  * repo's lint commands on the edited file (GH 2570).
  */
@@ -48,6 +49,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'roundtable-cleanup-postcheck': 6,
   'post-atomic-close-readme': 6,
   'post-task-create-spawn-hint': 4,
+  'lane-membership': 6,
   'task-overrun-alert': 6,
   'liveness-alert': 6,
   'bash-output-trim': 4,
