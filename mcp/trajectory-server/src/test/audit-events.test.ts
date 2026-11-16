@@ -164,6 +164,32 @@ describe('legacy_event — written only by the schema-38 and schema-39 migration
   }
 });
 
+describe('review_batch_recorded — written only by review_batch_record (GH 2225 T4)', () => {
+  it('is registered as a server-only event', () => {
+    const entry = AUDIT_EVENT_TYPES.find((e) => e.type === 'review_batch_recorded');
+    assert.ok(entry, 'review_batch_recorded is in the registry');
+    assert.deepEqual(entry.writers, ['server']);
+  });
+
+  // A forged pass row would batch-review tasks no reviewer checked, so not even code-reviewer may append one.
+  for (const agent of ['code-reviewer', 'bro', 'swe']) {
+    it(`audit_append refuses review_batch_recorded for ${agent}`, async () => {
+      const db = tempDB();
+      const r = (await auditTools(db).handlers['audit_append']({
+        agent,
+        issue_id: '-1',
+        summary: 's',
+        event_type: 'review_batch_recorded',
+        content_json: JSON.stringify({ task_ids: [1], commit_shas: ['abc1234'], verdict: 'pass' }),
+      })) as RawResult;
+      assert.equal(r.isError, true);
+      assert.equal((JSON.parse(r.content[0].text) as { error: string }).error, 'audit_event_not_writable_by_role');
+      assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'review_batch_recorded'")?.n, 0);
+      db.close();
+    });
+  }
+});
+
 describe('insertAudit writer check', () => {
   it('throws AuditWriterError and writes nothing when the writer is not listed', () => {
     const db = tempDB();

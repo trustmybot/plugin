@@ -210,4 +210,47 @@ describe('reviewer-identity-observe: a code-reviewer validation_record records i
     assert.equal(rows(), before, 'no row written');
     assert.equal(state(4), '0|-|-', 'the reviewer row stays unconsumed and unsuperseded');
   });
+
+  // GH 2225 T4: review_batch_record is observed the same way, keyed by its batch_key.
+  describe('review_batch_record', () => {
+    const HEAD = 'ABCDEF1234567890ABCDEF1234567890ABCDEF12';
+    function batchPayload(agentType: string, agentId: string, input: Record<string, unknown> = {}): Payload {
+      const p: Payload = {
+        hook_event_name: 'PreToolUse',
+        session_id: 'main-session-1',
+        tool_name: 'mcp__plugin_tmb_trajectory-server__review_batch_record',
+        tool_use_id: 'toolu_batch01',
+        tool_input: { agent: 'code-reviewer', task_ids: ['42', 42], feature_branch: 'feat/agile', head_sha: HEAD, verdict: 'pass', ...input },
+      };
+      if (agentType !== '') p.agent_type = agentType;
+      if (agentId !== '') p.agent_id = agentId;
+      return p;
+    }
+    const batchRows = () =>
+      query(db, "SELECT COUNT(*) FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.tool') = 'review_batch_record'");
+
+    it('a code-reviewer subagent call writes one row on the lowest task\'s issue, keyed by batch_key', async () => {
+      const { reviewBatchKey } = (await import(join(DIST, 'review-sql.js'))) as { reviewBatchKey: (ids: number[], sha: string) => string };
+      assert.equal(decision(run(proj, batchPayload('tmb:code-reviewer', 'a9b2c3d4e5f6a7b8c'))), 'allow', 'observe-only: allowed');
+      assert.equal(batchRows(), '1');
+      assert.equal(
+        query(db, "SELECT issue_id || '|' || from_node || '|' || json_remove(content_json, '$.observed_at') FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.tool') = 'review_batch_record'"),
+        `7|hook:reviewer-identity-observe|{"tool":"review_batch_record","task_ids":[42],"head_sha":"${HEAD.toLowerCase()}","batch_key":"${reviewBatchKey([42], HEAD)}","session_id":"main-session-1","agent_id":"a9b2c3d4e5f6a7b8c","tool_use_id":"toolu_batch01","consumed":0}`,
+      );
+    });
+
+    it('a swe, a main-loop caller, or malformed task_ids or head_sha writes nothing', () => {
+      assert.equal(decision(run(proj, batchPayload('tmb:swe', 'b9b2c3d4e5f6a7b8c'))), 'allow');
+      assert.equal(decision(run(proj, batchPayload('', ''))), 'allow');
+      for (const input of [{ task_ids: [] }, { task_ids: [0] }, { task_ids: 'x' }, { head_sha: 'nothex!' }, { head_sha: 12 }]) {
+        assert.equal(decision(run(proj, batchPayload('code-reviewer', 'c9b2c3d4e5f6a7b8c', input))), 'allow', JSON.stringify(input));
+      }
+      assert.equal(batchRows(), '1', 'only the earlier row');
+    });
+
+    it('the router chain runs the gate for review_batch_record', () => {
+      assert.equal(decision(chain(batchPayload('code-reviewer', 'd9b2c3d4e5f6a7b8c'))), 'allow');
+      assert.equal(batchRows(), '2');
+    });
+  });
 });

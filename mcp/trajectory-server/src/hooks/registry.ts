@@ -281,6 +281,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
       routerGate(SWE_BRIEF_GATE, 'enforcement'),
       routerGate(SWE_VERIFICATION_GATE, 'enforcement', 'task_update_status'),
       routerGate(REVIEWER_IDENTITY_GATE, 'enforcement', 'validation_record'),
+      routerGate(REVIEWER_IDENTITY_GATE, 'enforcement', 'review_batch_record'),
       routerGate(CHEATCODE_APPROVAL_GATE, 'enforcement', 'cheatcode_install'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_provision'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_reopen'),

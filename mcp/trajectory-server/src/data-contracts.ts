@@ -18,7 +18,7 @@
 import { type Dirent, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
-import { HAS_PASS_SQL, reviewSkipAuthoredSql } from './review-sql.js';
+import { batchReviewedSql, HAS_PASS_SQL, reviewSkipAuthoredSql } from './review-sql.js';
 import { STALE_RUNNING_HOURS_DEFAULT } from './tools/lifecycle.js';
 import { STRAY_DB_MAX_DEPTH, claudeProjectRootOfDb, otherClaudeDbs } from './platform.js';
 import { isProseFile } from './prose-files.js';
@@ -160,7 +160,8 @@ export const UNREVIEWED_CLOSED_TASK = (alias: string): string =>
                AND ${ts(`${alias}.updated_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
                AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = ${alias}.id AND v.verdict = 'pass')
                AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql('a')}
-                                AND ${auditTaskId('a')} = ${alias}.id)`;
+                                AND ${auditTaskId('a')} = ${alias}.id)
+               AND NOT ${batchReviewedSql(alias)}`;
 
 // NULL is a task closed before v66 or outside any mode: it reads as truest.
 const NOT_AGILE_TASK = (alias: string): string => `COALESCE(${alias}.workflow_mode, 'truest') <> 'agile'`;
@@ -403,7 +404,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       id: 'agile_review_queued',
       severity: 'warn',
       min_schema: 66,
-      description: 'tasks closed under workflow_mode agile in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago with no passing code-reviewer verdict, bro-written review_gate_waived row, or review_gate_bypassed row from bro or hook:close-issue-on-merge; the observed value is the size of the queued-review backlog',
+      description: 'tasks closed under workflow_mode agile in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago with no passing code-reviewer verdict, bro-written review_gate_waived row, or review_gate_bypassed row from bro or hook:close-issue-on-merge, and not batch-reviewed (a passing code-reviewer review_batch_recorded row naming the task at its current commit); the observed value is the size of the queued-review backlog',
       sql: `SELECT COUNT(*) FROM tasks t
              WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND t.workflow_mode = 'agile'`,
       expect: { op: '=', value: 0 },
