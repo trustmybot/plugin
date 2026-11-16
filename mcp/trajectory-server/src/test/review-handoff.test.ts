@@ -91,14 +91,19 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     return { taskId, worktree };
   };
 
-  const sweCommits = async (taskId: number, worktree: string, files: Record<string, string>): Promise<string> => {
+  const sweCommits = async (
+    taskId: number,
+    worktree: string,
+    files: Record<string, string>,
+    shaArg: (sha: string) => string = (sha) => sha,
+  ): Promise<string> => {
     for (const [path, text] of Object.entries(files)) writeFileSync(join(worktree, path), text);
     git(worktree, 'add', '.');
     git(worktree, 'commit', '-q', '-m', 'discount');
     const sha = git(worktree, 'rev-parse', 'HEAD');
     await ok('task_brief', { agent: 'swe', task_id: taskId });
     const complete = {
-      agent: 'swe', task_id: String(taskId), status: 'completed', commit_sha: sha,
+      agent: 'swe', task_id: String(taskId), status: 'completed', commit_sha: shaArg(sha),
       report: { criteria: [{ id: 'SC1', status: 'met', evidence_cmd: 'true' }] },
     };
     const gate = runGate('swe-verification-gate', {
@@ -237,6 +242,40 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     assert.equal(allowed.stdout, '', `the re-review spawn passes: ${allowed.stdout}`);
     await verdict(taskId, 2, 'pass');
     await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: sha, verification_summary: 're-reviewed' });
+    assert.equal(status(taskId), 'closed');
+  });
+
+  const storedSha = (taskId: number) => db.get<{ commit_sha: string }>('SELECT commit_sha FROM tasks WHERE id = ?', [taskId])!.commit_sha;
+
+  it('GH 3119: task_update_status stores the full SHA a short commit_sha resolves to, and keeps an unresolvable one as given', async () => {
+    const { taskId, worktree } = await provision('feat/discount-short-sha');
+    const sha = await sweCommits(taskId, worktree, { 'lib/discount.js': 'export const applyDiscount = (p, pct) => p - (p * pct) / 100;\n' }, (s) => s.slice(0, 8));
+    assert.equal(storedSha(taskId).length, 40);
+    assert.equal(storedSha(taskId), sha);
+
+    const unresolvable = 'deadbee0deadbee0';
+    await ok('task_update_status', { agent: 'swe', task_id: String(taskId), status: 'failed', commit_sha: unresolvable });
+    assert.equal(storedSha(taskId), unresolvable);
+  });
+
+  it('GH 3119: review_handoff resolves a legacy short commit_sha and hands off, records and closes on the full SHA', async () => {
+    const { taskId, worktree } = await provision('feat/discount-legacy-sha');
+    const sha = await sweCommits(taskId, worktree, { 'lib/discount.js': 'export const applyDiscount = (p, pct) => p - (p * pct) / 100;\n' });
+    db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', [sha.slice(0, 7), taskId]);
+
+    const handoff = await ok('review_handoff', { agent: 'bro', task_id: String(taskId), session_id: SESSION });
+    assert.equal(handoff['commit_sha'], sha);
+    const recorded = JSON.parse(db.get<{ content_json: string }>(
+      `SELECT content_json FROM audit WHERE event_type = 'review_handoff' AND json_extract(content_json, '$.task_id') = ?`,
+      [taskId],
+    )!.content_json) as Record<string, unknown>;
+    assert.equal(recorded['commit_sha'], sha);
+    const spawn = handoff['reviewer_spawn'] as { prompt: string };
+    assert.match(spawn.prompt, new RegExp(`commit_sha=${sha}\\b`));
+    assert.equal(storedSha(taskId), sha, 'the task row moves to the full SHA its review anchor names');
+
+    await verdict(taskId, 1, 'pass');
+    await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: sha, verification_summary: 'reviewed' });
     assert.equal(status(taskId), 'closed');
   });
 

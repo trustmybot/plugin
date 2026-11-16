@@ -12,6 +12,7 @@ import {
   insertSpecShapeWaiver,
   promptBearingDerivedField,
   resolvePromptBearing,
+  resolveTaskCommitSha,
   type PromptBearingResolution,
 } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
@@ -2690,10 +2691,12 @@ export function compositeTools(
           spawn_note: string | null;
           checkpoint: string | null;
           worktree_path: string | null;
+          prompt_bearing: number;
+          no_code_class: string | null;
           objective: string;
         }>(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, t.worktree_path, i.objective
+                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, t.worktree_path, t.prompt_bearing, t.no_code_class, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId],
@@ -2774,6 +2777,8 @@ export function compositeTools(
             repo,
             worktree_path: worktreePath,
             effort: task.effort,
+            prompt_bearing: task.prompt_bearing,
+            no_code_class: task.no_code_class,
             spec_body: task.spec_body,
             files: taskFiles,
             open_findings,
@@ -3621,7 +3626,7 @@ export function compositeTools(
           );
         }
         const handedOff = reReview === null ? task : { ...task, completion_report: reReview.completionReport };
-        const commitSha = task.commit_sha;
+        const commitSha = task.commit_sha ? resolveTaskCommitSha(db, task, task.commit_sha) : null;
         if (!commitSha) {
           return err(
             `commit_sha_missing: task ${task.id} records no commit_sha. Resume the swe on task_id=${task.id} to call ` +
@@ -3637,6 +3642,9 @@ export function compositeTools(
         const now = nowISO();
         const result = db.transaction(() => {
           if (reReview !== null) restoreForReReviewInTx(db, task.id, reReview, now);
+          // The review anchor and scope lookups match tasks.commit_sha exactly
+          // against this audit row's full SHA, so a legacy short SHA is upgraded.
+          if (commitSha !== task.commit_sha) db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', [commitSha, task.id]);
           insertAudit(db, {
             issue_id: task.issue_id,
             branch_id: task.branch_id,

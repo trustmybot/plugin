@@ -1011,7 +1011,8 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     await call(tasks.handlers, 'task_update_status', {
       agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha.slice(0, 12),
     });
-    seedReviewedCommit(db, issueId, taskId, sha.slice(0, 12));
+    // task_update_status stores the full SHA the short one resolves to (GH 3119).
+    seedReviewedCommit(db, issueId, taskId, sha);
 
     return {
       db, composites, taskId, issueId, sha, baseSha, siblingSha,
@@ -2691,7 +2692,7 @@ describe('task_brief sections (GH 1743)', () => {
   const SPEC = ['## Description', 'do it', '', '## Success Criteria', '- SC1: works'].join('\n');
   const CORE_KEYS = [
     'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'worktree_path', 'effort',
-    'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'checkpoint', 'last_stop', 'locations',
+    'prompt_bearing', 'no_code_class', 'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'checkpoint', 'last_stop', 'locations',
     'concepts', 'freshness',
   ];
   const ALL_KEYS = [

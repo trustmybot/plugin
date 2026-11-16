@@ -151,6 +151,30 @@ function repoPolicyBranches(db: TrajectoryDB, repoValue: string | null): { names
   return { names, target: row.target_branch || null, repoPath: repoRowPath(db, row.path) };
 }
 
+// The full SHA a task's commit_sha names, resolved in its worktree, else its
+// repo, since the push gate and integrate key on full SHAs (GH 3119). A SHA
+// neither resolves is returned as given.
+export function resolveTaskCommitSha(
+  db: TrajectoryDB,
+  task: { repo: string | null; worktree_path?: string | null },
+  sha: string,
+): string {
+  if (sha.length >= 40) return sha;
+  const dirs = [task.worktree_path, repoPolicyBranches(db, task.repo).repoPath].filter(
+    (dir): dir is string => typeof dir === 'string' && dir.startsWith('/'),
+  );
+  for (const dir of dirs) {
+    const res = spawnSync('git', ['-C', dir, 'rev-parse', '--verify', '--quiet', `${sha}^{commit}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: SUBPROCESS_TIMEOUT_MS,
+    });
+    const full = res.status === 0 ? res.stdout.trim().toLowerCase() : '';
+    if (full.startsWith(sha.toLowerCase())) return full;
+  }
+  return sha;
+}
+
 function validateParentBranchId(branchId: string, db: TrajectoryDB, repoValue: string | null): void {
   if (BRANCH_ID_RE.test(branchId)) return;
   const { names, target, repoPath } = repoPolicyBranches(db, repoValue);
@@ -1491,6 +1515,7 @@ export function taskTools(db: TrajectoryDB): {
       if (report?.concepts && taskRepo) {
         report.concepts = report.concepts.map((c) => ({ ...c, repo: c.repo ?? taskRepo }));
       }
+      const commitSha = rawCommitSha !== undefined ? resolveTaskCommitSha(db, task, rawCommitSha) : undefined;
 
       const now = nowISO();
       // completed_at is carried only by post-completion states. Stamp it on
@@ -1512,16 +1537,16 @@ export function taskTools(db: TrajectoryDB): {
         if (status === 'closed' && task.status !== 'closed') {
           recordReviewBypassIfUnreviewed(
             db,
-            { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null },
+            { ...task, commit_sha: commitSha ?? task.commit_sha ?? null },
             'task_update_status',
             agent,
             now,
           );
         }
-        if (rawCommitSha !== undefined) {
+        if (commitSha !== undefined) {
           db.run(
             `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, checkpoint = ?, commit_sha = ? WHERE id = ?`,
-            [status, now, completedAt, completionReport, checkpoint, rawCommitSha, taskId],
+            [status, now, completedAt, completionReport, checkpoint, commitSha, taskId],
           );
         } else {
           db.run(
