@@ -71,6 +71,8 @@ import {
 } from './verification-runs.js';
 import {
   appendVerificationDefaults,
+  defaultsForClass,
+  noCodeVerificationRefusal,
   readVerificationDefaults,
   verificationDefaultsMissingField,
   verificationDefaultsResult,
@@ -2100,7 +2102,14 @@ export function compositeTools(
           resolveCutBase(repoPath, base)?.ref ?? (reuseExisting ? existingBranchRef(repoPath, branchId) : null);
         const defaults = readVerificationDefaults(repoPath, pathRef);
         if ('error' in defaults) return verificationDefaultsResult('task_provision', pathRef, defaults.error);
-        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(givenVerification, defaults.commands);
+        if (noCodeClass !== null) {
+          const noCodeRefusal = noCodeVerificationRefusal(repoPath, pathRef, givenVerification, defaults.commands);
+          if (noCodeRefusal) return noCodeRefusal;
+        }
+        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
+          givenVerification,
+          defaultsForClass(noCodeClass, defaults.commands),
+        );
         const pathRefusal = pathRef
           ? checkVerificationPaths({ repoPath, ref: pathRef, verification, files })
           : checkVerificationProse(verification, pathRef);
@@ -2323,10 +2332,11 @@ export function compositeTools(
           effort: Effort;
           prompt_bearing: number;
           worktree_path: string | null;
+          no_code_class: string | null;
           issue_status: string;
         }>(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  t.prompt_bearing, t.worktree_path, i.status AS issue_status
+                  t.prompt_bearing, t.worktree_path, t.no_code_class, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId],
         );
@@ -2379,7 +2389,7 @@ export function compositeTools(
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
           appendUnique(parseTaskFiles(task.verification), verificationAdd),
-          defaults.commands,
+          defaultsForClass(task.no_code_class, defaults.commands),
         );
         const pathRefusal = checkVerificationPaths({
           repoPath,
@@ -2561,8 +2571,9 @@ export function compositeTools(
           repo: string | null;
           parent_branch_id: string | null;
           prompt_bearing: number;
+          no_code_class: string | null;
         }>(
-          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id, prompt_bearing FROM tasks WHERE id = ?`,
+          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id, prompt_bearing, no_code_class FROM tasks WHERE id = ?`,
           [taskId],
         );
         if (!task) return err(`task_update_spec: task ${taskId} not found`);
@@ -2586,7 +2597,7 @@ export function compositeTools(
             : { prompt_bearing: task.prompt_bearing === 1 ? 1 : 0, derived: false };
         const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
           newVerification ?? oldVerification,
-          defaults.commands,
+          defaultsForClass(task.no_code_class, defaults.commands),
         );
         const verificationChanged = newVerification !== undefined || verificationDefaultsAdded.length > 0;
         const diffSummary = (oldList: string[], newList: string[]) => ({
@@ -3090,7 +3101,7 @@ export function compositeTools(
         if ('error' in defaults) return verificationDefaultsResult('task_retry', pathRef, defaults.error);
         const { verification: retryVerification, added: verificationDefaultsAdded } = appendVerificationDefaults(
           parseTaskFiles(failed.verification),
-          defaults.commands,
+          defaultsForClass(failed.no_code_class, defaults.commands),
         );
         const storedVerification = verificationDefaultsAdded.length > 0 ? JSON.stringify(retryVerification) : failed.verification;
         const pathRefusal =

@@ -576,3 +576,71 @@ describe('SC4: the bro close classes the task diff at base_sha', () => {
     assert.match(denyReason(await close(f, 'bro', { commit_sha: codeSha })), /src\/a\.ts/);
   });
 });
+
+describe('GH 3160: the close lints follow the task class', () => {
+  const CONFIG = JSON.stringify({
+    version: 1,
+    lints: [{ name: 'full', command: 'echo full-ran; exit 9' }],
+    no_code_lints: [{ name: 'local', command: 'echo local-ran' }],
+    fingerprint_inputs: ['docs/**'],
+  });
+  const FILES = { ...BASE_FILES, '.config/tmb/close-lints.json': CONFIG };
+
+  function lintRuns(f: Fixture): Array<{ fingerprint: string; results: string }> {
+    const d = new DatabaseSync(f.db, { readOnly: true });
+    try {
+      return (
+        d
+          .prepare(
+            `SELECT r.fingerprint, (SELECT group_concat(name || '=' || exit_code, ',') FROM lint_run_results WHERE run_id = r.id) AS results
+               FROM lint_runs r WHERE r.task_id = ? ORDER BY r.id`,
+          )
+          .all(TASK_ID) as Array<{ fingerprint: string; results: string }>
+      ).map((r) => ({ fingerprint: String(r.fingerprint), results: String(r.results) }));
+    } finally {
+      d.close();
+    }
+  }
+
+  function setClass(f: Fixture, noCodeClass: string | null): void {
+    const d = new DatabaseSync(f.db);
+    d.prepare('UPDATE tasks SET no_code_class = ? WHERE id = ?').run(noCodeClass, TASK_ID);
+    d.close();
+  }
+
+  it('a bro close of a docs task runs no_code_lints, not lints', async () => {
+    const f = fixture({}, FILES);
+    const head = docsCommit(f);
+    assert.deepEqual(await close(f, 'bro', { commit_sha: head }), ALLOWED);
+    const recorded = lintRuns(f);
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].results, 'local=0');
+    assert.match(recorded[0].fingerprint, /\+no_code_lints$/);
+  });
+
+  it('a swe close of a code task runs lints, so its failing full lint denies', async () => {
+    const f = fixture({ noCodeClass: null }, FILES);
+    docsCommit(f);
+    const reason = denyReason(await close(f, 'swe'));
+    assert.match(reason, /Lint full exited 9/);
+    assert.deepEqual(lintRuns(f).map((r) => r.results), ['full=9']);
+  });
+
+  it('a recorded run of one set is not reused for the other', async () => {
+    const f = fixture({}, FILES);
+    const head = docsCommit(f);
+    assert.deepEqual(await close(f, 'bro', { commit_sha: head }), ALLOWED);
+    setClass(f, null);
+    assert.match(denyReason(await close(f, 'swe', { commit_sha: head })), /Lint full exited 9/);
+    assert.deepEqual(lintRuns(f).map((r) => r.results), ['local=0', 'full=9']);
+  });
+
+  it('a docs task falls back to lints when the config has no no_code_lints', async () => {
+    const config = JSON.stringify({ version: 1, lints: [{ name: 'full', command: 'true' }], fingerprint_inputs: ['docs/**'] });
+    const f = fixture({}, { ...BASE_FILES, '.config/tmb/close-lints.json': config });
+    const head = docsCommit(f);
+    assert.deepEqual(await close(f, 'bro', { commit_sha: head }), ALLOWED);
+    assert.deepEqual(lintRuns(f).map((r) => r.results), ['full=0']);
+    assert.doesNotMatch(lintRuns(f)[0].fingerprint, /no_code_lints/);
+  });
+});

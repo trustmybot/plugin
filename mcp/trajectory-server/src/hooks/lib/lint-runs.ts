@@ -24,6 +24,8 @@ export interface CloseLint {
 
 export interface CloseLints {
   lints: CloseLint[];
+  /** GH 3160: the set a task with a no_code_class runs instead of lints; absent means none. */
+  no_code_lints?: CloseLint[];
   fingerprint_inputs: string[];
 }
 
@@ -54,7 +56,25 @@ function nonEmpty(v: unknown): v is string {
   return typeof v === 'string' && v.trim() !== '';
 }
 
-/** close-lints.json {"lints":[{"name","command"}],"fingerprint_inputs":["<glob>"]} with unique lint names, or why it is not one. */
+/** The lint list under <key>, each {"name","command"} non-empty with unique names, or why it is not one. */
+function parseLintList(key: string, value: unknown): CloseLint[] | string {
+  if (!Array.isArray(value)) return `${key} must be an array of {"name":"<non-empty>","command":"<non-empty>"}`;
+  const names = new Set<string>();
+  for (const [i, l] of value.entries()) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l)) return `${key}[${i}] must be an object {"name","command"}`;
+    const { name, command } = l as { name?: unknown; command?: unknown };
+    if (!nonEmpty(name)) return `${key}[${i}].name must be a non-empty string`;
+    if (!nonEmpty(command)) return `${key}[${i}].command must be a non-empty string`;
+    if (names.has(name)) return `${key}[${i}].name '${name}' is a duplicate`;
+    names.add(name);
+  }
+  return (value as CloseLint[]).map((l) => ({ name: l.name, command: l.command }));
+}
+
+/**
+ * close-lints.json {"lints":[{"name","command"}],"no_code_lints":[...],"fingerprint_inputs":["<glob>"]}
+ * with unique lint names per list and no_code_lints optional, or why it is not one.
+ */
 export function parseCloseLints(text: string): CloseLints | string {
   let parsed: unknown;
   try {
@@ -65,20 +85,15 @@ export function parseCloseLints(text: string): CloseLints | string {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return 'must be a JSON object {"lints":[...],"fingerprint_inputs":[...]}';
   }
-  const { lints, fingerprint_inputs: inputs } = parsed as { lints?: unknown; fingerprint_inputs?: unknown };
-  if (!Array.isArray(lints)) return 'lints must be an array of {"name":"<non-empty>","command":"<non-empty>"}';
-  const names = new Set<string>();
-  for (const [i, l] of lints.entries()) {
-    if (l === null || typeof l !== 'object' || Array.isArray(l)) return `lints[${i}] must be an object {"name","command"}`;
-    const { name, command } = l as { name?: unknown; command?: unknown };
-    if (!nonEmpty(name)) return `lints[${i}].name must be a non-empty string`;
-    if (!nonEmpty(command)) return `lints[${i}].command must be a non-empty string`;
-    if (names.has(name)) return `lints[${i}].name '${name}' is a duplicate`;
-    names.add(name);
-  }
+  const { lints, no_code_lints: noCode, fingerprint_inputs: inputs } = parsed as { lints?: unknown; no_code_lints?: unknown; fingerprint_inputs?: unknown };
+  const lintList = parseLintList('lints', lints);
+  if (typeof lintList === 'string') return lintList;
+  const noCodeList = noCode === undefined ? undefined : parseLintList('no_code_lints', noCode);
+  if (typeof noCodeList === 'string') return noCodeList;
   if (!Array.isArray(inputs) || !inputs.every(nonEmpty)) return 'fingerprint_inputs must be an array of non-empty glob strings';
   return {
-    lints: (lints as CloseLint[]).map((l) => ({ name: l.name, command: l.command })),
+    lints: lintList,
+    ...(noCodeList === undefined ? {} : { no_code_lints: noCodeList }),
     fingerprint_inputs: [...inputs],
   };
 }

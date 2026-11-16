@@ -13,7 +13,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nowIso } from '../hooks/lib/audit.js';
-import { describeFailures, LINT_TIMED_OUT, reusableLintRun, runCloseLints, type CloseLintsRun, type LintRecordTarget } from '../hooks/lib/close-lints.js';
+import { closeLintsPlan, describeFailures, LINT_TIMED_OUT, reusableLintRun, runCloseLints, type CloseLintsRun, type LintRecordTarget } from '../hooks/lib/close-lints.js';
 import { CLOSE_LINTS_PATH, lintFingerprint } from '../hooks/lib/lint-fingerprint.js';
 import { childEnv, GIT_ENV, migratedDb, sandboxDir, sqlExec } from './db-test-fixtures.js';
 
@@ -192,5 +192,48 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     if (typeof run !== 'string') assert.fail(`expected a reason, got lint run ${run.runId}`);
     assert.ok(run.includes(`${CLOSE_LINTS_PATH} at ${sha.slice(0, 12)}: `), run);
     assert.equal(rows(db, 'SELECT COUNT(*) AS n FROM lint_runs')[0].n, before);
+  });
+
+  describe('the lint set by no_code_class (GH 3160)', () => {
+    const setClass = (noCodeClass: string | null) => sqlExec(db, `UPDATE tasks SET no_code_class = ${noCodeClass === null ? 'NULL' : `'${noCodeClass}'`} WHERE id = ${TASK};`);
+    const both = JSON.stringify({
+      version: 1,
+      lints: [{ name: 'full', command: 'true' }],
+      no_code_lints: [{ name: 'local', command: 'true' }],
+      fingerprint_inputs: ['src/**'],
+    });
+
+    it('closeLintsPlan picks no_code_lints for a classed task when present, else lints, with a set-marked fingerprint', async () => {
+      const { repo, sha } = repoAt({ [CLOSE_LINTS_PATH]: both });
+      const code = await closeLintsPlan(repo, sha, env);
+      const noCode = await closeLintsPlan(repo, sha, env, 'docs');
+      if (typeof code === 'string' || typeof noCode === 'string') assert.fail('plan');
+      assert.deepEqual([code.set, code.lints.map((l) => l.name)], ['lints', ['full']]);
+      assert.deepEqual([noCode.set, noCode.lints.map((l) => l.name)], ['no_code_lints', ['local']]);
+      assert.equal(code.fingerprint, await lintFingerprint(repo, sha, ['src/**'], env));
+      assert.notEqual(noCode.fingerprint, code.fingerprint);
+
+      const fallback = repoAt({ [CLOSE_LINTS_PATH]: config([{ name: 'full', command: 'true' }]) });
+      const plan = await closeLintsPlan(fallback.repo, fallback.sha, env, 'prompts');
+      if (typeof plan === 'string') assert.fail(plan);
+      assert.deepEqual([plan.set, plan.lints.map((l) => l.name)], ['lints', ['full']]);
+      assert.equal(plan.fingerprint, await lintFingerprint(fallback.repo, fallback.sha, ['src/**'], env));
+    });
+
+    it("runCloseLints runs the task's set, and a run of one set is not reused for the other", async () => {
+      const { repo, base, sha } = repoAt({ [CLOSE_LINTS_PATH]: both });
+      try {
+        setClass('docs');
+        const noCode = ran(await runCloseLints(repo, sha, base, 30, env, target()));
+        assert.deepEqual(recorded(noCode).results.map((r) => r.name), ['local']);
+        setClass(null);
+        const code = ran(await runCloseLints(repo, sha, base, 30, env, target()));
+        assert.deepEqual(recorded(code).results.map((r) => r.name), ['full']);
+        assert.equal(reusableLintRun(target(), sha, base, noCode.fingerprint, env), null, 'the newest run is the lints set');
+        assert.equal(reusableLintRun(target(), sha, base, code.fingerprint, env), code.runId);
+      } finally {
+        setClass(null);
+      }
+    });
   });
 });

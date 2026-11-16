@@ -11,7 +11,8 @@
  *                      and exited 0
  *   stale_lint_record  that run's fingerprint is the close-lints fingerprint of the commit,
  *                      its base_sha is merge-base(<pr_target tip>, <commit>), and its
- *                      results hold a passing row for each close-lints.json lint
+ *                      results hold a passing row for each lint of the set the
+ *                      task's no_code_class selects from close-lints.json (GH 3160)
  *
  * The changelog and stale-doc checks run earlier, at swe's close
  * (swe-verification-gate, GH 2866), and a failing one records no verification
@@ -29,7 +30,7 @@
  */
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
-import { closeLintsPlan } from './lib/close-lints.js';
+import { closeLintsPlan, taskNoCodeClass } from './lib/close-lints.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
 import { gitText, listed, revParse } from './lib/doc-checks.js';
 import { prTargetRef } from './lib/git-refs.js';
@@ -151,7 +152,9 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
   }
 
   const run = `run ${lintRun.run_id}`;
-  const plan = await closeLintsPlan(repo, commit, env);
+  const noCodeClass = taskNoCodeClass(db, taskId, env);
+  if (noCodeClass === GATE_READ_ERROR) return dbUnavailable(env);
+  const plan = await closeLintsPlan(repo, commit, env, noCodeClass);
   if (typeof plan === 'string') {
     return deny({ check: 'stale_lint_record', expected: `the close-lints plan of ${commit} computes`, actual: `${run}: ${plan}` }, taskId);
   }
@@ -183,7 +186,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       actual: `${run}: base_sha recorded ${lintRun.base_sha || '(empty)'}, merge-base ${mergeBase}`,
     }, taskId);
   }
-  const required = (plan.config?.lints ?? []).map((l) => l.name);
+  const required = plan.lints.map((l) => l.name);
   const unproven = required.filter((name) => !lintRun.results.some((r) => r.name === name && r.exit_code === 0));
   if (unproven.length > 0) {
     return deny({

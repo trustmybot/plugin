@@ -11,6 +11,7 @@ import { onboardTools } from '../tools/onboard.js';
 import { scanTools } from '../tools/scan.js';
 import {
   appendVerificationDefaults,
+  noCodeVerificationRefusal,
   proposeVerificationDefaults,
   readVerificationDefaults,
   VERIFICATION_DEFAULTS_FILE,
@@ -29,7 +30,7 @@ const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC
 const LINT = 'node --test tests/l1-lint/no-x.test.mjs';
 const DEFAULTS = JSON.stringify({ version: 1, commands: [LINT, 'bun run lint'] });
 
-function makeRepo(defaults: string | null): { ws: string; repoRoot: string; git: (...a: string[]) => string } {
+function makeRepo(defaults: string | null, extra: Record<string, string> = {}): { ws: string; repoRoot: string; git: (...a: string[]) => string } {
   const ws = mkdtempSync(join(tmpdir(), 'verification-defaults-'));
   const repoRoot = join(ws, 'app');
   mkdirSync(repoRoot, { recursive: true });
@@ -38,7 +39,7 @@ function makeRepo(defaults: string | null): { ws: string; repoRoot: string; git:
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 't@t.t');
   git('config', 'user.name', 't');
-  const files: Record<string, string> = { 'tests/l1-lint/no-x.test.mjs': 'x\n', 'src/mod.ts': 'x\n' };
+  const files: Record<string, string> = { 'tests/l1-lint/no-x.test.mjs': 'x\n', 'src/mod.ts': 'x\n', ...extra };
   if (defaults !== null) files[VERIFICATION_DEFAULTS_FILE] = defaults;
   for (const [p, body] of Object.entries(files)) {
     mkdirSync(join(repoRoot, dirname(p)), { recursive: true });
@@ -50,8 +51,8 @@ function makeRepo(defaults: string | null): { ws: string; repoRoot: string; git:
   return { ws, repoRoot, git };
 }
 
-function setup(defaults: string | null) {
-  const repo = makeRepo(defaults);
+function setup(defaults: string | null, extra: Record<string, string> = {}) {
+  const repo = makeRepo(defaults, extra);
   const db = tempDB();
   db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repo.repoRoot]);
   db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
@@ -59,16 +60,16 @@ function setup(defaults: string | null) {
   const composites = compositeTools(db, join(repo.ws, '.claude', 'tmb', 'trajectory.db'));
   const call = (name: string, args: Record<string, unknown>) =>
     composites.handlers[name]!({ agent: 'bro', ...args }) as unknown as Promise<RawResult>;
-  const provision = (branch_id: string, verification: string[]) =>
+  const provision = (branch_id: string, verification: string[], noCodeClass?: string) =>
     call('task_provision', {
       issue_id: 1, branch_id, decision_body: 'Chosen approach: append the defaults.',
-      task: { description: 'd', spec_body: SPEC, files: ['src/mod.ts'], verification, repo: 'app' },
+      task: { description: 'd', spec_body: SPEC, files: ['src/mod.ts'], verification, repo: 'app', ...(noCodeClass ? { no_code_class: noCodeClass } : {}) },
     });
-  const insertTask = (branch_id: string, verification: string[], status = 'failed'): number => {
+  const insertTask = (branch_id: string, verification: string[], status = 'failed', noCodeClass: string | null = null): number => {
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, files, verification, repo, created_at, updated_at)
-       VALUES (1, ?, 'main', 't', 'd', ?, ?, ?, ?, 'app', datetime('now'), datetime('now'))`,
-      [branch_id, status, SPEC, JSON.stringify(['src/mod.ts']), JSON.stringify(verification)],
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, files, verification, repo, no_code_class, created_at, updated_at)
+       VALUES (1, ?, 'main', 't', 'd', ?, ?, ?, ?, 'app', ?, datetime('now'), datetime('now'))`,
+      [branch_id, status, SPEC, JSON.stringify(['src/mod.ts']), JSON.stringify(verification), noCodeClass],
     );
     return db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = ?`, [branch_id])!.id;
   };
@@ -305,6 +306,125 @@ describe('verification defaults in task_reopen and task_update_spec (GH 2866)', 
       assert.equal(parse(refused)['error'], 'verification_defaults_invalid');
       assert.deepEqual(stored(taskId), ['true']);
       assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_spec_amended'`)!.c, 0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('no-code tasks skip the verification defaults (GH 3160)', () => {
+  const FULL_LINT = 'node tests/run-all.ts --l1-only';
+  const CLOSE_LINTS = {
+    '.config/tmb/close-lints.json': JSON.stringify({
+      version: 1,
+      lints: [{ name: 'l1', command: FULL_LINT }],
+      no_code_lints: [{ name: 'l1-local', command: 'node tests/run-all.ts --l1-local' }],
+      fingerprint_inputs: [],
+    }),
+  };
+
+  it('task_provision stores a no-code task without the defaults and a code task with them', async () => {
+    const { provision, stored, cleanup } = setup(DEFAULTS, CLOSE_LINTS);
+    try {
+      const docs = parse(await provision('docs/nc', ['true'], 'docs'));
+      assert.equal(typeof docs['task_id'], 'number', JSON.stringify(docs));
+      assert.deepEqual(docs['verification_defaults_added'], []);
+      assert.deepEqual(stored(docs['task_id']), ['true']);
+
+      const prompts = parse(await provision('docs/np', ['true'], 'prompts'));
+      assert.deepEqual(stored(prompts['task_id']), ['true']);
+
+      const code = parse(await provision('feat/code', ['true']));
+      assert.deepEqual(code['verification_defaults_added'], [LINT, 'bun run lint']);
+      assert.deepEqual(stored(code['task_id']), ['true', LINT, 'bun run lint']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_retry, task_reopen and task_update_spec append no defaults to a no-code task, and keep them for a code task', async () => {
+    const { insertTask, retry, reopen, updateSpec, stored, cleanup } = setup(DEFAULTS, CLOSE_LINTS);
+    try {
+      const retried = parse(await retry(insertTask('docs/failed', ['true'], 'failed', 'docs'), 'docs/failed-v2'));
+      assert.equal(typeof retried['task_id'], 'number', JSON.stringify(retried));
+      assert.deepEqual(retried['verification_defaults_added'], []);
+      assert.deepEqual(stored(retried['task_id']), ['true']);
+
+      const reopenId = insertTask('docs/reopen', ['true'], 'failed', 'docs');
+      const reopened = parse(await reopen(reopenId, ['grep -q x src/mod.ts']));
+      assert.equal(reopened['status'], 'running', JSON.stringify(reopened));
+      assert.deepEqual(reopened['verification_defaults_added'], []);
+      assert.deepEqual(stored(reopenId), ['true', 'grep -q x src/mod.ts']);
+
+      const amendId = insertTask('docs/amend', ['true'], 'running', 'docs');
+      const amended = parse(await updateSpec(amendId, { spec_body: `${SPEC}\n- SC2: more` }));
+      assert.deepEqual(amended['verification_defaults_added'], []);
+      assert.deepEqual(amended['changed'], ['spec_body']);
+      assert.deepEqual(stored(amendId), ['true']);
+
+      const codeRetried = parse(await retry(insertTask('feat/failed', ['true']), 'feat/failed-v2'));
+      assert.deepEqual(stored(codeRetried['task_id']), ['true', LINT, 'bun run lint']);
+      const codeReopenId = insertTask('feat/reopen', ['true']);
+      await reopen(codeReopenId);
+      assert.deepEqual(stored(codeReopenId), ['true', LINT, 'bun run lint']);
+      const codeAmendId = insertTask('feat/amend', ['true'], 'running');
+      await updateSpec(codeAmendId, { spec_body: `${SPEC}\n- SC2: more` });
+      assert.deepEqual(stored(codeAmendId), ['true', LINT, 'bun run lint']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_provision refuses a no-code task repeating a default or a close-lints lints[] command, naming it, and writes nothing', async () => {
+    const { repoRoot, db, git, provision, cleanup } = setup(DEFAULTS, CLOSE_LINTS);
+    try {
+      for (const [branch, command] of [
+        ['docs/default', LINT],
+        ['docs/lint', FULL_LINT],
+      ] as const) {
+        const refused = await provision(branch, ['true', command], 'docs');
+        assert.equal(refused.isError, true);
+        const body = parse(refused);
+        assert.equal(body['error'], 'no_code_verification_refused');
+        assert.equal(body['command'], command);
+        assert.ok(String(body['message']).includes(`\`${command}\``), String(body['message']));
+        assert.match(String(body['message']), /list the greps and lints covering the touched paths/);
+        assert.throws(() => git('rev-parse', '--verify', `refs/heads/${branch}`), 'no branch ref');
+        assert.equal(existsSync(join(repoRoot, '.claude', 'worktrees', branch.replace(/^[^/]+\//, ''))), false, 'no worktree');
+      }
+      assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 0, 'no task row');
+      assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM discussions')!.c, 0, 'no discussion');
+
+      const code = parse(await provision('feat/full', ['true', FULL_LINT]));
+      assert.equal(typeof code['task_id'], 'number', 'a code task may list the full lint');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_provision refuses a no-code task with an empty verification[]', async () => {
+    const { db, provision, cleanup } = setup(DEFAULTS, CLOSE_LINTS);
+    try {
+      const refused = await provision('docs/empty', [], 'docs');
+      assert.equal(refused.isError, true);
+      assert.match(refused.content[0].text, /non-empty/);
+      assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 0, 'no task row');
+      const direct = noCodeVerificationRefusal(null, null, [], []);
+      assert.equal(direct?.isError, true);
+      assert.match(JSON.stringify(direct?.content), /non-empty verification\[\], since cli\.js integrate refuses an empty one/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_provision refuses a no-code task when close-lints.json at the base is malformed', async () => {
+    const { db, provision, cleanup } = setup(DEFAULTS, { '.config/tmb/close-lints.json': '{"lints":"x"}' });
+    try {
+      const refused = await provision('docs/bad', ['true'], 'docs');
+      assert.equal(refused.isError, true);
+      assert.equal(parse(refused)['error'], 'no_code_verification_refused');
+      assert.match(String(parse(refused)['message']), /close-lints\.json at origin\/main is invalid: lints must be an array/);
+      assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 0, 'no task row');
     } finally {
       cleanup();
     }

@@ -249,6 +249,33 @@ describe('parseCloseLints (GH 2570)', () => {
     bad('{"lints":[', /not valid JSON/);
   });
 
+  it('returns no_code_lints when present and leaves it absent otherwise (GH 3160)', () => {
+    const lints = [{ name: 'l1', command: 'node tests/run-all.ts --l1-only' }];
+    const noCode = [{ name: 'l1-local', command: 'node tests/run-all.ts --l1-local' }];
+    assert.deepEqual(parseCloseLints(JSON.stringify({ lints, no_code_lints: [{ ...noCode[0], extra: 1 }], fingerprint_inputs: [] })), {
+      lints,
+      no_code_lints: noCode,
+      fingerprint_inputs: [],
+    });
+    const absent = parseCloseLints(JSON.stringify({ lints, fingerprint_inputs: [] }));
+    assert.deepEqual(absent, { lints, fingerprint_inputs: [] });
+    assert.ok(typeof absent !== 'string' && !('no_code_lints' in absent));
+  });
+
+  it('validates no_code_lints like lints (GH 3160)', () => {
+    const bad = (noCode: unknown, re: RegExp) => {
+      const r = parseCloseLints(JSON.stringify({ lints: [], no_code_lints: noCode, fingerprint_inputs: [] }));
+      assert.equal(typeof r, 'string', `rejected: ${JSON.stringify(noCode)}`);
+      assert.match(r as string, re);
+    };
+    bad({ name: 'n', command: 'true' }, /^no_code_lints must be an array/);
+    bad(null, /^no_code_lints must be an array/);
+    bad(['true'], /^no_code_lints\[0\] must be an object/);
+    bad([{ command: 'true' }], /^no_code_lints\[0\]\.name must be a non-empty string/);
+    bad([{ name: 'n', command: '' }], /^no_code_lints\[0\]\.command must be a non-empty string/);
+    bad([{ name: 'n', command: 'true' }, { name: 'n', command: 'false' }], /^no_code_lints\[1\]\.name 'n' is a duplicate/);
+  });
+
   it('rejects a duplicate lint name', () => {
     const reason = (lints: Array<{ name: string; command: string }>) => parseCloseLints(JSON.stringify({ lints, fingerprint_inputs: [] }));
     assert.equal(reason([{ name: 'l1', command: 'true' }, { name: 'l1', command: 'false' }]), "lints[1].name 'l1' is a duplicate");

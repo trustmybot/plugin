@@ -3,6 +3,9 @@
   "lints": [
     { "name": "l1", "command": "node --experimental-strip-types tests/run-all.ts --l1-only" }
   ],
+  "no_code_lints": [
+    { "name": "l1-local", "command": "node --experimental-strip-types tests/run-all.ts --l1-local" }
+  ],
   "fingerprint_inputs": [
     "tests/l1-lint/**",
     "tests/run-all.ts",
