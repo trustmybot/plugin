@@ -135,11 +135,16 @@ const PRINTERS = new Set(['echo', 'printf']);
 const TARGET_RUNNERS = new Set(['make', 'just', 'task']);
 const TEST_SCRIPT = /^test(:.+)?$/;
 
-// The index of the first word at or after from that is not a flag.
+// Package-manager flags whose value is the next word (`npm --prefix web test`);
+// a `--flag=value` form is one word. Any other flag is taken to have no value.
+const PM_VALUE_FLAGS = new Set(['--prefix', '--cwd', '-C', '--dir', '--filter', '-F', '--workspace', '-w']);
+
+// The index of a package manager's first word at or after from that is neither
+// a flag nor a value-taking flag's value; words.length when there is none.
 function nextBare(words: Word[], from: number): number {
   let i = from;
-  while (i < words.length && words[i]!.text.startsWith('-')) i++;
-  return i;
+  while (i < words.length && words[i]!.text.startsWith('-')) i += PM_VALUE_FLAGS.has(words[i].text) ? 2 : 1;
+  return Math.min(i, words.length);
 }
 
 // Whether one simple command is a package manager running its test script:
@@ -152,8 +157,9 @@ function isPackageManagerTest(words: Word[]): boolean {
 }
 
 // The argument indexes of one simple command that are names, not paths: a
-// package manager's `run <script>`, every echo/printf argument, and each bare
-// make/just/task target.
+// package manager's subcommand when it has no '/' and the script after its
+// `run`, each found past flags and the values of value-taking flags; every
+// echo/printf argument; and each bare make/just/task target.
 function nameArgs(words: Word[]): Set<number> {
   const out = new Set<number>();
   const tool = posix.basename(words[0]!.text);
