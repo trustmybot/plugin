@@ -1,0 +1,47 @@
+// markdownlint-cli2 config for the L1 docs bundle (tests/l1-lint/markdownlint.test.mjs, GH 3161).
+// Tuned to the current tree: each rule that fired on existing docs is disabled or relaxed below with
+// its reason, so the lint rolled out without a reformat; every other default rule stays enabled.
+// `ignores` also sets the file set of tests/l1-lint/mermaid-parse.test.mjs.
+{
+  "config": {
+    "default": true,
+    // Prose and table rows are written one paragraph or row per line.
+    "MD013": false,
+    // Tables mix compact and aligned pipe spacing.
+    "MD060": false,
+    // Headings are followed directly by text or a list (changelog fragments, prompts); one blank line above is still required.
+    "MD022": { "lines_above": 1, "lines_below": 0 },
+    // Lists start directly under a heading or a lead-in line.
+    "MD032": false,
+    // changelog.d fragments open with a `### <section>` heading, not an h1.
+    "MD041": false,
+    // Code spans quote literal leading or trailing spaces, such as `### `.
+    "MD038": false,
+    // Prose writes placeholders as <name>, which parse as inline HTML.
+    "MD033": false,
+    // Some fences hold plain output with no language.
+    "MD040": false,
+    // Some fences sit directly under a list item or a lead-in line.
+    "MD031": false,
+    // Reference lists give bare URLs.
+    "MD034": false,
+    // Tables sit directly under their lead-in line.
+    "MD058": false,
+    // Table cells hold code spans with unescaped pipes.
+    "MD056": false,
+    // A few docs keep a double blank line between sections.
+    "MD012": false,
+    // Some changelog.d fragments end without a trailing newline.
+    "MD047": false,
+    // Two docs step a heading level down by two.
+    "MD001": false,
+    // RELEASE.md uses bold text as a phase label.
+    "MD036": false
+  },
+  "ignores": [
+    ".claude/**",
+    "**/node_modules/**",
+    "**/fixtures/**",
+    "CHANGELOG.md"
+  ]
+}

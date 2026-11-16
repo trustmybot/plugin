@@ -1,0 +1,2 @@
+### Added
+- **Markdown and Mermaid diagrams are linted in CI** (GH 3161): two new L1 lints check the tracked Markdown. markdownlint runs under a root `.markdownlint-cli2.jsonc` tuned to the current docs, so existing files pass and each disabled rule says why. Every `mermaid` code fence must parse, so a broken diagram fails the PR instead of rendering as an error on GitHub. Both declare Markdown as their inputs, so a docs-only PR runs them. `CONTRIBUTING.md` now describes the L1 lint bundles and when the full L1 runs.
