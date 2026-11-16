@@ -81,6 +81,32 @@ export function recordReviewBypassIfUnreviewed(
   return true;
 }
 
+// Call inside the transaction that closes a task under workflow_mode 'agile',
+// with task.commit_sha set to the sha the close writes: when the task has no
+// passing review for that commit, one bro review_queued audit row queues it
+// for the grouped review (AGILE_QUEUED_SQL), at most one per (task, commit).
+// Returns whether the task is queued for that commit.
+export function recordReviewQueuedIfUnreviewed(db: TrajectoryDB, task: LifecycleTask, now: string): boolean {
+  if (reviewStateAt(db, task.id, task.commit_sha).pass) return false;
+  const queued = db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM audit q
+      WHERE q.event_type = 'review_queued' AND q.from_node = 'bro' AND json_valid(q.content_json)
+        AND json_extract(q.content_json, '$.task_id') = ? AND json_extract(q.content_json, '$.commit_sha') = ?`,
+    [task.id, task.commit_sha],
+  );
+  if ((queued?.n ?? 0) > 0) return true;
+  insertAudit(db, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: 'bro',
+    event_type: 'review_queued',
+    summary: `Task ${task.id} closed under agile review mode, queued for review`,
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: task.commit_sha }),
+    created_at: now,
+  });
+  return true;
+}
+
 // Escalates every live task of an issue (cascade of issue_close), one
 // task_escalated_by_issue_close audit row each, open runs closed issue_closed.
 export function escalateLiveTasksForIssueClose(

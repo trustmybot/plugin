@@ -116,6 +116,27 @@ describe('SC2: membership reads the stamped mode, not the config', () => {
   });
 });
 
+describe('GH 2225 T2: the review_queued row of an agile close keeps the task queued', () => {
+  it('a bro review_queued row leaves the task listed, where a review_gate_bypassed row would drop it', async () => {
+    const db = tempDB();
+    try {
+      const issue = seedIssue(db);
+      const queued = seedTask(db, issue);
+      const bypassed = seedTask(db, issue);
+      const row = (taskId: number, eventType: string) =>
+        db.run(
+          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 'r', ?, ?)`,
+          [issue, eventType, JSON.stringify({ task_id: taskId, commit_sha: 'c0ffee1' }), iso()],
+        );
+      row(queued, 'review_queued');
+      row(bypassed, 'review_gate_bypassed');
+      assert.deepEqual(ids(await queueOk(db)), [queued]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe('SC3: groups are disjoint connected components of files[] overlap', () => {
   it('two overlapping tasks share a group and a third stands alone', async () => {
     const db = tempDB();

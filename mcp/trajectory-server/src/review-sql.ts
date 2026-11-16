@@ -94,6 +94,16 @@ export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 
+// A task closed under workflow_mode 'agile' without a pass is queued for a
+// later grouped review: bro_atomic_close records one review_queued row for
+// the commit it closed. The push guard admits such a commit to any branch but
+// the repo's pr_target. As with skips, only bro's rows count.
+export const AGILE_QUEUED_SQL = `(t.status = 'closed' AND t.workflow_mode = 'agile' AND EXISTS (SELECT 1 FROM audit q
+  WHERE q.event_type = 'review_queued' AND q.from_node = 'bro'
+    AND json_valid(q.content_json)
+    AND json_extract(q.content_json, '$.task_id') = t.id
+    AND json_extract(q.content_json, '$.commit_sha') = t.commit_sha))`;
+
 // validation_attempts is append-only, so a task's verdict is its newest row
 // (highest id): an older pass under a newer fail or escalate does not count,
 // and a task with no rows has no pass.

@@ -17,6 +17,10 @@
  * forced pushes included, a refspec that names no commit is denied, and a
  * stored commit_sha matches as a 7+ hex prefix of the pushed SHA.
  *
+ * GH 2225: a task closed under agile review mode and queued for review needs
+ * no pass, for itself or its rebases, when every branch the push's refspecs
+ * write is read from them and none is the repo's target branch.
+ *
  * Decision 369: a command naming `push` (or, GH 2634, a git word beside an
  * expansion) that tree-sitter-bash cannot parse is denied (GH 1927), and the
  * DB is read wherever node:sqlite works, with no sqlite3 CLI on PATH.
@@ -41,7 +45,7 @@ import { type DenyFix, denyResult as deny } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
 import { repoGitRoot, repoNameForRoot, repoResolve, repoSinglePath } from './lib/repo.js';
 import { agentRole, CODE_REVIEWER_ROLE } from './lib/role.js';
-import { HAS_PASS_SQL } from '../review-sql.js';
+import { AGILE_QUEUED_SQL, HAS_PASS_SQL } from '../review-sql.js';
 
 export const GATE_NAME = 'git-push-guard';
 
@@ -176,6 +180,19 @@ function hexLines(text: string): string[] {
   return lines(text).filter((l) => HEX.test(l));
 }
 
+/** A task row's last field: REVIEWED (a passing review), QUEUED (an agile task queued for review, read only when the push may admit one) or '0'. */
+const REVIEWED = '1';
+const QUEUED = 'q';
+
+function reviewState(row: string): string {
+  return row.slice(row.lastIndexOf('|') + 1);
+}
+
+function reviewRank(row: string): number {
+  const state = reviewState(row);
+  return state === REVIEWED ? 2 : state === QUEUED ? 1 : 0;
+}
+
 /** `grep -vxF -f <(printf '%s\n' "$drop")` over the lines of <text>. */
 function without(text: string, drop: string): string {
   const gone = new Set(lines(drop));
@@ -238,7 +255,7 @@ class Guard {
     return out.join('\n');
   }
 
-  /** task_matches: `<sha>|<task_id>|<branch_id>|<reviewed>` per paired commit whose patch-id equals a task commit's, a reviewed task preferred. */
+  /** task_matches: `<sha>|<task_id>|<branch_id>|<reviewed>` per paired commit whose patch-id equals a task commit's, a reviewed task preferred, then a queued one. */
   private async taskMatches(dir: string, taskRows: string, pairs: string, spec: readonly string[]): Promise<string[]> {
     const shas = [...new Set(pairs.split(/[ \n]/))].sort();
     const patch = (await gitRun(dir, ['diff-tree', '--stdin', '-p', '-r', '--root', ...spec], this.env, `${shas.join('\n')}\n`)).stdout;
@@ -265,8 +282,8 @@ class Guard {
       for (const cand of words.slice(1)) {
         if (pid.has(cand) && pid.get(cand) === pid.get(sha) && task.has(cand)) {
           const t = task.get(cand) ?? '';
-          if (m === '' || /\|1$/.test(t)) m = t;
-          if (/\|1$/.test(m)) break;
+          if (m === '' || reviewRank(t) > reviewRank(m)) m = t;
+          if (reviewState(m) === REVIEWED) break;
         }
       }
       if (m !== '') out.push(sha + m);
@@ -277,9 +294,11 @@ class Guard {
   /**
    * unchecked_rebases: `<sha>|<task_id>|<branch_id>|<reviewed>|<full|src>`
    * per pushed rebase of a task commit that is not reviewed or has no passing
-   * verification run of its own; __ERR__ when a DB read fails.
+   * verification run of its own; __ERR__ when a DB read fails. With
+   * <admitQueued>, a rebase of a queued agile task (AGILE_QUEUED_SQL) is
+   * admitted: it goes to a branch other than the target, as its commit may.
    */
-  async uncheckedRebases(dir: string, pushed: string): Promise<string> {
+  async uncheckedRebases(dir: string, pushed: string, admitQueued = false): Promise<string> {
     const values = shaValuesCte(hexLines(pushed));
     if (values === null) return '';
     const taskCommits = this.read(
@@ -291,8 +310,11 @@ class Guard {
 
     const name = repoNameForRoot(this.db, await repoGitRoot(dir, this.env), this.env);
     const repoFilter = name === '' ? '' : `AND (t.repo IS NULL OR t.repo = '${sqlQuote(name)}')`;
+    const state = admitQueued
+      ? `CASE WHEN ${HAS_PASS_SQL} THEN '${REVIEWED}' WHEN ${AGILE_QUEUED_SQL} THEN '${QUEUED}' ELSE '0' END`
+      : HAS_PASS_SQL;
     const tasks = this.read(
-      `SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || ${HAS_PASS_SQL} FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`,
+      `SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || ${state} FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`,
     );
     if (tasks === GATE_READ_ERROR) return GATE_READ_ERROR;
     if (tasks === '') return '';
@@ -331,7 +353,7 @@ class Guard {
     const all = [...matches, ...srcMatches].filter((m) => m !== '');
     if (all.length === 0) return '';
 
-    const reviewed = shaValuesCte(all.filter((m) => field(m, 4) === '1' && HEX.test(field(m, 1))).map((m) => field(m, 1)));
+    const reviewed = shaValuesCte(all.filter((m) => field(m, 4) === REVIEWED && HEX.test(field(m, 1))).map((m) => field(m, 1)));
     let ok = '';
     if (reviewed !== null) {
       ok = this.read(
@@ -340,20 +362,28 @@ class Guard {
       if (ok === GATE_READ_ERROR) return GATE_READ_ERROR;
     }
     const passed = new Set(lines(ok).map((l) => field(l, 1)));
-    return all.filter((m) => field(m, 4) !== '1' || !passed.has(field(m, 1))).join('\n');
+    return all
+      .filter((m) => field(m, 4) !== QUEUED && (field(m, 4) !== REVIEWED || !passed.has(field(m, 1))))
+      .join('\n');
   }
 
-  /** The base the commits of a branch with no upstream are counted from: the target branch's ref, else the remote default's, else "". */
-  private async baseRef(dir: string): Promise<string> {
+  private async remoteDefault(dir: string): Promise<string> {
+    return (await gitOut(dir, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], this.env)).replace(/^origin\//gm, '');
+  }
+
+  /** The repo's target branch (repos.target_branch, else the sole repo's), else the remote default branch, else "". */
+  private async targetBranch(dir: string): Promise<string> {
     let target = field(repoResolve(this.db, await stmtRepoRoot(dir, this.cwd, this.env), this.env), 1);
     if (target === '') {
       const sole = repoSinglePath(this.db, this.env);
       if (sole !== '') target = field(repoResolve(this.db, sole, this.env), 1);
     }
-    const remoteDefault = async (): Promise<string> =>
-      (await gitOut(dir, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], this.env)).replace(/^origin\//gm, '');
-    if (target === '') target = await remoteDefault();
-    target ||= 'main';
+    return target || (await this.remoteDefault(dir));
+  }
+
+  /** The base the commits of a branch with no upstream are counted from: the target branch's ref, else the remote default's, else "". */
+  private async baseRef(dir: string): Promise<string> {
+    const target = (await this.targetBranch(dir)) || 'main';
     const existing = async (branch: string): Promise<string> => {
       for (const cand of [`origin/${branch}`, branch]) {
         if (await gitOk(dir, ['rev-parse', '--verify', '--quiet', cand], this.env)) return cand;
@@ -362,7 +392,7 @@ class Guard {
     };
     let base = await existing(target);
     if (base === '') {
-      const fallback = await remoteDefault();
+      const fallback = await this.remoteDefault(dir);
       if (fallback !== '') base = await existing(fallback);
     }
     return base;
@@ -435,10 +465,41 @@ class Guard {
     return { shas: [...shas].join('\n') };
   }
 
+  /** The branch <spec> updates on <remote>, '' when the refspec alone cannot tell (no <dst> while remote.<remote>.push maps it, a detached HEAD), null when it updates no branch. */
+  private async destinationBranch(dir: string, remote: string, spec: Refspec): Promise<string | null> {
+    if (spec.dst === '' && remote !== '' && (await gitOut(dir, ['config', '--get-all', `remote.${remote}.push`], this.env)) !== '') return '';
+    let dst = spec.dst || spec.src;
+    if (dst === 'HEAD' || dst === '@') dst = await gitOut(dir, ['symbolic-ref', '-q', 'HEAD'], this.env);
+    if (dst === '') return '';
+    if (dst.startsWith('refs/heads/')) return dst.slice('refs/heads/'.length);
+    if (dst.startsWith('refs/')) return null;
+    return dst.startsWith('heads/') ? dst.slice('heads/'.length) : dst;
+  }
+
+  /**
+   * Whether every branch the push writes commits to is read from its
+   * refspecs and none is the repo's target branch, so a queued agile task's
+   * commit may go (AGILE_QUEUED_SQL). A push naming no refspec, a matching
+   * push, a ref-set push, or a repo with no resolvable target never is.
+   */
+  private async offTarget(dir: string, args: PushArgs): Promise<boolean> {
+    if (args.deletes || args.refSets.length > 0 || args.refspecs.length === 0) return false;
+    const target = await this.targetBranch(dir);
+    if (target === '') return false;
+    for (const refspec of args.refspecs) {
+      const spec = splitRefspec(refspec);
+      if (spec === null || spec.src === '') return false;
+      const branch = await this.destinationBranch(dir, args.remote, spec);
+      if (branch === '' || branch === target) return false;
+    }
+    return true;
+  }
+
   /** The deny for one push statement <push>, whose subcommand words are <sub>, or null when it may go. */
   async judge(push: Statement, sub: string): Promise<GateResult | null> {
     const { dir } = push;
-    const listed = await this.pushedShas(dir, pushArgs(sub));
+    const args = pushArgs(sub);
+    const listed = await this.pushedShas(dir, args);
     if ('unresolved' in listed) return deny(unresolvedRefspecReason(listed.unresolved, push.src ?? push.stmt, dir), UNRESOLVED_REFSPEC_FIX);
     const pushed = listed.shas;
     if (pushed === '') return null;
@@ -447,8 +508,10 @@ class Guard {
     const values = shaValuesCte(shaList);
     if (values === null) return deny(SHA_LIST_REASON, 'policy');
 
+    const admitQueued = await this.offTarget(dir, args);
+    const notQueued = admitQueued ? ` AND NOT ${AGILE_QUEUED_SQL}` : '';
     const unsigned = this.read(
-      `WITH ${values} SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE EXISTS (SELECT 1 FROM p WHERE ${shaPrefixMatchSql('t.commit_sha', 'p.sha')}) AND NOT ${HAS_PASS_SQL};`,
+      `WITH ${values} SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE EXISTS (SELECT 1 FROM p WHERE ${shaPrefixMatchSql('t.commit_sha', 'p.sha')}) AND NOT ${HAS_PASS_SQL}${notQueued};`,
     );
     if (unsigned === GATE_READ_ERROR) return deny(DB_REASON, DB_RETRY_FIX);
     if (unsigned !== '') {
@@ -460,13 +523,13 @@ class Guard {
       );
     }
 
-    const unchecked = await this.uncheckedRebases(dir, pushed);
+    const unchecked = await this.uncheckedRebases(dir, pushed, admitQueued);
     if (unchecked === GATE_READ_ERROR) return deny(DB_REASON, DB_RETRY_FIX);
     if (unchecked === '') return null;
     const rows = lines(unchecked);
     const list = rows
       .map((r) => {
-        const why = field(r, 4) === '1' ? 'no passing verification run for this commit' : 'the task has no passing review';
+        const why = field(r, 4) === REVIEWED ? 'no passing verification run for this commit' : 'the task has no passing review';
         const kind = field(r, 5) === 'src' ? 'rebase with regenerated dist' : 'rebase';
         return `  - ${field(r, 1)}  ${kind} of task_id=${field(r, 2)}  ${field(r, 3)}  (${why})`;
       })

@@ -10,8 +10,8 @@ import { taskTools } from '../tools/tasks.js';
 import { compositeTools } from '../tools/composites.js';
 import { reportTools } from '../tools/reports.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
-import { HAS_PASS_SQL } from '../review-sql.js';
-import { taskHasPassingReview } from '../tools/lifecycle.js';
+import { AGILE_QUEUED_SQL, HAS_PASS_SQL } from '../review-sql.js';
+import { recordReviewQueuedIfUnreviewed, taskHasPassingReview } from '../tools/lifecycle.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -812,6 +812,80 @@ describe('progress counters count closed only', () => {
     const md = String(out['markdown']);
     assert.match(md, /\*\*Done:\*\* 0 of 1 closed, 1 awaiting close/);
     assert.match(md, /completed \(awaiting review and close\)/);
+    db.close();
+  });
+});
+
+describe('AGILE_QUEUED_SQL: a closed agile task queued by bro for its current commit (GH 2225)', () => {
+  const queuedRow = (db: TrajectoryDB, issueId: number, taskId: number, sha: string, fromNode = 'bro'): void => {
+    db.run(
+      `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, ?, 'review_queued', 'queued', ?, ?)`,
+      [issueId, fromNode, JSON.stringify({ task_id: taskId, commit_sha: sha }), iso(0)],
+    );
+  };
+  const isQueued = (db: TrajectoryDB, taskId: number): boolean =>
+    db.get<{ ok: number }>(`SELECT ${AGILE_QUEUED_SQL} AS ok FROM tasks t WHERE t.id = ?`, [taskId])!.ok === 1;
+  const agileTask = (db: TrajectoryDB, issue: number, status = 'closed', commit = 'abc1234'): number => {
+    const t = seedTask(db, issue, status, { commit });
+    db.run(`UPDATE tasks SET workflow_mode = 'agile' WHERE id = ?`, [t]);
+    return t;
+  };
+
+  it('holds for a closed agile task with a bro review_queued row naming its commit_sha', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const t = agileTask(db, issue);
+    assert.equal(isQueued(db, t), false, 'no row, no queue');
+    queuedRow(db, issue, t, 'abc1234');
+    assert.equal(isQueued(db, t), true);
+    db.close();
+  });
+
+  it('SC4: a review_queued row authored by any agent other than bro does not satisfy it', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const t = agileTask(db, issue);
+    for (const author of ['swe', 'code-reviewer', 'hook:integrate', 'security', 'server']) queuedRow(db, issue, t, 'abc1234', author);
+    assert.equal(isQueued(db, t), false);
+    db.close();
+  });
+
+  it('does not hold for another commit, a truest or unset mode, or a task that is not closed', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const moved = agileTask(db, issue);
+    queuedRow(db, issue, moved, 'abc1234');
+    db.run(`UPDATE tasks SET commit_sha = 'def5678' WHERE id = ?`, [moved]);
+    assert.equal(isQueued(db, moved), false, 'a row for an earlier commit does not queue the new one');
+
+    for (const mode of ['truest', null]) {
+      const t = agileTask(db, issue);
+      db.run(`UPDATE tasks SET workflow_mode = ? WHERE id = ?`, [mode, t]);
+      queuedRow(db, issue, t, 'abc1234');
+      assert.equal(isQueued(db, t), false, `mode ${mode}`);
+    }
+
+    const open = agileTask(db, issue, 'completed');
+    queuedRow(db, issue, open, 'abc1234');
+    assert.equal(isQueued(db, open), false);
+    db.close();
+  });
+
+  it('recordReviewQueuedIfUnreviewed writes one row per (task, commit) and none for a reviewed commit', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const t = agileTask(db, issue);
+    const task = { id: t, issue_id: issue, branch_id: 'feat/q', status: 'closed', commit_sha: 'abc1234' };
+    assert.equal(recordReviewQueuedIfUnreviewed(db, task, iso(0)), true);
+    assert.equal(recordReviewQueuedIfUnreviewed(db, task, iso(0)), true);
+    assert.equal(auditRows(db, 'review_queued').length, 1);
+    assert.deepEqual(auditRows(db, 'review_queued')[0], { content: { task_id: t, commit_sha: 'abc1234' }, from_node: 'bro' });
+
+    const reviewed = agileTask(db, issue, 'closed', 'fed4321');
+    recordHandoff(db, issue, reviewed, 'fed4321', iso(-2 * HOUR));
+    recordVerdict(db, reviewed, 'pass', iso(-HOUR));
+    assert.equal(recordReviewQueuedIfUnreviewed(db, { ...task, id: reviewed, commit_sha: 'fed4321' }, iso(0)), false);
+    assert.equal(auditRows(db, 'review_queued').length, 1);
     db.close();
   });
 });
