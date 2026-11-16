@@ -36,7 +36,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
-import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree, withoutGitVersionPaths } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -362,7 +362,7 @@ export function sweRunParityShard(k: number, n: number): void {
         it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
           const env = caseEnv(s, locale, c.env, c.cwd);
-          const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+          const { tree: storedTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildSandbox(s);
             const setup = snapshot(s);
             return { ...run(...liveHookCommand(gate), c, env), tree: settledTree(setup, snapshot(s)) };
@@ -370,7 +370,8 @@ export function sweRunParityShard(k: number, n: number): void {
           buildSandbox(s);
           const setup = snapshot(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
-          const nodeTree = settledTree(setup, snapshot(s));
+          const nodeTree = withoutGitVersionPaths(settledTree(setup, snapshot(s)));
+          const bashTree = withoutGitVersionPaths(storedTree);
           assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);
           assert.equal(node.code, 0, `node exit: ${node.stderr}`);
           if (c.divergent === undefined) {

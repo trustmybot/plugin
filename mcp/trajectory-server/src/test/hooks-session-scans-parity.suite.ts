@@ -42,7 +42,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { projectSlug } from '../hooks/orphan-scan.js';
 import { corpusFiles, type CorpusPaths, noCmdPath } from './hooks-swe-run-parity.suite.js';
-import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree, withoutGitVersionPaths, withRequiredSchemaPlaceholder } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -523,7 +523,7 @@ export function sessionScansParityShard(k: number, n: number): void {
         it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
           const env = sessionScanEnv(s, gate, locale, c.env, c.cwd);
-          const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base, '@SLUG@': projectSlug(join(s, 'project')), '@OTHER_SLUG@': projectSlug(join(s, 'other')) }), () => {
+          const { tree: storedTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base, '@SLUG@': projectSlug(join(s, 'project')), '@OTHER_SLUG@': projectSlug(join(s, 'other')) }), () => {
             fresh();
             const setup = scanTree(s);
             return { ...run(...liveHookCommand(gate), c.input, env, c.cwd), tree: settledTree(setup, scanTree(s)) };
@@ -531,13 +531,14 @@ export function sessionScansParityShard(k: number, n: number): void {
           fresh();
           const setup = scanTree(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c.input, env, c.cwd);
-          const nodeTree = settledTree(setup, scanTree(s));
+          const nodeTree = withoutGitVersionPaths(settledTree(setup, scanTree(s)));
+          const bashTree = withoutGitVersionPaths(storedTree);
           assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);
           assert.equal(node.code, 0, `node exit: ${node.stderr}`);
           if (c.divergent === undefined) {
             assert.deepEqual(nodeTree, bashTree, 'the sandbox after the run');
-            assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');
-            assert.equal(node.stderr, bash.stderr, 'stderr, byte for byte');
+            assert.equal(withRequiredSchemaPlaceholder(node.stdout), withRequiredSchemaPlaceholder(bash.stdout), 'stdout, byte for byte but the required schema number');
+            assert.equal(withRequiredSchemaPlaceholder(node.stderr), withRequiredSchemaPlaceholder(bash.stderr), 'stderr, byte for byte but the required schema number');
             assertExpect('bash', bash, byLocale(c.expect as SideExpect, locale));
           } else {
             const expect = c.expect as { bash: SideExpect; ts: SideExpect };

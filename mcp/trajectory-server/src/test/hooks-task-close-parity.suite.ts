@@ -40,7 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { corpusFiles, noCmdPath } from './hooks-swe-run-parity.suite.js';
-import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree } from './golden.js';
+import { goldenBash, goldenRoots, liveHookCommand, sandboxSha, settledTree, withoutGitVersionPaths } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -449,8 +449,10 @@ export function taskCloseParityShard(k: number, n: number): void {
             const tree = settledTree(setup, snapshot(s));
             return { name, r, tree };
           };
-          const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => runSide('bash'));
-          const node = runSide('ts');
+          const stored = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => runSide('bash'));
+          const bash = { ...stored, tree: withoutGitVersionPaths(stored.tree) };
+          const live = runSide('ts');
+          const node = { ...live, tree: withoutGitVersionPaths(live.tree) };
           for (const x of [bash, node]) assert.equal(x.r.code, 0, `${x.name} exit: ${x.r.stderr}`);
           if (c.divergent === undefined) {
             assert.deepEqual(node.tree, bash.tree, 'the sandbox after the run');

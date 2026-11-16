@@ -112,6 +112,23 @@ export function settledTree(before: Record<string, string | null>, after: Record
   );
 }
 
+/** Paths whose presence depends on the git version that built the sandbox: the hook samples its templates ship and a worktree's own refs/ dir. */
+const GIT_VERSION_DEPENDENT = [/(^|\/)\.git\/hooks\/[^/]+\.sample$/, /(^|\/)\.git\/worktrees\/[^/]+\/refs\/$/];
+
+/** `tree` without its git-version-dependent keys, so a recording made with one git compares equal under another; the recording itself stays as stored (GH 3001). */
+export function withoutGitVersionPaths<T>(tree: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(tree).filter(([rel]) => !GIT_VERSION_DEPENDENT.some((pattern) => pattern.test(rel))));
+}
+
+/**
+ * `text` with the required number in each `schema v<N> < v<M>` set to a placeholder: M is the build's max min_schema
+ * over the data contracts (decision #66), so it moves with every contract bump while the recording stays byte-identical
+ * (GH 3001); the stored number N and the shape stay compared.
+ */
+export function withRequiredSchemaPlaceholder(text: string): string {
+  return text.replace(/(schema v\d+ < v)\d+/g, '$1<REQUIRED>');
+}
+
 function readGolden(file: string): GoldenFile {
   return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as GoldenFile) : {};
 }
