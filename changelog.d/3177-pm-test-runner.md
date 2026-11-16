@@ -1,0 +1,2 @@
+### Fixed
+- **`scope_suggest` drafts package-manager test lines** (GH 3177): `draft.verification` dropped CI lines that run the suite through a package manager, so repos testing that way got no test command in the draft. Now `npm`, `pnpm`, `yarn` and `bun` running `test` or `test:<name>`, directly or via `run` (`pnpm test`, `npm run test:unit`), count as test runners; build, install and lint lines such as `npm run build`, `npm ci` and `yarn lint` stay excluded.

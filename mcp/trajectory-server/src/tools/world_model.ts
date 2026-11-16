@@ -724,6 +724,7 @@ const TEST_COMMAND = [
   /(^|[\s/.])tests\/run-all/,
   /(^|[\s/])(vitest|jest|mocha|pytest)(?=\s|$)/,
   /(^|[\s;&|(/])(bun|go|cargo)\s+test(?=\s|$)/,
+  /(^|[\s;&|(/])(npm|pnpm|yarn|bun)\s+(run\s+)?test(:\S*)?(?=\s|$)/,
 ];
 
 export function isTestRunner(runner: Pick<CoveringRunner, 'runner' | 'command'>): boolean {
