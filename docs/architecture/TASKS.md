@@ -264,6 +264,8 @@ The rules behind every step table above. Each task is built on two axes. The fir
 
 ## Debugging a stuck task
 
+A task that is stuck because something under it never finished (a hung hook, a dead run, a nested session) is traced in [TRAJECTORY.md](TRAJECTORY.md), planned in GH 3255.
+
 | Symptom | Where to look |
 |---|---|
 | swe will not start | The spawn needs a provisioned task with a spec, at the task's effort; after two review fails it also needs a recorded root-cause analysis and the change it names |
