@@ -81,7 +81,7 @@
     "SessionStart:": {
       "max_budget_ms": 13038,
       "p99_sum_ms": 18982,
-      "group_budget_ms": 28473
+      "group_budget_ms": 13038
     },
     "SessionStart::persona": {
       "max_budget_ms": 8340,

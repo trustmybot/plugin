@@ -8,12 +8,12 @@
  * (second granularity, as `date +%s`) caps the scan. It needs neither jq nor
  * the sqlite3 CLI.
  */
-import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, opendirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { dbLocation, dbPath, GATE_READ_ERROR, gateRead, haveSqlite, projectRoot, sqliteRo, stripTrailingNewlines } from './lib/db.js';
 import { byteCompare, commandOnPath, firstLine } from './lib/host.js';
 import { jqCompact, jsonStream } from './lib/jq.js';
+import { captureStdout, type ProcTable, processTable, procRow } from './lib/proc-table.js';
 import { jqRawText, pluginName, posixDirname, TMB_DB_FILENAME } from './lib/project-env.js';
 
 export const GATE_NAME = 'orphan-scan';
@@ -71,17 +71,12 @@ export function isCcCommand(command: string): boolean {
     .some((word) => word !== '' && CC_WORD.test(word));
 }
 
-function capture(cmd: string, args: readonly string[], env: NodeJS.ProcessEnv): string {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] });
-  return r.error ? '' : (r.stdout ?? '');
+function procPpid(pid: string, table: ProcTable): string {
+  return procRow(table, pid)?.ppid ?? '';
 }
 
-function procPpid(pid: string, env: NodeJS.ProcessEnv): string {
-  return stripTrailingNewlines(capture('ps', ['-o', 'ppid=', '-p', pid], env).replaceAll(' ', ''));
-}
-
-function procCmd(pid: string, env: NodeJS.ProcessEnv): string {
-  return stripTrailingNewlines(capture('ps', ['-o', 'command=', '-p', pid], env));
+function procCmd(pid: string, table: ProcTable): string {
+  return procRow(table, pid)?.command ?? '';
 }
 
 function aboveInit(pid: string): boolean {
@@ -90,34 +85,39 @@ function aboveInit(pid: string): boolean {
 }
 
 /** nearest_cc_ancestor: the first pid of <pid>'s ancestry (itself included) running Claude Code, else "". */
-export function nearestCcAncestor(start: string, env: NodeJS.ProcessEnv): string {
+export function nearestCcAncestor(start: string, table: ProcTable): string {
   let pid = start;
   for (let guard = 1; aboveInit(pid) && guard <= ANCESTRY_GUARD; guard += 1) {
-    if (isCcCommand(procCmd(pid, env))) return pid;
-    pid = procPpid(pid, env);
+    if (isCcCommand(procCmd(pid, table))) return pid;
+    pid = procPpid(pid, table);
   }
   return '';
 }
 
-function chainContains(start: string, target: string, env: NodeJS.ProcessEnv): boolean {
+function chainContains(start: string, target: string, table: ProcTable): boolean {
   if (target === '') return false;
   let pid = start;
   for (let guard = 1; aboveInit(pid) && guard <= ANCESTRY_GUARD; guard += 1) {
     if (pid === target) return true;
-    pid = procPpid(pid, env);
+    pid = procPpid(pid, table);
   }
   return false;
 }
 
-function isTrajectoryServer(pid: string, env: NodeJS.ProcessEnv): boolean {
-  return capture('ps', ['-p', pid, '-o', 'command='], env).includes('trajectory-server');
+function isTrajectoryServer(pid: string, table: ProcTable): boolean {
+  return procCmd(pid, table).includes('trajectory-server');
 }
 
-function holders(liveDb: string, env: NodeJS.ProcessEnv): string[] {
+/** A fresh ps of <pid> right before it is signalled: the snapshot may predate a pid's reuse. */
+async function stillTrajectoryServer(pid: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  return (await captureStdout('ps', ['-p', pid, '-o', 'command='], env)).includes('trajectory-server');
+}
+
+async function holders(liveDb: string, env: NodeJS.ProcessEnv): Promise<string[]> {
   const override = env.TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE ?? '';
   if (override !== '') return override.replaceAll(' ', '\n').split('\n');
   if (!commandOnPath('lsof', env)) return [];
-  const lines = stripTrailingNewlines(capture('lsof', ['-t', '--', liveDb], env)).split('\n');
+  const lines = stripTrailingNewlines(await captureStdout('lsof', ['-t', '--', liveDb], env)).split('\n');
   return [...new Set(lines)].sort(byteCompare);
 }
 
@@ -254,7 +254,7 @@ function liveDbOf(env: NodeJS.ProcessEnv, warn: (line: string) => void): { liveD
 }
 
 /** The orphan scan as a function of its env and process operations. */
-export function orphanScanRun(env: NodeJS.ProcessEnv, ops: ProcessOps, stderr: (text: string) => void): GateResult {
+export async function orphanScanRun(env: NodeJS.ProcessEnv, ops: ProcessOps, stderr: (text: string) => void): Promise<GateResult> {
   const deadline = Math.floor(Date.now() / 1000) + DEADLINE_S;
   const within = (): boolean => Math.floor(Date.now() / 1000) < deadline;
   const clean = (env.TMB_ORPHAN_SCAN_CLEAN ?? '') === '1';
@@ -307,14 +307,15 @@ export function orphanScanRun(env: NodeJS.ProcessEnv, ops: ProcessOps, stderr: (
   }
   for (const vdir of unusedCache) report.push(`unused cache version (pinned by no project): ${vdir}`);
 
-  const ownCc = nearestCcAncestor(env.TMB_ORPHAN_SCAN_SELF_PID || String(process.pid), env);
+  const table = await processTable(env);
+  const ownCc = nearestCcAncestor(env.TMB_ORPHAN_SCAN_SELF_PID || String(process.pid), table);
   const staleProcs: string[] = [];
   if (nonEmpty(liveDb) && within()) {
-    for (const pid of holders(liveDb, env)) {
+    for (const pid of await holders(liveDb, env)) {
       if (pid === '') continue;
-      if (!isTrajectoryServer(pid, env)) continue;
-      if (chainContains(pid, ownCc, env)) continue;
-      const owner = nearestCcAncestor(pid, env);
+      if (!isTrajectoryServer(pid, table)) continue;
+      if (chainContains(pid, ownCc, table)) continue;
+      const owner = nearestCcAncestor(pid, table);
       if (owner !== '' && ops.alive(owner)) continue;
       staleProcs.push(pid);
     }
@@ -342,7 +343,7 @@ export function orphanScanRun(env: NodeJS.ProcessEnv, ops: ProcessOps, stderr: (
       }
     }
     for (const pid of staleProcs) {
-      if (ops.alive(pid) && isTrajectoryServer(pid, env) && ops.terminate(pid)) {
+      if (ops.alive(pid) && (await stillTrajectoryServer(pid, env)) && ops.terminate(pid)) {
         cleaned.push(`terminated stale duplicate trajectory-server: pid ${pid}`);
       }
     }
@@ -356,9 +357,9 @@ export function orphanScanRun(env: NodeJS.ProcessEnv, ops: ProcessOps, stderr: (
   return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } })}\n`, code: 0 };
 }
 
-export const orphanScan: SyncGate = (_payload, env) => {
+export const orphanScan: Gate = async (_payload, env) => {
   try {
-    return orphanScanRun(env, REAL_PROCESS_OPS, (text) => process.stderr.write(text));
+    return await orphanScanRun(env, REAL_PROCESS_OPS, (text) => process.stderr.write(text));
   } catch {
     return ALLOW;
   }

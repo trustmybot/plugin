@@ -79,9 +79,9 @@ describe('router budgets.json (GH 1861)', () => {
     }
   });
 
-  it('the concurrent groups are PreToolUse Bash and Write alone, at their critical path, Bash registered at 19 s', () => {
+  it('the concurrent groups are PreToolUse Bash and Write and base SessionStart alone, at their critical path, Bash registered at 19 s', () => {
     const concurrent = ROUTER_GROUPS.filter((g) => g.concurrent);
-    assert.deepEqual(concurrent.map(routerGroupKey).sort(), ['PreToolUse:Bash', 'PreToolUse:Write|Edit|MultiEdit|NotebookEdit']);
+    assert.deepEqual(concurrent.map(routerGroupKey).sort(), ['PreToolUse:Bash', 'PreToolUse:Write|Edit|MultiEdit|NotebookEdit', 'SessionStart:']);
     for (const g of concurrent) {
       assert.equal(g.stopAtFirstDeny, undefined);
       assert.equal(g.groupBudgetMs, Math.max(...g.gates.map((x) => x.budgetMs)));

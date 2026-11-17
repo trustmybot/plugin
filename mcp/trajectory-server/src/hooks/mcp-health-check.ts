@@ -4,11 +4,10 @@
  * forensic line to <state dir>/logs/mcp-health.log. It never denies and
  * needs no jq.
  */
-import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { ALLOW, type SyncGate } from './gate.js';
+import { ALLOW, type Gate } from './gate.js';
 import { dbPath, stateDir, stripTrailingNewlines } from './lib/db.js';
-import { commandOnPath, commandSubstitution, sleepSeconds } from './lib/host.js';
+import { commandOnPath, commandSubstitution, delaySeconds } from './lib/host.js';
 import {
   duplicateDisableCmds,
   duplicateInstalls,
@@ -19,6 +18,7 @@ import {
   userInstalls,
 } from './lib/install.js';
 import { jqAlternatives, jqCompact, jsonValues } from './lib/jq.js';
+import { captureStdout } from './lib/proc-table.js';
 import { jqRawText, posixDirname } from './lib/project-env.js';
 
 export const GATE_NAME = 'mcp-health-check';
@@ -51,9 +51,8 @@ export function sampleCount(raw: string | undefined): number {
   return Number(v);
 }
 
-function pgrepLines(pattern: string, env: NodeJS.ProcessEnv): number {
-  const r = spawnSync('pgrep', ['-f', pattern], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  return (r.stdout ?? '').split('\n').length - 1;
+async function pgrepLines(pattern: string, env: NodeJS.ProcessEnv): Promise<number> {
+  return (await captureStdout('pgrep', ['-f', pattern], env)).split('\n').length - 1;
 }
 
 interface Sample {
@@ -61,7 +60,7 @@ interface Sample {
   taken: number;
 }
 
-function samplePgrep(env: NodeJS.ProcessEnv): Sample {
+async function samplePgrep(env: NodeJS.ProcessEnv): Promise<Sample> {
   if (!commandOnPath('pgrep', env)) return { count: -1, taken: 0 };
   const samples = sampleCount(env.TMB_MCP_HEALTH_SAMPLES);
   const interval = env.TMB_MCP_HEALTH_INTERVAL_S ?? '1.2';
@@ -70,9 +69,9 @@ function samplePgrep(env: NodeJS.ProcessEnv): Sample {
   let count = 0;
   let taken = 0;
   while (taken < samples) {
-    if (taken > 0) sleepSeconds(interval);
+    if (taken > 0) await delaySeconds(interval);
     taken += 1;
-    count = pgrepLines(pattern, env);
+    count = await pgrepLines(pattern, env);
     if (count > 0) break;
   }
   return { count, taken };
@@ -172,11 +171,11 @@ function appendLog(event: string, sessionId: string, sample: Sample, env: NodeJS
   }
 }
 
-export const mcpHealthCheck: SyncGate = (payload, env) => {
+export const mcpHealthCheck: Gate = async (payload, env) => {
   const input = commandSubstitution(payload);
   const event = eventName(input);
   const sessionId = stripTrailingNewlines(jqAlternatives(input, [['session_id'], ['sessionId']]));
-  const sample = samplePgrep(env);
+  const sample = await samplePgrep(env);
   let context = sample.count === 0 ? NOT_DETECTED : '';
   for (const part of [installNotice(event, sessionId, env), duplicateWarning(env)]) {
     if (part !== '') context = context !== '' ? `${context}\n\n${part}` : part;

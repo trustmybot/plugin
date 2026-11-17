@@ -221,7 +221,12 @@ const PS_TABLE = [
   .map((r) => `${r.join('\t')}\n`)
   .join('');
 
+// `ps -A -o pid=,ppid=,etime=,command=` is the gates' one snapshot; a blank
+// etime prints '-', which, like the blank or octal etimes the .sh read, allows.
 const PS_STUB = `#!/bin/sh
+if [ "$1" = -A ]; then
+  exec awk -F'\\t' '{ print $1, $2, ($4 == "" ? "-" : $4), $5 }' "\${PS_TABLE:?}"
+fi
 field="$2"; pid="$4"
 awk -F'\\t' -v p="$pid" -v f="$field" '$1 == p { found = 1
   if (f == "ppid=") print $2; else if (f == "etimes=") print $3; else if (f == "etime=") print $4; else if (f == "command=") print $5 }

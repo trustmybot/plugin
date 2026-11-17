@@ -44,7 +44,7 @@ describe('orphan-scan and session-start-prescan in a sandbox', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it("clean mode never lists or removes another project's DB, process or pinned cache version", () => {
+  it("clean mode never lists or removes another project's DB, process or pinned cache version", async () => {
     buildSessionScansSandbox(s, process.pid);
     const home = join(s, 'homes/all');
     const cache = join(home, '.claude/plugins/cache');
@@ -63,7 +63,7 @@ describe('orphan-scan and session-start-prescan in a sandbox', () => {
       },
     };
     const stderr: string[] = [];
-    const r = orphanScanRun(env, ops, (text) => stderr.push(text));
+    const r = await orphanScanRun(env, ops, (text) => stderr.push(text));
     const ctx = (JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
 
     const otherHistory = join(home, '.claude/projects', projectSlug(join(s, 'other')));
@@ -88,13 +88,13 @@ describe('orphan-scan and session-start-prescan in a sandbox', () => {
     assert.deepEqual(stderr, []);
   });
 
-  it("seen from another project, this project's DBs and processes are someone else's and stay", () => {
+  it("seen from another project, this project's DBs and processes are someone else's and stay", async () => {
     buildSessionScansSandbox(s, process.pid);
     const home = join(s, 'homes/all');
     const held = dirname(dirname(dirname(join(s, HELD_DB))));
     const env = sessionScanEnv(s, 'orphan-scan', 'C', { TMB_ORPHAN_SCAN_HOME: home, TMB_ORPHAN_SCAN_CLEAN: '1', TRAJECTORY_DB_PATH: join(s, HELD_DB) }, held);
     const terminated: string[] = [];
-    const r = orphanScanRun(env, { alive: (pid) => pid !== '9000405', terminate: (pid) => terminated.push(pid) > 0 }, () => {});
+    const r = await orphanScanRun(env, { alive: (pid) => pid !== '9000405', terminate: (pid) => terminated.push(pid) > 0 }, () => {});
     const ctx = (JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
     assert.ok(ctx.startsWith(`=== TMB orphan scan (project-scoped) ===\nproject: ${held}\n`), ctx);
     const projectHistory = join(home, '.claude/projects', projectSlug(project));

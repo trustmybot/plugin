@@ -65,9 +65,9 @@ export function candidateDirs(env: NodeJS.ProcessEnv): string[] {
 
 export const ensureGitignore: Gate = async (_payload, env) => {
   const seen = new Set<string>();
-  for (const d of candidateDirs(env)) {
-    if (!isDir(d)) continue;
-    const r = await gitRun(d, ['rev-parse', '--show-toplevel'], env);
+  const dirs = candidateDirs(env).filter(isDir);
+  const toplevels = await Promise.all(dirs.map((d) => gitRun(d, ['rev-parse', '--show-toplevel'], env)));
+  for (const r of toplevels) {
     if (r.code !== 0) continue;
     const root = r.stdout.replace(/\n+$/, '');
     if (root === '' || seen.has(root)) continue;

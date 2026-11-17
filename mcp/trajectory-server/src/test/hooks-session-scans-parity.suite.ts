@@ -110,8 +110,10 @@ const FROZEN_DATE_STUB = '#!/bin/sh\n[ "$1" = +%s ] && { echo 1700000000; exit 0
 export function writeProcessStubs(bin: string, s: string, runner: number): void {
   mkdirSync(bin, { recursive: true });
   const rows = [...processTable(runner)].map(([pid, [ppid, cmd]]) => `  ${pid}) ppid=${ppid} cmd=${shQuote(cmd)} ;;`);
+  const snapshot = [...processTable(runner)].map(([pid, [ppid, cmd]]) => shQuote(`${pid} ${ppid} 00:01 ${cmd}`));
   const ps = [
     '#!/bin/sh',
+    `[ "$1" = -A ] && { printf '%s\\n' ${snapshot.join(' ')}; exit 0; }`,
     'fmt= pid=',
     'while [ $# -gt 0 ]; do',
     '  case "$1" in',
