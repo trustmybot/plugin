@@ -19,7 +19,7 @@ flowchart TD
     C --> D["Provision: branch and worktree cut from the fetched base<br/>DB insert: decision, task with spec, files, checks and effort<br/>WM: base indexed"]
     D --> E["swe spawned with the task id<br/>DB insert: metered run · DB update: task running<br/>WM: brought forward if behind"]
     E --> F["swe implements<br/>DB insert: every deny and tool output"]
-    F --> G["swe closes; every check passes<br/>DB insert: verification run, close lints<br/>DB update: commit, report, task completed"]
+    F --> G["swe closes; every check passes<br/>DB insert: verification run, close lints<br/>DB update: commit, report, task completed<br/>WM: task overlay built from the commit (planned, GH 2957)"]
     G --> H["code-reviewer passes the commit<br/>DB insert: verdict and any nits"]
     H --> I["bro judges fit to the design and closes the task<br/>DB update: task closed · worktree removed"]
     I -- architectural change --> I1["WM: full scan, so the new structure shows this session"]
@@ -72,7 +72,7 @@ flowchart TD
 | Ask | Human | judgment | intent: a requirement, pinned down with bro before anything is recorded when it is vague |
 | Ground and intent | bro | judgment | bro starts each turn knowing its role and the open issue, and reads the world model before planning. The goal is saved in the trajectory DB before any branch exists: an issue, the Human's words as its intent, and the reuse-or-build call. bro picks the base itself, the PR target set at first contact or the unmerged branch the task stacks on, and names the branch automatically |
 | Spec | bro | judgment | an actionable requirement: numbered success criteria, file list, verification commands and effort. bro's architecture judgment enters here. A spec too large for one swe run is split into linked tasks |
-| Provision | bro | deterministic | a ready-to-work environment: one step records the decision and the task in the trajectory DB, fetches the base, cuts the branch and worktree, runs setup and indexes the world model there; any failure writes nothing. [GIT.md](./GIT.md#keeping-the-base-fresh) covers how the base is kept fresh |
+| Provision | bro | deterministic | a ready-to-work environment: one step records the decision and the task in the trajectory DB, fetches the base, cuts the branch and worktree, runs setup and brings the world model's shared index forward at the task's base; any failure writes nothing. [GIT.md](./GIT.md#keeping-the-base-fresh) covers how the base is kept fresh |
 | Implement | swe | deterministic | swe acts only after reading its brief, writes only in its worktree, and has each edit and commit checked as it lands. It does not rebuild the environment or rewrite the spec |
 | Close | swe | deterministic | functionality-level quality: the task completes only when the changelog, stale-doc and leak checks, the verification commands (the repo's standing checks among them), every open finding's probe and the repo's close lints pass on the commit, with a report against every success criterion. A prompt-bearing task also passes the doc-review checklist of 3.2. A world-model check that no downstream caller breaks is planned (GH 3069) |
 | Hand off | bro | deterministic | the commit goes to review only with a passing run and a report that covers it, plus the list of edits outside the file list |
@@ -217,7 +217,7 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Step | Owner | What it guarantees |
 |---|---|---|
 | Spawn | bro → code-reviewer | the reviewer gets anchors and a short note only, and starts only on a commit machines already vouch for: the right tip, a handoff for that commit, a passing run, a lint record current against the base. A conflict with the base does not refuse it and waits for the merge |
-| Probe | code-reviewer | deterministic: reads the brief and the commit in a review worktree. A code task's diff is probed through the world model's dependents (a diff-level reviewer prompt is planned, GH 3059); a non-code task is graded with the doc-review checklist. It re-runs none of the author's checks, since the spawn already proved the lint record |
+| Probe | code-reviewer | deterministic: reads the brief and the commit in a review worktree. A code task's diff is probed through the world model's dependents, reading the task's own symbols from its [task overlay](WORLD_MODEL.md#task-overlay) once that ships (planned, GH 2957; until then the reviewer reads the branch's code from git) (a diff-level reviewer prompt is planned, GH 3059); a non-code task is graded with the doc-review checklist. It re-runs none of the author's checks, since the spawn already proved the lint record |
 | Verdict | code-reviewer | judgment: a fail carries a blocking finding, a pass may carry nits and pre-existing findings; the reviewer's identity is observed, never claimed |
 | Pass | bro | bro reads the verdict from its record and closes the task, integrates it if the base moved, pushes and opens the PR |
 | Fail | bro | the fail has already reopened the task at high effort; bro surfaces it, holds the push and sends the task back to its author (swe, or bro itself on a non-code task) without asking the Human |
