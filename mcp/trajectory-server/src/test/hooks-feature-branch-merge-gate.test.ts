@@ -174,6 +174,37 @@ describe('feature-branch-merge-gate', () => {
     for (const command of spellings) assert.equal(await judge(command), '', command);
   });
 
+  it('a per-task pass after a review_handoff of the task\'s commit settles it; a FAIL, or a pass of an earlier commit, does not (decision #320 item 3)', async () => {
+    const branch = 'feat/agile-per-task';
+    const task = mergeTask(branch, 'fff6666');
+    const at = (offsetMs: number): string => new Date(Date.now() + offsetMs).toISOString();
+    const handoff = (commit: string, createdAt: string): void => {
+      db.run(
+        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_handoff', 'h', ?, ?)`,
+        [issue, JSON.stringify({ task_id: task, commit_sha: commit }), createdAt],
+      );
+    };
+    const verdict = (v: 'pass' | 'fail', createdAt: string): void => {
+      db.run(
+        `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at)
+         VALUES (?, (SELECT COALESCE(MAX(attempt_n), 0) + 1 FROM validation_attempts WHERE task_id = ?), 'code-reviewer', ?, 'f', 1, ?)`,
+        [task, task, v, createdAt],
+      );
+    };
+    const deniesTask = async (): Promise<boolean> => new RegExp(`task\\(s\\) ${task} still queued`).test(await judge(`gh pr create --head ${branch}`));
+
+    handoff('0ld0000', at(1000));
+    verdict('pass', at(2000));
+    assert.ok(await deniesTask(), 'a pass anchored to another commit leaves the task queued');
+
+    handoff('fff6666', at(3000));
+    verdict('fail', at(4000));
+    assert.ok(await deniesTask(), 'a FAIL on the current commit keeps it queued');
+
+    verdict('pass', at(5000));
+    assert.equal(await judge(`gh pr create --head ${branch}`), '', 'the per-task pass settles the task');
+  });
+
   it('allows a head that is no feature branch, other commands, and a missing DB', async () => {
     mergeTask('feat/agile-other', 'ddd4444');
     for (const command of [

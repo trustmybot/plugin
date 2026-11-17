@@ -13,6 +13,7 @@ import {
   type ClearedCompletion,
   type ReopenTask,
 } from './reopen.js';
+import { AGILE_PENDING_REVIEW_SQL } from '../review-sql.js';
 import { PROBE_SHAPE, parseProbes, probesJson, type ReviewProbe } from './review-probes.js';
 import { parseResponseFormat, responseFormatSchema, withoutKeys } from './response-format.js';
 import { FINDING_ORDER_SQL, PASS_RUN_SQL, VERIFICATION_RUN_REQUIRED, latestVerificationRun, passRunRefusal, type PassRunRow } from './verification-runs.js';
@@ -53,7 +54,7 @@ function reviewFailSpawnNote(validationId: number, findings: readonly BlockingFi
 /**
  * What a code-reviewer FAIL does to its task, inside validation_record's
  * transaction (GH 2866): a completed, needs_validation or closed task is
- * reopened to running at the rework floor effort, reopening its issue too when
+ * reopened, except a closed agile task still queued for review, to running at the rework floor effort, reopening its issue too when
  * that issue is closed (the revert guard, GH 3234); a running one only has its
  * effort raised to the floor; any other status is left as it is. The reopen's
  * task_reopened row keeps the cleared completion report and stamp, which a
@@ -71,6 +72,10 @@ function reopenAfterReviewFail(
   );
   if (!task) return { reopen_skipped: { reason: 'task_missing' } };
   if (task.issue_status === null) return { reopen_skipped: { reason: 'issue_missing' } };
+  // A per-task review of a closed agile task leaves it closed and queued;
+  // bro decides on rework with task_reopen.
+  const agileQueued = db.get<{ ok: number }>(`SELECT ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [task.id])?.ok === 1;
+  if (agileQueued) return { reopen_skipped: { reason: 'agile_queued' } };
   const effort = atLeastReworkFloor(task.effort);
   const raise = effort !== task.effort;
   if (task.status === 'running') {

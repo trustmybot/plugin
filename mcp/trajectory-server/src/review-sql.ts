@@ -137,9 +137,10 @@ export const waivedSql = (alias: string): string => `EXISTS (SELECT 1 FROM audit
     AND wt.value = ${alias}.id
     AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.commit_shas[' || wt.key || ']') END = ${alias}.commit_sha)`;
 
-// A queued agile task that no grouped review has settled yet: neither
-// batch-reviewed nor waived at its current commit.
-export const AGILE_PENDING_REVIEW_SQL = `(${AGILE_QUEUED_SQL} AND NOT ${batchReviewedSql('t')} AND NOT ${waivedSql('t')})`;
+// A queued agile task that no review has settled yet: neither batch-reviewed
+// nor waived at its current commit, and without a per-task pass (HAS_PASS_SQL:
+// a code-reviewer pass after review_handoff handed that commit over).
+export const AGILE_PENDING_REVIEW_SQL = `(${AGILE_QUEUED_SQL} AND NOT ${batchReviewedSql('t')} AND NOT ${waivedSql('t')} AND NOT ${HAS_PASS_SQL})`;
 
 // The tasks a feature branch carries: those cli.js feature-merge moved onto
 // it, each named by a bro feature_branch_merged row. branchSql is a SQL

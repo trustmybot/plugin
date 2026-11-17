@@ -429,6 +429,50 @@ describe('code-reviewer-preflight', () => {
         await assertAllowed(f);
       });
 
+      describe('a per-task review of a closed agile task the feature branch fast-forwarded onto (decision #320 item 3)', () => {
+        /** stackedOnFeature, then cli.js feature-merge's fast-forward: FEATURE moves to the task commit, so merge-base(FEATURE, commit) is the commit. */
+        async function landed(queued: boolean): Promise<{ f: Fixture; sha: string; featureBase: string }> {
+          const stacked = await stackedOnFeature('agile');
+          const { f, sha } = stacked;
+          f.git('branch', '-q', '-f', FEATURE, sha);
+          const w = new DatabaseSync(f.db);
+          w.prepare("UPDATE tasks SET status = 'closed', workflow_mode = 'agile' WHERE id = ?").run(TASK_ID);
+          if (queued) {
+            w.prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (9, 'bro', 'review_queued', 'q', ?, ?)")
+              .run(JSON.stringify({ task_id: TASK_ID, commit_sha: sha }), NOW);
+          }
+          w.close();
+          return stacked;
+        }
+
+        it('allows the queued task: its lint run\'s base is an ancestor of the commit', async () => {
+          const { f } = await landed(true);
+          await assertAllowed(f);
+        });
+
+        it('denies a lint run whose base is not an ancestor of the queued commit', async () => {
+          const { f, sha } = await landed(true);
+          const stray = f.git('commit-tree', `${sha}^{tree}`, '-m', 'stray');
+          const w = new DatabaseSync(f.db);
+          w.prepare('UPDATE lint_runs SET base_sha = ? WHERE task_id = ?').run(stray, TASK_ID);
+          w.close();
+          assert.deepEqual(denial((await run(f)).stdout), {
+            check: 'stale_lint_record',
+            expected: `the lint run's base_sha is an ancestor of the queued agile commit ${sha}`,
+            actual: `run 1: base_sha recorded ${stray}`,
+          });
+        });
+
+        it('a closed agile task no longer queued keeps the merge-base check, which the moved feature branch fails', async () => {
+          const { f, sha, featureBase } = await landed(false);
+          assert.deepEqual(denial((await run(f)).stdout), {
+            check: 'stale_lint_record',
+            expected: `the lint run's base_sha is merge-base(${FEATURE}, ${sha})`,
+            actual: `run 1: base_sha recorded ${featureBase}, merge-base ${sha}`,
+          });
+        });
+      });
+
       for (const mode of ['truest', null] as const) {
         it(`${mode ?? 'unset'} mode: denies that record, measuring from dev as before`, async () => {
           const { f, sha, featureBase } = await stackedOnFeature(mode);

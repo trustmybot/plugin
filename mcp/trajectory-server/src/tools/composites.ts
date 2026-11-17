@@ -47,6 +47,7 @@ import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph.js';
 import { SUBPROCESS_TIMEOUT_MS, WORKTREE_TIMEOUT_MS } from '../utils/timeouts.js';
+import { AGILE_PENDING_REVIEW_SQL } from '../review-sql.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
@@ -1433,6 +1434,12 @@ const REOPENABLE_STATUSES = new Set(['pending', 'completed', 'closed', 'failed',
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
 // A running task also hands off, through reReviewAdmission, to re-review a FAILed commit.
 const HANDOFF_STATUSES = new Set(['completed', 'needs_validation']);
+
+// A closed task also hands off for a per-task review when it closed under
+// agile and is still queued for review at its current commit; it stays closed.
+function agileReviewPending(db: TrajectoryDB, taskId: number): boolean {
+  return db.get<{ ok: number }>(`SELECT ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [taskId])?.ok === 1;
+}
 const verificationPathsDoc = (ref: string) =>
   `verification[] test files must exist at ${ref} or be in files[] (else verification_path_missing); adds suggested_verification.`;
 
@@ -1596,10 +1603,10 @@ export function compositeTools(
     {
       name: 'review_handoff',
       description:
-        "Hands a completed or needs_validation task's current commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed. " +
-        "Writes review_handoff (the review anchor with the scope report: extras with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
-        'Returns review_pending=true, reviewer_effort and, with session_id, reviewer_spawn, the whole Agent call. ' +
-        'Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, for a task with verification[] or a non-wontfix finding, without a passing verification run of those commands plus one `[probe <id>]` per finding for the commit or a verification_gate_waived row (verification_run_missing).',
+        "Hands a completed, needs_validation or queued closed agile task's commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed. " +
+        "Writes review_handoff (review anchor; extras with reasons, base_moved, merge_base), reviewer_effort_assigned, spawn_note. " +
+        'Returns review_pending=true and reviewer_effort, plus reviewer_spawn given session_id. ' +
+        "Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, given verification[] or a non-wontfix finding, without the commit's passing run of those commands plus one `[probe <id>]` per finding or a verification_gate_waived row (verification_run_missing).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1664,7 +1671,7 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed when no code-reviewer verdict passes; in agile mode review_queued instead), else it returns a re-dispatch directive; other statuses are a no-op. ' +
+        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed without a passing code-reviewer verdict, review_queued under agile), else it returns a re-dispatch directive; other statuses are a no-op. ' +
         'Every call also sweeps: running tasks with no open swe run and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) fail (task_stale_swept, runs closed swept_stale); pending ones over 7 days old are reported; runs open on terminal tasks close; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
         'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} plus the recovery result.',
       inputSchema: {
@@ -3698,14 +3705,18 @@ export function compositeTools(
               `a passing verification run is recorded for the commit and its latest task_rework_analysis, dated after that FAIL, names ${RE_REVIEW_CHANGE}.`,
           );
         }
-        if (reReview === null && !HANDOFF_STATUSES.has(task.status)) {
+        const agileQueued = task.status === 'closed' && agileReviewPending(db, task.id);
+        if (reReview === null && !HANDOFF_STATUSES.has(task.status) && !agileQueued) {
           return err(
-            `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
+            `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation", ` +
+              `or "closed" under workflow_mode agile and still queued for review at its commit_sha. ` +
               `review_handoff runs after SWE flips status to completed.`,
           );
         }
         const handedOff = reReview === null ? task : { ...task, completion_report: reReview.completionReport };
-        const commitSha = task.commit_sha ? resolveTaskCommitSha(db, task, task.commit_sha) : null;
+        // A queued agile task keeps its commit_sha spelling: its review_queued
+        // row names that exact string, so an upgraded SHA would unqueue it.
+        const commitSha = task.commit_sha && !agileQueued ? resolveTaskCommitSha(db, task, task.commit_sha) : task.commit_sha;
         if (!commitSha) {
           return err(
             `commit_sha_missing: task ${task.id} records no commit_sha. Resume the swe on task_id=${task.id} to call ` +

@@ -860,7 +860,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_queue',
       description:
-        'The closed agile tasks awaiting code review, as agile_review_queued counts them. Returns {total, groups:[{tasks, files, base, head}]}; tasks whose declared files[] overlap share a group. Read-only, no git.',
+        'Closed agile tasks awaiting code review, as agile_review_queued counts them. Returns {total, groups:[{tasks, files, base, head}]}; tasks whose declared files[] overlap share a group. Read-only, no git.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -895,7 +895,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_batch_record',
       description:
-        'code-reviewer only: one verdict on a group of queued agile tasks at feature-branch head_sha. Refused, writing nothing, unless batch_handoff_id is the hand-off of these task_ids at head_sha and every task is closed agile, queued at its commit, not yet batch-reviewed or waived, and that commit an ancestor of head_sha. ' +
+        'code-reviewer only: one verdict on a group of queued agile tasks at feature-branch head_sha. Refused, writing nothing, unless batch_handoff_id handed off these task_ids at head_sha and every task is closed agile, queued at its commit (not batch-reviewed or waived), that commit an ancestor of head_sha.' +
         'pass batch-reviews them all; fail leaves them queued.',
       inputSchema: {
         type: 'object',

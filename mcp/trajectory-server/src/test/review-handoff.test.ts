@@ -14,6 +14,8 @@ import type { TrajectoryDB } from '../db.js';
 import { compositeTools } from '../tools/composites.js';
 import { taskTools } from '../tools/tasks.js';
 import { validationTools } from '../tools/validation.js';
+import { reviewQueueTools } from '../tools/review-queue.js';
+import { AGILE_PENDING_REVIEW_SQL } from '../review-sql.js';
 import { makeSandbox, runGate, type Sandbox } from './hook-sandbox.js';
 import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
 
@@ -277,6 +279,97 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     await verdict(taskId, 1, 'pass');
     await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: sha, verification_summary: 'reviewed' });
     assert.equal(status(taskId), 'closed');
+  });
+
+  describe('a per-task review of a closed agile task (decision #320 item 3)', () => {
+    const setMode = (mode: 'agile' | 'truest') => {
+      db.run(`DELETE FROM plugin_config WHERE key = 'workflow_mode'`);
+      db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)`, [JSON.stringify(mode)]);
+    };
+    const pending = (taskId: number) =>
+      db.get<{ ok: number }>(`SELECT ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [taskId])!.ok === 1;
+    const queuedIds = async () => {
+      const r = (await reviewQueueTools(db).handlers['review_queue']({ agent: 'bro', grace_hours: 0 })) as RawResult;
+      const body = JSON.parse(r.content[0].text) as { groups: Array<{ tasks: Array<{ id: number }> }> };
+      return body.groups.flatMap((g) => g.tasks.map((t) => t.id));
+    };
+    const handoffs = (taskId: number) =>
+      db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'review_handoff' AND json_extract(content_json, '$.task_id') = ?`, [taskId])!.c;
+    const closeQueued = async (branchId: string): Promise<{ taskId: number; sha: string }> => {
+      const { taskId, worktree } = await provision(branchId);
+      const sha = await sweCommits(taskId, worktree, { 'lib/discount.js': 'export const applyDiscount = (p, pct) => p - (p * pct) / 100;\n' });
+      const closed = await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: sha, verification_summary: 'agile close' });
+      assert.equal(closed['review_queued'], true);
+      assert.equal(status(taskId), 'closed');
+      assert.ok(pending(taskId), 'the agile close queues the task');
+      return { taskId, sha };
+    };
+
+    before(() => setMode('agile'));
+    after(() => db.run(`DELETE FROM plugin_config WHERE key = 'workflow_mode'`));
+
+    it('SC1-SC3: the queued task hands off staying closed, the spawn gate admits it, and a pass takes it out of the queue', async () => {
+      const { taskId, sha } = await closeQueued('feat/discount-agile-pass');
+      assert.ok((await queuedIds()).includes(taskId));
+
+      const handoff = await ok('review_handoff', { agent: 'bro', task_id: String(taskId), session_id: SESSION });
+      assert.equal(handoff['commit_sha'], sha);
+      assert.equal(handoff['review_pending'], true);
+      assert.equal(status(taskId), 'closed', 'the handoff leaves the task closed');
+      assert.equal(handoffs(taskId), 1);
+      const spawn = handoff['reviewer_spawn'] as { prompt: string };
+      assert.match(spawn.prompt, new RegExp(`task_id=${taskId}\\b`));
+      assert.equal(reviewerSpawnGate(spawn.prompt).stdout, '', 'the code-reviewer spawn gate admits the handoff');
+      assert.ok(pending(taskId), 'a handoff alone does not settle the task');
+
+      await verdict(taskId, 1, 'pass');
+      assert.equal(status(taskId), 'closed');
+      assert.ok(!pending(taskId), 'the per-task pass settles the task');
+      assert.ok(!(await queuedIds()).includes(taskId), 'review_queue no longer lists it');
+
+      const again = await call('review_handoff', { agent: 'bro', task_id: String(taskId) });
+      assert.ok(again.isError, 'a closed agile task no longer queued is refused');
+      assert.match(String(again.body['error']), /status is "closed", expected "completed" or "needs_validation"/);
+      assert.equal(handoffs(taskId), 1, 'the refusal writes no handoff');
+    });
+
+    it('SC3: a FAIL leaves the task closed and queued, still admitted to a handoff behind the unchanged gates', async () => {
+      const { taskId } = await closeQueued('feat/discount-agile-fail');
+      await ok('review_handoff', { agent: 'bro', task_id: String(taskId) });
+      seedReviewerObservation(db, taskId, 1, { agentId: `reviewer1agent${taskId}x` });
+      const failed = await ok('validation_record', {
+        agent: 'code-reviewer', task_id: String(taskId), attempt_n: 1, verdict: 'fail', feedback: 'fail', mcp_available: true, probes: TEST_PROBES,
+        findings: [{ criterion_id: 'SC1', probe_cmd: 'grep -q "Math.round" lib/discount.js', expected: 'rounded', observed: 'not rounded' }],
+      });
+      assert.deepEqual(failed['reopen_skipped'], { reason: 'agile_queued' });
+      assert.equal(failed['reopened'], undefined);
+      assert.equal(status(taskId), 'closed', 'the FAIL does not reopen it');
+      assert.ok(pending(taskId), 'the FAIL keeps it queued');
+      assert.ok((await queuedIds()).includes(taskId), 'review_queue still lists it');
+
+      // Still admitted: the refusal is the unchanged verification gate (the
+      // finding's probe has no run at the commit), not the status check.
+      const again = await call('review_handoff', { agent: 'bro', task_id: String(taskId) });
+      assert.match(String(again.body['error']), /^verification_run_missing: /);
+      assert.equal(handoffs(taskId), 1);
+    });
+
+    it('SC1: a closed truest task is refused', async () => {
+      setMode('truest');
+      try {
+        const { taskId, worktree } = await provision('feat/discount-truest-closed');
+        const sha = await sweCommits(taskId, worktree, { 'lib/discount.js': 'export const applyDiscount = (p, pct) => p - (p * pct) / 100;\n' });
+        await ok('review_handoff', { agent: 'bro', task_id: String(taskId) });
+        await verdict(taskId, 1, 'pass');
+        await ok('bro_atomic_close', { agent: 'bro', task_id: String(taskId), commit_sha: sha, verification_summary: 'reviewed' });
+        const refused = await call('review_handoff', { agent: 'bro', task_id: String(taskId) });
+        assert.ok(refused.isError);
+        assert.match(String(refused.body['error']), /status is "closed", expected/);
+        assert.equal(handoffs(taskId), 1, 'the refusal writes no handoff');
+      } finally {
+        setMode('agile');
+      }
+    });
   });
 
   it('SC1 (GH 2932): a docs-only handoff under reviewer_tier_settings returns and records the tier model, and the effort gate admits that spawn as is', async () => {

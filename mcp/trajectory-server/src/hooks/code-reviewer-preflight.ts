@@ -10,7 +10,9 @@
  *   no_lint_record     the task's newest finished lint_runs row for the commit exists
  *                      and exited 0
  *   stale_lint_record  that run's fingerprint is the close-lints fingerprint of the commit,
- *                      its base_sha is merge-base(<pr_target tip>, <commit>), and its
+ *                      its base_sha is merge-base(<pr_target tip>, <commit>) (for a
+ *                      closed agile task still queued for review, an ancestor of
+ *                      <commit>), and its
  *                      results hold a passing row for each lint of the set the
  *                      task's no_code_class selects from close-lints.json (GH 3160)
  *
@@ -75,19 +77,80 @@ function dbUnavailable(env: NodeJS.ProcessEnv): GateResult {
 interface TaskRow {
   commitSha: string;
   parentBranch: string;
+  /** Closed under agile and still queued for review at commitSha: a per-task review of it. */
+  agileQueued: boolean;
   branch: string;
 }
 
 function readTask(db: string, taskId: string, env: NodeJS.ProcessEnv): TaskRow | null | typeof GATE_READ_ERROR {
   const row = gateRead(
     db,
-    `SELECT 'row|' || COALESCE(commit_sha, '') || '|' || COALESCE(parent_branch_id, '') || '|' || branch_id FROM tasks WHERE id = ${taskId};`,
+    `SELECT 'row|' || COALESCE(t.commit_sha, '') || '|' || COALESCE(t.parent_branch_id, '') || '|' || t.status || '|' || t.branch_id
+       FROM tasks t WHERE t.id = ${taskId};`,
     env,
   );
   if (row === GATE_READ_ERROR) return GATE_READ_ERROR;
   if (row === '') return null;
-  const [, commitSha = '', parentBranch = '', ...branch] = row.split('\n')[0].split('|');
-  return { commitSha, parentBranch, branch: branch.join('|') };
+  const [, commitSha = '', parentBranch = '', status = '', ...branch] = row.split('\n')[0].split('|');
+  // Only a closed task can be queued; an open one skips the agile read.
+  const agileQueued = status === 'closed' ? gateRead(db, `SELECT ${AGILE_PENDING_REVIEW_SQL} FROM tasks t WHERE t.id = ${taskId};`, env) : '0';
+  if (agileQueued === GATE_READ_ERROR) return GATE_READ_ERROR;
+  return { commitSha, parentBranch, agileQueued: agileQueued.split('\n')[0] === '1', branch: branch.join('|') };
+}
+
+/**
+ * Whether the lint run's base_sha still bounds the commit's diff. An open
+ * task's base is merge-base(<PR target>, <commit>), so a moved target makes
+ * the record stale. A queued agile task's commit is closed and frozen while
+ * its feature branch moves on (feature-merge lands the commit on it), so its
+ * lint run's own base only has to be an ancestor of the commit.
+ */
+async function lintBaseFailure(
+  db: string,
+  task: TaskRow,
+  repo: { name: string; root: string },
+  commit: string,
+  lintBase: string,
+  run: string,
+  env: NodeJS.ProcessEnv,
+): Promise<PreflightFailure | typeof GATE_READ_ERROR | null> {
+  if (task.agileQueued) {
+    const ancestor = lintBase !== '' && (await gitText(repo.root, ['merge-base', '--is-ancestor', lintBase, commit], env)).code === 0;
+    return ancestor ? null : {
+      check: 'stale_lint_record',
+      expected: `the lint run's base_sha is an ancestor of the queued agile commit ${commit}`,
+      actual: `${run}: base_sha recorded ${lintBase || '(empty)'}`,
+    };
+  }
+  const targetRow = gateRead(db, `SELECT COALESCE(target_branch, '') FROM repos WHERE name = '${sqlQuote(repo.name)}';`, env);
+  if (targetRow === GATE_READ_ERROR) return GATE_READ_ERROR;
+  const workflowMode = gateWorkflowMode(db, env);
+  if (workflowMode === GATE_READ_ERROR) return GATE_READ_ERROR;
+  const targetRef = await prTargetRef(repo.root, targetRow.split('\n')[0], task.parentBranch, workflowMode, env);
+  const targetTip = targetRef === null ? null : await revParse(repo.root, targetRef, env);
+  if (targetRef === null || targetTip === null) {
+    return {
+      check: 'stale_lint_record',
+      expected: `the lint run's base_sha is merge-base(<PR target>, ${commit})`,
+      actual: `${run}: no PR target ref resolves in ${repo.root}`,
+    };
+  }
+  const mergeBase = (await gitText(repo.root, ['merge-base', targetTip, commit], env)).stdout.trim();
+  if (mergeBase === '') {
+    return {
+      check: 'stale_lint_record',
+      expected: `the lint run's base_sha is merge-base(${targetRef}, ${commit})`,
+      actual: `${run}: ${commit} shares no history with ${targetRef} (${targetTip})`,
+    };
+  }
+  if (lintBase !== mergeBase) {
+    return {
+      check: 'stale_lint_record',
+      expected: `the lint run's base_sha is merge-base(${targetRef}, ${commit})`,
+      actual: `${run}: base_sha recorded ${lintBase || '(empty)'}, merge-base ${mergeBase}`,
+    };
+  }
+  return null;
 }
 
 async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
@@ -134,18 +197,6 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
     }, taskId);
   }
 
-  const targetRow = gateRead(
-    db,
-    `SELECT COALESCE(target_branch, '') FROM repos WHERE name = '${sqlQuote(location.repo)}';`,
-    env,
-  );
-  if (targetRow === GATE_READ_ERROR) return dbUnavailable(env);
-  const workflowMode = gateWorkflowMode(db, env);
-  if (workflowMode === GATE_READ_ERROR) return dbUnavailable(env);
-  const targetRef = await prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch, workflowMode, env);
-  const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
-  const mergeBase = targetTip === null ? '' : (await gitText(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
-
   const lintRun = latestLintRun(db, taskId, commit, env) ?? (recorded !== commit ? latestLintRun(db, taskId, recorded, env) : null);
   if (lintRun === null || lintRun.exit_code !== 0) {
     const failing = lintRun?.results.filter((r) => r.exit_code !== 0).map((r) => `${r.name} exit_code=${r.exit_code ?? 'null'}`) ?? [];
@@ -172,27 +223,9 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       actual: `${run}: fingerprint recorded ${lintRun.fingerprint}, recomputed ${plan.fingerprint}`,
     }, taskId);
   }
-  if (targetRef === null || targetTip === null) {
-    return deny({
-      check: 'stale_lint_record',
-      expected: `the lint run's base_sha is merge-base(<PR target>, ${commit})`,
-      actual: `${run}: no PR target ref resolves in ${repo}`,
-    }, taskId);
-  }
-  if (mergeBase === '') {
-    return deny({
-      check: 'stale_lint_record',
-      expected: `the lint run's base_sha is merge-base(${targetRef}, ${commit})`,
-      actual: `${run}: ${commit} shares no history with ${targetRef} (${targetTip})`,
-    }, taskId);
-  }
-  if (lintRun.base_sha !== mergeBase) {
-    return deny({
-      check: 'stale_lint_record',
-      expected: `the lint run's base_sha is merge-base(${targetRef}, ${commit})`,
-      actual: `${run}: base_sha recorded ${lintRun.base_sha || '(empty)'}, merge-base ${mergeBase}`,
-    }, taskId);
-  }
+  const baseFailure = await lintBaseFailure(db, task, { name: location.repo, root: repo }, commit, lintRun.base_sha, run, env);
+  if (baseFailure === GATE_READ_ERROR) return dbUnavailable(env);
+  if (baseFailure !== null) return deny(baseFailure, taskId);
   const required = plan.lints.map((l) => l.name);
   const unproven = required.filter((name) => !lintRun.results.some((r) => r.name === name && r.exit_code === 0));
   if (unproven.length > 0) {
