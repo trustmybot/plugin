@@ -40,6 +40,7 @@ import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, logOrder
 import { runGitAsync } from '../utils/git-run.js';
 import { resolveIndexTargetRef, targetBranchOf } from '../utils/index-target.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
+import { dropMergedOverlays } from './overlay.js';
 
 // A wm_reindex row's mode: a reindex ran ('incremental', 'full'), or the daily
 // shadow compare found the index differs from a clean rebuild ('mismatch').
@@ -479,6 +480,7 @@ async function reindexLocked(
       const range = await reindexRange(db, graph, repo, state.path, state.indexed_commit!, target, finish);
       if (range) {
         recordReindex(db, { repo, mode: 'incremental', reason: 'ref_moved', trigger, from_commit: state.indexed_commit, to_commit: target, ...range, ms: Date.now() - started });
+        await dropOverlaysAtTarget(db, repo, state.path, target);
         return 'incremental';
       }
       reason = 'range_failed';
@@ -515,7 +517,19 @@ async function reindexLocked(
     markReindexFailed(db, repo, run);
     throw e;
   }
+  await dropOverlaysAtTarget(db, repo, state.path, target);
   return 'full';
+}
+
+// A task overlay whose work the new target holds is dropped; failing to check
+// keeps it, so the reindex itself never fails on this.
+async function dropOverlaysAtTarget(db: TrajectoryDB, repo: string, repoPath: string, target: string): Promise<void> {
+  try {
+    const dropped = await dropMergedOverlays(db, repo, repoPath, target);
+    if (dropped.length > 0) serverLog({ event: 'wm_overlay_merged_drop', repo, task_ids: dropped });
+  } catch (e) {
+    serverLog({ event: 'wm_overlay_merged_drop_error', repo, error: (e as Error).message });
+  }
 }
 
 function dirOf(relPath: string): string {

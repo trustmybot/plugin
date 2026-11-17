@@ -44,6 +44,7 @@ import {
   SPAWN_ADMITTING_CHANGES,
   TASK_PROOF_EVENTS,
   WORLD_MODEL_ISSUE_LABEL,
+  WORLD_MODEL_OVERLAY_TRIGGER,
   WORLD_MODEL_PROOF_EVENTS,
   WORLD_MODEL_PROOF_TOOL,
   type ReworkChange,
@@ -75,6 +76,7 @@ const taskProofSql = (eventType: string): string =>
 
 const WORLD_MODEL_PROOF_SQL = `(SELECT MAX(at) FROM (
      SELECT created_at AS at FROM audit WHERE event_type IN (${sqlList(WORLD_MODEL_PROOF_EVENTS)})
+        AND COALESCE(json_extract(content_json, '$.trigger'), '') <> '${sqlQuote(WORLD_MODEL_OVERLAY_TRIGGER)}'
      UNION ALL
      SELECT created_at FROM audit
       WHERE event_type = 'wm_tool_called'

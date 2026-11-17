@@ -12,7 +12,7 @@ import {
 } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=74 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=75 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -68,6 +68,11 @@ describe('TrajectoryDB', () => {
       'wm_symbols',
       'wm_edges',
       'wm_symbols_fts',
+      // GH 2957 per-task overlay
+      'wm_overlays',
+      'wm_overlay_files',
+      'wm_overlay_symbols',
+      'wm_overlay_edges',
       // GH 1680 L2 concept layer
       'wm_concepts',
       'wm_concept_steps',
@@ -92,7 +97,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 74);
+    assert.equal(meta.schema_version, 75);
 
     db.close();
   });

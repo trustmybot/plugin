@@ -32,10 +32,13 @@ import {
   symbolCard,
   symbolImpact,
   symbolsByName,
+  SHARED_VIEW,
   type CoveringRunner,
   type ScoredSymbol,
   type SymbolRow,
+  type SymbolView,
 } from '../symbol-index.js';
+import { taskOverlay } from '../world-model/overlay.js';
 import type { FunctionParams, ParamInfo } from '../parsing/extract.js';
 import {
   CLAIM_ARGS_SCHEMA,
@@ -478,11 +481,13 @@ function sourceLines(start_line: number, end_line: number, lines: string[]): { s
 // The symbol's lines framed as untrusted content: from the blob at the
 // repo's indexed commit, the content its range was taken from (GH 2584), else
 // from the repo root on disk, refusing a path that resolves (through .. or a
-// symlink) outside that root.
-function symbolSource(db: TrajectoryDB, symbol: SymbolRow): { source: SymbolSource | null; source_reason?: string } {
+// symlink) outside that root. An overlay symbol's range was taken from its
+// task's commit, so `commit` reads that blob instead of the indexed commit's.
+function symbolSource(db: TrajectoryDB, symbol: SymbolRow, commit?: string): { source: SymbolSource | null; source_reason?: string } {
   const rootArg = resolveSoleRepo(db, symbol.repo)?.path;
   if (!rootArg) return { source: null, source_reason: 'repo-path-unknown' };
-  const indexed = db.get<{ indexed_commit: string | null }>(`SELECT indexed_commit FROM repos WHERE name = ?`, [symbol.repo])?.indexed_commit;
+  const indexed =
+    commit ?? db.get<{ indexed_commit: string | null }>(`SELECT indexed_commit FROM repos WHERE name = ?`, [symbol.repo])?.indexed_commit;
   if (indexed) {
     const blob = readBlobSync(rootArg, indexed, symbol.path);
     if (blob !== null) return sourceLines(symbol.start_line, symbol.end_line, blob.split('\n'));
@@ -1050,6 +1055,26 @@ function attributedTask(
   return task ? { task_id: taskId, ...task } : null;
 }
 
+// world_model_search hands out shared ids, and an overlay view hides the
+// shared symbols under each path the branch re-parsed or deleted. Such an id
+// resolves to the overlay symbol with the same anchor key, or, when the branch
+// removed the symbol, to the shared row read through the shared view.
+function symbolForId(
+  db: TrajectoryDB,
+  id: number,
+  view: SymbolView,
+): { symbol: SymbolRow; view: SymbolView; removedOnBranch: boolean } | null {
+  const inView = symbolById(db, id, view);
+  if (inView) return { symbol: inView, view, removedOnBranch: false };
+  if (view === SHARED_VIEW) return null;
+  const shared = symbolById(db, id);
+  if (!shared) return null;
+  const counterpart = symbolsByName(db, shared.repo, shared.qualified_name, shared.path, view).find((s) => s.kind === shared.kind);
+  return counterpart
+    ? { symbol: counterpart, view, removedOnBranch: false }
+    : { symbol: shared, view: SHARED_VIEW, removedOnBranch: true };
+}
+
 function recordToolCall(db: TrajectoryDB, tool: string, args: Payload, result: CallToolResult, latencyMs: number): void {
   const agent = String(args['agent']);
   const error = result.isError === true;
@@ -1330,7 +1355,8 @@ export function worldModelTools(
       description:
         "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (up to 50 refs each, full-count totals). Pass id from world_model_search, qualified_name (+ optional path) or config_key. " +
         "note: by-name resolution, lists may be incomplete. symbol.stale: its file awaits reindex; indexed_commit/target_commit: the card's and the read's commit. impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
-        "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag). freshness: the index-freshness block. needs_review: flagged concepts and changed READMEs, if any.",
+        "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag). freshness: the index-freshness block. needs_review: flagged concepts and changed READMEs, if any. " +
+        "overlay: in a task's context, its branch overlay, read first (symbol ids < 0).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1663,16 +1689,24 @@ export function worldModelTools(
             ...blockOf(repos, args['agent']),
           });
         }
+        const overlay = await taskOverlay(db, attributedTask(db, String(args['agent']))?.task_id ?? null);
+        let view = overlay?.view ?? SHARED_VIEW;
         const id = args['id'];
         let symbol: SymbolRow | null = null;
         let source: { repo_source?: RepoSource; path_normalized?: string } = {};
         let fresh: Map<string, Freshness> = new Map();
+        let removedOnBranch = false;
         if (typeof id === 'number') {
-          const before = symbolById(db, id);
+          const before = symbolForId(db, id, view);
           if (!before) return err(`symbol ${id} not found`);
-          fresh = await freshenAll([before.repo], args['agent']);
-          symbol = symbolById(db, id) ?? symbolsByName(db, before.repo, before.qualified_name, before.path)[0] ?? null;
-          if (!symbol) return err(`symbol ${id} not found: ${before.qualified_name} left ${before.path} at the target commit`);
+          const { repo, qualified_name, path } = before.symbol;
+          fresh = await freshenAll([repo], args['agent']);
+          const after = symbolForId(db, id, view);
+          const resolved = after ?? { ...before, symbol: symbolsByName(db, repo, qualified_name, path, before.view)[0] ?? null };
+          symbol = resolved.symbol;
+          if (!symbol) return err(`symbol ${id} not found: ${qualified_name} left ${path} at the target commit`);
+          view = resolved.view;
+          removedOnBranch = resolved.removedOnBranch;
         } else {
           const qualified = args['qualified_name'];
           const name = typeof qualified === 'string' && qualified ? qualified : args['name'];
@@ -1686,7 +1720,7 @@ export function worldModelTools(
           fresh = await freshenAll(allRepos ? resolved.available_repos : [repo], args['agent']);
           const searched = allRepos ? resolved.available_repos : [repo];
           const byName = (repos: readonly string[], p: string | undefined): SymbolRow[] =>
-            repos.flatMap((r) => symbolsByName(db, r, name, p));
+            repos.flatMap((r) => symbolsByName(db, r, name, p, view));
           const found = path === undefined
             ? null
             : lookupRepoPath(searched, path, (repos, p) => {
@@ -1701,7 +1735,7 @@ export function worldModelTools(
               `symbol ${name} not found in ${allRepos ? 'any repo' : `repo ${repo || '(none)'}`}` +
               (indexError ? `; the last scan's symbol index failed for this repo: ${indexError}` : '');
             // The path arg may be what's wrong, so candidates come from the whole repo.
-            const didYouMean = nearSymbols(db, allRepos ? resolved.available_repos : [repo], name);
+            const didYouMean = nearSymbols(db, allRepos ? resolved.available_repos : [repo], name, view);
             if (didYouMean.length === 0) return err(message);
             return ok({
               symbol: null,
@@ -1745,15 +1779,20 @@ export function worldModelTools(
         } else if (impactArg !== undefined && impactArg !== false && impactArg !== null) {
           return err(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
         }
-        const card = symbolCard(db, symbol);
+        const card = symbolCard(db, symbol, view);
         const fr = fresh.get(symbol.repo);
+        const fromOverlay = overlay !== null && symbol.id < 0;
         return ok({
           ...card,
           ...source,
           ...freshnessFields(fr),
-          symbol: { ...framedCardSymbol(card.symbol), stale: card.symbol.stale || isStale(fr, symbol.path) },
-          ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
-          ...(args['source'] === true ? symbolSource(db, symbol) : {}),
+          symbol: { ...framedCardSymbol(card.symbol), stale: card.symbol.stale || (!fromOverlay && isStale(fr, symbol.path)) },
+          ...(overlay ? { overlay: { task_id: overlay.task_id, commit_sha: overlay.commit_sha } } : {}),
+          ...(removedOnBranch
+            ? { warning: 'removed_on_branch', message: `the task branch removed ${symbol.qualified_name}; this card reads the target commit` }
+            : {}),
+          ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth, view) } : {}),
+          ...(args['source'] === true ? symbolSource(db, symbol, fromOverlay ? overlay.commit_sha : undefined) : {}),
           ...(await checkoutLag(db, symbol.repo)),
           ...indexErrorOf(lastScan(db), symbol.repo),
           ...blockOf(symbol.repo, args['agent']),

@@ -468,7 +468,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 74, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 75, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -1014,6 +1014,88 @@ CREATE TABLE IF NOT EXISTS wm_edges (
 
 CREATE INDEX IF NOT EXISTS idx_wm_edges_src ON wm_edges(src_id);
 CREATE INDEX IF NOT EXISTS idx_wm_edges_dst ON wm_edges(dst_id);
+
+-- Per-task overlay (GH 2957; schema v75): the paths one task's commit changes
+-- against its base, indexed at the author's close beside the shared index,
+-- which it never writes. A read in that task's context sees overlay rows
+-- first, then the shared rows of the paths the overlay does not hide. A cache
+-- with plain task_id and commit_sha values and no FK into the workflow
+-- tables; dropped when the task is superseded or cancelled, or once its
+-- commit is reachable from the repo's indexed commit. Every overlay row
+-- belongs to one wm_overlays row by overlay_id, so a drop is one delete.
+--   wm_overlays: one row per task. base_sha..commit_sha is the diff indexed;
+--     path_count is how many paths it names. A later close or a moved
+--     tasks.commit_sha replaces it with a new row.
+--   wm_overlay_files: one row per diffed path. status 'deleted' when the
+--     commit removes it, with content_md5 and size_bytes NULL. symbols_md5 is
+--     the wm_files stamp the path's overlay symbols were parsed at; NULL when
+--     the path was not parsed (deleted, a non-code task, or a parse failure).
+--     A shared symbol or edge source under a deleted or parsed path is hidden
+--     in the task's reads.
+--   wm_overlay_symbols: wm_symbols' shape for each parsed path, unique per
+--     (overlay_id, path, kind, qualified_name). terms is left out: the
+--     overlay has no FTS.
+--   wm_overlay_edges: wm_edges' shape from an overlay symbol. A resolved edge
+--     names either an overlay symbol (dst_overlay_id) or a shared one
+--     (dst_symbol_id), never both.
+CREATE TABLE IF NOT EXISTS wm_overlays (
+    id          INTEGER PRIMARY KEY,
+    task_id     INTEGER NOT NULL UNIQUE,
+    repo        TEXT    NOT NULL,
+    base_sha    TEXT    NOT NULL,
+    commit_sha  TEXT    NOT NULL,
+    built_at    TEXT    NOT NULL,
+    path_count  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_overlays_repo ON wm_overlays(repo);
+
+CREATE TABLE IF NOT EXISTS wm_overlay_files (
+    overlay_id   INTEGER NOT NULL REFERENCES wm_overlays(id) ON DELETE CASCADE,
+    path         TEXT    NOT NULL,
+    status       TEXT    NOT NULL CHECK (status IN ('present','deleted')),
+    content_md5  TEXT,
+    size_bytes   INTEGER,
+    symbols_md5  TEXT,
+    PRIMARY KEY (overlay_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS wm_overlay_symbols (
+    id              INTEGER PRIMARY KEY,
+    overlay_id      INTEGER NOT NULL REFERENCES wm_overlays(id) ON DELETE CASCADE,
+    path            TEXT    NOT NULL,
+    kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook','runner')),
+    qualified_name  TEXT    NOT NULL,
+    signature       TEXT    NOT NULL DEFAULT '',
+    doc             TEXT    NOT NULL DEFAULT '',
+    start_line      INTEGER,
+    end_line        INTEGER,
+    body_hash       TEXT    NOT NULL,
+    exported        INTEGER NOT NULL DEFAULT 0,
+    run_order       INTEGER,
+    params_json     TEXT,
+    UNIQUE (overlay_id, path, kind, qualified_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_overlay_symbols_name ON wm_overlay_symbols(overlay_id, qualified_name);
+
+CREATE TABLE IF NOT EXISTS wm_overlay_edges (
+    overlay_id      INTEGER NOT NULL REFERENCES wm_overlays(id) ON DELETE CASCADE,
+    src_id          INTEGER NOT NULL REFERENCES wm_overlay_symbols(id) ON DELETE CASCADE,
+    dst_overlay_id  INTEGER REFERENCES wm_overlay_symbols(id) ON DELETE SET NULL,
+    dst_symbol_id   INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+    dst_name        TEXT    NOT NULL,
+    kind            TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers','references_value','mentions_path','doc_link','generated_from')),
+    resolution      TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+    line            INTEGER,
+    hint            TEXT,
+    CHECK (dst_overlay_id IS NULL OR dst_symbol_id IS NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_overlay_edges_overlay ON wm_overlay_edges(overlay_id);
+CREATE INDEX IF NOT EXISTS idx_wm_overlay_edges_src ON wm_overlay_edges(src_id);
+CREATE INDEX IF NOT EXISTS idx_wm_overlay_edges_dst_overlay ON wm_overlay_edges(dst_overlay_id);
+CREATE INDEX IF NOT EXISTS idx_wm_overlay_edges_dst_symbol ON wm_overlay_edges(dst_symbol_id);
 
 CREATE TABLE IF NOT EXISTS wm_concepts (
     id             INTEGER PRIMARY KEY,

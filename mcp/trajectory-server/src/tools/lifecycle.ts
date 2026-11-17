@@ -1,6 +1,7 @@
 import type { TrajectoryDB } from '../db.js';
 import { insertAudit } from './audit.js';
 import { closeOpenRunsForTask } from './agent-runs.js';
+import { dropTaskOverlay } from '../world-model/overlay.js';
 import { batchReviewedSql, GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL, waivedSql } from '../review-sql.js';
 
 // Task statuses that still hold work open on an issue.
@@ -131,6 +132,7 @@ export function escalateLiveTasksForIssueClose(
       created_at: now,
     });
     closeOpenRunsForTask(db, task.id, now, 'issue_closed');
+    dropTaskOverlay(db, task.id);
   }
 }
 

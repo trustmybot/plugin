@@ -51,6 +51,7 @@ import { AGILE_PENDING_REVIEW_SQL } from '../review-sql.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
+import { dropTaskOverlay } from '../world-model/overlay.js';
 import { ensureFresh, fetchTargetNow, freshnessBlock, type TargetFetchAttempt } from '../world-model/freshness.js';
 import { closeIssuesReachedTarget } from '../issue-merge-close.js';
 import { readRepoTargetBranch, repoRowPath, repoTargetBase, resolveSoleRepo } from '../utils/repo-paths.js';
@@ -3270,6 +3271,7 @@ export function compositeTools(
             insertEffortRaised(db, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, agent, now, failed.id);
           }
 
+          dropTaskOverlay(db, failed.id);
           const carried = carryOpenFindings(db, failed.id, newTask.id, now);
           if (carried.length > 0) {
             insertAudit(db, {
