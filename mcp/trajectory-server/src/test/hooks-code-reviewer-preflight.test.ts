@@ -3,7 +3,8 @@
  * trajectory DB: one deny and one allow per check, each deny naming its typed
  * check, the lint-record checks (GH 2570) denying every record they cannot
  * prove current and clean, and the agent-spawn-dispatch gate returning the
- * deny before any PREPARE step.
+ * deny before any PREPARE step. A grouped agile review (batch_handoff_id=,
+ * GH 2225) is judged by its review_batch_handoff row instead.
  * The changelog and stale-doc checks run at swe's close now; their tests live in
  * hooks-swe-verification-gate.test.ts (GH 2866), and scripts/hooks/README.md
  * must describe that split.
@@ -17,11 +18,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { agentSpawnDispatch, PREPARE } from '../hooks/agent-spawn-dispatch.js';
-import { BYPASS_ENV, codeReviewerPreflight, preflightFix, type PreflightFailure } from '../hooks/code-reviewer-preflight.js';
+import { batchPreflightFix, BYPASS_ENV, codeReviewerPreflight, preflightFix, type PreflightFailure } from '../hooks/code-reviewer-preflight.js';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
 import { closeLintsPlan } from '../hooks/lib/close-lints.js';
 import { CLOSE_LINTS_PATH } from '../hooks/lib/lint-fingerprint.js';
 import { findGate, gateNames } from '../hooks/registry.js';
+import { batchReviewerSpawn } from '../reviewer-effort.js';
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
@@ -594,6 +596,197 @@ describe('code-reviewer-preflight', () => {
         assert.ok(fix !== 'policy');
         assert.match(fix.allowed, new RegExp(`^task_reopen\\(agent='bro', task_id=${TASK_ID}, reason='${check}: `));
         assert.match(fix.allowed, /records a fresh lint run/);
+      }
+    });
+  });
+
+  describe('a grouped agile review: batch_handoff_id= (GH 2225 T6a)', () => {
+    interface HandoffOver {
+      featureBranch?: string;
+      headSha?: string;
+      lint?: { fingerprint?: string; exit_code?: number | null };
+      fromNode?: string;
+    }
+
+    /** Queues task 3 for a grouped review at the branch tip: closed agile, review_queued, feature_branch_merged onto BRANCH. */
+    function queueAgile(f: Fixture): string {
+      const tip = f.git('rev-parse', BRANCH);
+      const w = new DatabaseSync(f.db);
+      try {
+        w.prepare("UPDATE tasks SET commit_sha = ?, workflow_mode = 'agile' WHERE id = ?").run(tip, TASK_ID);
+        const row = "INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (9, 'bro', ?, 's', ?, ?)";
+        w.prepare(row).run('review_queued', JSON.stringify({ task_id: TASK_ID, commit_sha: tip }), NOW);
+        w.prepare(row).run('feature_branch_merged', JSON.stringify({ task_id: TASK_ID, feature_branch: BRANCH, commit_sha: tip, rebased: false }), NOW);
+      } finally {
+        w.close();
+      }
+      return tip;
+    }
+
+    /** Writes a review_batch_handoff row for task 3 at <tip>; <over> replaces the clean, current defaults. Returns its id. */
+    async function handOff(f: Fixture, tip: string, over: HandoffOver = {}): Promise<number> {
+      const plan = await closeLintsPlan(f.repo, tip, f.env, '');
+      if (typeof plan === 'string') assert.fail(plan);
+      const content = {
+        feature_branch: over.featureBranch ?? BRANCH,
+        head_sha: over.headSha ?? tip,
+        base_sha: f.git('merge-base', 'dev', tip),
+        task_ids: [TASK_ID],
+        commit_shas: [tip],
+        repo: 'repo',
+        lint: { fingerprint: plan.fingerprint, exit_code: 0, results: [], ...over.lint },
+      };
+      const w = new DatabaseSync(f.db);
+      try {
+        const { lastInsertRowid } = w
+          .prepare("INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES (9, ?, ?, 'review_batch_handoff', 's', ?, ?)")
+          .run(content.feature_branch, over.fromNode ?? 'bro', JSON.stringify(content), NOW);
+        return Number(lastInsertRowid);
+      } finally {
+        w.close();
+      }
+    }
+
+    const batchPayload = (id: number, extra = '') => payload(`batch_handoff_id=${id} feature_branch=${BRANCH}${extra}`);
+
+    function batchDenial(stdout: string, id: number): PreflightFailure {
+      assert.notEqual(stdout, '', 'expected a deny');
+      const out = JSON.parse(stdout) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+      const { fix, ...failure } = JSON.parse(out.hookSpecificOutput.permissionDecisionReason) as PreflightFailure & { fix: unknown };
+      assert.deepEqual(fix, batchPreflightFix(failure.check, String(id)));
+      return failure;
+    }
+
+    it('allows a current handoff whose lint passed and whose tasks are still queued, with no task-level records', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const id = await handOff(f, queueAgile(f));
+      assert.deepEqual(await run(f, batchPayload(id)), { stdout: '', code: 0 });
+    });
+
+    it('denies no_batch_handoff for an unknown id and for a row bro did not write', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      assert.deepEqual(batchDenial((await run(f, batchPayload(999))).stdout, 999), {
+        check: 'no_batch_handoff',
+        expected: 'a bro review_batch_handoff audit row with id 999',
+        actual: 'no such row',
+      });
+      const forged = await handOff(f, tip, { fromNode: 'code-reviewer' });
+      assert.equal(batchDenial((await run(f, batchPayload(forged))).stdout, forged).check, 'no_batch_handoff');
+    });
+
+    it('denies sha_mismatch once the feature branch moved past head_sha, and for a branch that does not resolve', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      const id = await handOff(f, tip);
+      f.write('src/b.txt', 'later\n');
+      const moved = f.commit('after handoff');
+      assert.deepEqual(batchDenial((await run(f, batchPayload(id))).stdout, id), { check: 'sha_mismatch', expected: tip, actual: moved });
+
+      const g = fixture();
+      featureCommit(g);
+      const gid = await handOff(g, queueAgile(g), { featureBranch: 'feat/gone' });
+      const d = batchDenial((await run(g, batchPayload(gid))).stdout, gid);
+      assert.equal(d.check, 'sha_mismatch');
+      assert.match(d.actual ?? '', /refs\/heads\/feat\/gone does not resolve/);
+    });
+
+    it('denies no_lint_record when the handed-off lint run did not exit 0', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      const id = await handOff(f, tip, { lint: { exit_code: 1 } });
+      assert.deepEqual(batchDenial((await run(f, batchPayload(id))).stdout, id), {
+        check: 'no_lint_record',
+        expected: `review_batch_handoff ${id} holds a close-lint run of ${tip} with exit_code=0`,
+        actual: 'lint.exit_code=1',
+      });
+      const nul = await handOff(f, tip, { lint: { exit_code: null } });
+      assert.equal(batchDenial((await run(f, batchPayload(nul))).stdout, nul).check, 'no_lint_record');
+    });
+
+    it('denies stale_lint_record when the fingerprint is not the close-lints fingerprint of head', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      const id = await handOff(f, tip, { lint: { fingerprint: 'v1:old' } });
+      const plan = await closeLintsPlan(f.repo, tip, f.env, '');
+      if (typeof plan === 'string') assert.fail(plan);
+      assert.deepEqual(batchDenial((await run(f, batchPayload(id))).stdout, id), {
+        check: 'stale_lint_record',
+        expected: `the handed-off lint fingerprint is the close-lints fingerprint of ${tip}`,
+        actual: `fingerprint recorded v1:old, recomputed ${plan.fingerprint}`,
+      });
+    });
+
+    it('denies task_not_queued once a task is waived, or its commit moved, after the handoff', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      const id = await handOff(f, tip);
+      const w = new DatabaseSync(f.db);
+      w.prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (9, 'bro', 'review_waived', 's', ?, ?)").run(
+        JSON.stringify({ feature_branch: BRANCH, task_ids: [TASK_ID], commit_shas: [tip] }),
+        NOW,
+      );
+      w.close();
+      assert.deepEqual(batchDenial((await run(f, batchPayload(id))).stdout, id), {
+        check: 'task_not_queued',
+        expected: `each task of review_batch_handoff ${id} queued for review on ${BRANCH} at the commit handed off`,
+        actual: `no longer queued: ${TASK_ID}@${tip}`,
+      });
+
+      const g = fixture();
+      featureCommit(g);
+      const gtip = queueAgile(g);
+      const gid = await handOff(g, gtip);
+      const v = new DatabaseSync(g.db);
+      v.prepare('UPDATE tasks SET commit_sha = ? WHERE id = ?').run(g.git('rev-parse', 'dev'), TASK_ID);
+      v.close();
+      assert.equal(batchDenial((await run(g, batchPayload(gid))).stdout, gid).check, 'task_not_queued');
+    });
+
+    it('keeps a task-anchored spawn on the task checks, and runs both when a prompt carries both ids', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      const id = await handOff(f, tip);
+      assert.equal(denial((await run(f)).stdout).check, 'no_passing_run');
+      assert.equal(denial((await run(f, batchPayload(id, ` task_id=${TASK_ID}`))).stdout).check, 'no_passing_run');
+      await f.record();
+      assert.deepEqual(await run(f, batchPayload(id, ` task_id=${TASK_ID}`)), { stdout: '', code: 0 });
+      assert.equal(batchDenial((await run(f, batchPayload(999, ` task_id=${TASK_ID}`))).stdout, 999).check, 'no_batch_handoff');
+    });
+
+    it('passes the whole agent-spawn-dispatch chain with the reviewer_spawn batchReviewerSpawn builds', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      const id = await handOff(f, tip);
+      const spawn = batchReviewerSpawn(
+        { batch_handoff_id: String(id), feature_branch: BRANCH, head_sha: tip, repo: 'repo', repo_path: f.repo, subagent_session_id: 'sess-1' },
+        'medium',
+      );
+      const input = JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        tool_input: { subagent_type: spawn.subagent_type, prompt: spawn.prompt, effort: spawn.effort, description: 'review' },
+      });
+      assert.deepEqual(await agentSpawnDispatch(input, f.env, findGate), ALLOW);
+      f.write('src/b.txt', 'later\n');
+      f.commit('after handoff');
+      assert.equal(batchDenial((await agentSpawnDispatch(input, f.env, findGate)).stdout.trim(), id).check, 'sha_mismatch');
+    });
+
+    it('fixes every batch check with a fresh review_batch_handoff naming the check and the id', () => {
+      for (const check of ['no_batch_handoff', 'sha_mismatch', 'no_lint_record', 'stale_lint_record', 'task_not_queued'] as const) {
+        const fix = batchPreflightFix(check, '7');
+        assert.ok(fix !== 'policy');
+        assert.match(fix.allowed, new RegExp(`^review_batch_handoff\\(agent='bro', .*\\) again \\(${check} on batch_handoff_id=7\\)`));
       }
     });
   });

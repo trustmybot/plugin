@@ -1,15 +1,29 @@
 // review_queue: the closed agile tasks still waiting for code review, grouped by overlapping declared files[].
 // review_batch_record: code-reviewer's one verdict on a group of them.
 // review_waive_record: the Human's waiver of that review for a feature branch, recorded by bro.
+// review_batch_handoff: bro's hand-off of one such group at the feature-branch tip, its close lints run there.
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { closeLintsPlan, type CloseLintsRun, describeFailures, runCloseLints, tailLines } from '../hooks/lib/close-lints.js';
+import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { UNREVIEWED_CLOSED_TASK } from '../data-contracts.js';
 import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, batchReviewedSql, featureBranchTaskSql, reviewBatchKey, waivedSql } from '../review-sql.js';
-import { isAncestor } from '../utils/git-objects.js';
-import { repoRowPath } from '../utils/repo-paths.js';
+import { batchReviewerSpawn, type ReviewerSpawn } from '../reviewer-effort.js';
+import { diffNameStatus, isAncestor, mergeBase, revParseCommit } from '../utils/git-objects.js';
+import { resolveBaseRef } from '../utils/git-refs.js';
+import { runGitAsync } from '../utils/git-run.js';
+import { repoRowPath, repoTargetBase } from '../utils/repo-paths.js';
+import { prepareWorktreeDeps } from '../utils/worktree-deps.js';
+import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.js';
+import { parseRunSessionId, RUN_SESSION_ID_SCHEMA } from './agent-runs.js';
 import { insertAudit } from './audit.js';
+import { resolveEffortDefaults } from './config.js';
 import {
   REVIEWER_OBSERVATION_TTL_S,
   REVIEWER_OBSERVE_FROM_NODE,
@@ -122,12 +136,19 @@ const BATCH_VERDICTS = ['pass', 'fail'] as const;
 type BatchVerdict = (typeof BATCH_VERDICTS)[number];
 const HEAD_SHA_RE = /^[0-9a-f]{7,64}$/i;
 
-/** A refused review_batch_record or review_waive_record call; the transaction rolls back, so nothing is written. */
+interface RefusedTask {
+  task_id: number;
+  reason: string;
+  shares_with?: number[];
+  files?: string[];
+}
+
+/** A refused review_batch_handoff, review_batch_record or review_waive_record call; nothing is written. */
 class BatchRefused extends Error {
   constructor(
     readonly reason: string,
     message: string,
-    readonly tasks?: ReadonlyArray<{ task_id: number; reason: string }>,
+    readonly tasks?: readonly RefusedTask[],
   ) {
     super(message);
   }
@@ -137,22 +158,41 @@ interface BatchArgs {
   taskIds: number[];
   featureBranch: string;
   headSha: string;
+  batchHandoffId: number;
   verdict: BatchVerdict;
   findings: FindingInput[] | null;
 }
 
-function parseBatchArgs(args: Record<string, unknown>): BatchArgs {
-  const rawIds = args['task_ids'];
+/** The task_ids arg, deduplicated and sorted ascending. */
+function parseTaskIds(rawIds: unknown): number[] {
   if (!Array.isArray(rawIds) || rawIds.length === 0) {
     throw new BatchRefused('invalid_args', 'task_ids must be a non-empty array of task ids');
   }
-  const taskIds = rawIds.map((v) => (typeof v === 'number' || (typeof v === 'string' && /^[0-9]+$/.test(v)) ? Number(v) : NaN));
-  if (!taskIds.every((n) => Number.isSafeInteger(n) && n > 0)) {
+  const taskIds = rawIds.map(positiveInt);
+  if (!taskIds.every((n): n is number => n !== null)) {
     throw new BatchRefused('invalid_args', `task_ids must be positive integers; got ${JSON.stringify(rawIds)}`);
   }
-  const featureBranch = args['feature_branch'];
-  if (typeof featureBranch !== 'string' || featureBranch.trim() === '') {
+  return [...new Set(taskIds)].sort((a, b) => a - b);
+}
+
+function positiveInt(v: unknown): number | null {
+  const n = typeof v === 'number' || (typeof v === 'string' && /^[0-9]+$/.test(v)) ? Number(v) : NaN;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+function parseFeatureBranch(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
     throw new BatchRefused('invalid_args', 'feature_branch must be a non-empty string');
+  }
+  return value.trim();
+}
+
+function parseBatchArgs(args: Record<string, unknown>): BatchArgs {
+  const taskIds = parseTaskIds(args['task_ids']);
+  const featureBranch = parseFeatureBranch(args['feature_branch']);
+  const batchHandoffId = positiveInt(args['batch_handoff_id']);
+  if (batchHandoffId === null) {
+    throw new BatchRefused('invalid_args', 'batch_handoff_id must be the positive integer id review_batch_handoff returned');
   }
   const headSha = args['head_sha'];
   if (typeof headSha !== 'string' || !HEAD_SHA_RE.test(headSha)) {
@@ -173,12 +213,43 @@ function parseBatchArgs(args: Record<string, unknown>): BatchArgs {
     }
   }
   return {
-    taskIds: [...new Set(taskIds)].sort((a, b) => a - b),
-    featureBranch: featureBranch.trim(),
+    taskIds,
+    featureBranch,
     headSha: headSha.toLowerCase(),
+    batchHandoffId,
     verdict: verdict as BatchVerdict,
     findings,
   };
+}
+
+const HANDOFF_SQL = `SELECT json_extract(content_json, '$.task_ids') AS task_ids,
+         json_extract(content_json, '$.head_sha') AS head_sha,
+         json_extract(content_json, '$.feature_branch') AS feature_branch
+    FROM audit
+   WHERE id = ? AND event_type = 'review_batch_handoff' AND from_node = 'bro' AND json_valid(content_json)`;
+
+// Why the cited review_batch_handoff row does not hand off this exact call, or null.
+function handoffRefusal(db: TrajectoryDB, batch: BatchArgs): BatchRefused | null {
+  const row = db.get<{ task_ids: string | null; head_sha: string | null; feature_branch: string | null }>(HANDOFF_SQL, [batch.batchHandoffId]);
+  if (!row) {
+    return new BatchRefused(
+      'batch_handoff_unknown',
+      `no bro review_batch_handoff audit row has id ${batch.batchHandoffId}; review the group bro handed off with review_batch_handoff and cite its batch_handoff_id.`,
+    );
+  }
+  let handedOff: number[] = [];
+  try {
+    const parsed: unknown = JSON.parse(row.task_ids ?? '[]');
+    if (Array.isArray(parsed)) handedOff = [...new Set(parsed.map(positiveInt).filter((n): n is number => n !== null))].sort((a, b) => a - b);
+  } catch {
+    /* an unreadable task list matches no call */
+  }
+  const mismatches: string[] = [];
+  if (handedOff.join(',') !== batch.taskIds.join(',')) mismatches.push(`task_ids [${handedOff.join(', ')}] handed off, [${batch.taskIds.join(', ')}] given`);
+  if ((row.head_sha ?? '').toLowerCase() !== batch.headSha) mismatches.push(`head_sha ${row.head_sha} handed off, ${batch.headSha} given`);
+  if (row.feature_branch !== batch.featureBranch) mismatches.push(`feature_branch ${row.feature_branch} handed off, ${batch.featureBranch} given`);
+  if (mismatches.length === 0) return null;
+  return new BatchRefused('batch_handoff_mismatch', `review_batch_handoff ${batch.batchHandoffId} does not match this call: ${mismatches.join('; ')}.`);
 }
 
 interface BatchObservation {
@@ -312,6 +383,8 @@ function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
         `reviewer agent_id ${reviewer.agentId} is the swe that ran task ${sweOf.map((r) => r.task_id).join(', ')}; spawn a separate code-reviewer.`,
       );
     }
+    const handoff = handoffRefusal(db, batch);
+    if (handoff !== null) throw handoff;
 
     const rows: BatchTaskRow[] = [];
     const refused: Array<{ task_id: number; reason: string }> = [];
@@ -339,6 +412,7 @@ function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
         commit_shas: commitShas,
         feature_branch: batch.featureBranch,
         head_sha: batch.headSha,
+        batch_handoff_id: batch.batchHandoffId,
         verdict: batch.verdict,
         findings: batch.findings,
         reviewer_agent_id: reviewer.agentId,
@@ -368,9 +442,21 @@ function parseWaiveArgs(args: Record<string, unknown>): WaiveArgs {
 }
 
 // The tasks of a feature branch that no grouped review has settled yet.
-const BRANCH_PENDING_SQL = `SELECT t.id, t.issue_id, t.commit_sha FROM tasks t
+const BRANCH_PENDING_SQL = `SELECT t.id, t.issue_id, t.commit_sha, t.base_sha,
+         COALESCE(t.repo, i.repo) AS repo, r.path AS repo_path
+    FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+    LEFT JOIN repos r ON r.name = COALESCE(t.repo, i.repo)
    WHERE ${featureBranchTaskSql('t', ':branch')} AND ${AGILE_PENDING_REVIEW_SQL}
    ORDER BY t.id`;
+
+interface PendingTaskRow {
+  id: number;
+  issue_id: number;
+  commit_sha: string;
+  base_sha: string | null;
+  repo: string | null;
+  repo_path: string | null;
+}
 
 interface WaiveRecorded {
   audit_id: number;
@@ -381,7 +467,7 @@ interface WaiveRecorded {
 
 function recordWaiver(db: TrajectoryDB, waive: WaiveArgs): WaiveRecorded {
   return db.transaction(() => {
-    const tasks = db.all<{ id: number; issue_id: number; commit_sha: string }>(BRANCH_PENDING_SQL, [{ branch: waive.featureBranch }]);
+    const tasks = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch: waive.featureBranch }]);
     if (tasks.length === 0) {
       throw new BatchRefused('no_queued_task', `feature branch ${waive.featureBranch} has no queued agile task to waive; nothing was recorded.`);
     }
@@ -402,6 +488,246 @@ function recordWaiver(db: TrajectoryDB, waive: WaiveArgs): WaiveRecorded {
       created_at: nowISO(),
     });
     return { audit_id: auditId, feature_branch: waive.featureBranch, task_ids: taskIds, commit_shas: commitShas };
+  });
+}
+
+interface HandoffArgs {
+  featureBranch: string;
+  taskIds: number[];
+  sessionId: string;
+}
+
+function parseHandoffArgs(args: Record<string, unknown>): HandoffArgs {
+  const featureBranch = parseFeatureBranch(args['feature_branch']);
+  const taskIds = parseTaskIds(args['task_ids']);
+  let sessionId: string | null;
+  try {
+    sessionId = parseRunSessionId(args['session_id']);
+  } catch (e) {
+    throw new BatchRefused('invalid_args', (e as Error).message);
+  }
+  if (sessionId === null) {
+    throw new BatchRefused('invalid_args', 'session_id is required: the code-reviewer spawn carries it as subagent_session_id');
+  }
+  return { featureBranch, taskIds, sessionId };
+}
+
+/** One lint of the batch's close-lint run, as the review_batch_handoff row stores it. */
+interface HandoffLintResult {
+  name: string;
+  exit_code: number;
+  elapsed_s: number;
+  output_tail: string;
+}
+
+interface HandoffLint {
+  fingerprint: string;
+  exit_code: number;
+  results: HandoffLintResult[];
+}
+
+/** The verification budget in seconds: TMB_VERIFICATION_TIMEOUT_S, else plugin_config.verification_timeout_s. */
+function lintBudgetS(db: TrajectoryDB): number {
+  let raw = process.env['TMB_VERIFICATION_TIMEOUT_S'] ?? '';
+  if (raw === '') {
+    const row = db.get<{ v: unknown }>(`SELECT json_extract(value_json, '$') AS v FROM plugin_config WHERE key = 'verification_timeout_s'`);
+    raw = typeof row?.v === 'number' || typeof row?.v === 'string' ? String(row.v) : '';
+  }
+  return parseBudget(raw).timeoutS;
+}
+
+const GIT_WORKTREE_TIMEOUT_MS = 120_000;
+
+// runCloseLints records every run into the lint_runs of the DB it is given,
+// keyed by task_id, which a batch has none of. The batch run goes into a
+// throwaway DB holding just those two tables (no tasks table, so the lint set
+// is the code-class one) and its result into the review_batch_handoff row.
+function createScratchLintDb(path: string): void {
+  const scratch = new DatabaseSync(path);
+  try {
+    scratch.exec(`CREATE TABLE lint_runs (id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL, commit_sha TEXT NOT NULL,
+        base_sha TEXT NOT NULL, fingerprint TEXT NOT NULL, source TEXT NOT NULL, started_at TEXT NOT NULL,
+        finished_at TEXT, exit_code INTEGER);
+      CREATE TABLE lint_run_results (run_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, name TEXT NOT NULL,
+        exit_code INTEGER, elapsed_s REAL, output_tail TEXT, PRIMARY KEY (run_id, ordinal));`);
+  } finally {
+    scratch.close();
+  }
+}
+
+async function removeTempWorktree(repoPath: string, wt: string): Promise<void> {
+  await runGitAsync(repoPath, ['worktree', 'remove', '--force', wt], { timeout: GIT_WORKTREE_TIMEOUT_MS });
+  try {
+    rmSync(wt, { recursive: true, force: true });
+  } catch {
+    /* the prune below still drops the registration once its .git file is gone */
+  }
+  await runGitAsync(repoPath, ['worktree', 'prune']);
+}
+
+// The close lints of <head> against <base>, run in a temporary detached
+// worktree of <repoPath> prepared as cli.js integrate prepares its own; the
+// run, or why none ran.
+async function runBatchLints(repoPath: string, head: string, base: string, budgetS: number): Promise<CloseLintsRun | string> {
+  const env = process.env;
+  const worktrees = join(repoPath, '.claude', 'worktrees');
+  let wt: string;
+  try {
+    mkdirSync(worktrees, { recursive: true });
+    wt = mkdtempSync(join(worktrees, 'review-batch.'));
+  } catch (e) {
+    return `cannot create a temporary worktree dir under ${worktrees}: ${(e as Error).message}`;
+  }
+  const scratch = mkdtempSync(join(env.TMPDIR || tmpdir(), 'tmb-review-batch-'));
+  try {
+    const add = await runGitAsync(repoPath, ['worktree', 'add', '-q', '--detach', wt, head], { timeout: GIT_WORKTREE_TIMEOUT_MS });
+    if (add.error || add.status !== 0) return `git worktree add ${head} failed: ${(add.stderr ?? '').trim()}`;
+    const runEnv = { ...env, PATH: joinToolchainPath(toolchainDirs(env, wt), env.PATH ?? '') };
+    const deps = await prepareWorktreeDeps(repoPath, wt, { env: runEnv });
+    if (deps.install_error !== undefined) return `worktree setup failed: ${deps.install_error}`;
+    const setup = await runWorktreeSetup(wt, { env: runEnv });
+    if (setup.error !== undefined) return describeSetupFailure(setup);
+    const lintDb = join(scratch, 'lints.db');
+    createScratchLintDb(lintDb);
+    return await runCloseLints(wt, head, base, budgetS, runEnv, { db: lintDb, taskId: '0', source: 'gate' });
+  } finally {
+    await removeTempWorktree(repoPath, wt);
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+async function batchLint(db: TrajectoryDB, repoPath: string, head: string, base: string): Promise<HandoffLint> {
+  const plan = await closeLintsPlan(repoPath, head, process.env, '');
+  if (typeof plan === 'string') throw new BatchRefused('lint_unavailable', `the close lints of ${head} cannot run: ${plan}`);
+  if (plan.lints.length === 0) return { fingerprint: plan.fingerprint, exit_code: 0, results: [] };
+  const run = await runBatchLints(repoPath, head, base, lintBudgetS(db));
+  if (typeof run === 'string') throw new BatchRefused('lint_unavailable', `the close lints of ${head} cannot run: ${run}`);
+  if (run.exitCode !== 0) {
+    throw new BatchRefused('lint_failed', `the close lints fail on ${head}; fix them on the feature branch, then hand the group off again.\n${describeFailures(run)}`);
+  }
+  return {
+    fingerprint: run.fingerprint,
+    exit_code: run.exitCode,
+    results: run.results.map((r) => ({ name: r.name, exit_code: r.exitCode, elapsed_s: r.elapsedS, output_tail: tailLines(r.output) })),
+  };
+}
+
+// The paths <task> changed: git diff --name-only <base_sha> <commit_sha>.
+function taskChangedFiles(repoPath: string, task: PendingTaskRow): string[] | null {
+  if (!task.base_sha) return null;
+  const entries = diffNameStatus(repoPath, task.base_sha, task.commit_sha);
+  return entries === null ? null : [...new Set(entries.map((e) => e.path))];
+}
+
+// Refuses a group that leaves out a queued task sharing a changed file with it,
+// so one review sees every change to each file it judges (AGILE.md).
+function assertGroupKeepsSharedFiles(repoPath: string, repo: string, group: readonly PendingTaskRow[], pending: readonly PendingTaskRow[]): void {
+  const inGroup = new Set(group.map((t) => t.id));
+  const outside = pending.filter((t) => !inGroup.has(t.id) && t.repo === repo);
+  if (outside.length === 0) return;
+  const changed = new Map<number, string[]>();
+  const unknown: RefusedTask[] = [];
+  for (const task of [...group, ...outside]) {
+    const files = taskChangedFiles(repoPath, task);
+    if (files === null) unknown.push({ task_id: task.id, reason: `git diff ${task.base_sha ?? '(no base_sha)'} ${task.commit_sha} gave no answer in ${repoPath}` });
+    else changed.set(task.id, files);
+  }
+  if (unknown.length > 0) {
+    throw new BatchRefused('changed_files_unknown', `the changed files of ${unknown.length} task(s) cannot be read, so the group cannot be checked for a split file; nothing was recorded.`, unknown);
+  }
+  const split: RefusedTask[] = [];
+  for (const task of outside) {
+    const own = new Set(changed.get(task.id));
+    const sharesWith = group.filter((g) => changed.get(g.id)?.some((f) => own.has(f))).map((g) => g.id);
+    if (sharesWith.length === 0) continue;
+    const files = [...new Set(group.flatMap((g) => changed.get(g.id)?.filter((f) => own.has(f)) ?? []))].sort();
+    split.push({ task_id: task.id, reason: 'left_out_shares_changed_files', shares_with: sharesWith, files });
+  }
+  if (split.length > 0) {
+    throw new BatchRefused(
+      'group_splits_shared_file',
+      `${split.length} queued task(s) left out of task_ids change a file a task in the group changes; add them to task_ids so one review sees every change to those files. Nothing was recorded.`,
+      split,
+    );
+  }
+}
+
+interface BatchHandoff {
+  batch_handoff_id: number;
+  head_sha: string;
+  base_sha: string;
+  task_ids: number[];
+  reviewer_spawn: ReviewerSpawn;
+}
+
+const pendingKey = (rows: readonly PendingTaskRow[]): string => rows.map((t) => `${t.id}@${t.commit_sha}`).join(',');
+
+async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHandoff> {
+  const branch = h.featureBranch;
+  const pending = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch }]);
+  const byId = new Map(pending.map((t) => [t.id, t]));
+  const notQueued = h.taskIds.filter((id) => !byId.has(id)).map((id) => ({ task_id: id, reason: `not a queued agile task of ${branch} awaiting review` }));
+  if (notQueued.length > 0) {
+    throw new BatchRefused('task_not_queued', `${notQueued.length} of ${h.taskIds.length} task(s) are not queued for review on ${branch}; nothing was recorded.`, notQueued);
+  }
+  const group = h.taskIds.map((id) => byId.get(id) as PendingTaskRow);
+  const unknownRepo = group.filter((t) => t.repo === null || t.repo_path === null);
+  if (unknownRepo.length > 0) {
+    throw new BatchRefused('repo_unknown', 'no repos row resolves for some task(s); nothing was recorded.', unknownRepo.map((t) => ({ task_id: t.id, reason: `repo_unknown: ${JSON.stringify(t.repo)}` })));
+  }
+  const repos = [...new Set(group.map((t) => t.repo as string))];
+  if (repos.length > 1) throw new BatchRefused('mixed_repos', `the tasks span repos ${repos.join(', ')}; hand off one group per repo.`);
+  const repo = repos[0];
+  const repoPath = repoRowPath(db, group[0].repo_path as string);
+
+  const head = revParseCommit(repoPath, `refs/heads/${branch}`);
+  if (head === null) throw new BatchRefused('branch_unresolved', `refs/heads/${branch} does not resolve in ${repoPath}.`);
+  const target = repoTargetBase(db, repoPath, repo);
+  const targetRef = resolveBaseRef(repoPath, target);
+  const base = targetRef === null ? null : mergeBase(repoPath, targetRef, head);
+  if (base === null) {
+    throw new BatchRefused('target_unresolved', `no merge-base of ${branch} (${head}) and its target ${targetRef ?? target} resolves in ${repoPath}.`);
+  }
+  const notAncestor = group.filter((t) => !isAncestor(repoPath, t.commit_sha, head));
+  if (notAncestor.length > 0) {
+    throw new BatchRefused(
+      'not_ancestor',
+      `${notAncestor.length} task commit(s) are not ancestors of ${branch}@${head}; nothing was recorded.`,
+      notAncestor.map((t) => ({ task_id: t.id, reason: `not_ancestor: ${t.commit_sha} is not an ancestor of ${head} in ${repo}` })),
+    );
+  }
+  assertGroupKeepsSharedFiles(repoPath, repo, group, pending);
+  const lint = await batchLint(db, repoPath, head, base);
+
+  return db.transaction(() => {
+    // The lints ran outside the transaction; a task that closed, moved or was reviewed meanwhile voids the checks above.
+    const now = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch }]);
+    if (pendingKey(now) !== pendingKey(pending)) {
+      throw new BatchRefused('task_changed', `the queued tasks of ${branch} changed while review_batch_handoff ran; call it again.`);
+    }
+    const commitShas = group.map((t) => t.commit_sha);
+    const auditId = insertAudit(db, {
+      issue_id: group[0].issue_id,
+      branch_id: branch,
+      from_node: 'bro',
+      event_type: 'review_batch_handoff',
+      summary: `bro handed off tasks ${h.taskIds.join(', ')} for grouped review at ${branch}@${head}`,
+      content_json: JSON.stringify({
+        feature_branch: branch,
+        head_sha: head,
+        base_sha: base,
+        task_ids: h.taskIds,
+        commit_shas: commitShas,
+        repo,
+        lint,
+      }),
+      created_at: nowISO(),
+    });
+    const reviewer_spawn = batchReviewerSpawn(
+      { batch_handoff_id: String(auditId), feature_branch: branch, head_sha: head, repo, repo_path: repoPath, subagent_session_id: h.sessionId },
+      resolveEffortDefaults(db).reviewer,
+    );
+    return { batch_handoff_id: auditId, head_sha: head, base_sha: base, task_ids: h.taskIds, reviewer_spawn };
   });
 }
 
@@ -434,9 +760,25 @@ export function reviewQueueTools(db: TrajectoryDB): {
       },
     },
     {
+      name: 'review_batch_handoff',
+      description:
+        'bro only: hands queued agile tasks of feature_branch to one review at its tip, after the close lints pass there. Returns {batch_handoff_id, head_sha, base_sha, task_ids, reviewer_spawn}. ' +
+        'Refused, writing nothing, if a task is not queued on the branch or not under the tip, the lints fail, or a queued task left out shares a changed file.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          feature_branch: { type: 'string' },
+          task_ids: { type: 'array', items: { type: 'integer' }, minItems: 1 },
+          session_id: { ...RUN_SESSION_ID_SCHEMA, description: 'Your host session id; the reviewer spawn carries it.' },
+        },
+        required: ['agent', 'feature_branch', 'task_ids', 'session_id'],
+      },
+    },
+    {
       name: 'review_batch_record',
       description:
-        'code-reviewer only: one verdict on a group of queued agile tasks at feature-branch head_sha. Refused, writing nothing, unless every task is closed agile, queued at its commit, not yet batch-reviewed or waived, and that commit an ancestor of head_sha. ' +
+        'code-reviewer only: one verdict on a group of queued agile tasks at feature-branch head_sha. Refused, writing nothing, unless batch_handoff_id is the hand-off of these task_ids at head_sha and every task is closed agile, queued at its commit, not yet batch-reviewed or waived, and that commit an ancestor of head_sha. ' +
         'pass batch-reviews them all; fail leaves them queued.',
       inputSchema: {
         type: 'object',
@@ -445,10 +787,11 @@ export function reviewQueueTools(db: TrajectoryDB): {
           task_ids: { type: 'array', items: { type: 'integer' }, minItems: 1 },
           feature_branch: { type: 'string' },
           head_sha: { type: 'string', description: 'The feature-branch commit reviewed.' },
+          batch_handoff_id: { type: 'integer', minimum: 1, description: 'From your spawn prompt.' },
           verdict: { type: 'string', enum: [...BATCH_VERDICTS] },
           findings: { type: 'array', items: { type: 'object' }, description: 'Optional, in validation_record\'s finding shape.' },
         },
-        required: ['agent', 'task_ids', 'feature_branch', 'head_sha', 'verdict'],
+        required: ['agent', 'task_ids', 'feature_branch', 'head_sha', 'batch_handoff_id', 'verdict'],
       },
     },
     {
@@ -488,6 +831,13 @@ export function reviewQueueTools(db: TrajectoryDB): {
           return Promise.resolve(handler(args));
         } catch (e) {
           return Promise.resolve(err((e as Error).message));
+        }
+      }),
+      review_batch_handoff: requireRoles('review_batch_handoff', ['bro'], async (args) => {
+        try {
+          return ok(await handoffBatch(db, parseHandoffArgs(args)));
+        } catch (e) {
+          return e instanceof BatchRefused ? refusal(e) : err((e as Error).message);
         }
       }),
       review_batch_record: requireRoles('review_batch_record', ['code-reviewer'], (args) => {

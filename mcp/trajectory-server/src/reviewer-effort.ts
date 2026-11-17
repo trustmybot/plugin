@@ -10,7 +10,7 @@
  * review_handoff returns as reviewer_spawn (GH 2582).
  */
 import type { TrajectoryDB } from './db.js';
-import { ANCHORS } from './hooks/code-reviewer-spawn-note.js';
+import { ANCHORS, BATCH_ANCHORS } from './hooks/code-reviewer-spawn-note.js';
 import { insertAudit } from './tools/audit.js';
 import {
   pathsOverlap,
@@ -202,4 +202,12 @@ export function reviewerSpawn(
       ? { prompt, effort, model, subagent_type: REVIEWER_SUBAGENT_TYPE }
       : { prompt, effort, subagent_type: REVIEWER_SUBAGENT_TYPE },
   };
+}
+
+const BATCH_REVIEWER_SPAWN_LINE = 'Judge whether the grouped commits break other behaviour; batch_handoff_id names the tasks and their commits.';
+
+/** The code-reviewer Agent call for a review_batch_handoff group: every BATCH_ANCHORS entry as name=value, then one short line. */
+export function batchReviewerSpawn(values: Record<(typeof BATCH_ANCHORS)[number], string>, effort: Effort): ReviewerSpawn {
+  const anchors = BATCH_ANCHORS.map((name) => `${name}=${anchorValue(values[name])}`).join(' ');
+  return { prompt: `${anchors}\n${BATCH_REVIEWER_SPAWN_LINE}`, effort, subagent_type: REVIEWER_SUBAGENT_TYPE };
 }

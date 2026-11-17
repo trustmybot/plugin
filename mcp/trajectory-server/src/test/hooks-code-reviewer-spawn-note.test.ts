@@ -35,6 +35,13 @@ describe('code-reviewer-spawn-note gate', () => {
     assert.equal(spawnProse(ANCHORS), '');
   });
 
+  it('strips the grouped-review batch anchors the same way (GH 2225 T6a)', () => {
+    const batch = "batch_handoff_id=7 feature_branch=feat/agile head_sha=abc1234def repo=plugin repo_path='/work/my plugin' subagent_session_id=sess-1";
+    assert.equal(spawnProse(`${batch}\nJudge the group.`), 'Judge the group.');
+    assert.equal(codeReviewerSpawnNote(payload(`${batch} Focus on the shared file.`), {}).stdout, '');
+    assert.equal(decision(codeReviewerSpawnNote(payload(`${batch}\n${LONG}`), {}).stdout)?.decision, 'deny');
+  });
+
   it('allows the anchors alone and the anchors plus a short line', () => {
     assert.equal(codeReviewerSpawnNote(payload(ANCHORS), {}).stdout, '');
     assert.equal(codeReviewerSpawnNote(payload(`${ANCHORS} Focus on the v48 migration.`), {}).stdout, '');
