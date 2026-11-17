@@ -84,6 +84,44 @@ flowchart TD
 - **The gate checks only what the push adds.** That is the commits reachable from the new tip and not from the base. A commit already on the base passed its own gate when it merged, and needs no new verification.
 - **The PR is kept.** A rebase never opens a new branch or a new PR, so the review thread and history stay in one place.
 
+## The push gate at git's own hook
+
+Planned (GH 3281), and not prototyped yet. Today the push gate runs before a Bash command, reads its text to decide whether it is a push and what it sends, looks up each pushed commit on its own, and takes its policy from the working directory. Each of the three is a steady source of bugs: a shell form nobody foresaw, a commit whose id changed in a rebase or that two tasks share, and a command aimed at another repo. The design below removes the causes.
+
+```mermaid
+flowchart TD
+    A[Any command that ends in a push, in any shell form] --> B[git runs the repo's pre-push hook and hands it the exact refs and commits]
+    B --> C{Pushed from an agent session?}
+    C -- no --> OK[Admitted: the Human's own push]
+    C -- yes --> D{Is this repo's policy confirmed?}
+    D -- no --> N[Admitted, with one line naming how to bring the repo under policy]
+    D -- yes --> E{Protected branch?}
+    E -- yes --> X[Denied]
+    E -- no --> F{Whose branch is it?}
+    F -- a task's --> G[Net diff between the base and the pushed tip]
+    F -- an agile feature branch --> FB[Admitted as a backup; its gate is the merge gate]
+    F -- "nobody's" --> H{Does it hold a task's commit, by id or by patch?}
+    H -- no --> OK2[Admitted]
+    H -- yes --> G
+    G --> I{Is the newest verdict for this net diff a pass?}
+    I -- yes --> OK3[Admitted]
+    I -- no --> X2[Denied, naming the task and what is missing]
+```
+
+- **Git says what is pushed.** The hook receives each ref and commit the push sends, so the gate reads no command text and no shell form can hide a push from it. It runs inside the repo being pushed, so the policy is that repo's.
+- **The text guard keeps one job.** It denies an agent's command that would skip or replace git's hooks. That is a short, closed list, where "every way to write a push" is an open one.
+- **The Human is not gated.** The hook acts only on a push from an agent session. The Human's own push from a terminal passes, as it does today.
+- **The gate judges the branch, not each commit.** A review is recorded against the net diff between the base and the reviewed tip. A push is admitted when the newest verdict for the pushed tip's net diff is a pass.
+  - A rebase that leaves the diff unchanged keeps its pass with no extra record.
+  - Commits already on the base are never in the diff, so a moved base adds nothing to check.
+  - A commit a retry inherited from the task it replaces is covered by the review of the whole diff.
+- **An unchanged diff is necessary, not enough.** Integrate still re-runs the task's verification on the rebased commit and checks that the base's changes touch nothing the diff depends on. When they do, the commit gets one new review, recorded against the new tip.
+- **Close follows integrate.** A task closes only once integrate succeeded, so a failed integrate always leaves an open task to rework or to review again. Today the task closes first, and a failed integrate leaves nothing to reopen (GH 3234).
+- **The hook is one more local file.** It lives in the repo's git folder, is never committed, calls on to a pre-push hook the project already has, and is removed with TMB.
+- **The forge is the last line.** A protected branch's rules on the forge stay the Human's to set; TMB's hook does not replace them.
+
+Still to prove with a prototype: chaining with an existing hook and with a hooks path the project sets, how an agent session is told apart from the Human's terminal, which ways of skipping the hook remain, and what the net diff costs on a large branch.
+
 ## Agile feature branches
 
 Shipped for the project review mode; a lane's feature branch is planned (GH 3025). In agile review mode a long-lived feature branch stands between the task branches and `<base>`. Each `<feature>` is cut from the feature branch's tip instead of `<base>`, and bro merges it back into the feature branch locally once the task closes, with no PR. bro pushes the feature branch as a backup and brings `<base>` into it at the milestone, or earlier in an optional periodic sync. Only the feature branch itself reaches `<base>`, as one PR after its review passes or the Human waives it. [AGILE.md](AGILE.md) covers every case.
@@ -113,7 +151,8 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
 
 1. **Repos are identified by registration.** A repo takes part in TMB only once `/scan` has registered it. Registration is the same step that warms the world model, so the two stay aligned.
 2. **Resolution is path-keyed.** An operation belongs to the registered repo whose path contains it: the command's git root for a hook, the task's repo for a task. World-model paths are stored relative to their repo.
-3. **Branch policy is per repo.** Each repo's PR target, branching model and protected branches are recorded with its registration and nowhere else; there is no global fallback. The git guards enforce the policy of the repo the command runs in.
+3. **Branch policy is per repo.** Each repo's PR target, branching model and protected branches are recorded with its registration and nowhere else; there is no global fallback. The git guards enforce the policy of the repo the command runs in. Planned (GH 3281): the policy of the repo the command targets, so a repo named on the command line wins over the working directory, and a deny names the repo whose policy it applied.
 4. **Single-repo fallback.** When an operation names no repo and exactly one is registered, it resolves to that repo, so single-repo projects need no repo argument anywhere. With several repos registered, an operation that names none and has no path is refused.
+5. **Indexed is not governed.** Planned (GH 3281). A scan only indexes a repo for the world model. The git guards apply to a repo once its policy is confirmed, by first contact or by a recorded setting for that repo, and never enforce a guessed target. Today registration alone turns the guards on, with the repo's default branch as its PR target.
 
 A global default repo would force one repo to be "the" repo and make the guards guess what to enforce; it breaks as soon as a second repo joins. Path-keyed resolution lets sibling repos coexist with none privileged.
