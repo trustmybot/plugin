@@ -1603,11 +1603,10 @@ export function compositeTools(
     {
       name: 'review_handoff',
       description:
-        "Hands a completed or needs_validation task's current commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed; " +
-        'a closed agile task still queued for review at its commit, staying closed (a pass takes it out of the queue, a FAIL leaves it queued). ' +
-        "Writes review_handoff (the review anchor with the scope report: extras with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
-        'Returns review_pending=true, reviewer_effort and, with session_id, reviewer_spawn, the whole Agent call. ' +
-        'Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, for a task with verification[] or a non-wontfix finding, without a passing verification run of those commands plus one `[probe <id>]` per finding for the commit or a verification_gate_waived row (verification_run_missing).',
+        "Hands a completed, needs_validation or queued closed agile task's commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed. " +
+        "Writes review_handoff (review anchor; extras with reasons, base_moved, merge_base), reviewer_effort_assigned, spawn_note. " +
+        'Returns review_pending=true and reviewer_effort, plus reviewer_spawn given session_id. ' +
+        "Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, given verification[] or a non-wontfix finding, without the commit's passing run of those commands plus one `[probe <id>]` per finding or a verification_gate_waived row (verification_run_missing).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1672,7 +1671,7 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed when no code-reviewer verdict passes; in agile mode review_queued instead), else it returns a re-dispatch directive; other statuses are a no-op. ' +
+        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed without a passing code-reviewer verdict, review_queued under agile), else it returns a re-dispatch directive; other statuses are a no-op. ' +
         'Every call also sweeps: running tasks with no open swe run and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) fail (task_stale_swept, runs closed swept_stale); pending ones over 7 days old are reported; runs open on terminal tasks close; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
         'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} plus the recovery result.',
       inputSchema: {

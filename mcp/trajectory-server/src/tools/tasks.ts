@@ -634,7 +634,7 @@ export function taskTools(db: TrajectoryDB): {
         "Update a task's status. A move to completed on a spec whose Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id and no unknown id; the report is stored and task_brief returns it. " +
         "report.concepts (at most 5, world_model_concept_upsert's shape) are only shape-checked here; scan_run applies them once the task closes with a passing code-reviewer verdict. " +
         'Only swe may pass report.wm_feedback; any other agent is refused with wm_feedback_invalid. ' +
-        'A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row (under workflow_mode agile, a review_queued row).',
+        'A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row (review_queued under workflow_mode agile).',
       inputSchema: {
         type: 'object',
         properties: {
