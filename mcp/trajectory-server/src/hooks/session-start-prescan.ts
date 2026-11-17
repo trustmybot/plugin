@@ -267,6 +267,24 @@ async function gitOr(dir: string, args: readonly string[], fallback: string, env
   return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}${fallback}\n`);
 }
 
+interface RepoGitState {
+  branch: string;
+  commits: string;
+  dirty: number;
+  log: string[];
+}
+
+/** A repo's branch, commit count, dirty paths and last 5 commits, its git reads run together. */
+async function repoGitState(path: string, env: NodeJS.ProcessEnv): Promise<RepoGitState> {
+  const [branch, commits, status, log] = await Promise.all([
+    gitOr(path, ['rev-parse', '--abbrev-ref', 'HEAD'], 'unknown', env),
+    gitOr(path, ['rev-list', '--count', 'HEAD'], '0', env),
+    gitRun(path, ['status', '--porcelain'], env),
+    gitRun(path, ['log', '--oneline', '-5'], env),
+  ]);
+  return { branch, commits, dirty: lineCount(status.stdout), log: records(log.stdout) };
+}
+
 function lineCount(text: string): number {
   return text.split('\n').length - 1;
 }
@@ -406,22 +424,22 @@ export async function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: strin
   const stacks: string[] = [];
   const branches: string[] = [];
   const last5: string[] = [];
-  for (const { name, path } of repos) {
-    if (name === '') continue;
-    if (!isDir(path)) {
+  const named = repos.filter(({ name }) => name !== '');
+  const present = named.map(({ path }) => isDir(path));
+  const gitStates = await Promise.all(named.map(({ path }, i) => (present[i] ? repoGitState(path, env) : Promise.resolve(null))));
+  named.forEach(({ name, path }, i) => {
+    const state = gitStates[i];
+    if (state === null) {
       stacks.push(`${name}: missing (${path})`);
       branches.push(`${name}: missing (${path})`);
-      continue;
+      return;
     }
     stacks.push(`${name}: ${detectStacks(path, env)}`);
-    const branch = await gitOr(path, ['rev-parse', '--abbrev-ref', 'HEAD'], 'unknown', env);
-    const commits = await gitOr(path, ['rev-list', '--count', 'HEAD'], '0', env);
-    const dirty = lineCount((await gitRun(path, ['status', '--porcelain'], env)).stdout);
-    branches.push(`${name}: ${branch} (${commits} commits, ${dirty} dirty paths)`);
+    branches.push(`${name}: ${state.branch} (${state.commits} commits, ${state.dirty} dirty paths)`);
     const prefix = repoN > 1 ? `  [${name}] ` : '  ';
-    const log = records((await gitRun(path, ['log', '--oneline', '-5'], env)).stdout).map((l) => `${prefix}${l}`);
+    const log = state.log.map((l) => `${prefix}${l}`);
     if (log.length > 0) last5.push(log.join('\n'));
-  }
+  });
 
   const counts = sqliteRo(
     db,
@@ -432,11 +450,8 @@ export async function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: strin
   const wmRaw = sqliteRo(db, 'SELECT COUNT(*) FROM wm_directories;', env);
   const wmDirs = /^[0-9]+$/.test(wmRaw) ? wmRaw : '0';
 
-  let sourceFiles = 0;
-  for (const { name, path } of repos) {
-    if (name === '' || !isDir(path)) continue;
-    sourceFiles += records((await gitRun(path, ['ls-files'], env)).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
-  }
+  const listed = await Promise.all(repos.filter(({ name, path }) => name !== '' && isDir(path)).map(({ path }) => gitRun(path, ['ls-files'], env)));
+  const sourceFiles = listed.reduce((n, r) => n + records(r.stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length, 0);
   const scanRow = sqliteRo(
     db,
     "SELECT CAST(strftime('%s','now') - strftime('%s', MAX(last_scanned_at)) AS INTEGER), COALESCE(SUM(file_count), 0) FROM repos;",

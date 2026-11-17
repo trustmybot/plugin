@@ -2,18 +2,17 @@
  * SessionStart hook (GH 1692, #98): when a dist/tools/*.js on
  * disk is newer than this session's own trajectory-server child, a Tier 2
  * restart note. The child is the trajectory-server whose ppid chain holds
- * the nearest Claude Code ancestor of this process (walked with ps and
- * pgrep). Test overrides: TMB_MCP_PID_OVERRIDE, TMB_MCP_START_OVERRIDE,
+ * the nearest Claude Code ancestor of this process (walked over the shared ps
+ * snapshot, with pgrep). Test overrides: TMB_MCP_PID_OVERRIDE, TMB_MCP_START_OVERRIDE,
  * TMB_TOOL_DIR_OVERRIDE, TMB_DRIFT_SELF_PID. It never denies, needs no jq,
  * and compares mtimes directly, with no reference file in TMPDIR.
  */
-import { spawnSync } from 'node:child_process';
 import { lstatSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ALLOW, type SyncGate } from './gate.js';
-import { stripTrailingNewlines } from './lib/db.js';
+import { ALLOW, type Gate } from './gate.js';
 import { commandOnPath } from './lib/host.js';
 import { jqCompact } from './lib/jq.js';
+import { captureStdout, type ProcTable, processTable, procRow } from './lib/proc-table.js';
 import { installRoot, posixDirname } from './lib/project-env.js';
 
 export const GATE_NAME = 'deferred-tools-drift-warn';
@@ -27,11 +26,6 @@ const INT64_MIN = -(2n ** 63n);
  * raises it; the hook then exits 0 with no output.
  */
 class ArithError extends Error {}
-
-function run(cmd: string, args: string[], env: NodeJS.ProcessEnv): string {
-  const r = spawnSync(cmd, args, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  return r.stdout ?? '';
-}
 
 /** bash's integer test operand: blanks, a sign and decimal digits within 64 bits, else null. */
 export function testInt(text: string): bigint | null {
@@ -52,27 +46,27 @@ export function isCcCommand(cmd: string): boolean {
   return /^(?:claude|claude .*|.*\/claude|.*\/claude .*)$/s.test(cmd);
 }
 
-function procPpid(pid: string, env: NodeJS.ProcessEnv): string {
-  return stripTrailingNewlines(run('ps', ['-o', 'ppid=', '-p', pid], env).replaceAll(' ', ''));
+function procPpid(pid: string, table: ProcTable): string {
+  return procRow(table, pid)?.ppid ?? '';
 }
 
-function procCmd(pid: string, env: NodeJS.ProcessEnv): string {
-  return stripTrailingNewlines(run('ps', ['-o', 'command=', '-p', pid], env));
+function procCmd(pid: string, table: ProcTable): string {
+  return procRow(table, pid)?.command ?? '';
 }
 
-function nearestCcAncestor(start: string, env: NodeJS.ProcessEnv): string {
+function nearestCcAncestor(start: string, table: ProcTable): string {
   let pid = start;
   let guard = 0;
   while (walkable(pid)) {
     guard += 1;
     if (guard > ANCESTRY_GUARD) break;
-    if (isCcCommand(procCmd(pid, env))) return pid;
-    pid = procPpid(pid, env);
+    if (isCcCommand(procCmd(pid, table))) return pid;
+    pid = procPpid(pid, table);
   }
   return '';
 }
 
-function chainContains(start: string, target: string, env: NodeJS.ProcessEnv): boolean {
+function chainContains(start: string, target: string, table: ProcTable): boolean {
   if (target === '') return false;
   let pid = start;
   let guard = 0;
@@ -80,18 +74,18 @@ function chainContains(start: string, target: string, env: NodeJS.ProcessEnv): b
     guard += 1;
     if (guard > ANCESTRY_GUARD) break;
     if (pid === target) return true;
-    pid = procPpid(pid, env);
+    pid = procPpid(pid, table);
   }
   return false;
 }
 
-function resolveOwnServer(env: NodeJS.ProcessEnv): string {
-  const ownCc = nearestCcAncestor(env.TMB_DRIFT_SELF_PID || String(process.pid), env);
+async function resolveOwnServer(env: NodeJS.ProcessEnv, table: ProcTable): Promise<string> {
+  const ownCc = nearestCcAncestor(env.TMB_DRIFT_SELF_PID || String(process.pid), table);
   if (ownCc === '') return '';
-  for (const line of run('pgrep', ['-f', SERVER_PATTERN], env).split('\n')) {
+  for (const line of (await captureStdout('pgrep', ['-f', SERVER_PATTERN], env)).split('\n')) {
     const pid = line.trim();
     if (pid === '' || pid === ownCc) continue;
-    if (chainContains(pid, ownCc, env)) return pid;
+    if (chainContains(pid, ownCc, table)) return pid;
   }
   return '';
 }
@@ -100,15 +94,6 @@ function resolveOwnServer(env: NodeJS.ProcessEnv): string {
 function base10(part: string): bigint {
   if (!/^[0-9]+$/.test(part)) throw new ArithError(part);
   return BigInt(part);
-}
-
-/** `$(( <digits> ))`: a leading 0 reads octal. */
-function arithDigits(text: string): bigint {
-  if (text.length > 1 && text.startsWith('0')) {
-    if (!/^[0-7]+$/.test(text)) throw new ArithError(text);
-    return BigInt(`0o${text}`);
-  }
-  return BigInt(text);
 }
 
 /** Seconds of a ps etime `[DD-][HH:]MM:SS`, each field base 10. */
@@ -125,19 +110,13 @@ export function etimeSeconds(raw: string): bigint {
   return base10(days) * 86400n + base10(head(rest)) * 60n + base10(tail(rest));
 }
 
-function serverStart(pid: string, env: NodeJS.ProcessEnv): bigint | null {
+function serverStart(pid: string, table: ProcTable): bigint | null {
   const now = BigInt(Math.floor(Date.now() / 1000));
-  const etimes = run('ps', ['-o', 'etimes=', '-p', pid], env).replaceAll(' ', '').replace(/\n+$/, '');
-  let start: bigint;
-  if (etimes !== '' && /^[0-9]+$/.test(etimes)) {
-    start = now - arithDigits(etimes);
-  } else {
-    const raw = run('ps', ['-o', 'etime=', '-p', pid], env).replaceAll(' ', '').replace(/\n+$/, '');
-    if (raw === '') return null;
-    const elapsed = etimeSeconds(raw);
-    if (elapsed < 0n) return null;
-    start = now - elapsed;
-  }
+  const raw = procRow(table, pid)?.etime ?? '';
+  if (raw === '') return null;
+  const elapsed = etimeSeconds(raw);
+  if (elapsed < 0n) return null;
+  const start = now - elapsed;
   return start > 0n ? start : null;
 }
 
@@ -197,11 +176,11 @@ export function driftContext(count: number, pid: string): string {
   return `[tmb deferred-tools drift] ${count} MCP tool source file(s) on disk are newer than the running trajectory-server child (PID ${pid}). CC's deferred-tools registry is session-scoped and only a new session replays tool discovery. Workaround (Tier 2): fully quit and relaunch Claude Code to bind the new tools. See #98.`;
 }
 
-export const deferredToolsDriftWarn: SyncGate = (_payload, env) => {
+export const deferredToolsDriftWarn: Gate = async (_payload, env) => {
   let pid = env.TMB_MCP_PID_OVERRIDE ?? '';
   if (pid === '') {
     if (!commandOnPath('pgrep', env)) return ALLOW;
-    pid = resolveOwnServer(env);
+    pid = await resolveOwnServer(env, await processTable(env));
     if (pid === '') return ALLOW;
   }
   const toolDir = env.TMB_TOOL_DIR_OVERRIDE || `${pluginRoot()}/mcp/trajectory-server/dist/tools`;
@@ -212,7 +191,7 @@ export const deferredToolsDriftWarn: SyncGate = (_payload, env) => {
     start = epochOperand(override);
   } else {
     try {
-      start = serverStart(pid, env);
+      start = serverStart(pid, await processTable(env));
     } catch (e) {
       if (e instanceof ArithError) return ALLOW;
       throw e;

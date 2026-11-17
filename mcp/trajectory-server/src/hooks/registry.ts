@@ -325,7 +325,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate('ensure-mcp-deps-installed', 'advisory'),
     routerGate(SUBSTRATE_GATE, 'advisory'),
     routerGate(ORPHAN_SCAN_GATE, 'advisory'),
-  ]),
+  ], { concurrent: true }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PERSONA_GATE, 'advisory')], { part: 'persona' }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PRESCAN_GATE, 'advisory')], { part: 'prescan' }),
   eventGroup('UserPromptSubmit', '', [

@@ -1,6 +1,6 @@
 /**
- * Host probes the health hooks share (GH 1692): `command -v` on PATH, a
- * blocking `sleep`, and the payload as bash's `$(cat)` leaves it.
+ * Host probes the health hooks share (GH 1692): `command -v` on PATH, an
+ * awaited `sleep`, and the payload as bash's `$(cat)` leaves it.
  */
 import { accessSync, constants, statSync } from 'node:fs';
 
@@ -19,11 +19,11 @@ export function commandOnPath(name: string, env: NodeJS.ProcessEnv = process.env
   return false;
 }
 
-/** `sleep <seconds>`: a non-negative decimal, anything else sleeps not at all (sleep fails). */
-export function sleepSeconds(raw: string): void {
+/** `sleep <seconds>` without blocking the event loop: a non-negative decimal, anything else waits not at all (sleep fails). */
+export async function delaySeconds(raw: string): Promise<void> {
   if (!/^(\d+\.?\d*|\.\d+)$/.test(raw)) return;
   const ms = Math.round(Number(raw) * 1000);
-  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  if (ms > 0) await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 /** bash's `$(cat)`: NUL bytes dropped, trailing newlines stripped. */

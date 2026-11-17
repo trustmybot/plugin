@@ -105,21 +105,21 @@ describe('deferred-tools-drift-warn helpers', () => {
     assert.equal(newerJs(tools, BigInt(NEW.getTime()) * 1_000_000n), 0);
   });
 
-  it('an arithmetic error in the elapsed time allows silently, as the .sh does', () => {
+  it('an arithmetic error in the elapsed time allows silently, as the .sh does', async () => {
     const bin = join(dir, 'ps-octal');
-    write(join(bin, 'ps'), '#!/bin/sh\necho 08\n', 0o755);
+    write(join(bin, 'ps'), '#!/bin/sh\necho "    5     1 0a:10 node x"\n', 0o755);
     const tools = join(dir, 'tools-arith');
     write(join(tools, 'new.js'), '');
     utimesSync(join(tools, 'new.js'), NEW, NEW);
-    const r = deferredToolsDriftWarn('{}', { PATH: bin, TMB_MCP_PID_OVERRIDE: '5', TMB_TOOL_DIR_OVERRIDE: tools });
+    const r = await deferredToolsDriftWarn('{}', { PATH: bin, TMB_MCP_PID_OVERRIDE: '5', TMB_TOOL_DIR_OVERRIDE: tools });
     assert.deepEqual(r, { stdout: '', code: 0 });
   });
 
-  it('divergence: warns without jq on PATH, where the .sh exits 127', () => {
+  it('divergence: warns without jq on PATH, where the .sh exits 127', async () => {
     const tools = join(dir, 'tools-nojq');
     write(join(tools, 'new.js'), '');
     utimesSync(join(tools, 'new.js'), NEW, NEW);
-    const r = deferredToolsDriftWarn('{}', {
+    const r = await deferredToolsDriftWarn('{}', {
       PATH: NO_COMMANDS,
       TMB_MCP_PID_OVERRIDE: '9',
       TMB_MCP_START_OVERRIDE: '1700000000',
@@ -245,10 +245,10 @@ describe('install resolution', () => {
 });
 
 describe('mcp-health-check divergence', () => {
-  it('notes a missing server without jq on PATH, where the .sh exits silently', () => {
+  it('notes a missing server without jq on PATH, where the .sh exits silently', async () => {
     const bin = join(dir, 'pgrep-down');
     write(join(bin, 'pgrep'), '#!/bin/sh\nexit 1\n', 0o755);
-    const r = mcpHealthCheck('{"hook_event_name":"SessionStart","session_id":"s"}', {
+    const r = await mcpHealthCheck('{"hook_event_name":"SessionStart","session_id":"s"}', {
       PATH: bin,
       HOME: dir,
       CLAUDE_PROJECT_DIR: join(dir, 'no-project'),
