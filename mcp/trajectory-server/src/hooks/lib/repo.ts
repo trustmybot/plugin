@@ -189,6 +189,69 @@ export function repoResolvePath(db: string, name: string, env: NodeJS.ProcessEnv
   return (name === '' ? '' : repoPathByName(db, name, env)) || repoSinglePath(db, env);
 }
 
+interface ForgeLocation {
+  /** The host as written, port dropped, lowercased; "" when the text names none. */
+  host: string;
+  /** The owner/namespace/name path, lowercased, with no scheme, `user@`, `.git` or edge slashes. */
+  path: string;
+}
+
+/** A forge repo spec or remote URL (`OWNER/REPO`, `HOST/OWNER/REPO`, `scheme://[user@]host[:port]/path`, `[user@]host:path`), split into host and path. */
+function forgeLocation(text: string): ForgeLocation {
+  let s = text.trim().toLowerCase();
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//.exec(s);
+  let host = '';
+  if (scheme) {
+    s = s.slice(scheme[0].length).replace(/^[^@/]*@/, '');
+    const slash = s.indexOf('/');
+    host = (slash < 0 ? s : s.slice(0, slash)).replace(/:[0-9]*$/, '');
+    s = slash < 0 ? '' : s.slice(slash);
+  } else {
+    const scp = /^(?:[^@/:]+@)?([^/:]+):(?!\/\/)/.exec(s);
+    if (scp) {
+      host = scp[1];
+      s = s.slice(scp[0].length);
+    }
+  }
+  const path = s.replace(/\/+$/, '').replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+  return { host, path };
+}
+
+/**
+ * <spec> (a `gh --repo` / `glab -R` value) names the repo <remoteUrl> points
+ * at: equal paths, and equal hosts when the spec carries one. A bare path of
+ * three or more segments is read both as a namespace path and as HOST/PATH.
+ */
+export function forgeSpecMatchesRemote(spec: string, remoteUrl: string): boolean {
+  const remote = forgeLocation(remoteUrl);
+  const want = forgeLocation(spec);
+  if (remote.path === '' || want.path === '') return false;
+  if (want.host !== '') return want.host === remote.host && want.path === remote.path;
+  if (want.path === remote.path) return true;
+  const slash = want.path.indexOf('/');
+  return want.path.split('/').length >= 3 && want.path.slice(0, slash) === remote.host && want.path.slice(slash + 1) === remote.path;
+}
+
+/**
+ * The root of the registered repo whose `origin` remote <spec> names, "" when
+ * none does: <ownRoot> (the statement's own git root) when it matches, else the
+ * first match by repos.name.
+ */
+export async function repoRootForForgeSpec(db: string, spec: string, ownRoot: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  if (!readable(db, env) || spec === '') return '';
+  const own = ownRoot === '' ? '' : realdir(ownRoot);
+  let first = '';
+  for (const row of sqliteRo(db, "SELECT path FROM repos WHERE path IS NOT NULL AND path != '' ORDER BY name;", env).split('\n')) {
+    if (row === '') continue;
+    const root = repoPathAbs(db, row);
+    if (!isDir(root)) continue;
+    if (!forgeSpecMatchesRemote(spec, await gitOut(root, ['remote', 'get-url', 'origin'], env))) continue;
+    if (own !== '' && realdir(root) === own) return root;
+    first ||= root;
+  }
+  return first;
+}
+
 const REMOTES_SQL =
   "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
 
