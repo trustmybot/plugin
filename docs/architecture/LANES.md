@@ -2,7 +2,7 @@
 
 Every case of flow 3.8 in [FLOWS.md](FLOWS.md): how TMB runs several independent streams of work as nested sessions, called lanes. Each lane runs its own bro, and a parent bro keeps the lanes from colliding and merges their PRs in order.
 
-This whole flow is planned (epic GH 3024). Each step below names the issue that builds it.
+One piece has shipped (GH 3020): every session that records an intent, creates or adopts an issue, or provisions a task is recorded as a lane with the issues it touched, and the restore after a compaction lists them. Today an issue may sit in several lanes. Everything else below is planned (epic GH 3024), and each step names the issue that builds it. Sessions as records of their own, with a start, an end and a parent, are planned in GH 3255; a lane is then a session with owned issues and a priority.
 
 ## Scope
 
@@ -26,11 +26,12 @@ One change with independent parts stays in one session as parallel swe tasks (fl
 
 ## 1. Who merges lane PRs
 
-bro asks this first, before any planning, because a lane run ends with many PRs. The answer covers this lane run only. Making the choice permanent for the project is planned as a merge-policy setting (GH 3148). Under either answer, a PR whose gate requires a named GitHub approval, such as a prompt change, still waits for that approval.
+bro asks this first, before any planning, because a lane run ends with many PRs. The answer covers this lane run only. Making the choice permanent for the project is planned as a merge-policy setting the Human sets through /onboard (GH 3148); until it ships, the Human merges every PR outside a lane run. Under either answer, a PR whose gate requires a named GitHub approval, such as a prompt change, still waits for that approval.
 
 ```mermaid
 flowchart LR
     A[Lane run proposed] --> B{Who merges lane PRs?}
+    A -- the Human declines lanes --> N[One session works the issues in order, as flow 3.1]
     B -- bro, recommended --> C[bro merges once the gates its task's mode requires passed, CI is green and required approvals are in]
     B -- Human --> D[bro opens each PR and hands it to the Human]
     C --> E[Choice recorded on the lane run, scoped to the parent session]
@@ -39,6 +40,7 @@ flowchart LR
     E -. Human wants it permanent .-> G[Planned: a project merge-policy setting, GH 3148]
 ```
 
+- **No choice, no merge.** A lane PR whose run has no recorded merge choice is not merged; bro asks the Human. Planned: GH 3148.
 - **The choice is the parent's.** It counts only in the parent session that recorded it, so a lane can't merge by citing it. Planned: GH 3148, enforced by the per-session approval gate in GH 3028.
 
 ## 2. Split, check conflicts, set priority
@@ -62,10 +64,10 @@ flowchart LR
     H -- approve --> I[Lanes recorded with their owned issues, priority and review mode]
 ```
 
-- **One owner per issue.** Each issue belongs to exactly one lane. Planned: GH 3025.
-- **Dependencies cross lanes.** An issue may be blocked by an issue another lane owns. Planned: GH 3026.
-- **Schema versions are reserved up front**, in priority order, so two lanes never claim the same number. Planned: GH 3027.
-- **Priority** is High, Medium or Low per lane, or a ranking when there are many lanes. It orders the merge queue and the schema reservations. Planned: GH 3025, or GH 3148 if GH 3025 ships without it.
+- **One owner per issue.** Each issue belongs to exactly one lane, and an explicit transfer is the only way to move it. When single ownership ships, an issue that already sits in several lanes goes to the lane that touched it last. Planned: GH 3025.
+- **Dependencies cross lanes.** An issue may be blocked by an issue another lane owns. A dependency that would close a cycle is refused and goes to the Human. Planned: GH 3026.
+- **Schema versions are reserved up front**, in priority order, so two lanes never claim the same number. A lane that needs a migration nobody foresaw takes the next free version when it needs one. A version already used in a commit never moves when priorities change. Planned: GH 3027.
+- **Priority** is a tier, High, Medium or Low, plus an optional rank inside the tier when there are many lanes. The merge queue orders by tier, then rank, then the time a PR was queued. It also orders the schema reservations. Planned: GH 3025, or GH 3148 if GH 3025 ships without it.
 - **Review mode** is truest or agile per lane ([AGILE.md](AGILE.md)). The question opens with the default, such as "Default: truest (global review mode)". bro recommends a mode for each lane and shows the lanes it suggests for the other mode, already selected, with a one-line reason each: a prototype or MVP lane may go agile, while a bug-fix lane keeps truest. The Human accepts the set in one answer or edits it, and a lane left unselected takes the global mode. One question offers at most four choices, so with more than four lanes bro splits them across up to four questions, or asks with a checklist in prose. An agile lane builds on its own long-lived feature branch, and that branch enters the merge queue as one PR once its review passes or the Human waives it. Planned: GH 3025, with the lane lookup at the close and the lane's feature branch in GH 2225.
 
 ## 3. Start the lanes
@@ -78,12 +80,16 @@ flowchart LR
     B -- fails --> C[Parent fixes the environment once, or drops the lane]
     C --> B
     B -- passes --> D[Start a session with the lane brief]
-    D --> E[Child registers its stable id and parent]
+    D -- the session fails to start --> C2[Parent tries once more, then drops the lane and tells the Human]
+    D --> E[The parent's start records the child and its parent link; the child's first turn records its own stable id]
     E --> F[Child takes ownership of its issues]
+    F -- an issue is already owned by another lane --> F2[Refused and recorded; the lane skips that issue and the parent tells the Human]
     F --> G[Lane runs 3.1, 3.2 or 3.9]
 ```
 
 - **The brief** holds the lane's owned issues, its priority, its review mode, its feature branch when the lane is agile, the merge choice, its branch naming and any reviewer rule that applies to its PRs.
+- **Where a lane session runs.** Each lane session starts in the shared main checkout, which stays on the working branch. Only its tasks' worktrees hold changes, so lanes never switch the checkout under each other.
+- **Lanes can nest.** A lane may start lanes of its own, each recorded with its parent. The merge queue belongs to the session that started the lane run.
 - **Registration survives compaction.** A lane restores its whole queue by its stable session id, not one issue. Planned: GH 3025, completing GH 3020.
 - **Fresh worktrees install dependencies** before they build. Planned: GH 3146.
 - **Lanes share notes** in the folder the host hands them. Planned: GH 1818.
@@ -98,6 +104,7 @@ flowchart LR
     B -- yes --> C[Record the dependency on the holder's issue]
     C --> D[Take the next actionable task]
     D --> A
+    D -- nothing is actionable --> X[The lane records itself blocked and idles; the parent sees it on its next turn]
     B -- no --> E{Needs a migration?}
     E -- yes --> F[Use the lane's reserved schema version]
     E -- no --> G[Lease the files; swe works in a lane-named worktree]
@@ -106,10 +113,10 @@ flowchart LR
     H --> I[Blocked lanes see the unblock on their next turn]
 ```
 
-- **File leases** are taken when a task is set up and released when it closes. Planned: GH 3027.
+- **File leases** are taken when a task is set up and released when it closes. An edit to a file another lane holds is refused, whether or not the task declared the file. A lane that is taken over or archived releases its leases at once. Planned: GH 3027.
 - **Branch and worktree names carry the lane name**, so parallel lanes never collide. Planned: GH 3027.
 - **The DB is the source of truth for an unblock.** A message between sessions is only a nudge. Planned: GH 3026.
-- **Token use rolls up per lane.** Planned: GH 3027.
+- **Token use rolls up per lane**, and a child's spend counts against its parent's cap. A lane that reaches its cap finishes its running task, takes no new one, and the parent tells the Human. Planned: GH 3027.
 
 ## 5. The merge queue
 
@@ -120,25 +127,33 @@ flowchart LR
     A[Lane PR pushed: a truest task's PR after its review, or an agile lane's feature branch PR after the branch review or a waiver] --> B[Queued at its lane's priority]
     B --> C[Parent takes the next ready PR]
     C --> D{Updates cleanly on base?}
-    D -- conflict --> E[Back to its lane to rebase, then requeued]
+    D -- conflict --> E[Back to its lane as rework, flow 3.4; requeued after its review]
+    E -- the lane is paused, archived or gone --> E2[Parent restarts the lane per step 6, or takes the PR's issue itself]
+    E -- third return of the same PR --> E3[bro asks the Human]
     D -- clean --> F{CI green and required approvals in?}
     F -- CI red --> E
     F -- waiting on approval --> G[Held; the queue moves on]
     F -- yes --> H{Merge choice from step 1}
+    H -- no choice recorded --> R[Not merged; bro asks the Human]
     H -- bro --> I[bro merges]
-    H -- Human --> J[Human merges]
-    I --> K[Other lanes update on base]
+    I -- the forge refuses the merge --> E
+    H -- Human --> J[Marked awaiting the Human; the queue moves on, and a later turn reads the merge from the forge]
+    I --> K[Parent nudges the other lanes; each lane's next task starts from the new base]
     J --> K
     K --> C
 ```
 
-- **The queue** records each lane PR with its lane, priority and state: queued, held, returned or merged. A returned PR keeps its priority. Planned: GH 3148.
+- **The queue** records each lane PR with its lane, priority and state: queued, held, returned, awaiting the Human or merged. A returned PR keeps its priority. Planned: GH 3148.
+- **A conflict is rework, not a rebase.** bro rebases a reviewed commit only when the patch stays the same ([GIT.md](GIT.md#rebasing-a-reviewed-task)). A PR that conflicts goes back to its lane as rework and is reviewed again.
+- **This queue is TMB's.** It orders lane PRs before they merge. Where the repo also uses the forge's merge queue, that queue runs after this one.
+- **One queue per repo.** A lane's issues may sit in several repos, and each repo's PRs are ordered on their own.
+- **No remote, no queue entry.** In a repo with no remote a lane's reviewed branch stops ready, the Human merges it locally, and the queue records it as handed over.
 - **A merge closes the PR's issues**, which unblocks their dependents in other lanes. Planned: GH 3026.
 - **The queue is visible** on the dashboard's Lanes page, with lanes nested under their parent session. Planned: GH 3041 and GH 3028.
 
 ## 6. Change or recover a lane
 
-Lanes live in the trajectory DB, not in any bro's memory. Each lane has one record: its parent, its session, its owned issues, its priority, its review mode, its state (active, paused or archived) and the run's merge choice. Every change is written there first, with the request that caused it. A bro acts only on what the record says, so a change survives compaction, a restart, or a session that has dropped off the host's list.
+Lanes live in the trajectory DB, not in any bro's memory. A lane run has one record: its parent session and its merge choice. Each lane has one record that points to its run: its parent, its session, its owned issues, its priority, its review mode and its state (active, paused, blocked, archived or done). Every change is written there first, with the request that caused it. A bro acts only on what the record says, so a change survives compaction, a restart, or a session that has dropped off the host's list.
 
 ```mermaid
 flowchart LR
@@ -147,6 +162,10 @@ flowchart LR
     C -- priority --> D[Merge queue and schema order re-sorted]
     C -- pause or resume --> E[Lane stops or restarts taking tasks]
     C -- archive --> F[Lane's leases released, its open issues handed back to the parent]
+    C -- move an issue --> T[Ownership transferred to the named lane, with its open task and leases]
+    C -- reopen --> U[An archived lane becomes active again; issues the parent still holds return to it]
+    T --> G
+    U --> G
     C -- review mode --> M[The lane's later closes use the new mode; closed tasks keep theirs]
     D --> G[Each lane bro reads its record on its next turn and follows it]
     M --> G
@@ -154,10 +173,17 @@ flowchart LR
     F --> G
     H[Session compacted, restarted, or gone] --> I[bro restores lanes from the registry]
     I -- lane's session is gone --> J[Start a new session that takes over the same lane record]
+    P[Parent's turn: a lane with open work has recorded nothing for a set time] --> Q{The session answers a nudge?}
+    Q -- no --> J
+    Q -- yes --> G
+    Q -- it is waiting on the Human --> W[Parent tells the Human which lane waits, and on what]
     I -- session alive --> G
     J --> G
 ```
 
 - **Any of the Human's sessions can change a lane.** The Human can raise a priority, change a review mode or archive a lane from the parent or from the lane itself. A lane bro never changes another lane on its own. Planned: GH 3025, with the per-session approval gate in GH 3028.
+- **A stuck lane is found, not waited on.** At each of its turns the parent lists the lanes that have open work and no recorded event for a set time. It nudges the session, and takes the lane over when no answer comes. A lane records each question it is waiting on, since a message between sessions can approve nothing. The last recorded event comes from the session's own trajectory. Planned: GH 3255.
+- **Archiving does not cut work off.** An archive waits for the lane's running task to close, unless the Human says to cancel it. A queued PR stays queued under the parent.
+- **When a lane is done.** A lane is done when its issues are closed and its PRs merged. The run ends when every lane is done or archived, and its merge choice ends with it.
 - **Records are kept.** An archived lane keeps its record and history, so it can be listed and reopened later. Archiving the Claude session itself is the host's feature, which bro may offer alongside.
 - **Recovery uses the stable session id.** A new session that takes over a lane gets its brief rebuilt from the record, not from a message. Planned: GH 3025.
