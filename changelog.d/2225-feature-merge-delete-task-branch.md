@@ -1,0 +1,2 @@
+### Fixed
+- **`cli.js feature-merge` deletes the folded task branch** (GH 2225): after an agile task folds into its feature branch, the task branch is deleted in the same ref transaction that moves the feature branch, on both the fast-forward and the rebase path. A task branch checked out in a worktree is left in place with a note on stderr and the fold still succeeds; when recording the merge fails, the deleted branch is restored at its old commit.
