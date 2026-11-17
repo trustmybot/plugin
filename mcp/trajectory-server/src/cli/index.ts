@@ -1,6 +1,6 @@
 /**
  * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks, the health check,
- * bro's integrate and feature-merge, the assert-sql verification check, the prompt-author-lint
+ * bro's integrate, feature-merge and feature-branch, the assert-sql verification check, the prompt-author-lint
  * pre-write lint, the stale-docs pre-close check and the Human-run maintenance tools (heal-mcp-cache,
  * trajectory-doctor, backfill-agent-runs) and the hook-lib db-path answer the
  * L6 chain runner asks for run with
@@ -14,6 +14,7 @@ import { assertSql } from './assert-sql.js';
 import { backfillAgentRuns } from './backfill-agent-runs.js';
 import { broSqliteReadonly } from './bro-sqlite-readonly.js';
 import type { CliIo } from './fallback-db.js';
+import { featureBranch } from './feature-branch.js';
 import { featureMerge } from './feature-merge.js';
 import { healMcpCache } from './heal-mcp-cache.js';
 import { health } from './health.js';
@@ -30,6 +31,7 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   'assert-sql': assertSql,
   'backfill-agent-runs': backfillAgentRuns,
   'bro-sqlite-readonly': broSqliteReadonly,
+  'feature-branch': featureBranch,
   'feature-merge': featureMerge,
   'heal-mcp-cache': healMcpCache,
   health,

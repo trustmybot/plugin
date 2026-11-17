@@ -37,7 +37,6 @@ import { type AuditEventType, isAuditEventWritableBy } from '../audit-events.js'
 import { nowIso } from '../hooks/lib/audit.js';
 import { dbPath, GATE_READ_ERROR, gateRead, sqlInt, sqlQuote } from '../hooks/lib/db.js';
 import { commandSubstitution } from '../hooks/lib/project-env.js';
-import { repoDefaultBranch } from '../hooks/lib/repo.js';
 import type { CliIo } from './fallback-db.js';
 import { Exit, runTaskRebase, TaskRebase } from './integrate.js';
 
@@ -69,35 +68,6 @@ class FeatureMerge extends TaskRebase {
 
   constructor(env: NodeJS.ProcessEnv, io: CliIo) {
     super(env, io, 'feature-merge');
-  }
-
-  /** Exit 4 when <featureBranch> is the repo's target branch or a protected branch. */
-  private async refuseSharedBase(): Promise<void> {
-    const policy =
-      this.repoName === ''
-        ? ''
-        : gateRead(
-            this.db,
-            `SELECT 'repo' || char(10) || COALESCE(target_branch, '') || char(10) || COALESCE(protected_branches, '') FROM repos WHERE name = '${sqlQuote(this.repoName)}';`,
-            this.env,
-          );
-    if (policy === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${this.db}`);
-    const [, target = '', protectedRaw = ''] = policy.split('\n');
-    const defaultBranch = await repoDefaultBranch(this.repoRoot, this.env);
-    let protectedBranches: unknown = [defaultBranch];
-    if (protectedRaw !== '') {
-      try {
-        protectedBranches = JSON.parse(protectedRaw);
-      } catch {
-        protectedBranches = null;
-      }
-    }
-    if (!Array.isArray(protectedBranches)) this.die(4, `repos.protected_branches of '${this.repoName}' is not a JSON array: ${protectedRaw}`);
-    const prTarget = target || defaultBranch;
-    if (this.featureBranch === prTarget) {
-      this.die(4, `feature branch '${this.featureBranch}' is the repo's target branch; it reaches it only through a PR`);
-    }
-    if (protectedBranches.includes(this.featureBranch)) this.die(4, `feature branch '${this.featureBranch}' is a protected branch`);
   }
 
   /** Applies <moves> as one `git update-ref --stdin` transaction, each guarded on its old value. */
@@ -228,7 +198,7 @@ SELECT changes();`;
     this.baseLabel = parent;
 
     await this.resolveRepo(taskRepo);
-    await this.refuseSharedBase();
+    await this.sharedBaseTarget(parent, 'feature branch');
     const featureRef = `refs/heads/${parent}`;
     if (!this.hasRef(featureRef)) this.die(4, `feature branch '${parent}' does not exist in ${this.repoRoot}`);
     const holder = this.branchHolder(parent);

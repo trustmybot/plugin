@@ -6,7 +6,7 @@
  * bounds them.
  */
 import { parseWorkflowMode, WORKFLOW_MODE_KEY, type WorkflowMode } from '../../tools/config.js';
-import { GATE_READ_ERROR, gateRead } from './db.js';
+import { GATE_READ_ERROR, gateRead, sqlQuote } from './db.js';
 import { gitOk, gitRun } from './git.js';
 
 async function refResolves(repoPath: string, ref: string, env: NodeJS.ProcessEnv): Promise<boolean> {
@@ -47,6 +47,25 @@ export async function resolveRepoDefaultBranch(repoPath: string, env: NodeJS.Pro
 export function gateWorkflowMode(db: string, env: NodeJS.ProcessEnv): WorkflowMode | typeof GATE_READ_ERROR {
   const out = gateRead(db, `SELECT value_json FROM plugin_config WHERE key = '${WORKFLOW_MODE_KEY}';`, env);
   return out === GATE_READ_ERROR ? GATE_READ_ERROR : parseWorkflowMode(out);
+}
+
+/**
+ * Whether the DB records <branch> as an agile feature branch of the repo <quotedRepo> (GH 2225):
+ * an agile task's parent_branch_id, or the feature_branch of a bro feature_branch_merged row,
+ * either written as <branch> or origin/<branch>. GATE_READ_ERROR when the DB does not read.
+ */
+export function recordedFeatureBranch(db: string, quotedRepo: string, branch: string, env: NodeJS.ProcessEnv): boolean | typeof GATE_READ_ERROR {
+  const names = `('${sqlQuote(branch)}', '${sqlQuote(`origin/${branch}`)}')`;
+  const out = gateRead(
+    db,
+    `SELECT EXISTS (SELECT 1 FROM tasks
+        WHERE workflow_mode = 'agile' AND parent_branch_id IN ${names} AND (repo = '${quotedRepo}' OR COALESCE(repo, '') = ''))
+      OR EXISTS (SELECT 1 FROM audit
+        WHERE event_type = 'feature_branch_merged' AND from_node = 'bro' AND (repo = '${quotedRepo}' OR COALESCE(repo, '') = '')
+          AND CASE WHEN json_valid(content_json) THEN json_extract(content_json, '$.feature_branch') END IN ${names});`,
+    env,
+  );
+  return out === GATE_READ_ERROR ? GATE_READ_ERROR : out === '1';
 }
 
 /**

@@ -114,7 +114,7 @@ import { isDir } from '../hooks/lib/git.js';
 import { keysInOrder } from '../hooks/lib/jq-key-order.js';
 import { jsonStream } from '../hooks/lib/jq.js';
 import { commandSubstitution, posixDirname } from '../hooks/lib/project-env.js';
-import { repoGitRoot, repoNameForRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.js';
+import { repoDefaultBranch, repoGitRoot, repoNameForRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.js';
 import { runCommandSql, runFinishSql, runStartSql } from '../hooks/lib/verification-runs.js';
 import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { HAS_PASS_SQL, REVIEW_ANCHOR_AT_SQL } from '../review-sql.js';
@@ -398,6 +398,71 @@ export abstract class TaskRebase {
     return this.g(['show-ref', '--verify', '-q', ref]).ok;
   }
 
+  /** One bounded fetch of <branch> from <remote>; exit 4 when it fails or times out. */
+  protected fetchBase(remote: string, branch: string): void {
+    const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
+    const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
+    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, branch], {
+      env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
+      timeoutMs,
+    });
+    if (r.timedOut) {
+      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) timed out after ${timeoutMs} ms; ${this.branch} and the DB are unchanged`);
+    }
+    if (!r.ok) {
+      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) failed; ${this.branch} and the DB are unchanged: ${r.err.trim()}`);
+    }
+  }
+
+  /**
+   * The repo's PR target (repos.target_branch, else the remote default); exit 4
+   * when <branch> is that target or one of repos.protected_branches (default:
+   * the remote default), since a shared base reaches its target only through a PR.
+   */
+  protected async sharedBaseTarget(branch: string, label: string): Promise<string> {
+    const policy =
+      this.repoName === ''
+        ? ''
+        : gateRead(
+            this.db,
+            `SELECT 'repo' || char(10) || COALESCE(target_branch, '') || char(10) || COALESCE(protected_branches, '') FROM repos WHERE name = '${sqlQuote(this.repoName)}';`,
+            this.env,
+          );
+    if (policy === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${this.db}`);
+    const [, target = '', protectedRaw = ''] = policy.split('\n');
+    const defaultBranch = await repoDefaultBranch(this.repoRoot, this.env);
+    let protectedBranches: unknown = [defaultBranch];
+    if (protectedRaw !== '') {
+      try {
+        protectedBranches = JSON.parse(protectedRaw);
+      } catch {
+        protectedBranches = null;
+      }
+    }
+    if (!Array.isArray(protectedBranches)) this.die(4, `repos.protected_branches of '${this.repoName}' is not a JSON array: ${protectedRaw}`);
+    const prTarget = target || defaultBranch;
+    if (branch === prTarget) this.die(4, `${label} '${branch}' is the repo's target branch; it reaches it only through a PR`);
+    if (protectedBranches.includes(branch)) this.die(4, `${label} '${branch}' is a protected branch`);
+    return prTarget;
+  }
+
+  /** Adds a temporary worktree <repoRoot>/.claude/worktrees/<command>-<label>.XXXXXX detached at <sha>, as this.wt, which cleanup removes. */
+  protected openTempWorktree(label: string, sha: string): void {
+    try {
+      mkdirSync(`${this.repoRoot}/.claude/worktrees`, { recursive: true });
+    } catch {
+      this.die(4, `cannot create ${this.repoRoot}/.claude/worktrees`);
+    }
+    try {
+      this.wt = mkdtempSync(`${this.repoRoot}/.claude/worktrees/${this.command}-${label}.`);
+    } catch {
+      this.die(4, 'cannot create a temporary worktree dir');
+    }
+    if (!this.gitLoud(this.repoRoot, ['worktree', 'add', '-q', '--detach', this.wt, sha])) {
+      this.die(4, 'git worktree add failed');
+    }
+  }
+
   private rebasePicks(sha: string): string[] {
     return this.git(this.wt, ['rev-list', '--reverse', '--no-merges', '--cherry-pick', '--right-only', `${this.baseSha}...${sha}`])
       .out.split('\n')
@@ -464,7 +529,8 @@ export abstract class TaskRebase {
     const repoDir =
       taskRepo !== '' ? repoPathByName(this.db, taskRepo, this.env) || `${wsRoot}/${taskRepo}` : repoSinglePath(this.db, this.env) || wsRoot;
     this.repoRoot = await repoGitRoot(repoDir, this.env);
-    if (this.repoRoot === '' || !isDir(repoDir)) this.die(4, `task ${this.taskId}'s repo is not a git checkout: ${repoDir || '<unresolved>'}`);
+    const whose = this.taskId === '' ? 'the' : `task ${this.taskId}'s`;
+    if (this.repoRoot === '' || !isDir(repoDir)) this.die(4, `${whose} repo is not a git checkout: ${repoDir || '<unresolved>'}`);
     this.repoName = taskRepo || repoNameForRoot(this.db, this.repoRoot, this.env);
   }
 
@@ -486,19 +552,7 @@ export abstract class TaskRebase {
    */
   protected async rebaseAndVerify(commands: string): Promise<VerifiedRebase> {
     const branch = this.branch;
-    try {
-      mkdirSync(`${this.repoRoot}/.claude/worktrees`, { recursive: true });
-    } catch {
-      this.die(4, `cannot create ${this.repoRoot}/.claude/worktrees`);
-    }
-    try {
-      this.wt = mkdtempSync(`${this.repoRoot}/.claude/worktrees/${this.command}-${this.taskId}.`);
-    } catch {
-      this.die(4, 'cannot create a temporary worktree dir');
-    }
-    if (!this.gitLoud(this.repoRoot, ['worktree', 'add', '-q', '--detach', this.wt, this.commitSha])) {
-      this.die(4, 'git worktree add failed');
-    }
+    this.openTempWorktree(this.taskId, this.commitSha);
 
     this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.baseLabel} (${this.baseSha}) in ${this.wt}`);
     if (!this.gitLoud(this.wt, ['-c', 'merge.renames=false', 'rebase', '-q', this.baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
@@ -642,21 +696,6 @@ ${audit.sql}
 SELECT changes();`,
     );
     return r.ok && commandSubstitution(r.stdout) === '1';
-  }
-
-  private fetchBase(remote: string, branch: string): void {
-    const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
-    const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
-    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, branch], {
-      env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
-      timeoutMs,
-    });
-    if (r.timedOut) {
-      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) timed out after ${timeoutMs} ms; ${this.branch} and the DB are unchanged`);
-    }
-    if (!r.ok) {
-      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) failed; ${this.branch} and the DB are unchanged: ${r.err.trim()}`);
-    }
   }
 
   /** The base sha: a local branch with an upstream is fetched and loses to its upstream unless equal or ahead; a remote-tracking ref is fetched; anything else resolves as given. Sets baseLabel. */
