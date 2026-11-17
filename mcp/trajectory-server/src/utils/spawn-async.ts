@@ -1,11 +1,16 @@
-// Non-blocking spawn with spawnSync's options and result shape, for gh/glab calls from the MCP server (GH 3232).
+// Non-blocking spawn with spawnSync's options and result shape, for gh/glab and git calls from the MCP server (GH 3232).
 import { execFile, type SpawnSyncOptions } from 'node:child_process';
 
 export interface SpawnResult {
   status: number | null;
   stdout: string;
   stderr: string;
+  // Set only when the child never started (ENOENT, EACCES, a missing cwd).
+  error?: Error;
 }
+
+// spawnSync's own default; execFile would otherwise take an unset maxBuffer as no cap.
+const SPAWN_SYNC_MAX_BUFFER = 1024 * 1024;
 
 // The MCP server is one Node process for every lane, so a remote CLI call must
 // not block its event loop. Takes spawnSync-style options (input goes to stdin,
@@ -17,15 +22,18 @@ export function spawnAsync(cmd: string, args: string[], opts: SpawnSyncOptions =
       cwd: opts.cwd,
       env: opts.env,
       timeout: opts.timeout,
-      maxBuffer: opts.maxBuffer,
+      maxBuffer: opts.maxBuffer ?? SPAWN_SYNC_MAX_BUFFER,
       killSignal: opts.killSignal,
       encoding: 'utf8',
     }, (error, stdout, stderr) => {
-      const code = (error as { code?: unknown } | null)?.code;
+      const failure = error as (Error & { code?: unknown; syscall?: unknown }) | null;
+      const code = failure?.code;
+      const neverStarted = typeof failure?.syscall === 'string' && failure.syscall.startsWith('spawn');
       resolve({
-        status: error === null ? 0 : typeof code === 'number' ? code : null,
+        status: failure === null ? 0 : typeof code === 'number' ? code : null,
         stdout: stdout ?? '',
         stderr: stderr ?? '',
+        ...(neverStarted ? { error: failure } : {}),
       });
     });
     // A child that exits before reading its stdin makes the write fail with

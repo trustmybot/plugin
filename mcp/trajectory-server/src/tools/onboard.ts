@@ -13,7 +13,8 @@
 // "github-flow → pr_target=main", "gitflow → protected_branches=[main, develop]"
 // rules live here, not in the skill.
 
-import { spawnSync } from 'node:child_process';
+import { findOnPath } from './cheatcode-runtime.js';
+import { runGitAsync } from '../utils/git-run.js';
 import { spawnAsync } from '../utils/spawn-async.js';
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
@@ -32,7 +33,7 @@ import {
 } from '../platform.js';
 import { insertAudit } from './audit.js';
 import { WORKFLOW_MODES, WORKFLOW_MODE_KEY, isWorkflowMode, writeConfigValueJson, type WorkflowMode } from './config.js';
-import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import type { Provider } from '../utils/classify-url.js';
@@ -124,22 +125,24 @@ interface DetectedRemote {
   url: string;
 }
 
-function probeGit(cwd: string): {
+const GIT_PROBE_TIMEOUT_MS = 3000;
+
+async function probeGit(cwd: string): Promise<{
   in_git: boolean;
   detected_remotes: DetectedRemote[];
   origin_kind: Provider | null;
-} {
-  const opts = { encoding: 'utf8' as const, timeout: 3000, cwd };
+}> {
+  const opts = { timeout: GIT_PROBE_TIMEOUT_MS };
 
-  const inGitR = spawnSync('git', ['rev-parse', '--show-toplevel'], opts);
+  const inGitR = await runGitAsync(cwd, ['rev-parse', '--show-toplevel'], opts);
   const in_git = inGitR.status === 0;
   if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
 
-  const remotesR = spawnSync('git', ['remote', '-v'], opts);
+  const remotesR = await runGitAsync(cwd, ['remote', '-v'], opts);
   const detected_remotes: DetectedRemote[] = [];
   if (remotesR.status === 0) {
     const seen = new Set<string>();
-    const lines = (remotesR.stdout ?? '').split('\n');
+    const lines = remotesR.stdout.split('\n');
     for (const line of lines) {
       const m = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)/);
       if (!m) continue;
@@ -161,39 +164,36 @@ function probeGit(cwd: string): {
 // Whether a branch ref exists in the repo at `cwd`. Mirrors the hooks'
 // rev-parse --verify probe (resolve-repo.sh): a missing ref means that repo
 // cannot run a model whose long-lived target is that branch.
-function branchExists(cwd: string, branch: string): boolean {
-  const r = spawnSync('git', ['-C', cwd, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
-    encoding: 'utf8',
-    timeout: 3000,
-  });
+async function branchExists(cwd: string, branch: string): Promise<boolean> {
+  const r = await runGitAsync(cwd, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { timeout: GIT_PROBE_TIMEOUT_MS });
   return r.status === 0;
 }
 
 // The repo's real default branch — same resolution order as the hooks'
 // tmb_repo_default_branch (resolve-repo.sh): origin/HEAD's target → first of
 // main/master/dev that exists → the checked-out HEAD → 'main'.
-function repoDefaultBranch(cwd: string): string {
-  const opts = { encoding: 'utf8' as const, timeout: 3000 };
-  const head = spawnSync('git', ['-C', cwd, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], opts);
+async function repoDefaultBranch(cwd: string): Promise<string> {
+  const opts = { timeout: GIT_PROBE_TIMEOUT_MS };
+  const head = await runGitAsync(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], opts);
   if (head.status === 0) {
-    const b = (head.stdout ?? '').trim().replace(/^origin\//, '');
+    const b = head.stdout.trim().replace(/^origin\//, '');
     if (b) return b;
   }
   for (const cand of ['main', 'master', 'dev']) {
-    const r = spawnSync('git', ['-C', cwd, 'show-ref', '--verify', '--quiet', `refs/heads/${cand}`], opts);
+    const r = await runGitAsync(cwd, ['show-ref', '--verify', '--quiet', `refs/heads/${cand}`], opts);
     if (r.status === 0) return cand;
   }
-  const cur = spawnSync('git', ['-C', cwd, 'symbolic-ref', '--short', 'HEAD'], opts);
+  const cur = await runGitAsync(cwd, ['symbolic-ref', '--short', 'HEAD'], opts);
   if (cur.status === 0) {
-    const b = (cur.stdout ?? '').trim();
+    const b = cur.stdout.trim();
     if (b) return b;
   }
   return 'main';
 }
 
-async function probeCli(cmd: string): Promise<{ installed: boolean; authed: boolean }> {
-  const which = spawnSync('command', ['-v', cmd], { encoding: 'utf8', timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
-  const installed = which.status === 0 && (which.stdout ?? '').trim().length > 0;
+// `command -v <cmd>` as a PATH lookup, with no shell spawn; an empty PATH entry means `dir`.
+async function probeCli(cmd: string, dir: string): Promise<{ installed: boolean; authed: boolean }> {
+  const installed = findOnPath(cmd, { projectRoot: dir }) !== null;
   if (!installed) return { installed: false, authed: false };
 
   if (liveCliBlockReason()) return { installed: true, authed: false };
@@ -1243,8 +1243,8 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       'onboard_state_get',
       ['bro'],
       wrapHandler(async () => {
-        const git = probeGit(probeDir());
-        const [gh, glab] = await Promise.all([probeCli('gh'), probeCli('glab')]);
+        const dir = probeDir();
+        const [git, gh, glab] = await Promise.all([probeGit(dir), probeCli('gh', dir), probeCli('glab', dir)]);
 
         const onboarded = readOnboardedFlag(db);
         // first_run is signalled by identity row absence. The row is a pure
@@ -1305,7 +1305,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         if (round === 'verification_defaults') return ok(verificationDefaultsRound(repo));
         if (round === 'path_classes') return ok(pathClassesRound(repo));
 
-        const git = probeGit(probeDir());
+        const git = await probeGit(probeDir());
 
         if (round === 'shape') {
           return ok({ questions: [shapeQuestion(git.origin_kind, shapeAdvice(scanWorkspace(db), git.origin_kind))] });
@@ -1356,7 +1356,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         const currentPrTarget = policy.pr_target;
         const currentSync = readConfig(db, 'issue_sync') as string | null;
 
-        const [gh, glab] = await Promise.all([probeCli('gh'), probeCli('glab')]);
+        const [gh, glab] = await Promise.all([probeCli('gh', probeDir()), probeCli('glab', probeDir())]);
 
         const questions: BuiltQuestion[] = [];
 
@@ -1594,7 +1594,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
 
         // The managed (probe) repo's real git remotes: the fallback for a repo
         // whose own tree can't be probed, and the sandbox's known remote hosts.
-        const managedRemotes: DetectedRemote[] = shape === 'remote' ? probeGit(probeDir()).detected_remotes : [];
+        const managedRemotes: DetectedRemote[] = shape === 'remote' ? (await probeGit(probeDir())).detected_remotes : [];
 
         const headless = resolveHeadless(args['headless_enforcement'] as string | undefined);
         const headless_enforcement = headless.value;
@@ -1616,18 +1616,52 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         // tree (#13: a repo without the gitflow target branch falls back to
         // github-flow + its real default branch), else github-flow + its real
         // default branch.
-        const seedPolicy = (repoPath: string, inGit: boolean): { model: string; target: string } => {
-          const defaultBranch = (): string =>
+        const seedPolicy = async (repoPath: string, inGit: boolean): Promise<{ model: string; target: string }> => {
+          const defaultBranch = async (): Promise<string> =>
             inGit ? repoDefaultBranch(repoPath) : derivePrTargetDefault('github-flow');
           if (branching_model === undefined) {
-            return { model: 'github-flow', target: pr_target ?? defaultBranch() };
+            return { model: 'github-flow', target: pr_target ?? (await defaultBranch()) };
           }
           const target = pr_target ?? derivePrTargetDefault(branching_model);
-          if (inGit && branching_model === 'gitflow' && !branchExists(repoPath, target)) {
-            return { model: 'github-flow', target: defaultBranch() };
+          if (inGit && branching_model === 'gitflow' && !(await branchExists(repoPath, target))) {
+            return { model: 'github-flow', target: await defaultBranch() };
           }
           return { model: branching_model, target };
         };
+
+        // The repos table is the sole source of truth for the four repo-scoped
+        // keys (#980). Populated rows keep their per-repo policy; only NULL
+        // rows are seeded. Each repo's real git remotes are probed from its
+        // own path, the same set scan records (#979); a repo whose git tree
+        // can't be probed gets the managed repo's remotes. The Remote answer
+        // then marks which of them issue and milestone sync reach. The git
+        // probes run before the transaction, which cannot await them.
+        const rows = db.all<{ name: string; path: string; branching_model: string | null }>(
+          `SELECT name, path, branching_model FROM repos`,
+        );
+        const probed: Array<{ name: string; inGit: boolean; detected: DetectedRemote[]; seed: { model: string; target: string } | null }> = [];
+        for (const row of rows) {
+          let repoPath = row.path;
+          let inGit = false;
+          let detected: DetectedRemote[] = [];
+          try {
+            repoPath = repoRowPath(db, row.path);
+            const probe = await probeGit(repoPath);
+            inGit = probe.in_git;
+            detected = probe.detected_remotes;
+          } catch {
+            inGit = false;
+          }
+          let seed: { model: string; target: string } | null = null;
+          if (row.branching_model === null) {
+            try {
+              seed = await seedPolicy(repoPath, inGit);
+            } catch {
+              seed = await seedPolicy(repoPath, false);
+            }
+          }
+          probed.push({ name: row.name, inGit, detected, seed });
+        }
 
         let anyRemote = false;
         const remoteWarnings: string[] = [];
@@ -1642,43 +1676,17 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           writeConfig(db, 'bug_report_consent', bug_report_consent);
           if (reviewModeAnswer !== null) writeConfig(db, WORKFLOW_MODE_KEY, reviewModeAnswer);
 
-          // The repos table is the sole source of truth for the four repo-scoped
-          // keys (#980). Populated rows keep their per-repo policy; only NULL
-          // rows are seeded. Each repo's real git remotes are probed from its
-          // own path, the same set scan records (#979); a repo whose git tree
-          // can't be probed gets the managed repo's remotes. The Remote answer
-          // then marks which of them issue and milestone sync reach.
-          const rows = db.all<{ name: string; path: string; branching_model: string | null }>(
-            `SELECT name, path, branching_model FROM repos`,
-          );
-          for (const row of rows) {
-            let repoPath = row.path;
-            let inGit = false;
-            let detected: DetectedRemote[] = [];
-            try {
-              repoPath = repoRowPath(db, row.path);
-              const probe = probeGit(repoPath);
-              inGit = probe.in_git;
-              detected = probe.detected_remotes;
-            } catch {
-              inGit = false;
-            }
-            if (row.branching_model === null) {
-              let seed: { model: string; target: string };
-              try {
-                seed = seedPolicy(repoPath, inGit);
-              } catch {
-                seed = seedPolicy(repoPath, false);
-              }
+          for (const { name, inGit, detected, seed } of probed) {
+            if (seed !== null) {
               db.run(
                 `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
-                [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), row.name],
+                [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), name],
               );
             }
             const effRemotes = shape === 'remote' ? (inGit ? detected : managedRemotes) : [];
             if (effRemotes.length > 0) anyRemote = true;
-            upsertRepoRemotes(db, row.name, effRemotes);
-            if (remoteList.length > 0) remoteWarnings.push(...applyRemoteChoice(db, row.name, remoteList));
+            upsertRepoRemotes(db, name, effRemotes);
+            if (remoteList.length > 0) remoteWarnings.push(...applyRemoteChoice(db, name, remoteList));
           }
         });
 
