@@ -183,13 +183,29 @@ stateDiagram-v2
   - Escalated splits into superseded and cancelled. v75 moves each escalated task to superseded when another task retries it, and to cancelled otherwise.
 - **Closed is not final.** A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
 - **Closing an issue ends its open work.** Live tasks are cancelled, and no new task picks up their work. Review-deferred, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
-- **Every move is one event.** The chart lists the only moves the DB accepts. Each move names who made it, why, and the record it rests on: a verification run, a lint run, a review verdict or a review batch.
+- **Every move is one event.** The chart lists the only moves the DB accepts. Each event names the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The table below gives the record each move requires, and the DB refuses a move without it.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes with its review deferred, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
 - **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review like a truest task: a pass leaves it reviewed until its feature branch merges, and a fail sends it back to its author. bro can reopen it for rework. When its feature branch is dropped, it is cancelled.
 - **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed, superseded or cancelled closes, and each one with no passing review gets a bypass record.
 - **Reviewed and batch-reviewed stay apart.** Reviewed means code-reviewer passed that one task's commit. Batch-reviewed means it passed the task's group in the feature branch's net diff, and the move points at that review batch.
 - **Retries keep their lineage.** The task that replaces a superseded one names the task it retries, so a chain of retries reads as one line.
 - **Auditing is a join.** A task's story is its events, in sequence order, joined with the runs, verdicts and batches they point at. "Why three re-runs?" is the causes on its moves back to running. "Why did it miss a close?" is the last event before the chain stopped.
+
+| Move | The record it rests on |
+|---|---|
+| Provisioned | bro's provisioning decision |
+| Author spawned, spawn rolled back, failed | the agent run that started, was rolled back or stopped |
+| Author closes | the passing verification run and lint run for the commit |
+| Handed to code-reviewer, or reviewed on request | the handoff for that commit |
+| Verdict pass or fail | the review verdict |
+| Review deferred at an agile close | bro's close record |
+| Batch-reviewed | the review batch |
+| Waived | the Human's waiver |
+| bro closes | bro's close record |
+| Closed by a merge outside the flow, or by the recovery step | the landed commit, with a bypass record when no review passed |
+| bro reopens | bro's decision |
+| Superseded | the task that replaces it |
+| Cancelled | the issue's close, or the Human's decision to drop the feature branch |
 
 ## 3.3 Push gate
 
