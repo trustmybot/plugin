@@ -199,7 +199,7 @@ flowchart LR
     G -. fail .-> K[New fix task on the feature branch, reviewed as in 3.1]
     K -.-> G
     F -. Human asks for a review now .-> R[code-reviewer reviews that task, as in 3.1]
-    F -. Human drops the feature branch .-> X[Its queued tasks escalate]
+    F -. Human drops the feature branch .-> X[Its queued tasks are cancelled]
 ```
 
 ## 4. Extending the team

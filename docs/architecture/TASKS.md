@@ -157,29 +157,34 @@ stateDiagram-v2
     queued --> waived: the Human waives the branch review
     queued --> in_review: the Human asks for a review now
     queued --> running: bro reopens
-    queued --> escalated: its feature branch is dropped
+    queued --> cancelled: its feature branch is dropped
     batch_reviewed --> closed: the feature branch merges
     waived --> closed: the feature branch merges
     completed --> running: bro reopens
     failed --> running: bro reopens
     closed --> running: bro reopens after a failed check or a PR comment
     closed --> in_review: a rebased commit whose pass does not carry
-    pending --> escalated: retried as a new task, or its issue closes
-    running --> escalated: retried as a new task, or its issue closes
-    completed --> escalated: retried as a new task, or its issue closes
-    in_review --> escalated: its issue closes
-    reviewed --> escalated: its issue closes
-    failed --> escalated: retried as a new task
-    closed --> escalated: integrate conflict, retried as a new task
+    pending --> superseded: retried as a new task
+    running --> superseded: retried as a new task
+    completed --> superseded: retried as a new task
+    failed --> superseded: retried as a new task
+    closed --> superseded: integrate conflict, retried as a new task
+    pending --> cancelled: its issue closes
+    running --> cancelled: its issue closes
+    completed --> cancelled: its issue closes
+    in_review --> cancelled: its issue closes
+    reviewed --> cancelled: its issue closes
 ```
 
-- **Escalated is final.** No move leaves it. When bro retries an escalated task, the work continues as a new task. A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
-- **Closing an issue ends its open work.** Live tasks escalate, and no new task picks up their work. Queued, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
+- **Superseded and cancelled are final.** No move leaves either. A superseded task was retried, and its work continues as a new task that names it. A cancelled task's work stopped: its issue closed over it or its feature branch was dropped, and no task picks it up.
+- **They replace escalated.** Until schema v75 ships there is one such state, escalated, which the charts of 3.1 to 3.4 name. v75 moves each escalated task to superseded when another task retries it, and to cancelled otherwise.
+- **Closed is not final.** A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
+- **Closing an issue ends its open work.** Live tasks are cancelled, and no new task picks up their work. Queued, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each move names who made it, why, and the record it rests on: a verification run, a lint run, a review verdict or a review batch.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes into the queue, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
-- **A queued task can leave the queue early.** When the Human asks for a review now, it goes to review like a truest task: a pass leaves it reviewed until its feature branch merges, and a fail sends it back to its author. bro can reopen it for rework. When its feature branch is dropped, it escalates.
-- **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed or escalated closes, and each one with no passing review gets a bypass record.
-- **Retries keep their lineage.** A task retried after escalation names the task it retries, so a chain of retries reads as one line.
+- **A queued task can leave the queue early.** When the Human asks for a review now, it goes to review like a truest task: a pass leaves it reviewed until its feature branch merges, and a fail sends it back to its author. bro can reopen it for rework. When its feature branch is dropped, it is cancelled.
+- **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed, superseded or cancelled closes, and each one with no passing review gets a bypass record.
+- **Retries keep their lineage.** The task that replaces a superseded one names the task it retries, so a chain of retries reads as one line.
 - **Auditing is a join.** A task's story is its events, in sequence order, joined with the runs, verdicts and batches they point at. "Why three re-runs?" is the causes on its moves back to running. "Why did it miss a close?" is the last event before the chain stopped.
 
 ## 3.3 Push gate
@@ -212,7 +217,7 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Author gone after its commit landed | bro's recovery step closes the task at that commit, recorded as a bypass when no review passed |
 | Branch merged outside the flow | its open tasks close, each one with no passing review recorded as a bypass; nothing is reworked |
 | Issue closed over open tasks | each open task escalates and no new task picks up its work |
-| Agile feature branch dropped | its queued tasks escalate ([AGILE.md](AGILE.md#merge-gate)) |
+| Agile feature branch dropped | its queued tasks end with no retry ([AGILE.md](AGILE.md#merge-gate)) |
 
 - **Rework is bounded.** Two fails since the last pass stop further swe runs until bro records a root-cause analysis and makes the change it names; no run count denies on its own. Design drift ends the task, and bro redesigns it as a new one. Nothing waits on the Human.
 - **Long work hands back.** A swe out of turns commits and hands back a checkpoint instead of failing, and the next run resumes from what is left.

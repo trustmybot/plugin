@@ -74,13 +74,13 @@ flowchart LR
     IR -- fail --> RW[Running: back to its author]
     Q -- bro reopens it --> RW
     RW -- the author closes it again --> A
-    Q -- the Human drops the feature branch --> ES[Escalated]
+    Q -- the Human drops the feature branch --> ES[Cancelled]
 ```
 
 - **Queued** means merged into the feature branch and waiting for review.
 - **Batch-reviewed** means the feature branch's review passed for the task's group. The move is recorded with the review that cleared it.
 - **Waived** means the Human let the feature branch merge without that review. The waiver names the branch, and the audit log keeps it.
-- **A queued task can leave the queue early.** A review the Human asks for moves it to in review. A pass leaves it reviewed, and it closes with the rest when the feature branch merges; a fail sends it back to its author. bro can also reopen it for rework. After rework, the task closes into the queue again. Dropping the feature branch escalates it.
+- **A queued task can leave the queue early.** A review the Human asks for moves it to in review. A pass leaves it reviewed, and it closes with the rest when the feature branch merges; a fail sends it back to its author. bro can also reopen it for rework. After rework, the task closes into the queue again. Dropping the feature branch cancels it.
 - **Review states are lifecycle states.** Queued, batch-reviewed and waived are states of the task lifecycle in [TASKS.md](TASKS.md#task-lifecycle), and each move into one is a lifecycle event, not a separate record. A group review is recorded once, as a review batch. In the same transaction, every task in the group moves to batch-reviewed, and each move points at that batch. Planned, GH 3224.
 
 ## Task flow
@@ -176,7 +176,7 @@ flowchart TD
     B -- yes --> W{Human recorded a waiver for this branch?}
     W -- yes --> L[Allowed; the covered tasks move to waived, and the waiver goes to the audit log]
     W -- no --> X[Blocked: run the feature branch review first]
-    D[Human abandons the feature branch] --> E[Its queued tasks escalate, with the dropped branch as the cause]
+    D[Human abandons the feature branch] --> E[Its queued tasks are cancelled, with the dropped branch as the cause]
     E --> F[bro deletes the branch only when the Human says so]
 ```
 
@@ -184,7 +184,7 @@ flowchart TD
 - **Waivers.** Only the Human records a waiver. It names the feature branch it covers, and the audit log keeps it with the list of tasks that merged unreviewed.
 - **Until the review ships.** The feature branch review is planned, so a Human waiver is today the only way through the gate.
 - **A waiver covers queued tasks only.** A task in review or being reworked blocks the merge until its review passes or its rework closes back into the queue.
-- **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. They escalate with the dropped branch as the cause, which ends them without a retry, and bro deletes the branch only when the Human says so.
+- **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. They are cancelled with the dropped branch as the cause, which ends them without a retry (escalated, until schema v75 splits that state), and bro deletes the branch only when the Human says so.
 
 ## Switching review modes
 
