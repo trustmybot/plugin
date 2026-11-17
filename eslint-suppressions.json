@@ -1251,7 +1251,7 @@
   },
   "mcp/trajectory-server/src/test/hook-onfailure.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
+      "count": 3
     }
   },
   "mcp/trajectory-server/src/test/hooks-adopted-task.test.ts": {

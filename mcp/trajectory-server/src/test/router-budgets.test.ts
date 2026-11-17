@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { ROUTER_GROUPS, type RouterGroup, routerGroup, routerGroupKey, routerTimeoutS } from '../hooks/registry.js';
+import { denyCapable, MCP, tsDenyFunctions } from './deny-capable.js';
 import { gateOf, percentile, transcriptStats } from './hook-transcripts.js';
 import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term, PRE_ROUTER_TIMEOUT_S } from './router-floors.js';
 import { PLUGIN_ROOT } from './router-sandboxes.js';
@@ -33,6 +34,7 @@ const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as {
   hooks: Record<string, { matcher?: string; hooks: { command: string; timeout: number; onFailure?: string; if?: string }[] }[]>;
 };
+const DENY_FUNCTIONS = tsDenyFunctions(join(PLUGIN_ROOT, MCP, 'src/hooks'));
 const isLivenessSentinel = (entry: { hooks: { command: string }[] }): boolean => entry.hooks.every((h) => h.command.endsWith('dist/hooks.js" liveness-sentinel'));
 const routerEntries = (event: string) => HOOKS.hooks[event].filter((g) => !isLivenessSentinel(g));
 
@@ -114,7 +116,8 @@ describe('router budgets.json (GH 1861)', () => {
       assert.equal(registered.length, 1, suffix);
       const { timeout, onFailure } = registered[0];
       assert.equal('if' in registered[0], false);
-      assert.equal(onFailure, group.gates.some((g) => g.kind === 'enforcement') ? 'block' : undefined);
+      // Gates fail closed (docs/architecture/CONTAINMENT.md:36): a group that can deny blocks when its router dies.
+      assert.equal(onFailure, group.gates.some((g) => denyCapable(PLUGIN_ROOT, DENY_FUNCTIONS, g.name)) ? 'block' : undefined);
       assert.ok(timeout * 1000 >= BUDGETS.parse_allowance_ms + group.groupBudgetMs, `${timeout} s`);
       assert.equal(timeout, routerTimeoutS(group));
       assert.equal(timeout, Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.groups[key].group_budget_ms) / 1000) + 1);
@@ -178,9 +181,9 @@ describe('router budgets.json (GH 1861)', () => {
     assert.equal(HOOKS.hooks.Stop.length, routerEntries('Stop').length + 1);
   });
 
-  it('onFailure block holds on SubagentStop alone among the routed events past PreToolUse', () => {
+  it('onFailure block holds on PostToolUse and SubagentStop among the routed events past PreToolUse', () => {
     const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'PreCompact', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));
-    assert.deepEqual(blocked, ['SubagentStop']);
+    assert.deepEqual(blocked, ['PostToolUse', 'SubagentStop']);
   });
 
   it('swe-verification-gate takes the close-gate wait as its floor, for a 3630 s router timeout (GH 2297)', () => {
