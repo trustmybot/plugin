@@ -9,6 +9,7 @@ Planned (GH 3255). Today an agent run and a verification run are each one record
 - **Start is a fact.** Each of the four writes an event when it starts, before it does any work.
 - **End is a second event.** It carries an outcome from a fixed list and, when the outcome is not a clean finish, a cause from a fixed list.
 - **Each names its parent.** A nested session names the session that started it, an agent run its session, a hook run and a verification run the agent run or session they ran in.
+- **Writes stay cheap.** SQLite takes one writer at a time, so a record on a hot path is one small insert, and the detail a record keeps is weighed against what the write costs the session.
 - **Nothing is edited.** A start is never updated into an end. A record with a start and no end is still running, or was killed before it could say so.
 
 ```mermaid
@@ -33,7 +34,7 @@ stateDiagram-v2
     [*] --> active: session starts
     active --> active: compacted, cleared or resumed under a new host id
     active --> ended: the host reports the session ended
-    active --> ended: swept, no event for the stale window and no live process
+    active --> ended: swept, its process is gone
     ended --> active: the Human resumes it
     ended --> [*]
 ```
@@ -53,7 +54,7 @@ stateDiagram-v2
     running --> ended: failed, with the cause
     running --> ended: out of turns, checkpoint kept
     running --> ended: killed by the Human or the host
-    running --> ended: swept, no event for the stale window and no live process
+    running --> ended: swept, its process is gone
     ended --> [*]
 ```
 
@@ -101,17 +102,20 @@ A verification run that outlives the hook that started it is ended as killed by 
 ```mermaid
 flowchart TD
     A[A session start, a health check, or the parent's turn] --> B[List records with a start and no end]
-    B --> C{Any event under it within the stale window?}
-    C -- yes --> D[Alive: left alone]
-    C -- no --> E{Is its process still alive?}
-    E -- yes --> F[Reported as stalled: what it is, since when, and its last event]
+    B --> E{Is its process still alive?}
     E -- no --> G[Ended as swept, with the cause and the sweep that found it]
+    E -- yes --> C{Has it run longer than runs of its kind usually take?}
+    C -- no --> D[Left alone]
+    C -- yes --> P[bro probes it: its last events, what it waits on, whether events still arrive]
+    P -- working or waiting --> D
+    P -- stalled --> F[Reported as stalled: what it is, since when, and its last event]
     F --> H[bro tells the Human, or the parent nudges the lane]
 ```
 
 - **Last activity needs no heartbeat.** It is the newest event under the record: a hook run under an agent run, an agent run under a session.
 - **A sweep ends a record; it never deletes one.** The swept record keeps its start, and its end names the sweep.
-- **Stalled is not dead.** A run whose process is alive is reported, never ended, because a long test run and a hang look the same from outside. Only the Human or the host kills it.
+- **Stalled is a judgment, not a limit.** No fixed time ends or flags a run. bro compares a run with the recorded run times of its kind, the same statistics the dashboard shows, and probes one that has passed the median. A long test run and a hang look the same from outside, so bro reads the run's events before it calls it stalled.
+- **Stalled is not dead.** A run whose process is alive is reported, never ended. Only the Human or the host kills it.
 - **Waiting is a recorded state of mind.** An agent that is waiting on the Human or on another lane writes what it waits on, so a quiet session reads as waiting, not stuck.
 
 ## Nothing is skipped silently
@@ -124,7 +128,7 @@ A step that is skipped or runs degraded writes an event with its cause: a gate t
 |---|---|
 | Why does this hook run forever? | The hook run with a start and no end: what it guards, and the verification run under it, if any |
 | Why does this nested session never end? | Follow its records with no end downward; the lowest one is where it stopped |
-| Is this run alive or dead? | Its last event against the stale window, then the sweep's report |
+| Is this run alive or dead? | Whether its process is gone, in the sweep's report; for a live one, its run time against the usual for its kind and its last event |
 | Why did swe never start? | The agent run's end: a refused spawn names the gate and the reason |
 | Why did the gate let this through? | The hook run's outcome: allowed, or timed out or crashed and failed open |
 | Why three re-runs of this task? | The task's events, each naming its agent run and cause ([TASKS.md](TASKS.md#task-lifecycle)) |
