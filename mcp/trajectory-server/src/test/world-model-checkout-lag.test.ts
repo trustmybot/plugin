@@ -102,7 +102,7 @@ describe('world-model checkout lag (GH 1966)', () => {
   });
 
   it('GH 1966: with no origin remote, no tool carries the lag fields', async () => {
-    assert.equal(checkoutLag(db, 'app'), null);
+    assert.equal(await checkoutLag(db, 'app'), null);
     assertNoLag(await responses());
   });
 
@@ -111,7 +111,7 @@ describe('world-model checkout lag (GH 1966)', () => {
     execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
     git('remote', 'add', 'origin', origin);
     git('push', '-q', 'origin', 'main');
-    assert.equal(checkoutLag(db, 'app'), null);
+    assert.equal(await checkoutLag(db, 'app'), null);
     assertNoLag(await responses());
   });
 
@@ -121,7 +121,7 @@ describe('world-model checkout lag (GH 1966)', () => {
     git('push', '-q', 'origin', 'main');
     git('reset', '-q', '--hard', 'HEAD~2');
 
-    assert.deepEqual(checkoutLag(db, 'app'), { checkout_behind_upstream: 2, upstream: 'origin/main' });
+    assert.deepEqual(await checkoutLag(db, 'app'), { checkout_behind_upstream: 2, upstream: 'origin/main' });
     const all = await responses();
     for (const [name, out] of Object.entries(all)) {
       assert.equal(out['checkout_behind_upstream'], 2, name);
@@ -172,7 +172,7 @@ describe('world-model checkout lag (GH 1966)', () => {
     const nonGit = mkdtempSync(join(tmpdir(), 'wm-lag-nongit-'));
     try {
       db.run(`UPDATE repos SET path = ? WHERE name = 'app'`, [nonGit]);
-      assert.equal(checkoutLag(db, 'app'), null);
+      assert.equal(await checkoutLag(db, 'app'), null);
       const all = await responses();
       assertNoLag(all);
       for (const [name, out] of Object.entries(all)) {

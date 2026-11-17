@@ -8,7 +8,7 @@ import type { TrajectoryDB } from '../db.js';
 import type { WorldModelGraph } from '../graph.js';
 import { joinToolchainPath, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { revParseCommit } from '../utils/git-objects.js';
-import { runGit } from '../utils/git-run.js';
+import { runGitAsync } from '../utils/git-run.js';
 import { BASE_FETCH_TIMEOUT_MS, WORKTREE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { prepareWorktreeDeps } from '../utils/worktree-deps.js';
 import { runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
@@ -57,7 +57,7 @@ export interface EnvGatePass {
   setup: WorktreeSetupResult;
   // A line for the decision body when the reindex stage was skipped.
   decisionNote: string | null;
-  rollback: () => void;
+  rollback: () => Promise<void>;
 }
 
 export interface EnvGateRefusal {
@@ -82,17 +82,17 @@ export function gitFailureLine(stderr: string | undefined, fallback: string): st
   return cause || firstLine(stderr, fallback);
 }
 
-function hasOrigin(repoPath: string): boolean {
-  const res = runGit(repoPath, ['remote', 'get-url', 'origin']);
+async function hasOrigin(repoPath: string): Promise<boolean> {
+  const res = await runGitAsync(repoPath, ['remote', 'get-url', 'origin']);
   return res.status === 0 && res.stdout.trim() !== '';
 }
 
 // Stage 1: fetch origin/<base> so the cut uses the remote's latest commit. A
 // repo without an origin remote, or a base origin does not carry, is skipped:
 // its local base is already its latest.
-export function fetchBaseStage(repoPath: string, base: string): FetchStageResult {
-  if (!hasOrigin(repoPath)) return { ok: true, report: { stage: 'fetch', status: 'skipped', detail: 'no origin remote' } };
-  const res = runGit(repoPath, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', 'origin', base], {
+export async function fetchBaseStage(repoPath: string, base: string): Promise<FetchStageResult> {
+  if (!(await hasOrigin(repoPath))) return { ok: true, report: { stage: 'fetch', status: 'skipped', detail: 'no origin remote' } };
+  const res = await runGitAsync(repoPath, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', 'origin', base], {
     timeout: BASE_FETCH_TIMEOUT_MS,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
   });
@@ -116,10 +116,10 @@ export function setupEnv(worktreePath: string): NodeJS.ProcessEnv {
 
 // `git worktree list --porcelain` emits canonicalized paths (/private/var/…
 // for a /var/… symlink), so a match goes through realpath.
-function isRegisteredWorktree(repoPath: string, worktreePath: string): boolean {
+async function isRegisteredWorktree(repoPath: string, worktreePath: string): Promise<boolean> {
   if (!existsSync(worktreePath)) return false;
   const canonical = realpathSync(worktreePath);
-  const res = runGit(repoPath, ['worktree', 'list', '--porcelain']);
+  const res = await runGitAsync(repoPath, ['worktree', 'list', '--porcelain']);
   if (res.status !== 0) return false;
   return res.stdout.split('\n').some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === canonical);
 }
@@ -161,25 +161,25 @@ function clearLeftoverFolder(worktreePath: string): { error: string } | null {
   return null;
 }
 
-function addWorktree(repoPath: string, branchId: string, worktreePath: string): { reused: boolean } | { error: string } {
-  if (isRegisteredWorktree(repoPath, worktreePath)) return { reused: true };
+async function addWorktree(repoPath: string, branchId: string, worktreePath: string): Promise<{ reused: boolean } | { error: string }> {
+  if (await isRegisteredWorktree(repoPath, worktreePath)) return { reused: true };
   const leftover = clearLeftoverFolder(worktreePath);
   if (leftover) return leftover;
-  const res = runGit(repoPath, ['worktree', 'add', worktreePath, branchId], { timeout: WORKTREE_TIMEOUT_MS });
+  const res = await runGitAsync(repoPath, ['worktree', 'add', worktreePath, branchId], { timeout: WORKTREE_TIMEOUT_MS });
   if (res.status !== 0 || res.error) {
     return { error: `git worktree add ${worktreePath} ${branchId} failed: ${gitFailureLine(res.stderr, res.error?.message ?? 'git failed')}.` };
   }
   return { reused: false };
 }
 
-function removeWorktree(repoPath: string, worktreePath: string): void {
-  runGit(repoPath, ['worktree', 'remove', '--force', worktreePath], { timeout: WORKTREE_TIMEOUT_MS });
+async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
+  await runGitAsync(repoPath, ['worktree', 'remove', '--force', worktreePath], { timeout: WORKTREE_TIMEOUT_MS });
   if (existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true });
-  runGit(repoPath, ['worktree', 'prune']);
+  await runGitAsync(repoPath, ['worktree', 'prune']);
 }
 
-function removeBranch(repoPath: string, branchId: string): void {
-  runGit(repoPath, ['branch', '-D', branchId]);
+async function removeBranch(repoPath: string, branchId: string): Promise<void> {
+  await runGitAsync(repoPath, ['branch', '-D', branchId]);
 }
 
 async function reindexStage(
@@ -216,12 +216,12 @@ export async function runEnvGate(input: EnvGateInput): Promise<EnvGatePass | Env
   const stages: EnvStageReport[] = [input.fetched];
   let branchCreated = false;
   let worktreeCreated = false;
-  const rollback = (): void => {
-    if (worktreeCreated) removeWorktree(repoPath, worktreePath);
-    if (branchCreated) removeBranch(repoPath, branchId);
+  const rollback = async (): Promise<void> => {
+    if (worktreeCreated) await removeWorktree(repoPath, worktreePath);
+    if (branchCreated) await removeBranch(repoPath, branchId);
   };
-  const refuse = (failure: EnvGateFailure, payload?: Record<string, unknown>): EnvGateRefusal => {
-    rollback();
+  const refuse = async (failure: EnvGateFailure, payload?: Record<string, unknown>): Promise<EnvGateRefusal> => {
+    await rollback();
     return { ok: false, failure, ...(payload ? { payload } : {}) };
   };
 
@@ -230,7 +230,7 @@ export async function runEnvGate(input: EnvGateInput): Promise<EnvGatePass | Env
   branchCreated = branch.created;
   stages.push({ stage: 'branch', status: 'pass' });
 
-  const worktree = addWorktree(repoPath, branchId, worktreePath);
+  const worktree = await addWorktree(repoPath, branchId, worktreePath);
   if ('error' in worktree) return refuse({ stage: 'worktree', detail: worktree.error });
   worktreeCreated = !worktree.reused;
   const env = setupEnv(worktreePath);
