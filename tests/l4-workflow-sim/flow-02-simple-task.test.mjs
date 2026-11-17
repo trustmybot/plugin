@@ -4,7 +4,8 @@
 // task_provision (decision + task + branch + worktree + planning_complete) →
 // SWE starts with task_brief, commits in the worktree, returns
 // (task_update_status='completed') → bro verifies → review_handoff →
-// code-reviewer pass → bro_atomic_close, which closes the issue with its last task.
+// code-reviewer pass → bro_atomic_close, which closes the task and leaves the
+// issue open until its commits merge.
 //
 // Asserts the structural contract: state transitions, audit events, role
 // enforcement at each call, and the branch + worktree task_provision leaves on
@@ -88,15 +89,16 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   assert.match(String(unreviewed.error?.error), /^review_pass_missing/);
 
   // 7. bro hands the commit to code-reviewer, which passes it; the close then
-  // closes the task and, as its last task, the issue.
+  // closes the task and, as its last task, defers the issue's close to merge.
   await reviewHandoffAndPass(client, dbPath, taskId);
   const closed = await call(client, 'bro_atomic_close', closeArgs);
   assert.equal(closed.ok, true, `bro_atomic_close: ${JSON.stringify(closed)}`);
-  assert.equal(closed.data.issue_closed, true, `the last task's close closes the issue: ${JSON.stringify(closed)}`);
+  assert.equal(closed.data.issue_closed, false, `the last task's close leaves the issue open: ${JSON.stringify(closed)}`);
+  assert.equal(closed.data.issue_close_deferred, 'merge', `the issue closes when its commits merge: ${JSON.stringify(closed)}`);
 
-  // 8. Final state: issue closed, task closed with commit_sha, one passing review
+  // 8. Final state: issue open until merge, task closed with commit_sha, one passing review
   const finalIssue = await call(client, 'issue_get', { agent: 'bro', issue_id: issueId });
-  assert.equal(finalIssue.data.status, 'closed');
+  assert.equal(finalIssue.data.status, 'open');
 
   const finalTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
   assert.equal(finalTask.data.status, 'closed');

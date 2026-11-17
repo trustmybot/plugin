@@ -262,8 +262,8 @@ function localIssueStatus(db: TrajectoryDB, issueId: number): string {
   return db.get<{ status: string }>('SELECT status FROM issues WHERE id = ?', [issueId])!.status;
 }
 
-describe('bro_atomic_close and task_recover leave the remote open until PR merge (GH 3115)', () => {
-  it("bro_atomic_close with issue_sync='auto' + a github remote: local issue closes, no remote spawn, gh 42 deferred", async () => {
+describe('bro_atomic_close and task_recover close neither the issue nor its remote twin (GH 3115, GH 3234)', () => {
+  it("bro_atomic_close with issue_sync='auto' + a github remote: issue stays open, deferred to merge, no remote spawn", async () => {
     const db = tempDB();
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
@@ -272,9 +272,10 @@ describe('bro_atomic_close and task_recover leave the remote open until PR merge
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);
-    assert.equal(out['issue_closed'], true);
-    assert.equal(localIssueStatus(db, issueId), 'closed');
-    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
+    assert.equal(out['issue_closed'], false);
+    assert.equal(out['issue_close_deferred'], 'merge');
+    assert.equal(localIssueStatus(db, issueId), 'open');
+    assert.equal('remote' in out, false);
     assert.deepEqual(remoteCloses(spawned), []);
     assert.equal(spawned.length, 0, 'not even the gate probe runs');
     assert.equal(skipAudits(db).length, 0);
@@ -290,14 +291,15 @@ describe('bro_atomic_close and task_recover leave the remote open until PR merge
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);
-    assert.equal(out['issue_closed'], true);
-    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
+    assert.equal(out['issue_closed'], false);
+    assert.equal(out['issue_close_deferred'], 'merge');
+    assert.equal(localIssueStatus(db, issueId), 'open');
     assert.equal(spawned.length, 0);
     assert.equal(skipAudits(db).length, 0);
     db.close();
   });
 
-  it('bro_atomic_close on an unlinked issue defers with an empty remotes list', async () => {
+  it('bro_atomic_close on an unlinked issue defers to merge the same way', async () => {
     const db = tempDB();
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
@@ -306,13 +308,14 @@ describe('bro_atomic_close and task_recover leave the remote open until PR merge
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);
-    assert.equal(out['issue_closed'], true);
-    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [] });
+    assert.equal(out['issue_closed'], false);
+    assert.equal(out['issue_close_deferred'], 'merge');
+    assert.equal(localIssueStatus(db, issueId), 'open');
     assert.equal(spawned.length, 0);
     db.close();
   });
 
-  it('bro_atomic_close without close_issue_if_last_task leaves the issue open and returns no remote key', async () => {
+  it('bro_atomic_close without close_issue_if_last_task reports no readiness and returns no remote key', async () => {
     const db = tempDB();
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
@@ -322,12 +325,13 @@ describe('bro_atomic_close and task_recover leave the remote open until PR merge
 
     const out = await atomicClose(db, taskId, _spawnFn, false);
     assert.equal(out['issue_closed'], false);
+    assert.equal('issue_close_deferred' in out, false);
     assert.equal('remote' in out, false);
     assert.equal(spawned.length, 0);
     db.close();
   });
 
-  it("task_recover with issue_sync='auto' + a github remote: no remote spawn, gh 42 deferred", async () => {
+  it("task_recover with issue_sync='auto' + a github remote: issue stays open, deferred to merge, no remote spawn", async () => {
     const db = tempDB();
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
@@ -336,9 +340,10 @@ describe('bro_atomic_close and task_recover leave the remote open until PR merge
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await recover(db, taskId, _spawnFn);
-    assert.equal(out['issue_closed'], true);
-    assert.equal(localIssueStatus(db, issueId), 'closed');
-    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
+    assert.equal(out['issue_closed'], false);
+    assert.equal(out['issue_close_deferred'], 'merge');
+    assert.equal(localIssueStatus(db, issueId), 'open');
+    assert.equal('remote' in out, false);
     assert.deepEqual(remoteCloses(spawned), []);
     assert.equal(skipAudits(db).length, 0);
     db.close();
@@ -354,7 +359,8 @@ describe('bro_atomic_close and task_recover leave the remote open until PR merge
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await recover(db, taskId, _spawnFn);
-    assert.deepEqual(out['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
+    assert.equal(out['issue_close_deferred'], 'merge');
+    assert.equal(localIssueStatus(db, issueId), 'open');
     assert.equal(spawned.length, 0);
     assert.equal(skipAudits(db).length, 0);
     db.close();
@@ -401,7 +407,7 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
     db.close();
   });
 
-  it('bro_atomic_close closes neither twin and defers both to PR merge', async () => {
+  it('bro_atomic_close closes neither twin and defers the close to merge', async () => {
     const db = tempDB();
     registerRepo(db, ['github', 'gitlab'], ['github']);
     setIssueSync(db, 'auto');
@@ -410,16 +416,14 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);
-    assert.equal(out['issue_closed'], true);
-    assert.deepEqual(out['remote'], {
-      deferred: 'pr_merge',
-      remotes: [{ remote_kind: 'github', remote_iid: 42 }, { remote_kind: 'gitlab', remote_iid: 7 }],
-    });
+    assert.equal(out['issue_closed'], false);
+    assert.equal(out['issue_close_deferred'], 'merge');
+    assert.equal('remote' in out, false);
     assert.deepEqual(remoteCloses(spawned), []);
     db.close();
   });
 
-  it('task_recover closes neither twin and defers both to PR merge', async () => {
+  it('task_recover closes neither twin and defers the close to merge', async () => {
     const db = tempDB();
     registerRepo(db, ['github', 'gitlab'], ['gitlab']);
     setIssueSync(db, 'auto');
@@ -428,10 +432,8 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await recover(db, taskId, _spawnFn);
-    assert.deepEqual(out['remote'], {
-      deferred: 'pr_merge',
-      remotes: [{ remote_kind: 'github', remote_iid: 42 }, { remote_kind: 'gitlab', remote_iid: 7 }],
-    });
+    assert.equal(out['issue_close_deferred'], 'merge');
+    assert.equal('remote' in out, false);
     assert.deepEqual(remoteCloses(spawned), []);
     db.close();
   });

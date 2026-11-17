@@ -715,6 +715,7 @@ describe('bro_atomic_close', () => {
       waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', close_issue_if_last_task: true,
     }));
     assert.equal(out['issue_closed'], false);
+    assert.equal(out['issue_close_deferred'], undefined);
     assert.deepEqual(out['issue_left_open'], {
       reason: 'issue_has_open_tasks', tasks: [{ task_id: sibling, status: 'running' }],
     });
@@ -754,7 +755,7 @@ describe('bro_atomic_close', () => {
     db.close();
   });
 
-  it('close_issue_if_last_task closes the issue when every closed task of it carries a pass', async () => {
+  it('close_issue_if_last_task defers the issue close to merge when every closed task of it carries a pass (GH 3234)', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
@@ -765,9 +766,10 @@ describe('bro_atomic_close', () => {
       waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', close_issue_if_last_task: true,
       _spawnFn: () => ({ status: 0, stdout: '', stderr: '' }),
     }));
-    assert.equal(out['issue_closed'], true);
+    assert.equal(out['issue_closed'], false);
+    assert.equal(out['issue_close_deferred'], 'merge');
     assert.equal(out['issue_left_open'], undefined);
-    assert.equal(issueStatus(db, issue), 'closed');
+    assert.equal(issueStatus(db, issue), 'open');
     db.close();
   });
 });

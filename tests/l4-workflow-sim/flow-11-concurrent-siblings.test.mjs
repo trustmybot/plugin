@@ -103,6 +103,8 @@ test('Flow 11 — sibling tasks: distinct branches and worktrees; closing one le
     waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
   assert.equal(closed.ok, true, `bro_atomic_close: ${JSON.stringify(closed)}`);
+  assert.equal(closed.data.issue_closed, false, 'a task close never closes the issue');
+  assert.equal(closed.data.issue_close_deferred, undefined, 'no close is deferred while sibling b is live');
 
   const status = async (id) => (await call(client, 'task_brief', { agent: 'bro', task_id: id })).data.status;
   assert.equal(await status(a.data.task_id), 'closed');
