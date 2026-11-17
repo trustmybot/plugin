@@ -17,8 +17,8 @@ Each layer owns one level of quality, and no layer repeats another's check: the 
 
 ## Which agents a project has
 
-- **Workflow backbone, always available.** swe and code-reviewer ship with the plugin and need no setup. A project-local copy of either, when present, wins over the shipped one.
-- **Consultants, opt-in per project.** No named consultant ships. `/tmb:agent-create` drafts one per project from a template, and the project-local file serves it from then on.
+- **Workflow backbone, always available.** swe and code-reviewer ship with the plugin and need no setup. A project-local copy of either, when present, wins over the shipped one; only attaching a skill or a cheatcode creates such a copy ([EXTENDING.md](EXTENDING.md#42-agent-creation)).
+- **Consultants, opt-in per project.** No named consultant ships. `/tmb:agent-create` drafts one per project from a generic scaffold, and the project-local file serves it from then on. A consultant writes code only when the Human confirmed a code-writing consultant at its creation; it then works in its own worktree, outside any task spec, and its commits pass the push gate like any other.
 
 An agent's prompt file is its identity, its skills are its added capabilities, and the spawn prompt is the task context. A "more skilled swe" is the same swe with more skills, not a different swe.
 

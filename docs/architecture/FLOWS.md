@@ -18,7 +18,7 @@ Flows are grouped by when they run, and numbered within their group.
 | 3. Agent task handling | 3.4 | [Retry and escalation](#34-retry-and-escalation) | A design misfit, a review fail, an integrate conflict, a failed check or a stale run | bro ↔ the author (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
 | 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe, or bro itself, per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
 | 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
-| 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
+| 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | an audit row naming what was deleted |
 | 3. Agent task handling | 3.8 | [Parallel lanes](#38-parallel-lanes) | Several independent streams of work, each too large for one turn (planned, GH 3024) | bro (parent) → one bro per lane session, each with its own swe and code-reviewer | lanes with their owned issues and priority, the run's merge choice, a merge queue of lane PRs |
 | 3. Agent task handling | 3.9 | [Agile mode](#39-agile-mode) (project mode shipped; lane mode planned, GH 3025) | A code or no-code task in a project or lane the Human set to agile | bro → swe; bro closes without review and merges into a long-lived feature branch; code-reviewer later, one per group of its tasks | a feature branch of tasks closed without review; group verdicts, then one PR into the working branch, or a Human waiver |
 | 4. Extending the team | 4.1 | [Cheatcode lifecycle](#41-cheatcode-lifecycle) | A capability wall, the Human says "cheatcode", or a reuse check before building | bro (Human approves install) | the capability registry and its attachments |
@@ -158,11 +158,13 @@ flowchart LR
 
 ### 3.7 Bulk cleanup
 
-When the Human's prompt names what to delete, bro does it in one step with no re-confirmation: defensive checks belong before the Human authorizes, and re-asking treats a standing directive as a question.
+When the Human's prompt names what to delete, bro does it in one step with no re-confirmation: defensive checks belong before the Human authorizes, and re-asking treats a standing directive as a question. It covers what no task owns: untracked files, merged branches and stale worktrees. A tracked repo file is deleted through a task like any other change. bro audits what it deleted and the Human's words that authorized it.
 
 ```mermaid
 flowchart LR
     A[Human names what to delete] --> B[bro deletes in one step]
+    B --> C[Audited: what was deleted, and the Human's words]
+    A -- a tracked repo file --> D[A task, as in 3.1 or 3.2]
 ```
 
 ### 3.8 Parallel lanes
@@ -267,11 +269,18 @@ flowchart LR
 
 ### 5.1 Bug report
 
-Off by default; the Human opts in during first contact. bro drafts a redacted report, flagging an earlier one with the same signature, and files nothing until the Human has read the full draft and said yes.
+Off by default; the Human opts in during first contact, or asks for one report by name. bro drafts a redacted report, offers it once per session per signature, and files nothing until the Human has read the full draft and said yes.
 
 ```mermaid
 flowchart LR
-    A[bro hits a real TMB bug] --> B[Redacted draft with a signature]
+    A[bro hits a real TMB bug] --> O{Opted in, or the Human asked for this report?}
+    O -- no --> N[No offer]
+    O -- yes --> B[Redacted draft with a signature]
+    B -- the same signature was already filed --> P[bro names the earlier report; nothing new]
+    B -- a matching report exists upstream --> Q[Offer a comment with this session's environment instead]
+    C -- edit first --> B
+    C -- no --> R[Dropped; not offered again this session]
+    D -- no forge CLI, or signed out --> S[The Human gets a prefilled link; recorded as handed over]
     B --> C[Human reads the full draft]
     C --> D[Human says yes]
     D --> E[Filed to the plugin's repo and audited]
