@@ -142,48 +142,52 @@ stateDiagram-v2
     [*] --> pending: provisioned
     pending --> running: author spawned
     running --> pending: spawn rolled back
-    running --> completed: author closes, checks pass
+    running --> submitted: author closes, checks pass
     running --> failed: policy deny, spec contradiction, broken environment, or stale with no live author
-    completed --> in_review: handed to code-reviewer
+    submitted --> in_review: handed to code-reviewer
     in_review --> reviewed: verdict pass
     in_review --> running: verdict fail, reopened at high effort
     in_review --> closed: branch merged outside the flow, recorded as a bypass
     reviewed --> closed: bro closes; or the branch merges outside the flow; or an agile task's feature branch merges
-    completed --> closed: bro closes without a review, recorded as a bypass
+    submitted --> closed: bro closes without a review, recorded as a bypass
     pending --> closed: branch merged outside the flow, recorded as a bypass; or the recovery step closes a stuck task at its landed commit
     running --> closed: branch merged outside the flow, recorded as a bypass
-    completed --> queued: agile close, merged into the feature branch
-    queued --> batch_reviewed: the group's review passes
-    queued --> waived: the Human waives the branch review
-    queued --> in_review: the Human asks for a review now
-    queued --> running: bro reopens
-    queued --> cancelled: its feature branch is dropped
+    submitted --> review_deferred: agile close, merged into the feature branch
+    review_deferred --> batch_reviewed: the group's review passes
+    review_deferred --> waived: the Human waives the branch review
+    review_deferred --> in_review: the Human asks for a review now
+    review_deferred --> running: bro reopens
+    review_deferred --> cancelled: its feature branch is dropped
     batch_reviewed --> closed: the feature branch merges
     waived --> closed: the feature branch merges
-    completed --> running: bro reopens
+    submitted --> running: bro reopens
     failed --> running: bro reopens
     closed --> running: bro reopens after a failed check or a PR comment
     closed --> in_review: a rebased commit whose pass does not carry
     pending --> superseded: retried as a new task
     running --> superseded: retried as a new task
-    completed --> superseded: retried as a new task
+    submitted --> superseded: retried as a new task
     failed --> superseded: retried as a new task
     closed --> superseded: integrate conflict, retried as a new task
     pending --> cancelled: its issue closes
     running --> cancelled: its issue closes
-    completed --> cancelled: its issue closes
+    submitted --> cancelled: its issue closes
     in_review --> cancelled: its issue closes
     reviewed --> cancelled: its issue closes
 ```
 
 - **Superseded and cancelled are final.** No move leaves either. A superseded task was retried, and its work continues as a new task that names it. A cancelled task's work stopped: its issue closed over it or its feature branch was dropped, and no task picks it up.
-- **They replace escalated.** Until schema v75 ships there is one such state, escalated, which the charts of 3.1 to 3.4 name. v75 moves each escalated task to superseded when another task retries it, and to cancelled otherwise.
+- **v75 renames three states**, so each name means what it means in other workflow tools. Sections 3.1 to 3.4 and [AGILE.md](AGILE.md) keep today's names until schema v75 ships.
+  - Completed becomes submitted. The author has submitted the work and its checks passed, but review is still ahead, and elsewhere completed means finished for good.
+  - Queued becomes review-deferred. The task already ran and merged into its feature branch; only its review waits, and elsewhere queued means not started.
+  - Escalated splits into superseded and cancelled. v75 moves each escalated task to superseded when another task retries it, and to cancelled otherwise.
 - **Closed is not final.** A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
-- **Closing an issue ends its open work.** Live tasks are cancelled, and no new task picks up their work. Queued, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
+- **Closing an issue ends its open work.** Live tasks are cancelled, and no new task picks up their work. Review-deferred, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each move names who made it, why, and the record it rests on: a verification run, a lint run, a review verdict or a review batch.
-- **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes into the queue, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
-- **A queued task can leave the queue early.** When the Human asks for a review now, it goes to review like a truest task: a pass leaves it reviewed until its feature branch merges, and a fail sends it back to its author. bro can reopen it for rework. When its feature branch is dropped, it is cancelled.
+- **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes with its review deferred, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
+- **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review like a truest task: a pass leaves it reviewed until its feature branch merges, and a fail sends it back to its author. bro can reopen it for rework. When its feature branch is dropped, it is cancelled.
 - **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed, superseded or cancelled closes, and each one with no passing review gets a bypass record.
+- **Reviewed and batch-reviewed stay apart.** Reviewed means code-reviewer passed that one task's commit. Batch-reviewed means it passed the task's group in the feature branch's net diff, and the move points at that review batch.
 - **Retries keep their lineage.** The task that replaces a superseded one names the task it retries, so a chain of retries reads as one line.
 - **Auditing is a join.** A task's story is its events, in sequence order, joined with the runs, verdicts and batches they point at. "Why three re-runs?" is the causes on its moves back to running. "Why did it miss a close?" is the last event before the chain stopped.
 

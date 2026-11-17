@@ -1366,7 +1366,7 @@ Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't me
 - **`task_event_types`** lists every lifecycle event type: its code, a description, and when it went out of use.
 - **`task_status_edges`** lists the allowed moves. Each row is one move from a state to a state, plus the event type that makes it. Only a seeded move can happen.
 - **`task_events`** holds one row per move a task makes: the task, its per-task sequence number, the event type, the from and to states, who acted, an optional cause and a pointer to the row behind it, an optional idempotency key, whether a migration backfilled it, and when. A task's sequence numbers are unique.
-- **`tasks.status`** becomes a cache of the task's latest event and changes only through one. It gains `in_review`, `reviewed`, `queued`, `batch_reviewed` and `waived`, and drops `needs_validation`; v75 moves every such task to `completed`. It also splits `escalated` into `superseded` and `cancelled`; v75 moves each escalated task to `superseded` when another task retries it, and to `cancelled` otherwise.
+- **`tasks.status`** becomes a cache of the task's latest event and changes only through one. It gains `in_review`, `reviewed`, `review_deferred`, `batch_reviewed` and `waived`. It renames `completed` to `submitted`, because the task still awaits review, and drops `needs_validation`; v75 moves every such task to `submitted`. It also splits `escalated` into `superseded` and `cancelled`; v75 moves each escalated task to `superseded` when another task retries it, and to `cancelled` otherwise.
 - **`tasks.retry_of`** points a retry at the task it retries.
 - **Review batches** record one grouped review of queued tasks; those tasks' events point at the batch.
 
