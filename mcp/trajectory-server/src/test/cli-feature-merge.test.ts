@@ -194,7 +194,8 @@ describe('cli.js feature-merge', () => {
     assert.equal(r.code, 0, r.err);
     assert.equal(r.out, commit, 'stdout is only the new feature tip');
     assert.equal(rev(`refs/heads/${FEATURE}`), commit, 'feat/agile fast-forwarded to commit_sha');
-    assert.equal(rev(`refs/heads/${TASK_BRANCH}`), commit, 'the task branch is untouched');
+    assert.equal(rev(`refs/heads/${TASK_BRANCH}`), '', 'the task branch is deleted');
+    assert.doesNotMatch(r.err, /left in place/);
     assert.equal(q('SELECT commit_sha FROM tasks WHERE id = 1'), commit, 'tasks.commit_sha is untouched');
     assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'no verification run for a fast-forward');
     assert.ok(Number(mergedRows()) > 0, 'feature_branch_merged rows after a fast-forward run');
@@ -211,7 +212,7 @@ describe('cli.js feature-merge', () => {
     assert.equal(queued(), '1', 'the task stays queued at its commit');
   });
 
-  it('SC2: the feature branch moved → rebase, verify, move both branches and the task, queue the new SHA, exit 0', () => {
+  it('SC2: the feature branch moved → rebase, verify, move the feature branch and the task, delete the task branch, queue the new SHA, exit 0', () => {
     setup('clean');
     const featureTip = rev(`refs/heads/${FEATURE}`);
     const r = featureMerge();
@@ -221,7 +222,7 @@ describe('cli.js feature-merge', () => {
     assert.notEqual(next, commit);
     assert.equal(rev(`${next}^`), featureTip, "the rebased commit's parent is the old feature tip");
     assert.equal(rev(`refs/heads/${FEATURE}`), next, 'feat/agile fast-forwarded to the rebased SHA');
-    assert.equal(rev(`refs/heads/${TASK_BRANCH}`), next, 'the task branch moved to the rebased SHA');
+    assert.equal(rev(`refs/heads/${TASK_BRANCH}`), '', 'the task branch is deleted');
     assert.equal(q('SELECT commit_sha FROM tasks WHERE id = 1'), next, 'tasks.commit_sha names the rebased SHA');
     assert.equal(
       q(`SELECT task_id || '|' || source || '|' || exit_code || '|' || timed_out FROM verification_runs WHERE commit_sha = '${next}'`),
@@ -346,15 +347,31 @@ describe('cli.js feature-merge', () => {
     assert.equal(snapshot(), before);
   });
 
-  it('the task branch is checked out in a worktree on the rebase path → exit 4, nothing changes', () => {
-    setup('clean');
-    git('worktree', 'add', '-q', join(repo, '.claude/worktrees/task'), TASK_BRANCH);
+  for (const move of ['none', 'clean'] as const) {
+    it(`the task branch is checked out in a worktree (${move === 'none' ? 'fast-forward' : 'rebase'}) → folded, the branch left in place with a note, exit 0`, () => {
+      setup(move);
+      const holder = join(repo, '.claude/worktrees/task');
+      git('worktree', 'add', '-q', holder, TASK_BRANCH);
+      const r = featureMerge();
+      assert.equal(r.code, 0, r.err);
+      assert.equal(rev(`refs/heads/${FEATURE}`), r.out, 'the feature branch is at the printed SHA');
+      assert.equal(rev(`refs/heads/${TASK_BRANCH}`), commit, 'the held task branch is left at its commit');
+      assert.ok(r.err.includes(`${TASK_BRANCH} is checked out at ${holder}, so it is left in place`), r.err);
+      assert.equal(mergedRows(), '1');
+    });
+  }
+
+  it('the task branch carries an unverified commit → exit 4, nothing changes', () => {
+    setup('none');
+    git('checkout', '-q', TASK_BRANCH);
+    commitFile('b.txt', 'unreviewed');
+    git('checkout', '-q', 'main');
     const before = snapshot();
     const r = featureMerge();
     assert.equal(r.code, 4, r.err);
-    assert.match(r.err, /is checked out at/);
+    assert.match(r.err, /refusing to move it/);
     assert.equal(snapshot(), before);
-    assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0');
+    assert.equal(mergedRows(), '0');
   });
 
   for (const move of ['none', 'clean'] as const) {

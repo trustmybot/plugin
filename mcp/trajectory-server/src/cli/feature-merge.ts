@@ -15,12 +15,18 @@
  * fast-forwards to commit_sha. Otherwise commit_sha is rebased onto the
  * feature tip in a temporary worktree and verification[] runs there, recorded
  * as a verification_runs row, as `cli.js integrate` does (TaskRebase). On a
- * pass the feature branch and the task branch (when it still exists) move to
- * the rebased SHA in one git ref transaction, then tasks.commit_sha moves to
- * it and a bro review_queued row names it, so the task stays queued for the
- * grouped review (AGILE_QUEUED_SQL) at its new commit.
+ * pass tasks.commit_sha moves to the rebased SHA and a bro review_queued row
+ * names it, so the task stays queued for the grouped review (AGILE_QUEUED_SQL)
+ * at its new commit.
+ * On either path the feature branch moves and the task branch is deleted in
+ * one git ref transaction, each ref guarded on its old value. A task branch
+ * that no longer exists is skipped; one checked out in a worktree is left in
+ * place with a note on stderr; one at a commit that is neither commit_sha nor
+ * a verified integration of it stops the run with exit 4 before any ref moves.
+ * tasks.branch_id and the audit rows keep the branch name.
  * Every exit-0 run writes one bro feature_branch_merged audit row; when that
- * DB write fails the refs are moved back and the command exits 4.
+ * DB write fails the refs are moved back, the task branch restored, and the
+ * command exits 4.
  * The command never pushes: bro pushes the feature branch through the guarded
  * `git push`.
  * stdout carries only the SHA now at the feature tip; progress and failures go to stderr.
@@ -35,10 +41,17 @@ import { repoDefaultBranch } from '../hooks/lib/repo.js';
 import type { CliIo } from './fallback-db.js';
 import { Exit, runTaskRebase, TaskRebase } from './integrate.js';
 
+/** A guarded ref change: <from> '' creates the ref, <to> '' deletes it. */
 interface RefMove {
   ref: string;
   from: string;
   to: string;
+}
+
+/** The task branch as the fold finds it: <holder> is the worktree that has it checked out, '' when none. */
+interface TaskBranchState {
+  tip: string;
+  holder: string;
 }
 
 interface BroAuditRow {
@@ -89,7 +102,11 @@ class FeatureMerge extends TaskRebase {
 
   /** Applies <moves> as one `git update-ref --stdin` transaction, each guarded on its old value. */
   private moveRefs(moves: readonly RefMove[], message: string): boolean {
-    const lines = moves.map(({ ref, from, to }) => `update ${ref} ${to} ${from}`);
+    const lines = moves.map(({ ref, from, to }) => {
+      if (to === '') return `delete ${ref} ${from}`;
+      if (from === '') return `create ${ref} ${to}`;
+      return `update ${ref} ${to} ${from}`;
+    });
     return this.git(this.repoRoot, ['update-ref', '-m', message, '--stdin'], { input: `${lines.join('\n')}\n` }).ok;
   }
 
@@ -98,6 +115,27 @@ class FeatureMerge extends TaskRebase {
       moves.map(({ ref, from, to }) => ({ ref, from: to, to: from })),
       `cli.js feature-merge: undo task ${this.taskId}`,
     );
+  }
+
+  /**
+   * Reads the task branch. A checked-out branch is reported, not judged, since
+   * the fold leaves it in place; an unheld one must be absent, at commit_sha or
+   * at a verified integration of it, else the run exits 4.
+   */
+  private taskBranchState(): TaskBranchState {
+    const holder = this.branchHolder();
+    if (holder !== '') return { tip: this.revParse(this.repoRoot, `refs/heads/${this.branch}^{commit}`), holder };
+    if (!this.branchMovable()) throw new Exit(4);
+    return { tip: this.tip, holder: '' };
+  }
+
+  /** The delete of the task branch, or none when it is absent or checked out (said on stderr). */
+  private taskBranchDeletes({ tip, holder }: TaskBranchState): RefMove[] {
+    if (holder !== '') {
+      this.say(`${this.branch} is checked out at ${holder}, so it is left in place; delete it once that worktree is off it`);
+      return [];
+    }
+    return tip === '' ? [] : [{ ref: `refs/heads/${this.branch}`, from: tip, to: '' }];
   }
 
   /** One bro audit row as an INSERT ... SELECT guarded by <guard>; bro writes it as the review_queued rows of bro_atomic_close are. */
@@ -202,24 +240,23 @@ SELECT changes();`;
     this.featureTip = this.revParse(this.repoRoot, `${featureRef}^{commit}`);
     this.baseSha = this.featureTip;
 
+    const taskBranch = this.taskBranchState();
     if (this.g(['merge-base', '--is-ancestor', this.featureTip, this.commitSha]).ok) {
-      return this.land(this.commitSha, false, [{ ref: featureRef, from: this.featureTip, to: this.commitSha }]);
+      return this.land(this.commitSha, false, [{ ref: featureRef, from: this.featureTip, to: this.commitSha }, ...this.taskBranchDeletes(taskBranch)]);
     }
 
-    if (!this.branchMovable()) throw new Exit(4);
-    const taskTip = this.tip;
     const { newSha } = await this.rebaseAndVerify(commands);
 
-    if (!this.branchMovable()) this.die(4, `verification passed (run #${this.runId}) but ${branch} cannot be moved; the rebased commit is ${newSha}`);
-    if (this.tip !== taskTip) this.die(4, `${branch} moved during the merge (${taskTip} -> ${this.tip}); left as is`);
+    const nowTaskBranch = this.taskBranchState();
+    if (nowTaskBranch.tip !== taskBranch.tip || nowTaskBranch.holder !== taskBranch.holder) {
+      this.die(4, `${branch} moved or changed worktree during the merge (${taskBranch.tip || 'absent'} -> ${nowTaskBranch.tip || 'absent'}); left as is, the rebased commit is ${newSha}`);
+    }
     const nowHolder = this.branchHolder(parent);
     if (nowHolder !== '') this.die(4, `verification passed (run #${this.runId}) but ${parent} is now checked out at ${nowHolder}; the rebased commit is ${newSha}`);
     const nowTip = this.revParse(this.repoRoot, `${featureRef}^{commit}`);
     if (nowTip !== this.featureTip) this.die(4, `${parent} moved during the merge (${this.featureTip} -> ${nowTip}); left as is`);
 
-    const moves: RefMove[] = [{ ref: featureRef, from: this.featureTip, to: newSha }];
-    if (taskTip !== '') moves.push({ ref: `refs/heads/${branch}`, from: taskTip, to: newSha });
-    return this.land(newSha, true, moves);
+    return this.land(newSha, true, [{ ref: featureRef, from: this.featureTip, to: newSha }, ...this.taskBranchDeletes(nowTaskBranch)]);
   }
 }
 
