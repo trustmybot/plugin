@@ -16,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 74;
+export const TARGET_SCHEMA_VERSION = 75;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -853,6 +853,8 @@ function runMigrations(
   if (fromVersion < 73 && toVersion >= 73) migrateV72toV73(db);
   // v73→v74: wm_symbols.params_json and four reserved wm_edges kinds (GH 3176, 1842, 2948, 2949)
   if (fromVersion < 74 && toVersion >= 74) migrateV73toV74(db);
+  // v74→v75: wm_overlays and its wm_overlay_* tables, the per-task world-model overlay (GH 2957)
+  if (fromVersion < 75 && toVersion >= 75) migrateV74toV75(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3761,6 +3763,71 @@ function migrateV73toV74(db: DatabaseSync): void {
     if (tableExists(db, 'wm_files') && hasColumn(db, 'wm_files', 'symbols_md5')) {
       db.exec('UPDATE wm_files SET symbols_md5 = NULL');
     }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v74→v75: the per-task world-model overlay (GH 2957). New tables only, with
+// no FK into the workflow tables; no existing row moves. The indexes come from
+// the schema.sql reapply.
+function migrateV74toV75(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS wm_overlays (
+          id          INTEGER PRIMARY KEY,
+          task_id     INTEGER NOT NULL UNIQUE,
+          repo        TEXT    NOT NULL,
+          base_sha    TEXT    NOT NULL,
+          commit_sha  TEXT    NOT NULL,
+          built_at    TEXT    NOT NULL,
+          path_count  INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS wm_overlay_files (
+          overlay_id   INTEGER NOT NULL REFERENCES wm_overlays(id) ON DELETE CASCADE,
+          path         TEXT    NOT NULL,
+          status       TEXT    NOT NULL CHECK (status IN ('present','deleted')),
+          content_md5  TEXT,
+          size_bytes   INTEGER,
+          symbols_md5  TEXT,
+          PRIMARY KEY (overlay_id, path)
+      );
+      CREATE TABLE IF NOT EXISTS wm_overlay_symbols (
+          id              INTEGER PRIMARY KEY,
+          overlay_id      INTEGER NOT NULL REFERENCES wm_overlays(id) ON DELETE CASCADE,
+          path            TEXT    NOT NULL,
+          kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook','runner')),
+          qualified_name  TEXT    NOT NULL,
+          signature       TEXT    NOT NULL DEFAULT '',
+          doc             TEXT    NOT NULL DEFAULT '',
+          start_line      INTEGER,
+          end_line        INTEGER,
+          body_hash       TEXT    NOT NULL,
+          exported        INTEGER NOT NULL DEFAULT 0,
+          run_order       INTEGER,
+          params_json     TEXT,
+          UNIQUE (overlay_id, path, kind, qualified_name)
+      );
+      CREATE TABLE IF NOT EXISTS wm_overlay_edges (
+          overlay_id      INTEGER NOT NULL REFERENCES wm_overlays(id) ON DELETE CASCADE,
+          src_id         INTEGER NOT NULL REFERENCES wm_overlay_symbols(id) ON DELETE CASCADE,
+          dst_overlay_id  INTEGER REFERENCES wm_overlay_symbols(id) ON DELETE SET NULL,
+          dst_symbol_id   INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+          dst_name        TEXT    NOT NULL,
+          kind            TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers','references_value','mentions_path','doc_link','generated_from')),
+          resolution      TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+          line            INTEGER,
+          hint            TEXT,
+          CHECK (dst_overlay_id IS NULL OR dst_symbol_id IS NULL)
+      );
+    `);
     commitTransaction(db);
   } catch (err) {
     try {

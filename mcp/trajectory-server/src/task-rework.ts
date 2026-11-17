@@ -59,6 +59,9 @@ export const TASK_PROOF_EVENTS = {
 /** Audit events that prove world_model_fix: a scan or a reindex of the world model. */
 export const WORLD_MODEL_PROOF_EVENTS = ['deep_scan_completed', 'wm_reindex'] as const;
 
+/** The `wm_reindex` trigger of a task overlay build: every swe close writes one, so it proves no fix. */
+export const WORLD_MODEL_OVERLAY_TRIGGER = 'overlay';
+
 /** The world-model write whose `wm_tool_called` row proves world_model_fix too. */
 export const WORLD_MODEL_PROOF_TOOL = 'world_model_concept_upsert';
 

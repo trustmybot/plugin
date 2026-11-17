@@ -401,6 +401,7 @@ export class WorldModelGraph {
       this.db.run(`UPDATE wm_symbols SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_concepts SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_concept_steps SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_overlays SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       markOrphanedEdges(this.db);
       return moved;
     });

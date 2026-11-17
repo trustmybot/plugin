@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 74`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 75`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -22,7 +22,7 @@ Every table, and every change to one, meets these two requirements. The Human se
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 74`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 75`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -66,6 +66,12 @@ erDiagram
     cheatcodes ||--o{ cheatcode_attachments : "cheatcode_id (CASCADE)"
     wm_symbols ||--o{ wm_edges : "src_id (CASCADE)"
     wm_symbols |o--o{ wm_edges : "dst_id (SET NULL)"
+    wm_overlays ||--o{ wm_overlay_files : "overlay_id (CASCADE)"
+    wm_overlays ||--o{ wm_overlay_symbols : "overlay_id (CASCADE)"
+    wm_overlays ||--o{ wm_overlay_edges : "overlay_id (CASCADE)"
+    wm_overlay_symbols ||--o{ wm_overlay_edges : "src_id (CASCADE)"
+    wm_overlay_symbols |o--o{ wm_overlay_edges : "dst_overlay_id (SET NULL)"
+    wm_symbols |o--o{ wm_overlay_edges : "dst_symbol_id (SET NULL)"
     wm_concepts ||--o{ wm_concept_steps : "concept_id (CASCADE)"
     wm_concepts ||--o{ wm_concept_claims : "concept_id (CASCADE)"
     wm_directories ||--o| wm_directories_embeddings : "dir_id (CASCADE)"
@@ -495,6 +501,53 @@ erDiagram
     wm_edges {
         INTEGER src_id FK "NOT NULL; → wm_symbols.id CASCADE"
         INTEGER dst_id FK "→ wm_symbols.id SET NULL"
+        TEXT dst_name "NOT NULL"
+        TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on|bundles|reads_config|covers|references_value|mentions_path|doc_link|generated_from"
+        TEXT resolution "NOT NULL; CHECK exact|name|unresolved"
+        INTEGER line
+        TEXT hint
+    }
+
+    wm_overlays {
+        INTEGER id PK "NOT NULL"
+        INTEGER task_id UK "NOT NULL"
+        TEXT repo "NOT NULL"
+        TEXT base_sha "NOT NULL"
+        TEXT commit_sha "NOT NULL"
+        TEXT built_at "NOT NULL"
+        INTEGER path_count "NOT NULL"
+    }
+
+    wm_overlay_files {
+        INTEGER overlay_id PK,FK "NOT NULL; → wm_overlays.id CASCADE"
+        TEXT path PK "NOT NULL"
+        TEXT status "NOT NULL; CHECK present|deleted"
+        TEXT content_md5
+        INTEGER size_bytes
+        TEXT symbols_md5
+    }
+
+    wm_overlay_symbols {
+        INTEGER id PK "NOT NULL"
+        INTEGER overlay_id FK "NOT NULL; → wm_overlays.id CASCADE"
+        TEXT path "NOT NULL"
+        TEXT kind "NOT NULL; CHECK function|method|class|interface|type|const|sh_function|sql_table|sql_index|sql_trigger|module|hook|runner"
+        TEXT qualified_name "NOT NULL"
+        TEXT signature "NOT NULL"
+        TEXT doc "NOT NULL"
+        INTEGER start_line
+        INTEGER end_line
+        TEXT body_hash "NOT NULL"
+        INTEGER exported "NOT NULL"
+        INTEGER run_order
+        TEXT params_json
+    }
+
+    wm_overlay_edges {
+        INTEGER overlay_id FK "NOT NULL; → wm_overlays.id CASCADE"
+        INTEGER src_id FK "NOT NULL; → wm_overlay_symbols.id CASCADE"
+        INTEGER dst_overlay_id FK "→ wm_overlay_symbols.id SET NULL"
+        INTEGER dst_symbol_id FK "→ wm_symbols.id SET NULL"
         TEXT dst_name "NOT NULL"
         TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on|bundles|reads_config|covers|references_value|mentions_path|doc_link|generated_from"
         TEXT resolution "NOT NULL; CHECK exact|name|unresolved"
@@ -1127,6 +1180,73 @@ Table constraints:
 | `line` | INTEGER | nullable |  |  |
 | `hint` | TEXT | nullable |  |  |
 
+### `wm_overlays`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `task_id` | INTEGER | NOT NULL |  | UNIQUE |
+| `repo` | TEXT | NOT NULL |  |  |
+| `base_sha` | TEXT | NOT NULL |  |  |
+| `commit_sha` | TEXT | NOT NULL |  |  |
+| `built_at` | TEXT | NOT NULL |  |  |
+| `path_count` | INTEGER | NOT NULL |  |  |
+
+### `wm_overlay_files`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `overlay_id` | INTEGER | NOT NULL |  | FK → `wm_overlays.id` ON DELETE CASCADE |
+| `path` | TEXT | NOT NULL |  |  |
+| `status` | TEXT | NOT NULL |  | CHECK `status IN ('present','deleted')` |
+| `content_md5` | TEXT | nullable |  |  |
+| `size_bytes` | INTEGER | nullable |  |  |
+| `symbols_md5` | TEXT | nullable |  |  |
+
+Table constraints:
+
+- PRIMARY KEY `(overlay_id, path)`
+
+### `wm_overlay_symbols`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `overlay_id` | INTEGER | NOT NULL |  | FK → `wm_overlays.id` ON DELETE CASCADE |
+| `path` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook','runner')` |
+| `qualified_name` | TEXT | NOT NULL |  |  |
+| `signature` | TEXT | NOT NULL | `''` |  |
+| `doc` | TEXT | NOT NULL | `''` |  |
+| `start_line` | INTEGER | nullable |  |  |
+| `end_line` | INTEGER | nullable |  |  |
+| `body_hash` | TEXT | NOT NULL |  |  |
+| `exported` | INTEGER | NOT NULL | `0` |  |
+| `run_order` | INTEGER | nullable |  |  |
+| `params_json` | TEXT | nullable |  |  |
+
+Table constraints:
+
+- UNIQUE `(overlay_id, path, kind, qualified_name)`
+
+### `wm_overlay_edges`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `overlay_id` | INTEGER | NOT NULL |  | FK → `wm_overlays.id` ON DELETE CASCADE |
+| `src_id` | INTEGER | NOT NULL |  | FK → `wm_overlay_symbols.id` ON DELETE CASCADE |
+| `dst_overlay_id` | INTEGER | nullable |  | FK → `wm_overlay_symbols.id` ON DELETE SET NULL |
+| `dst_symbol_id` | INTEGER | nullable |  | FK → `wm_symbols.id` ON DELETE SET NULL |
+| `dst_name` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers','references_value','mentions_path','doc_link','generated_from')` |
+| `resolution` | TEXT | NOT NULL | `'unresolved'` | CHECK `resolution IN ('exact','name','unresolved')` |
+| `line` | INTEGER | nullable |  |  |
+| `hint` | TEXT | nullable |  |  |
+
+Table constraints:
+
+- CHECK `dst_overlay_id IS NULL OR dst_symbol_id IS NULL`
+
 ### `wm_concepts`
 
 | Column | Type | Null | Default | Constraints |
@@ -1241,6 +1361,12 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `cheatcode_attachments` | `cheatcode_id` | `cheatcodes(id)` | CASCADE |
 | `wm_edges` | `src_id` | `wm_symbols(id)` | CASCADE |
 | `wm_edges` | `dst_id` | `wm_symbols(id)` | SET NULL |
+| `wm_overlay_files` | `overlay_id` | `wm_overlays(id)` | CASCADE |
+| `wm_overlay_symbols` | `overlay_id` | `wm_overlays(id)` | CASCADE |
+| `wm_overlay_edges` | `overlay_id` | `wm_overlays(id)` | CASCADE |
+| `wm_overlay_edges` | `src_id` | `wm_overlay_symbols(id)` | CASCADE |
+| `wm_overlay_edges` | `dst_overlay_id` | `wm_overlay_symbols(id)` | SET NULL |
+| `wm_overlay_edges` | `dst_symbol_id` | `wm_symbols(id)` | SET NULL |
 | `wm_concept_steps` | `concept_id` | `wm_concepts(id)` | CASCADE |
 | `wm_concept_claims` | `concept_id` | `wm_concepts(id)` | CASCADE |
 | `wm_directories_embeddings` | `dir_id` | `wm_directories(id)` | CASCADE |
@@ -1295,6 +1421,12 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_wm_files_dir` | `wm_files` | `repo, dir` |  |  |
 | `idx_wm_edges_src` | `wm_edges` | `src_id` |  |  |
 | `idx_wm_edges_dst` | `wm_edges` | `dst_id` |  |  |
+| `idx_wm_overlays_repo` | `wm_overlays` | `repo` |  |  |
+| `idx_wm_overlay_symbols_name` | `wm_overlay_symbols` | `overlay_id, qualified_name` |  |  |
+| `idx_wm_overlay_edges_overlay` | `wm_overlay_edges` | `overlay_id` |  |  |
+| `idx_wm_overlay_edges_src` | `wm_overlay_edges` | `src_id` |  |  |
+| `idx_wm_overlay_edges_dst_overlay` | `wm_overlay_edges` | `dst_overlay_id` |  |  |
+| `idx_wm_overlay_edges_dst_symbol` | `wm_overlay_edges` | `dst_symbol_id` |  |  |
 | `idx_wm_concept_steps_anchor` | `wm_concept_steps` | `repo, path` |  |  |
 | `idx_wm_concept_claims_concept` | `wm_concept_claims` | `concept_id` |  |  |
 | `idx_wm_directories_embeddings_model` | `wm_directories_embeddings` | `model_id` |  |  |
@@ -1310,6 +1442,8 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | _UNIQUE constraint_ | `wm_directories` | `repo, path` | yes | |
 | _UNIQUE constraint_ | `wm_files` | `repo, path` | yes | |
 | _UNIQUE constraint_ | `wm_symbols` | `repo, path, kind, qualified_name` | yes | |
+| _UNIQUE constraint_ | `wm_overlays` | `task_id` | yes | |
+| _UNIQUE constraint_ | `wm_overlay_symbols` | `overlay_id, path, kind, qualified_name` | yes | |
 | _UNIQUE constraint_ | `wm_concepts` | `repo, name` | yes | |
 
 ## Eval mode
@@ -1361,7 +1495,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 
 ## Planned for schema v75
 
-Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't merged, so the generated tables above still show v74. When v75 lands, its regenerated tables replace this section. [`TASKS.md`](./TASKS.md) holds the lifecycle these tables enforce.
+Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't merged, so the generated tables above don't show it yet. When v75 lands, its regenerated tables replace this section. [`TASKS.md`](./TASKS.md) holds the lifecycle these tables enforce.
 
 - **`task_event_types`** lists every lifecycle event type: its code, a description, and when it went out of use.
 - **`task_event_causes`** lists every cause a move can carry: its code, a description, and when it went out of use. Causes are codes, never free text, so they can be counted.

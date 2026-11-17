@@ -168,7 +168,7 @@ const CALL_EDGES: EdgeKind[] = ['calls', 'instantiates', 'runs', 'sources'];
 // Edges stored by name alone (dst_id NULL, resolution 'name') that no
 // resolution pass rebinds or resets: neither a plugin_config key nor a
 // directory a runner covers is a symbol.
-const NAME_ONLY_EDGES = new Set<EdgeKind>(['reads_config', 'covers']);
+export const NAME_ONLY_EDGES: ReadonlySet<EdgeKind> = new Set<EdgeKind>(['reads_config', 'covers']);
 const NAME_ONLY_JSON = JSON.stringify([...NAME_ONLY_EDGES]);
 
 // The concept lane (GH 1680): test and fixture paths never anchor a concept
@@ -190,14 +190,14 @@ export interface IndexedFile {
   symbols_md5: string | null;
 }
 
-type StaleFile = Omit<IndexedFile, 'symbols_md5'>;
+export type StaleFile = Omit<IndexedFile, 'symbols_md5'>;
 
-interface Parsed {
+export interface Parsed {
   file: StaleFile;
   extraction: Extraction | null;
 }
 
-interface PendingEdge {
+export interface PendingEdge {
   rowid: number;
   from: string;
   edge: ExtractedEdge;
@@ -361,14 +361,23 @@ class SymbolWriter {
   }
 }
 
-interface Candidate {
+export interface Candidate {
   id: number;
   path: string;
   kind: SymbolKind;
   qualified_name: string;
 }
 
-class Resolver {
+// The symbols an edge of `repo` may link to in the shared index, leaving out
+// those under `hidden` paths.
+export function sharedCandidates(db: TrajectoryDB, repo: string, hidden: ReadonlySet<string> = new Set()): Candidate[] {
+  return db
+    .all<Candidate>(`SELECT id, path, kind, qualified_name FROM wm_symbols WHERE repo = ?`, [repo])
+    .filter((s) => !hidden.has(s.path))
+    .map((s) => ({ id: Number(s.id), path: s.path, kind: s.kind, qualified_name: s.qualified_name }));
+}
+
+export class Resolver {
   private readonly byName = new Map<string, Candidate[]>();
   private readonly modules = new Map<string, number>();
   private readonly byBase = new Map<string, Candidate[]>();
@@ -376,18 +385,14 @@ class Resolver {
   private readonly importMap = new Map<string, Map<string, string>>();
   private readonly sourced = new Map<string, string[]>();
 
-  constructor(db: TrajectoryDB, repo: string, pending: Array<Pick<PendingEdge, 'from' | 'edge'>>) {
-    for (const s of db.all<{ id: number; path: string; kind: SymbolKind; qualified_name: string }>(
-      `SELECT id, path, kind, qualified_name FROM wm_symbols WHERE repo = ?`,
-      [repo],
-    )) {
-      const c = { id: Number(s.id), path: s.path, kind: s.kind, qualified_name: s.qualified_name };
-      if (s.kind === 'module') {
-        this.modules.set(s.path, c.id);
-        this.fileSet.add(s.path);
-        push(this.byBase, basename(s.path), c);
+  constructor(candidates: Iterable<Candidate>, pending: Array<Pick<PendingEdge, 'from' | 'edge'>>) {
+    for (const c of candidates) {
+      if (c.kind === 'module') {
+        this.modules.set(c.path, c.id);
+        this.fileSet.add(c.path);
+        push(this.byBase, basename(c.path), c);
       } else {
-        push(this.byName, shortName(s.kind, s.qualified_name), c);
+        push(this.byName, shortName(c.kind, c.qualified_name), c);
       }
     }
     for (const { from, edge } of pending) {
@@ -580,7 +585,7 @@ function reresolveEdges(db: TrajectoryDB, repo: string, names: Set<string>, skip
       WHERE s.repo = ? AND e.kind IN ('imports', 'sources') AND s.path IN (SELECT value FROM json_each(?))`,
     [repo, JSON.stringify([...new Set(candidates.map((c) => c.path))])],
   );
-  const resolver = new Resolver(db, repo, context.map(toPending));
+  const resolver = new Resolver(sharedCandidates(db, repo), context.map(toPending));
   let resolved = 0;
   for (const c of candidates) {
     const { from, edge } = toPending(c);
@@ -789,14 +794,27 @@ export async function planRepoSymbols(
     const hooksFile = rows.find((f) => f.path === HOOKS_PATH);
     if (hooksFile) stale.push({ path: hooksFile.path, content_md5: hooksFile.content_md5, size_bytes: hooksFile.size_bytes });
   }
+  let known: RepoPaths | null = null;
+  const { parsed, failed } = await extractFiles(stale, read, repoPath, () => (known ??= repoPaths([...kept])));
+  const bundles: BundlePass = maps
+    ? await readBundles(db, repo, repoPath, maps, version, read, kept, dropped)
+    : { write: [], gone: [], failed: [] };
+  return { repo, version, parsed, failed, bundles, dropped: storedNames(db, repo, dropped) };
+}
+
+// Parse each file with the extractor its language, the hooks.json reader or a
+// runner env reader takes; a file none of them takes gets a null extraction.
+// knownPaths lists the repo's paths, for the runner pass.
+export async function extractFiles(
+  stale: StaleFile[],
+  read: SourceReader,
+  repoPath: string,
+  knownPaths: () => RepoPaths,
+): Promise<{ parsed: Parsed[]; failed: Array<{ file: StaleFile; error: string }> }> {
   const jobs: Array<{ file: StaleFile; lang: SourceLanguage | null; src?: string | null }> = [];
   for (const f of stale) jobs.push({ file: f, ...(await sourceLanguage(read, f.path, Number(f.size_bytes))) });
   const parsers: Parsers | null = jobs.some((j) => j.lang !== null && needsParser(j.lang)) ? await loadParsers() : null;
   let router: string | null = null;
-
-  let known: RepoPaths | null = null;
-  const knownPaths = (): RepoPaths => (known ??= repoPaths([...kept]));
-
   const failed: Array<{ file: StaleFile; error: string }> = [];
   const parsed: Parsed[] = [];
   for (const { file, lang, src: head } of jobs) {
@@ -820,10 +838,7 @@ export async function planRepoSymbols(
       failed.push({ file, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
     }
   }
-  const bundles: BundlePass = maps
-    ? await readBundles(db, repo, repoPath, maps, version, read, kept, dropped)
-    : { write: [], gone: [], failed: [] };
-  return { repo, version, parsed, failed, bundles, dropped: storedNames(db, repo, dropped) };
+  return { parsed, failed };
 }
 
 export function applyRepoSymbols(db: TrajectoryDB, plan: SymbolPlan): SymbolIndexStats & { failed_paths: FailedPath[] } {
@@ -861,7 +876,7 @@ export function applyRepoSymbols(db: TrajectoryDB, plan: SymbolPlan): SymbolInde
     for (const path of bundles.gone) writer.deleteFile(path);
     let resolved = 0;
     if (pending.length > 0) {
-      const resolver = new Resolver(db, repo, pending);
+      const resolver = new Resolver(sharedCandidates(db, repo), pending);
       for (const p of pending) {
         const hit = resolver.resolve(p.from, p.edge);
         if (!hit) continue;
@@ -940,17 +955,34 @@ function normalizeRow<T extends SymbolRow>(r: T): SymbolRow {
   };
 }
 
-export function symbolById(db: TrajectoryDB, id: number): SymbolRow | null {
-  const row = db.get<SymbolRow>(`SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s WHERE s.id = ?`, [id]);
+// Where a read finds symbols and edges: the shared index, or one task's
+// overlay view over it (world-model/overlay.ts). Each side is a table name or
+// a parenthesised subquery with the shared table's columns. An overlay symbol
+// carries its negated wm_overlay_symbols id, so the two id spaces never meet.
+export interface SymbolView {
+  symbols: string;
+  edges: string;
+}
+
+export const SHARED_VIEW: SymbolView = { symbols: 'wm_symbols', edges: 'wm_edges' };
+
+export function symbolById(db: TrajectoryDB, id: number, src: SymbolView = SHARED_VIEW): SymbolRow | null {
+  const row = db.get<SymbolRow>(`SELECT ${SYMBOL_COLUMNS} FROM ${src.symbols} s WHERE s.id = ?`, [id]);
   return row ? normalizeRow(row) : null;
 }
 
 // Symbols named qualifiedName in repo (optionally in one file), definitions
 // before the per-file module row.
-export function symbolsByName(db: TrajectoryDB, repo: string, qualifiedName: string, path?: string): SymbolRow[] {
+export function symbolsByName(
+  db: TrajectoryDB,
+  repo: string,
+  qualifiedName: string,
+  path?: string,
+  src: SymbolView = SHARED_VIEW,
+): SymbolRow[] {
   return db
     .all<SymbolRow>(
-      `SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s
+      `SELECT ${SYMBOL_COLUMNS} FROM ${src.symbols} s
         WHERE s.repo = ? AND s.qualified_name = ? AND (? IS NULL OR s.path = ?)
         ORDER BY s.kind = 'module', s.path, s.kind`,
       [repo, qualifiedName, path ?? null, path ?? null],
@@ -1002,13 +1034,18 @@ function editDistance(a: string, b: string): number {
 // its first name token, each only when the shorter side is long enough to be
 // distinctive. Ranked
 // by edit distance, definitions before module rows, then path.
-export function nearSymbols(db: TrajectoryDB, repos: string[], qualifiedName: string): NearSymbol[] {
+export function nearSymbols(
+  db: TrajectoryDB,
+  repos: string[],
+  qualifiedName: string,
+  src: SymbolView = SHARED_VIEW,
+): NearSymbol[] {
   const query = normalizedName(qualifiedName);
   if (!query || repos.length === 0) return [];
   const first = nameTokens(qualifiedName)[0];
   const token = first !== undefined && first.length >= NEAR_MATCH_MIN_LENGTH ? first : null;
   const rows = db.all<{ id: number; repo: string; path: string; kind: SymbolKind; qualified_name: string; start_line: number }>(
-    `SELECT s.id, s.repo, s.path, s.kind, s.qualified_name, s.start_line FROM wm_symbols s
+    `SELECT s.id, s.repo, s.path, s.kind, s.qualified_name, s.start_line FROM ${src.symbols} s
       WHERE s.repo IN (${repos.map(() => '?').join(', ')})`,
     repos,
   );
@@ -1073,24 +1110,24 @@ function refList(rows: EdgeEnd[]): RefList {
 // A symbol card: who calls it, what it calls and imports, the tables it reads
 // and writes (for a table, who reads and writes it), the tests that reference
 // it, the bundles that inline its file and the plugin_config keys it reads.
-export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
+export function symbolCard(db: TrajectoryDB, symbol: SymbolRow, src: SymbolView = SHARED_VIEW): SymbolCard {
   const inbound = db.all<EdgeEnd>(
     `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
-       FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+       FROM ${src.edges} e JOIN ${src.symbols} o ON o.id = e.src_id
       WHERE e.dst_id = ?
       ORDER BY o.path, o.start_line`,
     [symbol.id],
   );
   const outbound = db.all<EdgeEnd & { dst_name: string; line: number | null }>(
     `SELECT e.kind AS edge_kind, e.resolution, e.dst_name, e.line, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
-       FROM wm_edges e LEFT JOIN wm_symbols o ON o.id = e.dst_id
+       FROM ${src.edges} e LEFT JOIN ${src.symbols} o ON o.id = e.dst_id
       WHERE e.src_id = ?
       ORDER BY e.line`,
     [symbol.id],
   );
   const bundlers = db.all<EdgeEnd>(
     `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
-       FROM wm_symbols m JOIN wm_edges e ON e.dst_id = m.id AND e.kind = 'bundles' JOIN wm_symbols o ON o.id = e.src_id
+       FROM ${src.symbols} m JOIN ${src.edges} e ON e.dst_id = m.id AND e.kind = 'bundles' JOIN ${src.symbols} o ON o.id = e.src_id
       WHERE m.repo = ? AND m.path = ? AND m.kind = 'module'
       ORDER BY o.path`,
     [symbol.repo, symbol.path],
@@ -1098,9 +1135,10 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
   const isTable = symbol.kind === 'sql_table';
   const tableSide = isTable ? inbound : outbound;
   const of = (rows: EdgeEnd[], kinds: EdgeKind[]) => rows.filter((r) => kinds.includes(r.edge_kind));
-  const stale = staleFiles(db, [symbol]);
+  // An overlay symbol is read from its task's commit, so no checkout drift makes it stale.
+  const stale = symbol.id > 0 && staleFiles(db, [symbol]).has(fileRefKey(symbol));
   const card: SymbolCard = {
-    symbol: { ...symbol, stale: stale.has(fileRefKey(symbol)) },
+    symbol: { ...symbol, stale },
     callers: refList(of(inbound, CALL_EDGES).filter((r) => r.path !== null && !isTestPath(r.path))),
     callees: refList(of(outbound, CALL_EDGES)),
     imports: refList(of(symbol.kind === 'module' ? outbound : inbound, ['imports'])),
@@ -1172,7 +1210,7 @@ interface ImpactRow extends EdgeEnd {
 // walked symbol lands in tests and is not walked past; a test module that
 // only imports is skipped when its file is already in tests. The visited set
 // ends cycles; past IMPACT_REF_CAP refs the walk stops with truncated.
-export function symbolImpact(db: TrajectoryDB, symbol: SymbolRow, depth: number): SymbolImpact {
+export function symbolImpact(db: TrajectoryDB, symbol: SymbolRow, depth: number, src: SymbolView = SHARED_VIEW): SymbolImpact {
   const visited = new Set<number>([symbol.id]);
   const testPaths = new Set<string>();
   const levels: ImpactLevel[] = [];
@@ -1184,17 +1222,17 @@ export function symbolImpact(db: TrajectoryDB, symbol: SymbolRow, depth: number)
     const ids = JSON.stringify(frontier);
     const callRows = db.all<ImpactRow>(
       `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line, NULL AS table_name
-         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+         FROM ${src.edges} e JOIN ${src.symbols} o ON o.id = e.src_id
         WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind != 'bundles'
         ORDER BY e.kind NOT IN (SELECT value FROM json_each(?)), o.path, o.start_line, o.id`,
       [ids, JSON.stringify(CALL_EDGES)],
     );
     const tableRows = db.all<ImpactRow>(
       `SELECT DISTINCT r.kind AS edge_kind, r.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line, t.qualified_name AS table_name
-         FROM wm_edges w
-         JOIN wm_symbols t ON t.id = w.dst_id AND t.kind = 'sql_table'
-         JOIN wm_edges r ON r.dst_id = t.id AND r.kind = 'reads_table'
-         JOIN wm_symbols o ON o.id = r.src_id
+         FROM ${src.edges} w
+         JOIN ${src.symbols} t ON t.id = w.dst_id AND t.kind = 'sql_table'
+         JOIN ${src.edges} r ON r.dst_id = t.id AND r.kind = 'reads_table'
+         JOIN ${src.symbols} o ON o.id = r.src_id
         WHERE w.src_id IN (SELECT value FROM json_each(?)) AND w.kind = 'writes_table'
         ORDER BY t.qualified_name, o.path, o.start_line, o.id`,
       [ids],

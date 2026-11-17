@@ -4,6 +4,7 @@ import { nowISO } from '../db.js';
 import type { Task, TaskInput } from '../types.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
+import { buildTaskOverlay, dropTaskOverlay } from '../world-model/overlay.js';
 import { insertAudit } from './audit.js';
 import { recordReviewBypassIfUnreviewed, recordReviewQueuedIfUnreviewed } from './lifecycle.js';
 import {
@@ -1586,6 +1587,14 @@ export function taskTools(db: TrajectoryDB): {
         'SELECT id, status, commit_sha FROM tasks WHERE id = ?',
         [taskId],
       ) ?? task;
+      if (status === 'escalated') dropTaskOverlay(db, task.id);
+      if (status === 'completed' && updated.commit_sha) {
+        try {
+          await buildTaskOverlay(db, task.id);
+        } catch (e) {
+          serverLog({ event: 'wm_overlay_build_error', task_id: task.id, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
       return ok({
         task_id: updated.id,
         status: updated.status,
