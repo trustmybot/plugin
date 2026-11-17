@@ -156,12 +156,13 @@ stateDiagram-v2
     submitted --> review_deferred: agile close without a per-task review
     review_deferred --> batch_reviewed: the group's review passes
     review_deferred --> waived: the Human waives the branch review
+    submitted --> waived: the Human waives this task's review
     review_deferred --> in_review: the Human asks for a review now
     review_deferred --> running: bro reopens, before the task is folded into its feature branch
     in_review --> review_deferred: verdict fail on a task reviewed on request
     review_deferred --> cancelled: its feature branch is dropped
     batch_reviewed --> closed: the feature branch merges
-    waived --> closed: the feature branch merges
+    waived --> closed: the feature branch merges; or bro closes a task whose own review the Human waived
     submitted --> running: bro reopens
     failed --> running: bro reopens
     closed --> running: bro reopens after a failed check or a PR comment
@@ -191,6 +192,7 @@ stateDiagram-v2
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes with its review deferred, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
 - **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review. A pass leaves it reviewed until its feature branch merges. A fail returns it to review-deferred with its findings open: bro reopens it when it is not yet folded into the feature branch, and otherwise files the findings as a fix task on that branch. When its feature branch is dropped, it is cancelled.
 - **The fold is a fact, not a move.** Folding an agile task into its feature branch keeps the task's state and is recorded as an event.
+- **Review is the default, and only the Human waives it.** Every task is reviewed before its push, bro's own no-code tasks included, because an author's check of its own work is no gate. The Human can waive the review of one task or of a named set, such as the docs PRs of one session; bro never waives on its own. The waiver is recorded in the Human's words and the task becomes waived, which is its own event and no bypass. A task that merges with neither a review nor a waiver is still a bypass. Planned (GH 3275); today such a task closes only through the recovery step, with a bypass record.
 - **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed, superseded or cancelled closes, and each one with no passing review gets a bypass record.
 - **Reviewed and batch-reviewed stay apart.** Reviewed means code-reviewer passed that one task's commit. Batch-reviewed means it passed the task's group in the feature branch's net diff, and the move points at that review batch.
 - **Retries keep their lineage.** The task that replaces a superseded one names the task it retries, so a chain of retries reads as one line.
@@ -243,7 +245,7 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Refused reviewer spawn | bro fixes the cause before any reviewer runs |
 | Stale run: a running task with no live author past the stale window | the task fails and its open runs end as stale; bro reopens it and spawns its author again |
 | Author gone after its commit landed | bro's recovery step closes the task at that commit, recorded as a bypass when no review passed |
-| Branch merged outside the flow | its open tasks close, each one with no passing review recorded as a bypass; nothing is reworked |
+| Branch merged outside the flow | its open tasks close, each one with no passing review recorded as a bypass; nothing is reworked. A merge made on the forge is found at bro's next turn or session start, from the PR's state (planned, GH 3275; today only a merge bro runs itself is noticed, and bro closes the rest with the recovery step) |
 | Issue closed over open tasks | each open task escalates and no new task picks up its work |
 | Agile feature branch dropped | its queued tasks end with no retry ([AGILE.md](AGILE.md#merge-gate)) |
 
