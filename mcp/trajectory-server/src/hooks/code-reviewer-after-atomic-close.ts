@@ -3,7 +3,8 @@
  * allowed only for a completed or needs_validation task with a review_handoff
  * audit row for its current tasks.commit_sha (bro handed that commit to
  * review), or for a closed task (a task closed under the old close-then-review
- * order, or the integrate head review). Every other status is denied. No
+ * order, the integrate head review, or the per-task review of a closed agile
+ * task still queued for review). Every other status is denied. No
  * task_id, no resolvable DB or no tasks row allows; a DB read error denies
  * with the DB-unavailable reason.
  *

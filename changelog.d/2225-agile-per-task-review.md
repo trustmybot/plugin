@@ -1,0 +1,2 @@
+### Added
+- **Review one closed agile task on its own** (GH 2225): `review_handoff` now accepts a task that closed under agile mode and is still queued for review at its commit, and the task stays closed. A pass from code-reviewer settles the task the way a batch pass does: it leaves the review queue and no longer blocks the feature branch's PR. A FAIL does not reopen the task; it stays closed and queued. Closed tasks under truest mode, and agile tasks already reviewed or waived, are still refused.
