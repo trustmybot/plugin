@@ -152,11 +152,12 @@ stateDiagram-v2
     submitted --> closed: branch merged outside the flow, or the recovery step closes a stuck task at its landed commit; recorded as a bypass
     pending --> closed: branch merged outside the flow, recorded as a bypass; or the recovery step closes a stuck task at its landed commit
     running --> closed: branch merged outside the flow, recorded as a bypass
-    submitted --> review_deferred: agile close, merged into the feature branch
+    submitted --> review_deferred: agile close without a per-task review
     review_deferred --> batch_reviewed: the group's review passes
     review_deferred --> waived: the Human waives the branch review
     review_deferred --> in_review: the Human asks for a review now
-    review_deferred --> running: bro reopens
+    review_deferred --> running: bro reopens, before the task is folded into its feature branch
+    in_review --> review_deferred: verdict fail on a task reviewed on request
     review_deferred --> cancelled: its feature branch is dropped
     batch_reviewed --> closed: the feature branch merges
     waived --> closed: the feature branch merges
@@ -186,7 +187,8 @@ stateDiagram-v2
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each event names the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The table below gives the record each move requires, and the DB refuses a move without it.
 - **Facts that change no state are events too.** An amended spec, a commit changed by a rebase and a checkpoint each write an event that keeps the task's state and names what changed.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes with its review deferred, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
-- **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review like a truest task: a pass leaves it reviewed until its feature branch merges, and a fail sends it back to its author. bro can reopen it for rework. When its feature branch is dropped, it is cancelled.
+- **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review. A pass leaves it reviewed until its feature branch merges. A fail returns it to review-deferred with its findings open: bro reopens it when it is not yet folded into the feature branch, and otherwise files the findings as a fix task on that branch. When its feature branch is dropped, it is cancelled.
+- **The fold is a fact, not a move.** Folding an agile task into its feature branch keeps the task's state and is recorded as an event.
 - **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed, superseded or cancelled closes, and each one with no passing review gets a bypass record.
 - **Reviewed and batch-reviewed stay apart.** Reviewed means code-reviewer passed that one task's commit. Batch-reviewed means it passed the task's group in the feature branch's net diff, and the move points at that review batch.
 - **Retries keep their lineage.** The task that replaces a superseded one names the task it retries, so a chain of retries reads as one line.
