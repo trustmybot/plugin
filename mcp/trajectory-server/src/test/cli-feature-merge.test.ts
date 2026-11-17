@@ -389,6 +389,110 @@ describe('cli.js feature-merge', () => {
     });
   }
 
+  // Close lints on a rebased fold: feat/agile commits .config/tmb/close-lints.json,
+  // so the rebased commit runs its lints after verification[], as integrate does.
+  describe('close lints on the rebase path', () => {
+    function setupWithCloseLints(command: string): void {
+      setup('clean');
+      git('checkout', '-q', FEATURE);
+      mkdirSync(join(repo, '.config/tmb'), { recursive: true });
+      writeFileSync(join(repo, '.config/tmb/close-lints.json'), JSON.stringify({ version: 1, lints: [{ name: 'probe', command }], fingerprint_inputs: ['*.txt'] }));
+      git('add', '.config/tmb/close-lints.json');
+      git('commit', '-qm', 'chore: close lints');
+      git('checkout', '-q', 'main');
+    }
+    const lintRuns = (): string =>
+      q(
+        "SELECT r.task_id, r.commit_sha, r.source, r.exit_code, (SELECT group_concat(name || '=' || exit_code, ',') FROM (SELECT name, exit_code FROM lint_run_results WHERE run_id = r.id ORDER BY ordinal)) FROM lint_runs r ORDER BY r.id",
+      );
+
+    it('records a lint run on the rebased SHA and moves the feature branch when the lints pass', () => {
+      setupWithCloseLints('test -f a.txt && test -f m.txt');
+      const r = featureMerge();
+      assert.equal(r.code, 0, r.err);
+      assert.equal(rev(`refs/heads/${FEATURE}`), r.out);
+      assert.equal(lintRuns(), `1|${r.out}|integrate|0|probe=0`);
+      assertNoTempWorktree();
+    });
+
+    it('a failing close lint exits 1, records the failing run on the rebased SHA and leaves the feature branch, task and audit unchanged', () => {
+      setupWithCloseLints('echo fold-lint-broke; exit 6');
+      const before = snapshot();
+      const r = featureMerge();
+      assert.equal(r.code, 1, r.err);
+      assert.equal(r.out, '', 'nothing on stdout');
+      assert.match(r.err, /Lint probe exited 6\.\nOutput \(last 15 lines\):\nfold-lint-broke/);
+      assert.match(r.err, /close lints failed on [0-9a-f]{40} \(lint run #1\); feat\/agile unmoved/);
+      assert.equal(snapshot(), before, 'refs, task row and audit rows unchanged');
+      const [, sha = ''] = lintRuns().split('|');
+      assert.match(lintRuns(), /^1\|[0-9a-f]{40}\|integrate\|6\|probe=6$/);
+      assert.equal(q(`SELECT commit_sha FROM verification_runs WHERE exit_code = 0`), sha, 'the lint run is on the verified rebased SHA');
+      assert.notEqual(sha, commit, 'the lint run is not on the original commit');
+      assertNoTempWorktree();
+    });
+
+    it('a rebase with no close-lints.json still records an empty lint run on the rebased SHA', () => {
+      setup('clean');
+      const r = featureMerge();
+      assert.equal(r.code, 0, r.err);
+      assert.equal(lintRuns(), `1|${r.out}|integrate|0|`);
+    });
+  });
+
+  // review_queued on the rebase path only for a task with no passing review (HAS_PASS_SQL).
+  describe('review_queued on the rebase path', () => {
+    const queuedAt = (sha: string): string =>
+      q(`SELECT COUNT(*) FROM audit WHERE event_type = 'review_queued' AND json_extract(content_json, '$.commit_sha') = '${sha}'`);
+
+    it('a task with a passing review at its commit → rebased and merged with no review_queued row for the new SHA', () => {
+      setup('clean');
+      exec(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+              VALUES (1, '${TASK_BRANCH}', 'bro', 'review_handoff', 'h', '${JSON.stringify({ task_id: 1, commit_sha: commit })}', '2026-11-16T02:00:00.000Z');
+            INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+              VALUES (1, 1, 'code-reviewer', 'pass', 1, 'LGTM', '2026-11-16T03:00:00.000Z');`);
+      const r = featureMerge();
+      assert.equal(r.code, 0, r.err);
+      assert.equal(q('SELECT commit_sha FROM tasks WHERE id = 1'), r.out, 'tasks.commit_sha names the rebased SHA');
+      assert.equal(queuedAt(r.out), '0', 'no review_queued row for the rebased SHA');
+      assert.equal(mergedRows(), '1', 'the merge is still recorded');
+    });
+
+    it('a task whose newest verdict is a fail → the rebased SHA is queued', () => {
+      setup('clean');
+      exec(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+              VALUES (1, '${TASK_BRANCH}', 'bro', 'review_handoff', 'h', '${JSON.stringify({ task_id: 1, commit_sha: commit })}', '2026-11-16T02:00:00.000Z');
+            INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+              VALUES (1, 1, 'code-reviewer', 'fail', 1, 'no', '2026-11-16T03:00:00.000Z');`);
+      const r = featureMerge();
+      assert.equal(r.code, 0, r.err);
+      assert.equal(queuedAt(r.out), '1', 'a review_queued row names the rebased SHA');
+    });
+  });
+
+  // A no-code task (no_code_class set) needs verification[] only to rebase.
+  describe('a no-code task with no verification[]', () => {
+    it('fast-forwards, exit 0', () => {
+      setup('none', { verification: '[]' });
+      exec("UPDATE tasks SET no_code_class = 'docs' WHERE id = 1");
+      const r = featureMerge();
+      assert.equal(r.code, 0, r.err);
+      assert.equal(r.out, commit);
+      assert.equal(rev(`refs/heads/${FEATURE}`), commit, 'feat/agile fast-forwarded to commit_sha');
+      assert.equal(mergedRows(), '1');
+    });
+
+    it('that needs a rebase → exit 4, nothing changes', () => {
+      setup('clean', { verification: '[]' });
+      exec("UPDATE tasks SET no_code_class = 'docs' WHERE id = 1");
+      const before = snapshot();
+      const r = featureMerge();
+      assert.equal(r.code, 4, r.err);
+      assert.match(r.err, /no verification\[\]/);
+      assert.equal(snapshot(), before);
+      assertNoTempWorktree();
+    });
+  });
+
   it('usage errors exit 4', () => {
     setup('none');
     assert.equal(featureMerge('1', '2').code, 4);
