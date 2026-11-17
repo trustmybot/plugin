@@ -58,6 +58,11 @@ flowchart TD
     I3 -- fail --> V1
     W0[Wrong approach, design drift or integrate conflict] --> W1["DB update: old task escalated<br/>DB insert: new task on a fresh branch, open findings carried<br/>WM: base indexed for the new worktree"]
     W1 --> SP
+    ST0[A running task has no live author past the stale window] --> ST1["DB update: task failed, its open runs ended as stale"]
+    ST1 --> RO
+    R0[A task is stuck with no live author though its commit landed] --> R1["bro's recovery step closes it at that commit<br/>DB update: task closed · DB insert: a bypass when no review passed"]
+    M0[The branch merges outside the flow] --> M1["DB update: its open tasks closed<br/>DB insert: a bypass for each with no passing review"]
+    IC0[bro closes an issue that still has open tasks] --> IC1["DB update: each open task escalated, its open runs ended<br/>no new task picks up the work"]
     RO["bro reopens the task<br/>DB insert: decision · DB update: task running, files and checks widened<br/>WM: base indexed; worktree recreated when missing"] --> SP
     SP[swe spawned again, as in the success chart]
 ```
@@ -114,6 +119,8 @@ flowchart TD
     I0[Integrate conflict, a failing check after rebase, or a required CI check fails] --> I1["Reopen or retry as for a code task<br/>DB update: task running, or old task escalated<br/>DB insert: decision, or a new task"]
 ```
 
+The stale-run, recovery, outside-merge and issue-close cases of 3.1 apply to a non-code task unchanged.
+
 | Step | Owner | Method | What it guarantees and hands over |
 |---|---|---|---|
 | Ask, ground and intent | Human → bro | judgment | as in 3.1 |
@@ -140,13 +147,17 @@ stateDiagram-v2
     completed --> in_review: handed to code-reviewer
     in_review --> reviewed: verdict pass
     in_review --> running: verdict fail, reopened at high effort
-    reviewed --> closed: bro closes
+    in_review --> closed: branch merged outside the flow, recorded as a bypass
+    reviewed --> closed: bro closes; or the branch merges outside the flow; or an agile task's feature branch merges
     completed --> closed: bro closes without a review, recorded as a bypass
     pending --> closed: branch merged outside the flow, recorded as a bypass; or the recovery step closes a stuck task at its landed commit
     running --> closed: branch merged outside the flow, recorded as a bypass
     completed --> queued: agile close, merged into the feature branch
     queued --> batch_reviewed: the group's review passes
     queued --> waived: the Human waives the branch review
+    queued --> in_review: the Human asks for a review now
+    queued --> running: bro reopens
+    queued --> escalated: its feature branch is dropped
     batch_reviewed --> closed: the feature branch merges
     waived --> closed: the feature branch merges
     completed --> running: bro reopens
@@ -166,6 +177,8 @@ stateDiagram-v2
 - **Closing an issue ends its open work.** Live tasks escalate, and no new task picks up their work. Queued, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each move names who made it, why, and the record it rests on: a verification run, a lint run, a review verdict or a review batch.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes into the queue, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
+- **A queued task can leave the queue early.** When the Human asks for a review now, it goes to review like a truest task: a pass leaves it reviewed until its feature branch merges, and a fail sends it back to its author. bro can reopen it for rework. When its feature branch is dropped, it escalates.
+- **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed or escalated closes, and each one with no passing review gets a bypass record.
 - **Retries keep their lineage.** A task retried after escalation names the task it retries, so a chain of retries reads as one line.
 - **Auditing is a join.** A task's story is its events, in sequence order, joined with the runs, verdicts and batches they point at. "Why three re-runs?" is the causes on its moves back to running. "Why did it miss a close?" is the last event before the chain stopped.
 
@@ -195,6 +208,11 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Rebased commit whose review pass does not carry | one new code-reviewer pass on the rebased commit; the author reworks only if it fails |
 | Broken environment | swe ends its run failed naming the environment rather than repairing it; bro fixes the environment, reopens the task and spawns swe again |
 | Refused reviewer spawn | bro fixes the cause before any reviewer runs |
+| Stale run: a running task with no live author past the stale window | the task fails and its open runs end as stale; bro reopens it and spawns its author again |
+| Author gone after its commit landed | bro's recovery step closes the task at that commit, recorded as a bypass when no review passed |
+| Branch merged outside the flow | its open tasks close, each one with no passing review recorded as a bypass; nothing is reworked |
+| Issue closed over open tasks | each open task escalates and no new task picks up its work |
+| Agile feature branch dropped | its queued tasks escalate ([AGILE.md](AGILE.md#merge-gate)) |
 
 - **Rework is bounded.** Two fails since the last pass stop further swe runs until bro records a root-cause analysis and makes the change it names; no run count denies on its own. Design drift ends the task, and bro redesigns it as a new one. Nothing waits on the Human.
 - **Long work hands back.** A swe out of turns commits and hands back a checkpoint instead of failing, and the next run resumes from what is left.
@@ -225,4 +243,6 @@ The rules behind every step table above. Each task is built on two axes. The fir
 | The task closed but did not complete | The close checks on the commit: the run's recorded failure names which one. A non-code task also fails when any changed path is code |
 | The reviewer was refused | The commit is not the task's tip, has no handoff, has no passing run, or its lint record is missing, failing or stale against a moved base. A conflict with the base never refuses it |
 | The push is denied | A pushed task commit lacks a passing verdict of its own, or a newer fail stands over it |
+| A task failed though no run reported a failure | It sat running with no live author past the stale window; its last lifecycle event names the stale run |
+| A task is escalated and nothing retries it | Its issue was closed over it, or its agile feature branch was dropped; the cause is on its last lifecycle event |
 | A task keeps failing review | The open findings and their probes; after two fails, the root-cause analysis bro recorded |

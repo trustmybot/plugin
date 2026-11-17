@@ -15,7 +15,7 @@ Flows are grouped by when they run, and numbered within their group.
 | 3. Agent task handling | 3.1 | [Code task](#31-code-task) | An ask that changes code, architectural changes included | bro → swe; code-reviewer per task; bro closes after its pass | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR |
 | 3. Agent task handling | 3.2 | [Non-code task](#32-non-code-task) | An ask that changes only docs or prompts | bro writes it; code-reviewer grades it with the doc-review checklist | as 3.1, the task marked docs or prompts |
 | 3. Agent task handling | 3.3 | [Push gate](#33-push-gate) | Each completed task bro hands to review; any push | bro → code-reviewer (one per task, parallel) | a verdict per reviewed commit, with its findings |
-| 3. Agent task handling | 3.4 | [Retry and escalation](#34-retry-and-escalation) | A design misfit, a review fail, or an integrate conflict | bro ↔ the author (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
+| 3. Agent task handling | 3.4 | [Retry and escalation](#34-retry-and-escalation) | A design misfit, a review fail, an integrate conflict, a failed check or a stale run | bro ↔ the author (↔ code-reviewer per task) | further attempts and their findings, or a fresh task |
 | 3. Agent task handling | 3.5 | [PR comment triage](#35-pr-comment-triage) | Review comments reach a PR bro owns | bro → swe, or bro itself, per task-worthy comment group | stored comments, reopened or new tasks on the PR's issue, a fetch cursor |
 | 3. Agent task handling | 3.6 | [Multi-repo workspaces](#36-multi-repo-workspaces) | Inner repos registered; bro indexes them | bro | repo-relative world-model paths, scoped per repo |
 | 3. Agent task handling | 3.7 | [Bulk cleanup](#37-bulk-cleanup) | Human pre-authorizes a bulk delete | bro (direct, no swe) | — |
@@ -126,11 +126,11 @@ flowchart LR
 
 ### 3.4 Retry and escalation
 
-A review fail, a design misfit or an integrate conflict sends the task back to its owner without waiting on the Human.
+A review fail, a design misfit, an integrate conflict, a failed check or a stale run sends the task back to its owner without waiting on the Human.
 
 ```mermaid
 flowchart LR
-    A[Fail, misfit or conflict] --> B[bro reopens or retries the task]
+    A[Fail, misfit, conflict or stale run] --> B[bro reopens or retries the task]
     B --> C[The author reworks: swe, or bro on a non-code task]
     C --> D[3.3 Push gate]
 ```
@@ -198,6 +198,8 @@ flowchart LR
     I --> J[Local branch deleted; remote copy deleted on merge]
     G -. fail .-> K[New fix task on the feature branch, reviewed as in 3.1]
     K -.-> G
+    F -. Human asks for a review now .-> R[code-reviewer reviews that task, as in 3.1]
+    F -. Human drops the feature branch .-> X[Its queued tasks escalate]
 ```
 
 ## 4. Extending the team
