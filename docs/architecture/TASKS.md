@@ -162,9 +162,8 @@ stateDiagram-v2
     closed --> escalated: integrate conflict, retried as a new task
 ```
 
-- **Escalated is final.** The retry step continues its work as a new task. A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
-- **Closing an issue ends its open work.** Live tasks escalate. Queued, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
-
+- **Escalated is final.** No move leaves it. When bro retries an escalated task, the work continues as a new task. A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
+- **Closing an issue ends its open work.** Live tasks escalate, and no new task picks up their work. Queued, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each move names who made it, why, and the record it rests on: a verification run, a lint run, a review verdict or a review batch.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes into the queue, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
 - **Retries keep their lineage.** A task retried after escalation names the task it retries, so a chain of retries reads as one line.
