@@ -317,7 +317,8 @@ function stringAt(list: readonly unknown[], i: number): string {
  * row exists (no_batch_handoff), the feature-branch tip is still its head_sha
  * (sha_mismatch), its close-lint run exited 0 (no_lint_record) under the
  * close-lints fingerprint of that head (stale_lint_record), and each task is
- * still queued on the branch at the commit handed off (task_not_queued).
+ * still closed and queued on the branch of the hand-off's repo at the commit
+ * handed off (task_not_queued).
  */
 async function batchPreflight(db: string, handoffId: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   const row = readBatchHandoff(db, handoffId, env);
@@ -361,7 +362,8 @@ async function batchPreflight(db: string, handoffId: string, env: NodeJS.Process
   const queued = gateRead(
     db,
     `SELECT t.id FROM tasks t WHERE (${pairs.map((p) => `(t.id = ${p.id} AND t.commit_sha = '${sqlQuote(p.commit)}')`).join(' OR ')})
-       AND ${featureBranchTaskSql('t', `'${sqlQuote(row.featureBranch)}'`)} AND ${AGILE_PENDING_REVIEW_SQL};`,
+       AND t.status = 'closed' AND ${featureBranchTaskSql('t', `'${sqlQuote(row.featureBranch)}'`, row.repo === '' ? 'NULL' : `'${sqlQuote(row.repo)}'`)}
+       AND ${AGILE_PENDING_REVIEW_SQL};`,
     env,
   );
   if (queued === GATE_READ_ERROR) return dbUnavailable(env);

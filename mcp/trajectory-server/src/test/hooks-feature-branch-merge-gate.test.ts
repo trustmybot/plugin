@@ -47,11 +47,11 @@ describe('feature-branch-merge-gate', () => {
   const now = (): string => new Date().toISOString();
 
   // A task merged onto <branch> at <commit>, closed agile and queued, as bro_atomic_close and cli feature-merge leave it.
-  function mergeTask(branch: string, commit: string): number {
+  function mergeTask(branch: string, commit: string, repoName: string | null = null): number {
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, description, status, commit_sha, workflow_mode, created_at, updated_at)
-       VALUES (?, ?, ?, 'd', 'closed', ?, 'agile', ?, ?)`,
-      [issue, `feat/t-${commit}`, branch, commit, now(), now()],
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, description, status, commit_sha, repo, workflow_mode, created_at, updated_at)
+       VALUES (?, ?, ?, 'd', 'closed', ?, ?, 'agile', ?, ?)`,
+      [issue, `feat/t-${commit}`, branch, commit, repoName, now(), now()],
     );
     const id = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
     const audit = `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 's', ?, ?)`;
@@ -66,8 +66,19 @@ describe('feature-branch-merge-gate', () => {
     return reason(r.stdout);
   }
 
-  async function waive(branch: string): Promise<RawResult> {
-    return (await reviewQueueTools(db).handlers['review_waive_record']({ agent: 'bro', feature_branch: branch, human_answer: 'Yes, merge it' })) as RawResult;
+  async function waive(branch: string, repoName?: string): Promise<RawResult> {
+    return (await reviewQueueTools(db).handlers['review_waive_record']({
+      agent: 'bro',
+      feature_branch: branch,
+      human_answer: 'Yes, merge it',
+      ...(repoName === undefined ? {} : { repo: repoName }),
+    })) as RawResult;
+  }
+
+  function gitInit(path: string, branch: string): void {
+    mkdirSync(path);
+    const r = spawnSync('git', ['init', '-q', '-b', branch, path], { encoding: 'utf8', env: GIT_ENV, timeout: 10_000 });
+    assert.equal(r.status, 0, r.stderr);
   }
 
   before(() => {
@@ -78,9 +89,7 @@ describe('feature-branch-merge-gate', () => {
       [repo, FEATURE],
       [other, 'feat/plain'],
     ] as const) {
-      mkdirSync(path);
-      const r = spawnSync('git', ['init', '-q', '-b', branch, path], { encoding: 'utf8', env: GIT_ENV, timeout: 10_000 });
-      assert.equal(r.status, 0, r.stderr);
+      gitInit(path, branch);
     }
     dbFile = join(dir, 'trajectory.db');
     db = tempDB({ path: dbFile });
@@ -203,6 +212,46 @@ describe('feature-branch-merge-gate', () => {
 
     verdict('pass', at(5000));
     assert.equal(await judge(`gh pr create --head ${branch}`), '', 'the per-task pass settles the task');
+  });
+
+  it('SC1: a folded task reopened for rework denies again, whatever settled its old commit, and no waiver settles it', async () => {
+    const branch = 'feat/agile-reopened';
+    const task = mergeTask(branch, 'abc7777');
+    db.run(
+      `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'code-reviewer', 'review_batch_recorded', 'b', ?, ?)`,
+      [issue, JSON.stringify({ task_ids: [task], commit_shas: ['abc7777'], verdict: 'pass' }), now()],
+    );
+    assert.equal(await judge(`gh pr create --head ${branch}`), '', 'the batch pass settles it while closed');
+    for (const status of ['pending', 'running', 'needs_validation', 'completed']) {
+      db.run('UPDATE tasks SET status = ? WHERE id = ?', [status, task]);
+      assert.match(await judge(`gh pr create --head ${branch}`), new RegExp(`task\\(s\\) ${task} still queued`), status);
+    }
+    const waived = await waive(branch);
+    assert.equal(waived.isError, true, 'nothing closed is left to waive');
+    assert.equal((JSON.parse(waived.content[0].text) as { error: string }).error, 'no_queued_task');
+    assert.match(await judge(`gh pr create --head ${branch}`), new RegExp(`task\\(s\\) ${task} still queued`), 'still denied after the refused waiver');
+  });
+
+  it('SC3: a same-named feature branch in another repo neither denies this repo nor is settled by its waiver', async () => {
+    const shared = 'feat/agile-shared';
+    const appRoot = join(dir, 'gate-app');
+    const libRoot = join(dir, 'gate-lib');
+    gitInit(appRoot, shared);
+    gitInit(libRoot, shared);
+    db.run(`INSERT INTO repos (name, path) VALUES ('gate-app', ?), ('gate-lib', ?)`, [appRoot, libRoot]);
+    const inLib = mergeTask(shared, '1ib0001', 'gate-lib');
+    assert.equal(await judge('gh pr create --title t', appRoot), '', 'the lib task does not deny the app checkout');
+    assert.equal(await judge(`cd ${appRoot} && gh pr create --head ${shared}`), '');
+    assert.match(await judge('gh pr create --title t', libRoot), new RegExp(`task\\(s\\) ${inLib} still queued`));
+    assert.match(await judge(`gh pr create --head ${shared}`), new RegExp(`task\\(s\\) ${inLib} still queued`), 'an unregistered dir is judged against every repo');
+
+    const inApp = mergeTask(shared, 'a990001', 'gate-app');
+    assert.match(await judge('gh pr create --title t', appRoot), new RegExp(`task\\(s\\) ${inApp} still queued`), 'the app denial names only its own task');
+    const waived = await waive(shared, 'gate-app');
+    assert.ok(!waived.isError, waived.content[0].text);
+    assert.deepEqual((JSON.parse(waived.content[0].text) as { task_ids: number[] }).task_ids, [inApp]);
+    assert.equal(await judge('gh pr create --title t', appRoot), '');
+    assert.match(await judge('gh pr create --title t', libRoot), new RegExp(`task\\(s\\) ${inLib} still queued`), 'the app waiver leaves the lib task queued');
   });
 
   it('allows a head that is no feature branch, other commands, and a missing DB', async () => {

@@ -74,7 +74,7 @@ function reopenAfterReviewFail(
   if (task.issue_status === null) return { reopen_skipped: { reason: 'issue_missing' } };
   // A per-task review of a closed agile task leaves it closed and queued;
   // bro decides on rework with task_reopen.
-  const agileQueued = db.get<{ ok: number }>(`SELECT ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [task.id])?.ok === 1;
+  const agileQueued = db.get<{ ok: number }>(`SELECT t.status = 'closed' AND ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [task.id])?.ok === 1;
   if (agileQueued) return { reopen_skipped: { reason: 'agile_queued' } };
   const effort = atLeastReworkFloor(task.effort);
   const raise = effort !== task.effort;
