@@ -9,8 +9,8 @@ Flows are grouped by when they run, and numbered within their group.
 | Group | # | Flow | Trigger | Agents | State it leaves |
 |---|---|---|---|---|---|
 | 1. Install | 1.1 | [Install and session start](#11-install-and-session-start) | Plugin install, then every session start | — (the plugin itself) | per-session markers |
-| 2. Cold start | 2.1 | [First contact](#21-first-contact) | A project that is not yet onboarded | bro | project shape, repo and remote settings, the onboarded marker |
-| 2. Cold start | 2.2 | [Scan and world-model refresh](#22-scan-and-world-model-refresh) | An empty world model, `/scan`, or the trajectory server connecting | bro (or the server, in background) | the world model and the discovered-capability registry |
+| 2. Cold start | 2.1 | [First contact](#21-first-contact) | A project that is not yet onboarded | bro | repo and remote settings, the sync, sandbox, bug-report and review-mode settings, the onboarded marker, and two uncommitted files per repo |
+| 2. Cold start | 2.2 | [Scan and world-model refresh](#22-scan-and-world-model-refresh) | An empty world model, `/scan`, a merged architectural change, or the trajectory server connecting | bro (or the server, in background) | the world model and the discovered-capability registry |
 | 2. Cold start | 2.3 | [Environment profile](#23-environment-profile) | bro needs a repo's install, test and lint commands | bro | a per-machine cache of resolved commands |
 | 3. Agent task handling | 3.1 | [Code task](#31-code-task) | An ask that changes code, architectural changes included | bro → swe; code-reviewer per task; bro closes after its pass | issue, decision, task, run, verification and review records; a reviewed, pushed branch and its PR |
 | 3. Agent task handling | 3.2 | [Non-code task](#32-non-code-task) | An ask that changes only docs or prompts | bro writes it; code-reviewer grades it with the doc-review checklist | as 3.1, the task marked docs or prompts |
@@ -44,17 +44,18 @@ flowchart LR
 
 ## 2. Cold start
 
-On a new project these flows run once, in this order; later sessions skip what is already done.
+On a new project the server's first connect starts the scan (2.2) in the background. First contact (2.1) then reads the repos the scan found, and records each repo's environment profile (2.3) before its verification round. Later sessions skip what is already done.
 
 ### 2.1 First contact
 
-The first bro turn on a project that isn't onboarded runs `/onboard` before any reply. bro asks in rounds, and the answers land in one transaction with the onboarded marker. [ONBOARD.md](ONBOARD.md) covers each round and when it runs.
+The first bro turn on a project that isn't onboarded runs `/onboard` before any reply. bro asks in rounds, and the workspace answers land in one transaction with the onboarded marker; each repo's verification defaults and path classes are written as files for the Human to commit. [ONBOARD.md](ONBOARD.md) covers each round and when it runs.
 
 ```mermaid
 flowchart LR
     A[Project not onboarded] --> B[bro re-probes the project]
-    B --> C[Rounds: shape, branching, sync, sandbox, bug reports]
-    C --> D[Answers and onboarded marker land together]
+    B --> C[Rounds: shape, branching, sync, sandbox, bug reports, review mode]
+    C --> D[Workspace answers and onboarded marker land together]
+    D --> E[Per repo: verification defaults and path classes written as files for the Human to commit]
 ```
 
 ### 2.2 Scan and world-model refresh
@@ -63,7 +64,7 @@ A scan builds the project map bro reasons from and reconciles the capabilities a
 
 ```mermaid
 flowchart LR
-    A[Empty world model, /scan, or server connects] --> B[Index each repo at its target commit]
+    A[Empty world model, /scan, a merged architectural change, or server connects] --> B[Index each repo at its target commit]
     B --> C[Directory summaries, file purposes, symbol edges]
     C --> D[Reconcile on-disk skills, plugins, MCP servers]
 ```

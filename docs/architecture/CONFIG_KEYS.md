@@ -53,4 +53,5 @@ The branching model sets the defaults `/onboard` writes, and never overrides an 
 |---|---|---|
 | `github-flow` | `main` | `["main"]` |
 | `gitflow` | `dev` | `["main", "dev"]` |
-| `custom` | (caller required) | (caller required) |
+
+A repo whose PR target is not its model's default keeps the model and stores the explicit target, and its protected branches are derived from both. There is no third model.

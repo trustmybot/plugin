@@ -33,19 +33,28 @@ Every case of flow 2.2 in [FLOWS.md](FLOWS.md).
 
 ```mermaid
 flowchart TD
-    A[Empty world model, /scan, an architectural change, or the server connecting] --> B[bro, or the server in background, starts a scan]
+    A[Empty world model, /scan, or a merged architectural change] --> B[bro, or the server in background on its first connect, starts a scan]
+    A2[The server connects and the map is already built] --> I
     B --> C[Read and parse each repo at its target commit]
     C --> D[Apply the whole map in one transaction]
     D --> E[Re-check concepts: suspect or broken steps flagged]
     D --> F[Reconcile on-disk skills, plugins and MCP servers into the capability registry]
     D --> G[Audit the scan: its source, and whether the project's shape changed]
+    D --> M[Reconcile each repo's milestones from its remote; a failure is recorded and never fails the scan]
+    D --> N[A repo with no committed verification defaults: bro offers first contact's verification round]
     H[A read, task spawn or ref-moving command] --> I{Repo behind its target commit?}
     I -- yes --> J[Incremental reindex]
-    J -- fails --> B
+    J -- fails --> L[Full rebuild of that one repo at its target commit]
     I -- no --> K[Serve the current map]
 ```
 
-A capability added out of band shows up in the registry at the next scan, so the [cheatcode lifecycle](CHEATCODES.md) sees it.
+A capability or a repo added out of band shows up at the next full scan, so the [cheatcode lifecycle](CHEATCODES.md) sees it. A server reconnect on a built map only brings each known repo forward; it discovers nothing new.
+
+- **One writer per repo.** A second full scan is refused while one runs. A read that arrives during another session's reindex is answered at once from the current map, with the changed paths marked stale. A task spawn waits for the reindex, up to a fixed limit.
+- **A failed or killed scan changes nothing.** The old map stays. A scan that passes its time limit stops and releases its lock, a reindex killed midway is marked failed at the next server connect, and the next trigger retries.
+- **Offline.** The target branch is fetched at most once per fixed interval per repo, and always at a task provision. When the fetch fails, the last fetched commit is the target.
+- **Full rebuild of one repo.** Besides a failed incremental reindex, a repo is rebuilt in full when its recorded commit is gone, when its index was built by an older indexer, or when the daily comparison against a clean rebuild finds a difference.
+- **A renamed repo is recognized.** A repo directory renamed since the last scan is recorded as a rename, not registered as a new repo.
 
 ## Consumers
 
