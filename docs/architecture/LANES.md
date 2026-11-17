@@ -34,7 +34,7 @@ flowchart LR
     A -- the Human declines lanes --> N[One session works the issues in order, as flow 3.1]
     B -- bro, recommended --> C[bro merges once the gates its task's mode requires passed, CI is green and required approvals are in]
     B -- Human --> D[bro opens each PR and hands it to the Human]
-    C --> E[Choice recorded on the lane run, scoped to the parent session]
+    C --> E[Choice recorded on the lane run, held by bro in the main session]
     D --> E
     E --> F[Every lane brief carries the choice]
     E -. Human wants it permanent .-> G[Planned: a project merge-policy setting, GH 3148]
@@ -89,7 +89,8 @@ flowchart LR
 
 - **The brief** holds the lane's owned issues, its priority, its review mode, its feature branch when the lane is agile, the merge choice, its branch naming and any reviewer rule that applies to its PRs.
 - **Where a lane session runs.** Each lane session starts in the shared main checkout, which stays on the working branch. Only its tasks' worktrees hold changes, so lanes never switch the checkout under each other.
-- **Lanes can nest.** A lane may start lanes of its own, each recorded with its parent. The merge queue belongs to the session that started the lane run.
+- **One hub.** bro in the main session is the hub of a lane run. It holds the merge choice and the one merge queue, and every lane reports to it, as nested sessions report to the session that started them.
+- **Nesting is the host's call.** TMB neither allows nor forbids a lane starting a session of its own: Claude Code decides, and asks the Human. A session started under a lane is recorded with its parent, and its PRs still go to the hub's queue.
 - **Registration survives compaction.** A lane restores its whole queue by its stable session id, not one issue. Planned: GH 3025, completing GH 3020.
 - **Fresh worktrees install dependencies** before they build. Planned: GH 3146.
 - **Lanes share notes** in the folder the host hands them. Planned: GH 1818.
@@ -173,7 +174,7 @@ flowchart LR
     F --> G
     H[Session compacted, restarted, or gone] --> I[bro restores lanes from the registry]
     I -- lane's session is gone --> J[Start a new session that takes over the same lane record]
-    P[Parent's turn: a lane with open work has recorded nothing for a set time] --> Q{The session answers a nudge?}
+    P[Parent's turn: a lane with open work has been quiet longer than its recorded runs usually take] --> Q{The session answers a nudge?}
     Q -- no --> J
     Q -- yes --> G
     Q -- it is waiting on the Human --> W[Parent tells the Human which lane waits, and on what]
@@ -182,7 +183,7 @@ flowchart LR
 ```
 
 - **Any of the Human's sessions can change a lane.** The Human can raise a priority, change a review mode or archive a lane from the parent or from the lane itself. A lane bro never changes another lane on its own. Planned: GH 3025, with the per-session approval gate in GH 3028.
-- **A stuck lane is found, not waited on.** At each of its turns the parent lists the lanes that have open work and no recorded event for a set time. It nudges the session, and takes the lane over when no answer comes. A lane records each question it is waiting on, since a message between sessions can approve nothing. The last recorded event comes from the session's own trajectory. Planned: GH 3255.
+- **A stuck lane is found, not waited on.** At each of its turns the parent lists the lanes that have open work and have been quiet longer than runs of that kind usually take, from the recorded run times the dashboard shows. No fixed limit decides it: the parent reads the lane's last events, judges whether it is working, waiting or stalled, nudges the session, and takes the lane over when no answer comes. A lane records each question it is waiting on, since a message between sessions can approve nothing. The last recorded event comes from the session's own trajectory. Planned: GH 3255.
 - **Archiving does not cut work off.** An archive waits for the lane's running task to close, unless the Human says to cancel it. A queued PR stays queued under the parent.
 - **When a lane is done.** A lane is done when its issues are closed and its PRs merged. The run ends when every lane is done or archived, and its merge choice ends with it.
 - **Records are kept.** An archived lane keeps its record and history, so it can be listed and reopened later. Archiving the Claude session itself is the host's feature, which bro may offer alongside.

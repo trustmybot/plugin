@@ -76,7 +76,7 @@ To remove them:
 
 ## Session start
 
-- **Advisory, never blocking.** Session start checks health, required tools, leftovers from older versions and the project inventory. When something is broken, a degraded banner names it and the session goes on. The required tools are Node with its built-in SQLite, and git. A project whose repos have no remote gets one line saying TMB is operating locally and skips remote and push steps; that is not degraded.
+- **Advisory, never blocking.** Session start checks health, required tools, leftovers from older versions and the project inventory. When something is broken, a degraded banner names it and the session goes on. The gates still fail closed while the trajectory DB is unhealthy or unmigrated ([MEMORY.md](MEMORY.md)), so the work waits until the health check is green. The required tools are Node with its built-in SQLite, and git. A project whose repos have no remote gets one line saying TMB is operating locally and skips remote and push steps; that is not degraded.
 - **One compact nudge.** Once per session, when bro's context passes a configurable token threshold (off when set to zero), bro gets one line suggesting /compact at the next natural break. The compaction restore brings back the session's open issues, newest first up to a fixed limit with the counts of the rest, the current issue, its tasks and the newest decision.
 - **Which DB.** The session uses the project's trajectory DB; [MEMORY.md](MEMORY.md#where-the-trajectory-db-lives) gives the rule that finds it.
 
