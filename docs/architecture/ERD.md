@@ -1400,11 +1400,11 @@ The world model leaves `trajectory.db` for its own file, `world_model.db`, besid
 - **No link across the two files.** A foreign key cannot cross files, so a world-model row holds a repo name, a task id or a commit as a plain value. `wm_freshness` loses its link to `repos`; a repo rename or removal updates both files in the same step, trajectory DB first.
 - **Facts stay in the trajectory DB.** Three kinds of fact about the world model are trajectory, and stay there:
   - each scan and reindex, as a start and an end with its trigger, mode and outcome (`wm_freshness` keeps only a copy of the latest);
-  - each concept write, whoever made it, with the concept's full content, so the concepts can be replayed into a fresh file. Today only a concept a task proposed leaves such a record; a concept bro or a consultant writes directly leaves none;
-  - each file purpose an author wrote in a completion report.
+  - each concept write, whoever made it, with the concept's full content, so the concepts can be replayed into a fresh file. Today only a concept a task proposed leaves such a record; a concept bro or a consultant writes directly leaves none. A concept's identity is its first write, so a rename is one more write under the same identity. A concept is marked `retired` by a write too, never deleted, so a replay cannot bring one back. The replay takes the newest write of each concept;
+  - each file purpose an author wrote, which the completion report already holds, so it needs no new record.
 - **A write to both files is not one transaction.** The trajectory fact is written first and the cache second. A crash between the two leaves the cache behind, and the next read or scan brings it forward.
 - **`wm_overlays`** holds one row per task overlay: the task id and commit as plain values, the repo, and when it was built. The three overlay tables mirror the map tables and belong to an overlay, so dropping an overlay is one delete.
-- **`wm_edges.resolution`** loses `name`. The index links a reference only on proof, so an edge is `exact` or `unresolved`.
+- **`wm_edges.resolution`** has three values, each with one meaning. `exact` is a link to a symbol made on proof, a known receiver type included. `name_only` is an edge whose target is never a symbol, such as a config key or a directory a test runner covers, so it holds the target's name and no link. `unresolved` is a reference to a symbol the index could not prove. `name_only` replaces `name`, which meant both a proven receiver-type link and a name-only target.
 
 ## How the groups connect
 
