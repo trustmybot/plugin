@@ -242,6 +242,24 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         setClass(null);
       }
     });
+
+    it("gives a no-code task's no_code_lints the run base as TMB_LINT_BASE_SHA, so --l1-changed diffs against it", async () => {
+      const envProbe = JSON.stringify({
+        version: 1,
+        lints: [{ name: 'full', command: 'echo code-set' }],
+        no_code_lints: [{ name: 'l1', command: 'echo "base=$TMB_LINT_BASE_SHA"' }],
+        fingerprint_inputs: ['src/**'],
+      });
+      const { repo, base, sha } = repoAt({ [CLOSE_LINTS_PATH]: envProbe });
+      try {
+        setClass('docs');
+        const run = ran(await runCloseLints(repo, sha, base, 30, { ...env, TMB_LINT_BASE_SHA: 'inherited' }, target()));
+        assert.equal(run.exitCode, 0);
+        assert.deepEqual(run.results.map((r) => [r.name, r.output.trim()]), [['l1', `base=${base}`]]);
+      } finally {
+        setClass(null);
+      }
+    });
   });
 
   describe('lintBaseSha on a task stacked on a feature branch ahead of dev (GH 2225)', () => {
