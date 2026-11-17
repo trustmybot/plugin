@@ -8,7 +8,7 @@ The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of tru
 
 - **Workflow** — the issue → task chain and everything recorded against it: each task's lifecycle events and the review batches they point at, decisions and discussions, the audit log, verification runs, review verdicts and findings, metered agent runs, roundtables and session handoffs. Every row hangs off an issue or a task.
 - **Registries** — standalone state not tied to an issue: registered repos with their per-repo branch policy, remotes and toolchain profiles; milestones; agents; capabilities (cheatcodes) and what each install wired; PR records; plugin config and schema metadata.
-- **World model** — the project map (directories, files, symbols, the edges between them, concepts) and its freshness state. A derived cache, keyed by repo and rebuilt by scanning, with no foreign key into the workflow tables.
+- **World model** — the project map (directories, files, symbols, the edges between them, concepts) and its freshness state. A derived cache, keyed by repo and rebuilt by scanning, with no foreign key into the workflow tables. It moves to its own file ([Planned for the world model file](#planned-for-the-world-model-file)).
 - **Search** — FTS5 indexes and embedding caches over discussions, audit rows and the world model, each keyed by its source row.
 - **Eval mode** — capture tables in `schema-eval.sql`, applied only with `TMB_EVAL_MODE=1`, so production DBs never carry them.
 
@@ -1380,6 +1380,31 @@ Sessions, agent runs, hook runs and verification runs each record a start, an en
 - **`hook_run_events`** holds each hook run's start and end. A hook run has no row of its own: it is the pair of events that share its id, which keeps a call on every tool use to two inserts. The end keeps its detail only for a deny, a timeout or a crash. The hook rows now in `audit` move here (GH 3229).
 - **`verification_run_events`** holds each verification run's start and end; `verification_runs` keeps the run's identity and commands.
 - Each end names an outcome from a lookup table and, when it is not a clean finish, a cause from one, as task events do.
+
+## Planned for the world model file
+
+The world model leaves `trajectory.db` for its own file, `world_model.db`, beside it (GH 3225). The trajectory DB then holds trajectory only, and a scan runs without holding its write lock. [`WORLD_MODEL.md`](./WORLD_MODEL.md) holds the design these tables carry. Its code hasn't merged, so the generated tables above still show the world model inside `trajectory.db`.
+
+**What the file is.** A cache with no fact of its own: every row is derived from git, or from a fact the trajectory DB keeps. Deleting the file and scanning again restores all of it.
+
+| Group | Tables | Rebuilt from |
+|---|---|---|
+| Index state | `wm_freshness` | the next read or scan |
+| Map | `wm_directories`, `wm_files`, `wm_symbols`, `wm_edges` | each repo's target commit in git |
+| Concepts | `wm_concepts`, `wm_concept_steps`, `wm_concept_claims` | the concept writes the trajectory DB records |
+| Task overlays (GH 2957) | `wm_overlays`, `wm_overlay_files`, `wm_overlay_symbols`, `wm_overlay_edges` | each open task's commit in git |
+| Search | the map's and concepts' full-text indexes, `wm_directories_embeddings`, `wm_files_embeddings` | the rows they index |
+
+- **Table names keep the `wm_` prefix.** A reader that joins the two files attaches one to the other, and the prefix keeps every name unambiguous there. The tables move as they are.
+- **Its own schema version.** `world_model.db` has its own version and migrations, apart from the trajectory DB's. A file whose version or indexer is older than the code expects is rebuilt, not migrated row by row.
+- **No link across the two files.** A foreign key cannot cross files, so a world-model row holds a repo name, a task id or a commit as a plain value. `wm_freshness` loses its link to `repos`; a repo rename or removal updates both files in the same step, trajectory DB first.
+- **Facts stay in the trajectory DB.** Three kinds of fact about the world model are trajectory, and stay there:
+  - each scan and reindex, as a start and an end with its trigger, mode and outcome (`wm_freshness` keeps only a copy of the latest);
+  - each concept write, whoever made it, with the concept's full content, so the concepts can be replayed into a fresh file. Today only a concept a task proposed leaves such a record; a concept bro or a consultant writes directly leaves none. A concept's identity is its first write, so a rename is one more write under the same identity. A concept is marked `retired` by a write too, never deleted, so a replay cannot bring one back. The replay takes the newest write of each concept;
+  - each file purpose an author wrote, which the completion report already holds, so it needs no new record.
+- **A write to both files is not one transaction.** The trajectory fact is written first and the cache second. A crash between the two leaves the cache behind, and the next read or scan brings it forward.
+- **`wm_overlays`** holds one row per task overlay: the task id and commit as plain values, the repo, and when it was built. The three overlay tables mirror the map tables and belong to an overlay, so dropping an overlay is one delete.
+- **`wm_edges.resolution`** has three values, each with one meaning. `exact` is a link to a symbol made on proof, a known receiver type included. `name_only` is an edge whose target is never a symbol, such as a config key or a directory a test runner covers, so it holds the target's name and no link. `unresolved` is a reference to a symbol the index could not prove. `name_only` replaces `name`, which meant both a proven receiver-type link and a name-only target.
 
 ## How the groups connect
 
