@@ -178,6 +178,8 @@ flowchart LR
     E --> F[Each lane runs 3.1, 3.2 or 3.9 on its own issues]
     F --> G[Lane PRs enter the merge queue]
     G --> H[bro integrates and merges PRs in priority order, per B]
+    G -. a PR conflicts or fails CI .-> F
+    A -. the Human declines lanes .-> S[One session, flow 3.1]
 ```
 
 ### 3.9 Agile mode
