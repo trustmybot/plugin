@@ -197,7 +197,7 @@ flowchart LR
     H --> I[One CI run and one merge-queue run; merged per the merge policy]
     I --> J[Local branch deleted; remote copy deleted on merge]
     G -. fail .-> K[New fix task on the feature branch, reviewed as in 3.1]
-    K -.-> G
+    K -. the failed group is reviewed again .-> G
     F -. Human asks for a review now .-> R[code-reviewer reviews that task, as in 3.1]
     F -. Human drops the feature branch .-> X[Its queued tasks are cancelled]
 ```
