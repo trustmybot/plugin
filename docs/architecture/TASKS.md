@@ -149,7 +149,7 @@ stateDiagram-v2
     in_review --> running: verdict fail, reopened at high effort
     in_review --> closed: branch merged outside the flow, recorded as a bypass
     reviewed --> closed: bro closes; or the branch merges outside the flow; or an agile task's feature branch merges
-    submitted --> closed: bro closes without a review, recorded as a bypass
+    submitted --> closed: branch merged outside the flow, or the recovery step closes a stuck task at its landed commit; recorded as a bypass
     pending --> closed: branch merged outside the flow, recorded as a bypass; or the recovery step closes a stuck task at its landed commit
     running --> closed: branch merged outside the flow, recorded as a bypass
     submitted --> review_deferred: agile close, merged into the feature branch

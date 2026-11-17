@@ -3,10 +3,11 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
+import { CLOSE_LINTS_PATH } from '../hooks/lib/lint-fingerprint.js';
 import { tempDB } from './helpers.js';
 import { DATA_CONTRACTS, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
@@ -14,7 +15,8 @@ import { groupQueuedTasks, pathsOverlap, reviewQueueTools } from '../tools/revie
 import { AGILE_QUEUED_SQL, reviewBatchKey } from '../review-sql.js';
 import { closedTasksWithoutReview } from '../tools/lifecycle.js';
 import { issueTools } from '../tools/issues.js';
-import { __setGitRunnerForTests } from '../utils/git-run.js';
+import { __setGitAsyncRunnerForTests, __setGitRunnerForTests } from '../utils/git-run.js';
+import { spawnAsync } from '../utils/spawn-async.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Group = { tasks: Array<{ id: number; commit_sha: string | null; updated_at: string }>; files: string[]; base: string | null; head: string | null };
@@ -301,8 +303,27 @@ describe('GH 2225 T4: review_batch_record', () => {
     return id;
   }
 
-  // The row the reviewer-identity-observe hook writes for a review_batch_record call.
+  // The bro review_batch_handoff row a review_batch_record call cites, as review_batch_handoff writes it.
+  function handOff(db: TrajectoryDB, taskIds: number[], headSha: string, opts: { fromNode?: string; featureBranch?: string } = {}): number {
+    const res = db.run(
+      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (-1, ?, ?, 'review_batch_handoff', 'handoff', ?, ?)`,
+      [
+        opts.featureBranch ?? 'feat/agile',
+        opts.fromNode ?? 'bro',
+        JSON.stringify({ feature_branch: opts.featureBranch ?? 'feat/agile', head_sha: headSha.toLowerCase(), task_ids: [...new Set(taskIds)].sort((a, b) => a - b) }),
+        iso(),
+      ],
+    );
+    return Number(res.lastInsertRowid);
+  }
+
+  const newestHandoff = (db: TrajectoryDB): number | undefined =>
+    db.get<{ id: number | null }>(`SELECT MAX(id) AS id FROM audit WHERE event_type = 'review_batch_handoff'`)?.id ?? undefined;
+
+  // The row the reviewer-identity-observe hook writes for a review_batch_record call, after bro's hand-off of the same group.
   function observe(db: TrajectoryDB, taskIds: number[], headSha: string, opts: { agentId?: string; observedAt?: string } = {}): number {
+    handOff(db, taskIds, headSha);
     const sorted = [...new Set(taskIds)].sort((a, b) => a - b);
     const content = {
       tool: 'review_batch_record',
@@ -323,10 +344,12 @@ describe('GH 2225 T4: review_batch_record', () => {
     return Number(res.lastInsertRowid);
   }
 
+  // Cites the newest hand-off unless args name batch_handoff_id (undefined included).
   async function batch(db: TrajectoryDB, args: Record<string, unknown>): Promise<RawResult> {
     return (await reviewQueueTools(db).handlers['review_batch_record']({
       agent: 'code-reviewer',
       feature_branch: 'feat/agile',
+      ...('batch_handoff_id' in args ? {} : { batch_handoff_id: newestHandoff(db) }),
       ...args,
     })) as RawResult;
   }
@@ -530,6 +553,32 @@ describe('GH 2225 T4: review_batch_record', () => {
         ];
         for (const args of bad) refusedWith(await batch(db, args), 'invalid_args');
         assert.deepEqual(snapshot(db), before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('T6a SC5: refuses a call citing no batch_handoff_id, an unknown or non-bro one, or a hand-off of other tasks, head or branch', async () => {
+      const { db, issue } = batchDb();
+      try {
+        const a = seedQueued(db, issue, repo.base);
+        const b = seedQueued(db, issue, repo.head);
+        observe(db, [a, b], repo.head);
+        const matching = newestHandoff(db)!;
+        const forged = handOff(db, [a, b], repo.head, { fromNode: 'code-reviewer' });
+        const otherTasks = handOff(db, [a], repo.head);
+        const otherHead = handOff(db, [a, b], repo.base);
+        const otherBranch = handOff(db, [a, b], repo.head, { featureBranch: 'feat/other' });
+        const before = snapshot(db);
+        const call = { task_ids: [a, b], head_sha: repo.head, verdict: 'pass' };
+        for (const batch_handoff_id of [undefined, 0, 'x', -3]) refusedWith(await batch(db, { ...call, batch_handoff_id }), 'invalid_args');
+        refusedWith(await batch(db, { ...call, batch_handoff_id: 999_999 }), 'batch_handoff_unknown');
+        refusedWith(await batch(db, { ...call, batch_handoff_id: forged }), 'batch_handoff_unknown');
+        for (const id of [otherTasks, otherHead, otherBranch]) refusedWith(await batch(db, { ...call, batch_handoff_id: id }), 'batch_handoff_mismatch');
+        assert.deepEqual(snapshot(db), before, 'nothing is written, the observation included');
+        const r = await batch(db, { ...call, batch_handoff_id: matching });
+        assert.ok(!r.isError, r.content[0].text);
+        assert.equal(batchRows(db)[0].content['batch_handoff_id'], matching);
       } finally {
         db.close();
       }
@@ -832,6 +881,276 @@ describe('GH 2225 T4: review_batch_record', () => {
           db.close();
         }
       });
+    });
+  });
+});
+
+// GH 2225 T6a: review_batch_handoff, bro's hand-off of a group of queued agile
+// tasks of a feature branch to one code review at the branch tip.
+describe('GH 2225 T6a: review_batch_handoff', () => {
+  const FEATURE = 'feat/agile';
+  const SESSION = 'session0handoff01';
+  const AT_HEAD_LINT = { name: 'at-head', command: 'test -n "$TMB_LINT_BASE_SHA" && grep -q c3 a.txt' };
+  // main: base (a.txt, b.txt, c.txt, the close lints). feat/agile: c1 (a.txt), c2 (b.txt), c3 (a.txt), c4 (c.txt).
+  // side: off base, no ancestor of feat/agile. feat/bad: off base, its close lint fails.
+  let repo: { root: string; git: (...a: string[]) => string; base: string; c: string[]; side: string; bad: string };
+
+  before(() => {
+    const root = mkdtempSync(join(tmpdir(), 'batch-handoff-'));
+    const git = (...a: string[]) => execFileSync('git', ['-C', root, ...a], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 }).toString().trim();
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t.t');
+    git('config', 'user.name', 't');
+    git('config', 'commit.gpgsign', 'false');
+    const commit = (files: Record<string, string>, message: string): string => {
+      for (const [path, text] of Object.entries(files)) {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), text);
+      }
+      git('add', '.');
+      git('commit', '-q', '-m', message);
+      return git('rev-parse', 'HEAD');
+    };
+    const lints = (lint: { name: string; command: string }) => JSON.stringify({ lints: [lint], fingerprint_inputs: [] });
+    const base = commit({ 'a.txt': 'base\n', 'b.txt': 'base\n', 'c.txt': 'base\n', [CLOSE_LINTS_PATH]: lints(AT_HEAD_LINT) }, 'base');
+    git('checkout', '-q', '-b', FEATURE);
+    const c = [commit({ 'a.txt': 'c1\n' }, 'c1'), commit({ 'b.txt': 'c2\n' }, 'c2'), commit({ 'a.txt': 'c3\n' }, 'c3'), commit({ 'c.txt': 'c4\n' }, 'c4')];
+    git('checkout', '-q', '-b', 'side', base);
+    const side = commit({ 'side.txt': 'side\n' }, 'side');
+    git('checkout', '-q', '-b', 'feat/bad', base);
+    const bad = commit({ 'd.txt': 'bad\n', [CLOSE_LINTS_PATH]: lints({ name: 'fails', command: 'echo broken; exit 3' }) }, 'bad');
+    git('checkout', '-q', 'main');
+    repo = { root, git, base, c, side, bad };
+  });
+
+  after(() => rmSync(repo.root, { recursive: true, force: true }));
+
+  function handoffDb(): { db: TrajectoryDB; issue: number } {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repo.root]);
+    return { db, issue: seedIssue(db) };
+  }
+
+  // A queued agile task cli.js feature-merge moved onto <branch> (null: never merged onto one).
+  function seedMerged(db: TrajectoryDB, issue: number, base: string, commit: string, branch: string | null = FEATURE): number {
+    const id = seedTask(db, issue, { repo: 'app', base, commit });
+    const row = `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 's', ?, ?)`;
+    db.run(row, [issue, 'review_queued', JSON.stringify({ task_id: id, commit_sha: commit }), iso()]);
+    if (branch !== null) db.run(row, [issue, 'feature_branch_merged', JSON.stringify({ task_id: id, feature_branch: branch, commit_sha: commit, rebased: false }), iso()]);
+    return id;
+  }
+
+  // t1..t4 on feat/agile at c1..c4, each based on the commit before it.
+  function seedBranch(db: TrajectoryDB, issue: number): number[] {
+    return repo.c.map((commit, i) => seedMerged(db, issue, i === 0 ? repo.base : repo.c[i - 1], commit));
+  }
+
+  async function handoff(db: TrajectoryDB, args: Record<string, unknown>): Promise<RawResult> {
+    return (await reviewQueueTools(db).handlers['review_batch_handoff']({ agent: 'bro', feature_branch: FEATURE, session_id: SESSION, ...args })) as RawResult;
+  }
+
+  type Refusal = { error: string; tasks?: Array<{ task_id: number; reason: string; shares_with?: number[]; files?: string[] }> };
+  function refused(r: RawResult, error: string): Refusal {
+    assert.equal(r.isError, true, r.content[0].text);
+    const body = JSON.parse(r.content[0].text) as Refusal;
+    assert.equal(body.error, error, r.content[0].text);
+    return body;
+  }
+
+  const auditCount = (db: TrajectoryDB): number => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit')!.n;
+
+  // The temporary lint worktree is gone: git lists only the main checkout and no review-batch dir is left.
+  function assertNoLintWorktree(): void {
+    assert.equal(repo.git('worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length, 1);
+    const dir = join(repo.root, '.claude', 'worktrees');
+    assert.deepEqual(existsSync(dir) ? readdirSync(dir).filter((d) => d.startsWith('review-batch.')) : [], []);
+  }
+
+  describe('SC1: one bro row at the branch tip with its close-lint run, and a batch-anchored reviewer spawn', () => {
+    it('hands off a group that keeps every shared file, its lints run at the tip in a temporary worktree', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const [t1, , t3] = seedBranch(db, issue);
+        const before = auditCount(db);
+        const r = await handoff(db, { task_ids: [t3, t1] });
+        assert.ok(!r.isError, r.content[0].text);
+        const out = JSON.parse(r.content[0].text) as {
+          batch_handoff_id: number;
+          head_sha: string;
+          base_sha: string;
+          task_ids: number[];
+          reviewer_spawn: { prompt: string; effort: string; subagent_type: string };
+        };
+        const head = repo.c[3];
+        assert.notEqual(out.batch_handoff_id, null);
+        assert.notEqual(out.head_sha, null);
+        assert.notEqual(out.base_sha, null);
+        assert.equal(out.head_sha, head);
+        assert.equal(out.base_sha, repo.base);
+        assert.deepEqual(out.task_ids, [t1, t3]);
+        assert.equal(auditCount(db), before + 1, 'exactly one row');
+
+        const row = db.get<{ id: number; from_node: string; branch_id: string; issue_id: number; content_json: string }>(
+          `SELECT id, from_node, branch_id, issue_id, content_json FROM audit WHERE event_type = 'review_batch_handoff'`,
+        )!;
+        assert.equal(row.id, out.batch_handoff_id);
+        assert.deepEqual([row.from_node, row.branch_id, row.issue_id], ['bro', FEATURE, issue]);
+        const content = JSON.parse(row.content_json) as {
+          lint: { fingerprint: string | null; exit_code: number; results: Array<{ name: string; exit_code: number }> };
+          [k: string]: unknown;
+        };
+        assert.notEqual(content.lint.fingerprint, null);
+        assert.ok(typeof content.lint.fingerprint === 'string' && content.lint.fingerprint.length > 0);
+        assert.deepEqual(
+          { ...content, lint: { exit_code: content.lint.exit_code, results: content.lint.results.map(({ name, exit_code }) => ({ name, exit_code })) } },
+          {
+            feature_branch: FEATURE,
+            head_sha: head,
+            base_sha: repo.base,
+            task_ids: [t1, t3],
+            commit_shas: [repo.c[0], repo.c[2]],
+            repo: 'app',
+            lint: { exit_code: 0, results: [{ name: 'at-head', exit_code: 0 }] },
+          },
+          'the lint passed, so it ran on a checkout of the tip, not the main checkout',
+        );
+        assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM lint_runs')!.n, 0, 'the batch lint run is not recorded in lint_runs');
+        assertNoLintWorktree();
+
+        const anchors = Object.fromEntries(out.reviewer_spawn.prompt.split('\n')[0].split(' ').map((kv) => kv.split('=') as [string, string]));
+        assert.deepEqual(anchors, {
+          batch_handoff_id: String(out.batch_handoff_id),
+          feature_branch: FEATURE,
+          head_sha: head,
+          repo: 'app',
+          repo_path: repo.root,
+          subagent_session_id: SESSION,
+        });
+        assert.equal(out.reviewer_spawn.subagent_type, 'tmb:code-reviewer');
+        assert.equal(out.reviewer_spawn.effort, 'medium');
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  describe('F81-2: the lint worktree git calls do not block the server', () => {
+    it('adds, removes and prunes the temporary worktree through the async git runner', async () => {
+      const { db, issue } = handoffDb();
+      const worktreeCmd = (args: string[]): string | null => {
+        const at = args.indexOf('worktree');
+        return at === -1 ? null : args[at + 1];
+      };
+      const syncWorktree: string[] = [];
+      const asyncWorktree: string[] = [];
+      __setGitRunnerForTests((args, options) => {
+        const cmd = worktreeCmd(args);
+        if (cmd) syncWorktree.push(cmd);
+        return spawnSync('git', args, { timeout: 30_000, ...options });
+      });
+      __setGitAsyncRunnerForTests((args, options) => {
+        const cmd = worktreeCmd(args);
+        if (cmd) asyncWorktree.push(cmd);
+        return spawnAsync('git', args, options);
+      });
+      try {
+        const [t1, , t3] = seedBranch(db, issue);
+        const r = await handoff(db, { task_ids: [t1, t3] });
+        assert.ok(!r.isError, r.content[0].text);
+        assert.deepEqual(asyncWorktree, ['add', 'remove', 'prune']);
+        assert.deepEqual(syncWorktree, [], 'no worktree git call ran on the blocking runner');
+        assertNoLintWorktree();
+      } finally {
+        __setGitRunnerForTests();
+        db.close();
+      }
+    });
+  });
+
+  describe('SC2: a refused hand-off writes nothing', () => {
+    it('refuses a caller other than bro, and missing or malformed arguments', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const [t1] = seedBranch(db, issue);
+        const before = auditCount(db);
+        for (const agent of ['swe', 'code-reviewer']) refused(await handoff(db, { agent, task_ids: [t1] }), 'forbidden');
+        const bad: Array<Record<string, unknown>> = [
+          { task_ids: [] },
+          { task_ids: ['x'] },
+          { task_ids: [t1], session_id: undefined },
+          { task_ids: [t1], session_id: 'bad id' },
+          { task_ids: [t1], feature_branch: ' ' },
+        ];
+        for (const args of bad) refused(await handoff(db, args), 'invalid_args');
+        assert.equal(auditCount(db), before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('refuses a task not queued on the branch: unknown, never merged onto it, or merged onto another', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const [t1] = seedBranch(db, issue);
+        const unmerged = seedMerged(db, issue, repo.base, repo.c[0], null);
+        const elsewhere = seedMerged(db, issue, repo.base, repo.c[0], 'feat/other');
+        const before = auditCount(db);
+        const body = refused(await handoff(db, { task_ids: [t1, unmerged, elsewhere, 999_999] }), 'task_not_queued');
+        assert.deepEqual(body.tasks?.map((t) => t.task_id), [unmerged, elsewhere, 999_999]);
+        assert.equal(auditCount(db), before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('refuses a task whose commit is no ancestor of the branch tip', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const offTip = seedMerged(db, issue, repo.base, repo.side);
+        const before = auditCount(db);
+        const body = refused(await handoff(db, { task_ids: [offTip] }), 'not_ancestor');
+        assert.deepEqual(body.tasks?.map((t) => [t.task_id, t.reason.split(':')[0]]), [[offTip, 'not_ancestor']]);
+        assert.equal(auditCount(db), before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('refuses a group that leaves out a queued task sharing a changed file, naming the task, the group tasks and the files', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const [t1, t2, t3, t4] = seedBranch(db, issue);
+        const before = auditCount(db);
+        for (const group of [[t1], [t1, t2, t4], [t3]]) {
+          const body = refused(await handoff(db, { task_ids: group }), 'group_splits_shared_file');
+          const leftOut = group.includes(t1) ? t3 : t1;
+          assert.deepEqual(
+            body.tasks?.map(({ task_id, shares_with, files }) => ({ task_id, shares_with, files })),
+            [{ task_id: leftOut, shares_with: [leftOut === t3 ? t1 : t3], files: ['a.txt'] }],
+          );
+        }
+        assert.equal(auditCount(db), before);
+        assertNoLintWorktree();
+        assert.ok(!(await handoff(db, { task_ids: [t2] })).isError, 'a task sharing no changed file may go alone');
+        assert.ok(!(await handoff(db, { task_ids: [t1, t2, t3, t4] })).isError, 'the whole branch keeps every shared file');
+      } finally {
+        db.close();
+      }
+    });
+
+    it('refuses when the close lints fail on the branch tip, and removes the lint worktree', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const t = seedMerged(db, issue, repo.base, repo.bad, 'feat/bad');
+        const before = auditCount(db);
+        const r = await handoff(db, { feature_branch: 'feat/bad', task_ids: [t] });
+        refused(r, 'lint_failed');
+        assert.match(r.content[0].text, /Lint fails exited 3/);
+        assert.equal(auditCount(db), before);
+        assertNoLintWorktree();
+      } finally {
+        db.close();
+      }
     });
   });
 });

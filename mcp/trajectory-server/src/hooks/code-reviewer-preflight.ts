@@ -24,14 +24,19 @@
  * The last two are an allowlist over swe's close-lint record (GH 2570): a record
  * the preflight cannot prove current and clean denies, a malformed
  * close-lints.json included. The lints themselves run at swe's close, not here.
- * Only code-reviewer spawns naming task_id=<N> are judged; a missing task_id is
- * the prompt-shape gate's. No resolvable DB or no tasks row allows, a DB read
- * failure denies. Bypass: TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1.
+ * Only code-reviewer spawns naming task_id=<N> or batch_handoff_id=<N> are
+ * judged; a missing anchor is the prompt-shape gate's. A grouped agile review
+ * (batch_handoff_id, review_batch_handoff) gets batchPreflight's checks on the
+ * feature-branch head and the lint run its row holds instead (no_batch_handoff,
+ * sha_mismatch, no_lint_record, stale_lint_record, task_not_queued). No
+ * resolvable DB or no tasks row allows, a DB read failure denies. Bypass:
+ * TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1.
  */
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { closeLintsPlan, taskNoCodeClass } from './lib/close-lints.js';
-import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
+import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
+import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, realdir, repoPathAbs, sqlInt, sqlQuote } from './lib/db.js';
 import { gitText, listed, revParse } from './lib/doc-checks.js';
 import { gateWorkflowMode, prTargetRef } from './lib/git-refs.js';
 import { latestLintRun } from './lib/lint-runs.js';
@@ -42,7 +47,7 @@ import { normalizeRole } from './lib/role.js';
 export const GATE_NAME = 'code-reviewer-preflight';
 export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_PREFLIGHT';
 
-export type PreflightCheck = 'sha_mismatch' | 'no_passing_run' | 'no_lint_record' | 'stale_lint_record';
+export type PreflightCheck = 'sha_mismatch' | 'no_passing_run' | 'no_lint_record' | 'stale_lint_record' | 'no_batch_handoff' | 'task_not_queued';
 
 export interface PreflightFailure {
   check: PreflightCheck;
@@ -204,11 +209,137 @@ export const codeReviewerPreflight: Gate = async (payload, env) => {
   if (env[BYPASS_ENV] === '1') return ALLOW;
   if (jqAlternatives(payload, [['tool_name']]) !== 'Agent') return ALLOW;
   if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'code-reviewer') return ALLOW;
-  const m = /task_id\s*=\s*([0-9]+)/.exec(jqAlternatives(payload, [['tool_input', 'prompt']]));
-  const taskId = sqlInt(m?.[1] ?? '');
-  if (taskId === '') return ALLOW;
+  const prompt = jqAlternatives(payload, [['tool_input', 'prompt']]);
+  const handoffId = sqlInt(/batch_handoff_id\s*=\s*([0-9]+)/.exec(prompt)?.[1] ?? '');
+  const taskId = sqlInt(/task_id\s*=\s*([0-9]+)/.exec(prompt)?.[1] ?? '');
+  if (handoffId === '' && taskId === '') return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
   if (!haveSqlite(env)) return dbUnavailable(env);
+  if (handoffId !== '') {
+    const batch = await batchPreflight(db, handoffId, env);
+    if (batch !== ALLOW || taskId === '') return batch;
+  }
   return await preflight(db, taskId, env);
 };
+
+/** The fix for a denied grouped-review spawn: hand the group off again as it now stands. */
+export function batchPreflightFix(check: PreflightCheck, handoffId: string): DenyFix {
+  return {
+    allowed: `review_batch_handoff(agent='bro', feature_branch=<branch>, task_ids=<the queued group>, session_id=<id>) again (${check} on batch_handoff_id=${handoffId}), then the code-reviewer spawn with the reviewer_spawn it returns`,
+  };
+}
+
+function batchDeny(failure: PreflightFailure, handoffId: string): GateResult {
+  return structuredDenyResult(failure, batchPreflightFix(failure.check, handoffId));
+}
+
+interface BatchHandoffRow {
+  featureBranch: string;
+  headSha: string;
+  repo: string;
+  repoPath: string;
+  lintExitCode: string;
+  lintFingerprint: string;
+  taskIds: string;
+  commitShas: string;
+}
+
+const BATCH_FIELDS = ['$.feature_branch', '$.head_sha', '$.repo', '$.lint.exit_code', '$.lint.fingerprint', '$.task_ids', '$.commit_shas'] as const;
+
+// Each field hex-encoded, so a '|' in a branch or path cannot shift the fields.
+function readBatchHandoff(db: string, handoffId: string, env: NodeJS.ProcessEnv): BatchHandoffRow | null | typeof GATE_READ_ERROR {
+  const fields = BATCH_FIELDS.map((path) => `hex(COALESCE(json_extract(a.content_json, '${path}'), ''))`);
+  const repoPath = "hex(COALESCE((SELECT r.path FROM repos r WHERE r.name = json_extract(a.content_json, '$.repo')), ''))";
+  const row = gateRead(
+    db,
+    `SELECT 'row|' || ${[...fields, repoPath].join(" || '|' || ")} FROM audit a
+      WHERE a.id = ${handoffId} AND a.event_type = 'review_batch_handoff' AND a.from_node = 'bro' AND json_valid(a.content_json);`,
+    env,
+  );
+  if (row === GATE_READ_ERROR) return GATE_READ_ERROR;
+  if (row === '') return null;
+  const [, ...hex] = row.split('\n')[0].split('|');
+  const [featureBranch, headSha, repo, lintExitCode, lintFingerprint, taskIds, commitShas, rawPath] = hex.map((h) => Buffer.from(h, 'hex').toString('utf8'));
+  const path = rawPath === '' || rawPath.startsWith('/') ? rawPath : realdir(repoPathAbs(db, rawPath));
+  return { featureBranch, headSha, repo, repoPath: path.endsWith('/') ? path.slice(0, -1) : path, lintExitCode, lintFingerprint, taskIds, commitShas };
+}
+
+function jsonList(text: string): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function stringAt(list: readonly unknown[], i: number): string {
+  const v = list[i];
+  return typeof v === 'string' ? v : '';
+}
+
+/**
+ * A grouped agile review (batch_handoff_id=<N>): the bro review_batch_handoff
+ * row exists (no_batch_handoff), the feature-branch tip is still its head_sha
+ * (sha_mismatch), its close-lint run exited 0 (no_lint_record) under the
+ * close-lints fingerprint of that head (stale_lint_record), and each task is
+ * still queued on the branch at the commit handed off (task_not_queued).
+ */
+async function batchPreflight(db: string, handoffId: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
+  const row = readBatchHandoff(db, handoffId, env);
+  if (row === GATE_READ_ERROR) return dbUnavailable(env);
+  if (row === null) {
+    return batchDeny({ check: 'no_batch_handoff', expected: `a bro review_batch_handoff audit row with id ${handoffId}`, actual: 'no such row' }, handoffId);
+  }
+  const ref = `refs/heads/${row.featureBranch}`;
+  const tip = row.repoPath === '' || row.featureBranch === '' ? null : await revParse(row.repoPath, ref, env);
+  if (tip === null || tip !== row.headSha) {
+    return batchDeny({
+      check: 'sha_mismatch',
+      expected: row.headSha || null,
+      actual: tip ?? (row.repoPath === '' ? `repo ${JSON.stringify(row.repo)} has no repos row with a path` : `${ref} does not resolve in ${row.repoPath}`),
+    }, handoffId);
+  }
+  if (row.lintExitCode !== '0') {
+    return batchDeny({
+      check: 'no_lint_record',
+      expected: `review_batch_handoff ${handoffId} holds a close-lint run of ${tip} with exit_code=0`,
+      actual: `lint.exit_code=${row.lintExitCode || 'null'}`,
+    }, handoffId);
+  }
+  const plan = await closeLintsPlan(row.repoPath, tip, env, '');
+  if (typeof plan === 'string') {
+    return batchDeny({ check: 'stale_lint_record', expected: `the close-lints plan of ${tip} computes`, actual: plan }, handoffId);
+  }
+  if (row.lintFingerprint !== plan.fingerprint) {
+    return batchDeny({
+      check: 'stale_lint_record',
+      expected: `the handed-off lint fingerprint is the close-lints fingerprint of ${tip}`,
+      actual: `fingerprint recorded ${row.lintFingerprint || '(none)'}, recomputed ${plan.fingerprint}`,
+    }, handoffId);
+  }
+
+  const commits = jsonList(row.commitShas);
+  const pairs = jsonList(row.taskIds).map((id, i) => ({ id: sqlInt(String(id)), commit: stringAt(commits, i) }));
+  if (pairs.length === 0 || pairs.some((p) => p.id === '' || p.commit === '')) {
+    return batchDeny({ check: 'task_not_queued', expected: `review_batch_handoff ${handoffId} names its tasks and their commits`, actual: `task_ids ${row.taskIds}, commit_shas ${row.commitShas}` }, handoffId);
+  }
+  const queued = gateRead(
+    db,
+    `SELECT t.id FROM tasks t WHERE (${pairs.map((p) => `(t.id = ${p.id} AND t.commit_sha = '${sqlQuote(p.commit)}')`).join(' OR ')})
+       AND ${featureBranchTaskSql('t', `'${sqlQuote(row.featureBranch)}'`)} AND ${AGILE_PENDING_REVIEW_SQL};`,
+    env,
+  );
+  if (queued === GATE_READ_ERROR) return dbUnavailable(env);
+  const still = new Set(queued.split('\n').filter((l) => l !== ''));
+  const gone = pairs.filter((p) => !still.has(p.id)).map((p) => `${p.id}@${p.commit}`);
+  if (gone.length > 0) {
+    return batchDeny({
+      check: 'task_not_queued',
+      expected: `each task of review_batch_handoff ${handoffId} queued for review on ${row.featureBranch} at the commit handed off`,
+      actual: `no longer queued: ${listed(gone)}`,
+    }, handoffId);
+  }
+  return ALLOW;
+}

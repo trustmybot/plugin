@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
+import { closeLintsPlan } from '../hooks/lib/close-lints.js';
 import { makeSandbox, runGate, type Sandbox } from './hook-sandbox.js';
 
 const DENY = '"permissionDecision":"deny"';
@@ -146,7 +147,7 @@ describe('agent-spawn-dispatch end to end', () => {
     });
   });
 
-  it('a tmb:code-reviewer spawn for a verified task handed off at its commit passes every Agent-spawn gate silently (GH 1641)', () => {
+  it('a tmb:code-reviewer spawn for a verified, lint-recorded task handed off at its commit passes every Agent-spawn gate silently (GH 1641)', async () => {
     const work = join(sb.dir, 'review');
     const r = join(work, 'repo');
     repo(r, 'fix/5-pr');
@@ -169,11 +170,25 @@ describe('agent-spawn-dispatch end to end', () => {
        CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
        CREATE TABLE discussions (id INTEGER PRIMARY KEY, issue_id INTEGER, task_id INTEGER, author TEXT, kind TEXT, created_at TEXT);
        CREATE TABLE audit (id INTEGER PRIMARY KEY, event_type TEXT NOT NULL, content_json TEXT);
+       CREATE TABLE lint_runs (id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL, commit_sha TEXT NOT NULL, base_sha TEXT NOT NULL,
+         fingerprint TEXT NOT NULL, source TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, exit_code INTEGER);
+       CREATE TABLE lint_run_results (run_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, name TEXT NOT NULL, exit_code INTEGER,
+         elapsed_s REAL, output_tail TEXT, PRIMARY KEY (run_id, ordinal));
        INSERT INTO issues (id) VALUES (1);`,
     );
     exec(db, "INSERT INTO repos (name, path, target_branch) VALUES ('plugin', ?, 'dev')", r);
     exec(db, "INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'completed', 'plugin', 'dev', ?)", sha);
     exec(db, 'INSERT INTO verification_runs (task_id, commit_sha, exit_code) VALUES (5, ?, 0)', sha);
+    // The close's passing lint run, as swe-verification-gate records it: the commit's close-lints fingerprint against merge-base(dev, commit).
+    const plan = await closeLintsPlan(r, sha, sb.env);
+    if (typeof plan === 'string') assert.fail(`close-lints plan computes: ${plan}`);
+    exec(
+      db,
+      "INSERT INTO lint_runs (task_id, commit_sha, base_sha, fingerprint, source, started_at, finished_at, exit_code) VALUES (5, ?, ?, ?, 'gate', '2026-10-25T10:00:00.000Z', '2026-10-25T10:00:01.000Z', 0)",
+      sha,
+      git(r, 'merge-base', 'dev', sha),
+      plan.fingerprint,
+    );
     exec(db, "INSERT INTO audit (event_type, content_json) VALUES ('review_handoff', json_object('task_id', 5, 'commit_sha', ?))", sha);
     const prompt = `task_id=5 commit_sha=${sha} branch_id=fix/5-pr repo=plugin repo_path=${r} attempt_n=1 subagent_session_id=sess-xyz`;
     const input = agent({ subagent_type: 'tmb:code-reviewer', effort: 'medium', prompt });

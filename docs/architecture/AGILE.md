@@ -4,7 +4,7 @@ Every case of flow 3.9 in [FLOWS.md](FLOWS.md): how agile work builds up on a lo
 
 The review mode decides who reviews a task and when. It is separate from the merge policy, which decides who merges.
 
-Project-level agile mode has partly shipped: /onboard sets the project's review mode, agile tasks close without a per-task review and fold into a feature branch, each queued for review, and the feature branch's PR into the working branch is gated on that review or an audited Human waiver. Planned (GH 2225, GH 3025): the feature branch review, so until it ships the waiver is the only way through the gate; grouping the queue by the files each task changed; the agent prompts for agile mode; and lane review modes. [Shipped and planned](#shipped-and-planned) marks each piece.
+Project-level agile mode has shipped: /onboard asks for the project's review mode, agile tasks close without a per-task review and fold into a feature branch, each queued for review, code-reviewer reviews the queue in groups at the milestone, and the feature branch's PR into the working branch is gated on that review or an audited Human waiver; the agent prompts walk bro and code-reviewer through each step. Planned (GH 3025, GH 3224): lane review modes, and review states as lifecycle states. [Shipped and planned](#shipped-and-planned) marks each piece.
 
 ## Why a feature branch
 
@@ -137,7 +137,7 @@ flowchart TD
 
 ## Feature branch review
 
-Planned (GH 2225).
+Shipped, project mode only. Two steps run differently today: the hand-off runs the close lints at the feature branch's tip, and the full suite runs in the milestone PR's CI run, not on the feature branch before it; and bro brings the working branch in by hand, asking the Human to resolve any conflict.
 
 ```mermaid
 flowchart TD
@@ -155,6 +155,7 @@ flowchart TD
     M -- yes --> P[bro opens one PR from the feature branch into the working branch]
     P --> CI[One CI run and one merge-queue run]
     CI --> MG[Merged per the merge policy]
+    CI -- a check fails, or a review comment asks for a change --> H
 ```
 
 - **The Human decides when.** The review runs when the Human says the milestone is reached, such as when an MVP works end to end, not after each task. It is one batch review of the milestone, split into groups that run in parallel.
@@ -163,6 +164,7 @@ flowchart TD
 - **The suite covers the gaps.** A reviewer reads its group's files and their dependents. The full suite on the feature branch catches what crosses two groups.
 - **A pass updates the whole group.** Every task in the group becomes batch-reviewed at once, recorded with the review that cleared it. Each task still records agile as its review mode.
 - **Failures.** A fail becomes a fix task on the feature branch, and that task is reviewed before it merges, like any truest task. Once it passes, the group is batch-reviewed.
+- **After the PR opens.** A failing check or a review comment on the milestone PR is fixed the same way: a new fix task on the feature branch, reviewed before it merges, which updates the PR. Batch-reviewed and waived tasks are not reopened.
 - **Visibility.** TMB's health check reports agile tasks closed more than a day ago, by default, with neither a passing review nor a waiver, so the queue never hides (shipped).
 
 ## Merge gate
@@ -182,7 +184,6 @@ flowchart TD
 
 - **Scope.** Task merges into the feature branch are not gated by the queue. Only the merge into the working branch is.
 - **Waivers.** Only the Human records a waiver. It names the feature branch it covers, and the audit log keeps it with the list of tasks that merged unreviewed.
-- **Until the review ships.** The feature branch review is planned, so a Human waiver is today the only way through the gate.
 - **A waiver covers queued tasks only.** A task in review or being reworked blocks the merge until its review passes or its rework closes back into the queue.
 - **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. They are cancelled with the dropped branch as the cause, which ends them without a retry (escalated, until schema v75 splits that state), and bro deletes the branch only when the Human says so.
 
@@ -216,8 +217,9 @@ flowchart TD
 | Feature branch per milestone: tasks cut from it and folded into it locally, with no per-task PR, and checked against it as their base | Shipped, project mode only |
 | Close without a per-task review | Shipped, project mode only |
 | Review states queued, batch-reviewed and waived | Shipped |
-| Queue of a feature branch's tasks, grouped by the files each task changed | Planned (GH 2225) |
-| Feature branch review: one batch review on its net diff | Planned (GH 2225) |
-| Merge gate on the feature branch PR, and audited waiver | Shipped; the waiver is the only way through until the feature branch review ships |
+| Queue of a feature branch's tasks, grouped by the files each task changed | Shipped, project mode only: the queue proposes groups from the files each spec named, and the hand-off refuses a group that leaves out a queued task sharing a changed file |
+| Feature branch review: one batch review on its net diff | Shipped, project mode only; the full suite runs in the milestone PR's CI run |
+| Merge gate on the feature branch PR, and audited waiver | Shipped |
 | Lane review mode and lane feature branch, set at the lane's start, and the lane lookup at the close | Planned (GH 3025, GH 2225) |
-| Agent prompts for agile review mode | Planned (GH 2225) |
+| Agent prompts for agile review mode | Shipped, project mode only |
+| Review states as lifecycle states, moved with the review batch | Planned (GH 3224) |
