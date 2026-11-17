@@ -43,7 +43,7 @@ export interface EnvGateInput {
   branchId: string;
   worktreePath: string;
   fetched: EnvStageReport;
-  ensureBranch: () => BranchStageOutcome;
+  ensureBranch: () => BranchStageOutcome | Promise<BranchStageOutcome>;
 }
 
 export interface EnvGatePass {
@@ -225,7 +225,7 @@ export async function runEnvGate(input: EnvGateInput): Promise<EnvGatePass | Env
     return { ok: false, failure, ...(payload ? { payload } : {}) };
   };
 
-  const branch = input.ensureBranch();
+  const branch = await input.ensureBranch();
   if (!branch.ok) return refuse({ stage: 'branch', detail: branch.detail }, branch.payload);
   branchCreated = branch.created;
   stages.push({ stage: 'branch', status: 'pass' });

@@ -7,27 +7,27 @@ describe('resolveBackend env-var override', () => {
     delete process.env.TMB_DISABLE_REMOTE_SYNC;
   });
 
-  it('returns null when TMB_DISABLE_REMOTE_SYNC=1 regardless of config', () => {
+  it('returns null when TMB_DISABLE_REMOTE_SYNC=1 regardless of config', async () => {
     process.env.TMB_DISABLE_REMOTE_SYNC = '1';
-    assert.equal(resolveBackend('gh'), null);
-    assert.equal(resolveBackend('glab'), null);
-    assert.equal(resolveBackend('both'), null);
-    assert.equal(resolveBackend('auto'), null);
-    assert.equal(resolveBackend('off'), null);
+    assert.equal(await resolveBackend('gh'), null);
+    assert.equal(await resolveBackend('glab'), null);
+    assert.equal(await resolveBackend('both'), null);
+    assert.equal(await resolveBackend('auto'), null);
+    assert.equal(await resolveBackend('off'), null);
   });
 
-  it('returns null when TMB_DISABLE_REMOTE_SYNC=true regardless of config', () => {
+  it('returns null when TMB_DISABLE_REMOTE_SYNC=true regardless of config', async () => {
     process.env.TMB_DISABLE_REMOTE_SYNC = 'true';
-    assert.equal(resolveBackend('gh'), null);
-    assert.equal(resolveBackend('glab'), null);
-    assert.equal(resolveBackend('auto'), null);
+    assert.equal(await resolveBackend('gh'), null);
+    assert.equal(await resolveBackend('glab'), null);
+    assert.equal(await resolveBackend('auto'), null);
   });
 
-  it('does not override when TMB_DISABLE_REMOTE_SYNC is unset', () => {
+  it('does not override when TMB_DISABLE_REMOTE_SYNC is unset', async () => {
     delete process.env.TMB_DISABLE_REMOTE_SYNC;
-    assert.equal(resolveBackend('off'), 'off');
-    assert.equal(resolveBackend('gh'), 'gh');
-    assert.equal(resolveBackend('glab'), 'glab');
-    assert.equal(resolveBackend('both'), 'both');
+    assert.equal(await resolveBackend('off'), 'off');
+    assert.equal(await resolveBackend('gh'), 'gh');
+    assert.equal(await resolveBackend('glab'), 'glab');
+    assert.equal(await resolveBackend('both'), 'both');
   });
 });

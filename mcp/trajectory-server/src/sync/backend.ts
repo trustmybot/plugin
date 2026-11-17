@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { spawnAsync } from '../utils/spawn-async.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -15,31 +16,30 @@ export function resetAvailabilityCache(): void {
   _availabilityCache = null;
 }
 
-export function detectAvailable(
-  _spawnFn?: (cmd: string, args: string[]) => { status: number | null },
-): BackendAvailability {
+// A gh/glab `auth status` probe; an injected test stub may answer synchronously.
+export type ProbeFn = (cmd: string, args: string[]) => { status: number | null } | Promise<{ status: number | null }>;
+
+export async function detectAvailable(_spawnFn?: ProbeFn): Promise<BackendAvailability> {
   if (_spawnFn === undefined && _availabilityCache !== null) {
     return _availabilityCache;
   }
 
-  const check = (cmd: string, args: string[]): boolean => {
+  const check = async (cmd: string, args: string[]): Promise<boolean> => {
     try {
       if (_spawnFn) {
-        const result = _spawnFn(cmd, args);
+        const result = await _spawnFn(cmd, args);
         return result.status === 0;
       }
       if (liveCliBlockReason()) return false;
-      const result = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
+      const result = await spawnAsync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
       return result.status === 0;
     } catch {
       return false;
     }
   };
 
-  const result = {
-    gh: check('gh', ['auth', 'status']),
-    glab: check('glab', ['auth', 'status']),
-  };
+  const [gh, glab] = await Promise.all([check('gh', ['auth', 'status']), check('glab', ['auth', 'status'])]);
+  const result = { gh, glab };
 
   if (_spawnFn === undefined) {
     _availabilityCache = result;
@@ -82,12 +82,12 @@ function remoteSyncEnvDisabled(): boolean {
   return v === '1' || v?.toLowerCase() === 'true';
 }
 
-export function resolveBackend(
+export async function resolveBackend(
   configValue: string,
   repoRemotes?: RepoRemoteProviders | null,
   hasSpawnFn = false,
   availability?: BackendAvailability,
-): 'gh' | 'glab' | 'both' | 'off' | null {
+): Promise<'gh' | 'glab' | 'both' | 'off' | null> {
   if (!hasSpawnFn && remoteSyncEnvDisabled()) {
     return null;
   }
@@ -100,7 +100,7 @@ export function resolveBackend(
   // 'auto' — derive the decision from the issue repo's configured remotes
   // (repo_remotes), gated only by a CLI-availability check that confirms the
   // chosen CLI is installed/authed. No process.cwd() git probe.
-  const available = availability ?? detectAvailable();
+  const available = availability ?? (await detectAvailable());
   const ghUsable = (repoRemotes?.github ?? false) && available.gh;
   const glUsable = (repoRemotes?.gitlab ?? false) && available.glab;
   if (ghUsable && glUsable) return 'both';
@@ -111,12 +111,12 @@ export function resolveBackend(
 
 // resolveBackend for a tool that may carry an injected spawn: the spawn also
 // answers the 'auto' gh/glab availability probe, as remoteSyncGate does.
-export function resolveBackendFor(
+export async function resolveBackendFor(
   configValue: string,
   repoRemotes: RepoRemoteProviders | null,
-  spawnFn?: (cmd: string, args: string[]) => { status: number | null },
-): 'gh' | 'glab' | 'both' | 'off' | null {
-  const availability = configValue === 'auto' && spawnFn ? detectAvailable(spawnFn) : undefined;
+  spawnFn?: ProbeFn,
+): Promise<'gh' | 'glab' | 'both' | 'off' | null> {
+  const availability = configValue === 'auto' && spawnFn ? await detectAvailable(spawnFn) : undefined;
   return resolveBackend(configValue, repoRemotes, spawnFn !== undefined, availability);
 }
 
@@ -141,19 +141,19 @@ function readIssueSyncConfig(db: TrajectoryDB): string {
 // over everything, including an injected spawn: a disabled workspace reaches no
 // remote. `repoRemotes` is the issue repo's configured providers; `spawnFn`,
 // when injected, also answers the gh/glab availability probe of 'auto'.
-export function remoteSyncGate(
+export async function remoteSyncGate(
   db: TrajectoryDB,
   opts: {
     repoRemotes?: RepoRemoteProviders | null;
-    spawnFn?: (cmd: string, args: string[]) => { status: number | null };
+    spawnFn?: ProbeFn;
   } = {},
-): RemoteSyncGate {
+): Promise<RemoteSyncGate> {
   if (remoteSyncEnvDisabled()) return { enabled: false, reason: 'env_disabled' };
   const config = readIssueSyncConfig(db);
   if (config === 'off') return { enabled: false, reason: 'issue_sync_off' };
   const explicit = config === 'gh' || config === 'glab' || config === 'both';
-  const availability = explicit ? undefined : detectAvailable(opts.spawnFn);
-  const backend = resolveBackend(config, opts.repoRemotes ?? null, true, availability);
+  const availability = explicit ? undefined : await detectAvailable(opts.spawnFn);
+  const backend = await resolveBackend(config, opts.repoRemotes ?? null, true, availability);
   if (backend === null || backend === 'off') return { enabled: false, reason: 'no_backend' };
   return { enabled: true };
 }

@@ -152,7 +152,7 @@ function writePrs(db: TrajectoryDB, repo: string, rows: PrRow[], now: string): v
  * lands in `errors[]` and leaves that repo's rows untouched. `dryRun` reads and
  * counts, and writes nothing.
  */
-export function syncRemotePrs(db: TrajectoryDB, opts: PrSyncOpts = {}): PrSyncResult {
+export async function syncRemotePrs(db: TrajectoryDB, opts: PrSyncOpts = {}): Promise<PrSyncResult> {
   const spawnFn = opts._spawnFn ?? defaultSpawnFn;
   const probe = opts._spawnFn
     ? (cmd: string, args: string[]) => opts._spawnFn!(cmd, args, { encoding: 'utf8' })
@@ -164,7 +164,7 @@ export function syncRemotePrs(db: TrajectoryDB, opts: PrSyncOpts = {}): PrSyncRe
     const ctx = resolveRepoCtx(db, name);
     if (ctx) contexts.push({ repo: name, ctx });
   }
-  const gate = remoteSyncGate(db, {
+  const gate = await remoteSyncGate(db, {
     repoRemotes: contexts.length > 0
       ? { github: contexts.some((c) => c.ctx.slugFor('github') !== null), gitlab: contexts.some((c) => c.ctx.slugFor('gitlab') !== null) }
       : null,
@@ -184,7 +184,7 @@ export function syncRemotePrs(db: TrajectoryDB, opts: PrSyncOpts = {}): PrSyncRe
     const { args, limit } = listArgs(remote.slug, sinceDate(db, repo));
     let out: { status: number | null; stdout: string; stderr: string };
     try {
-      out = spawnFn('gh', args, prListSpawnOpts(ctx.cwd));
+      out = await spawnFn('gh', args, prListSpawnOpts(ctx.cwd));
     } catch (e) {
       result.errors.push({ repo, reason: 'read_failed', message: e instanceof Error ? e.message : String(e) });
       continue;

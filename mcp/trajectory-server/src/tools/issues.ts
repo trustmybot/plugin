@@ -1,5 +1,4 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { SpawnSyncOptions } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { projectRootFromDbPath } from './containment.js';
@@ -8,10 +7,10 @@ import { repoRemotes, syncRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, MilestoneResolution, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
+import { resolveBackendFor, detectPreferred, remoteSyncGate, type ProbeFn } from '../sync/backend.js';
 import type { RemoteSyncGateReason } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue, issueSyncMarker, findIssuesByMarker } from '../sync/issue_sync.js';
-import type { SyncFailure, SyncIssueUpdateFields } from '../sync/issue_sync.js';
+import type { SpawnFn, SyncFailure, SyncIssueUpdateFields } from '../sync/issue_sync.js';
 import { reconcileRemoteCloses } from '../sync/issue-reconcile.js';
 import { syncRemotePrs } from '../sync/pr-sync.js';
 import { serverLog } from '../logger.js';
@@ -23,12 +22,6 @@ import {
   liveTasksOfIssue,
   markIssueClosed,
 } from './lifecycle.js';
-
-type SpawnFn = (
-  cmd: string,
-  args: string[],
-  opts: SpawnSyncOptions,
-) => { status: number | null; stdout: string; stderr: string };
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -421,7 +414,7 @@ function resolveIssueSyncContext(
   };
 }
 
-function probeSpawn(spawnFn: SpawnFn | undefined): ((cmd: string, args: string[]) => { status: number | null }) | undefined {
+function probeSpawn(spawnFn: SpawnFn | undefined): ProbeFn | undefined {
   return spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined;
 }
 
@@ -475,7 +468,7 @@ async function mirrorIssueEdit(
   const remoteProviders = syncCtx
     ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
     : null;
-  const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
+  const backend = await resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
   if (backend === null || backend === 'off') {
     return { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
   }
@@ -654,7 +647,7 @@ export async function syncIssueCloseRemotes(
   // issue's repo. When unresolvable no target has a sync row, so nothing is
   // spawned — a best-effort close must not throw (the local close already happened).
   const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
-  const gate = remoteSyncGate(db, {
+  const gate = await remoteSyncGate(db, {
     repoRemotes: closeCtx
       ? { github: closeCtx.remoteFor('gh') !== null, gitlab: closeCtx.remoteFor('glab') !== null }
       : null,
@@ -1079,7 +1072,7 @@ export function issueTools(
         const remoteProviders = syncCtx
           ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
           : null;
-        const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
+        const backend = await resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
@@ -1730,7 +1723,7 @@ export function issueTools(
       const retryRemotes = retryCtx
         ? { github: retryCtx.remoteFor('gh') !== null, gitlab: retryCtx.remoteFor('glab') !== null }
         : null;
-      const backend = resolveBackendFor(syncConfig, retryRemotes, probeSpawn(spawnFn));
+      const backend = await resolveBackendFor(syncConfig, retryRemotes, probeSpawn(spawnFn));
       if (backend === null || backend === 'off') {
         return ok({ skipped: true, reason: 'no remote backend configured' });
       }
@@ -2072,8 +2065,8 @@ export function issueTools(
       // _spawnFn: test-only injection point; not in inputSchema
       const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
       const opts = { dryRun: dryRun === true, _spawnFn: spawnFn };
-      const closes = reconcileRemoteCloses(db, opts);
-      return ok({ ...closes, prs: syncRemotePrs(db, opts) });
+      const closes = await reconcileRemoteCloses(db, opts);
+      return ok({ ...closes, prs: await syncRemotePrs(db, opts) });
     })),
 
   };

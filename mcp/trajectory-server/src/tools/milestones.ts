@@ -59,11 +59,11 @@ function auditMilestone(db: TrajectoryDB, eventType: AuditEventType, summary: st
 // gate as issue sync: plugin_config.issue_sync='off' or TMB_DISABLE_REMOTE_SYNC
 // yields `gated: false` and no remote is touched. Each target needs a sync = 1
 // remote of its provider (the onboard Remote choice) with a parseable slug.
-export function resolveMilestoneTargets(
+export async function resolveMilestoneTargets(
   db: TrajectoryDB,
   repoName: string,
   spawnFn?: SpawnFn,
-): { gated: boolean; targets: MilestoneTarget[] } {
+): Promise<{ gated: boolean; targets: MilestoneTarget[] }> {
   const resolved = resolveRepoForSync(db, repoName);
   if (!resolved) return { gated: false, targets: [] };
   const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
@@ -81,7 +81,7 @@ export function resolveMilestoneTargets(
   };
   const ghSlug = slugFor('github');
   const glSlug = slugFor('gitlab');
-  const backend = resolveBackendFor(
+  const backend = await resolveBackendFor(
     syncConfig,
     { github: ghSlug !== null, gitlab: glSlug !== null },
     spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined,
@@ -127,17 +127,17 @@ function remoteCloseResult(target: MilestoneTarget, result: { ok: true } | Miles
 // Import a repo's remote milestones into `milestones`, carrying the remote state.
 // A milestone open on any remote stays open. Returns whether every remote read
 // succeeded; a failed read is audited and never thrown.
-export function reconcileRepoMilestones(
+export async function reconcileRepoMilestones(
   db: TrajectoryDB,
   repo: string,
   targets: MilestoneTarget[],
   spawnFn?: SpawnFn,
-): { ok: boolean } {
+): Promise<{ ok: boolean }> {
   const merged = new Map<string, RemoteMilestone['state']>();
   let anyFetched = false;
   let allFetched = true;
   for (const target of targets) {
-    const listed = fetchRemoteMilestones(target, spawnFn);
+    const listed = await fetchRemoteMilestones(target, spawnFn);
     if (!listed.ok) {
       allFetched = false;
       auditMilestone(db, 'milestone_reconcile_failed', `milestone reconcile failed for ${repo} via ${target.backend}: ${listed.reason}`, {
@@ -267,13 +267,13 @@ export function readRepoVersion(repoPath: string): { version: string; source: Ve
 
 // When a repo has no milestone rows at all, seed one open v<next-patch> from its
 // own version. Local always; on the remote only when the sync gate is on.
-export function seedRepoMilestone(
+export async function seedRepoMilestone(
   db: TrajectoryDB,
   repo: string,
   repoPath: string,
   gate: { gated: boolean; targets: MilestoneTarget[] },
   spawnFn?: SpawnFn,
-): void {
+): Promise<void> {
   const count = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
   if ((count?.n ?? 0) > 0) return;
   const found = readRepoVersion(repoPath);
@@ -289,7 +289,7 @@ export function seedRepoMilestone(
   const failures: Record<string, unknown>[] = [];
   if (gate.gated) {
     for (const target of gate.targets) {
-      const created = createRemoteMilestone(target, name, spawnFn);
+      const created = await createRemoteMilestone(target, name, spawnFn);
       if (!created.ok) failures.push(failureContent(created));
     }
   }
@@ -303,15 +303,15 @@ export function seedRepoMilestone(
 // (under the sync gate), then seed when the repo still has none. A failed
 // remote read skips the seed so a milestone the remote already has is never
 // shadowed by a locally-invented one.
-export function syncRepoMilestones(
+export async function syncRepoMilestones(
   db: TrajectoryDB,
   repo: string,
   repoPath: string,
   spawnFn?: SpawnFn,
-): void {
-  const gate = resolveMilestoneTargets(db, repo, spawnFn);
+): Promise<void> {
+  const gate = await resolveMilestoneTargets(db, repo, spawnFn);
   if (gate.gated && gate.targets.length > 0) {
-    const reconciled = reconcileRepoMilestones(db, repo, gate.targets, spawnFn);
+    const reconciled = await reconcileRepoMilestones(db, repo, gate.targets, spawnFn);
     if (!reconciled.ok) {
       const count = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
       if ((count?.n ?? 0) === 0) {
@@ -323,7 +323,7 @@ export function syncRepoMilestones(
       return;
     }
   }
-  seedRepoMilestone(db, repo, repoPath, gate, spawnFn);
+  await seedRepoMilestone(db, repo, repoPath, gate, spawnFn);
 }
 
 export function milestoneTools(db: TrajectoryDB): {
@@ -377,11 +377,11 @@ export function milestoneTools(db: TrajectoryDB): {
       db.run(`UPDATE milestones SET state = 'closed' WHERE name = ? AND repo = ?`, [name, repo]);
 
       const spawnFn = args['_spawnFn'] as SpawnFn | undefined;
-      const gate = resolveMilestoneTargets(db, repo, spawnFn);
+      const gate = await resolveMilestoneTargets(db, repo, spawnFn);
       const remoteResults: RemoteCloseResult[] = [];
       const failures: MilestoneRemoteFailure[] = [];
       for (const target of gate.gated ? gate.targets : []) {
-        const closed = closeRemoteMilestone(target, name, spawnFn);
+        const closed = await closeRemoteMilestone(target, name, spawnFn);
         const result = remoteCloseResult(target, closed);
         remoteResults.push(result);
         if (result.status === 'failed' && !closed.ok) failures.push(closed);

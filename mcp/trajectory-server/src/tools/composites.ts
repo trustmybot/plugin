@@ -1345,15 +1345,15 @@ type OpenChangeRequest = { backend: 'gh' | 'glab'; number: number; url: string }
 // Open PRs/MRs whose head is `branchId`, read under the issue-sync gate
 // (plugin_config.issue_sync / TMB_DISABLE_REMOTE_SYNC). Read-only; any remote
 // failure yields no entry.
-function openChangeRequestsForBranch(
+async function openChangeRequestsForBranch(
   db: TrajectoryDB,
   repoName: string | null,
   repoPath: string,
   branchId: string,
   spawnFn: SpawnFn | undefined,
-): OpenChangeRequest[] {
+): Promise<OpenChangeRequest[]> {
   if (!repoName) return [];
-  const { gated, targets } = resolveMilestoneTargets(db, repoName, spawnFn);
+  const { gated, targets } = await resolveMilestoneTargets(db, repoName, spawnFn);
   if (!gated) return [];
   const spawn = spawnFn ?? defaultSpawnFn;
   const found: OpenChangeRequest[] = [];
@@ -1363,7 +1363,7 @@ function openChangeRequestsForBranch(
         ? ['pr', 'list', '--head', branchId, '--state', 'open', '--json', 'number,url', '--repo', target.slug]
         : ['mr', 'list', '--source-branch', branchId, '--output', 'json', '-R', target.slug];
     try {
-      const res = spawn(target.backend, args, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
+      const res = await spawn(target.backend, args, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
       if (res.status !== 0) continue;
       const rows = JSON.parse(res.stdout || '[]') as Array<Record<string, unknown>>;
       if (!Array.isArray(rows)) continue;
@@ -2161,9 +2161,12 @@ export function compositeTools(
           : checkVerificationProse(verification, pathRef);
         if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
         const cut: { base?: CutBase | null } = {};
-        const branchStage = (): BranchStageOutcome => {
+        const branchStage = async (): Promise<BranchStageOutcome> => {
           const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
           if (branch.kind === 'ready') cut.base = branch.cutBase;
+          const openPrs = branch.kind === 'diverged'
+            ? await openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn'] as SpawnFn | undefined)
+            : [];
           return taskBranchStage(branch, base, repoValue ?? '', (ref, baseRef) =>
             branchDivergedPayload(
               'task_provision',
@@ -2171,7 +2174,7 @@ export function compositeTools(
               ref,
               baseRef,
               refDistance(repoPath, baseRef, ref),
-              openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn'] as SpawnFn | undefined),
+              openPrs,
               'Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is.',
             ),
           );
@@ -2194,7 +2197,7 @@ export function compositeTools(
           gate = passed;
           branchCreated = passed.branchCreated;
         } else {
-          const stage = branchStage();
+          const stage = await branchStage();
           if (!stage.ok) return branchRefusalResult('task_provision', stage, nothingWritten);
           branchCreated = stage.created;
         }
@@ -3163,18 +3166,23 @@ export function compositeTools(
         let gate: EnvGatePass | null = null;
         if (repoPath && retryBase) {
           const base = retryBase;
-          const branchStage = (): BranchStageOutcome =>
-            taskBranchStage(ensureTaskBranch(repoPath, newBranchId, base), base, repoValue ?? '', (ref, baseRef) =>
+          const branchStage = async (): Promise<BranchStageOutcome> => {
+            const branch = ensureTaskBranch(repoPath, newBranchId, base);
+            const openPrs = branch.kind === 'diverged'
+              ? await openChangeRequestsForBranch(db, repoValue, repoPath, newBranchId, args['_spawnFn'] as SpawnFn | undefined)
+              : [];
+            return taskBranchStage(branch, base, repoValue ?? '', (ref, baseRef) =>
               branchDivergedPayload(
                 'task_retry',
                 newBranchId,
                 ref,
                 baseRef,
                 refDistance(repoPath, baseRef, ref),
-                openChangeRequestsForBranch(db, repoValue, repoPath, newBranchId, args['_spawnFn'] as SpawnFn | undefined),
+                openPrs,
                 'Pick a fresh new_branch_id (branch_id_propose).',
               ),
             );
+          };
           if (fetched) {
             const passed = await runEnvGate({
               db,
@@ -3191,7 +3199,7 @@ export function compositeTools(
             gate = passed;
             branchSetup = { gitSetup: passed.branchCreated ? 'created' : 'reused', baseRef: passed.base_ref };
           } else {
-            const stage = branchStage();
+            const stage = await branchStage();
             if (!stage.ok) return branchRefusalResult('task_retry', stage, nothingWritten);
             branchSetup = { gitSetup: stage.created ? 'created' : 'reused', baseRef: stage.baseRef };
           }

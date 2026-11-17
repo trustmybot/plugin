@@ -125,7 +125,7 @@ afterEach(() => {
 });
 
 describe('reconcileRemoteCloses (GH 2228)', () => {
-  it('closes an open issue whose remote is CLOSED and has no live task; leaves remote OPEN, read errors and unlinked issues open', () => {
+  it('closes an open issue whose remote is CLOSED and has no live task; leaves remote OPEN, read errors and unlinked issues open', async () => {
     const db = tempDB();
     setIssueSync(db, 'both');
     registerRepo(db);
@@ -141,7 +141,7 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
       glFails: new Set([21]),
     });
 
-    const result = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const result = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     assert.equal(result.skipped, undefined);
     assert.equal(result.checked, 4);
@@ -175,12 +175,12 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     assert.deepEqual(glView.args, ['issue', 'view', '20', '-R', 'gitlab.com/owner/repo', '--output', 'json']);
     assert.deepEqual(remoteWrites(spawned), [], 'reconcile never writes to the remote');
 
-    const again = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const again = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
     assert.deepEqual(again.closed, [], 'closed issues are no longer checked');
     assert.equal(audits(db, 'issue_closed_from_remote').length, 2);
   });
 
-  it('a failed gh batch reports every issue in it as an error and closes nothing', () => {
+  it('a failed gh batch reports every issue in it as an error and closes nothing', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -188,7 +188,7 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     const b = seedIssue(db, { gh: 2 });
     const { spawnFn } = stub({ gh: new Map([[1, 'CLOSED'], [2, 'CLOSED']]), gl: new Map(), ghFails: true });
 
-    const result = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const result = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     assert.deepEqual(result.closed, []);
     assert.deepEqual(result.errors.map((e) => [e.issue_id, e.reason]), [[a, 'read_failed'], [b, 'read_failed']]);
@@ -197,7 +197,7 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     assert.deepEqual(audits(db, 'issue_closed_from_remote'), []);
   });
 
-  it('a gh alias that resolves to no issue is a not_found error for that issue only', () => {
+  it('a gh alias that resolves to no issue is a not_found error for that issue only', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -205,14 +205,14 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     const closed = seedIssue(db, { gh: 5 });
     const { spawnFn } = stub({ gh: new Map([[5, 'CLOSED']]), gl: new Map() });
 
-    const result = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const result = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     assert.deepEqual(result.closed.map((c) => c.issue_id), [closed]);
     assert.deepEqual(result.errors.map((e) => [e.issue_id, e.reason]), [[gone, 'not_found']]);
     assert.equal(issueRow(db, gone).status, 'open');
   });
 
-  it('an issue linked to both remotes closes only when neither is open', () => {
+  it('an issue linked to both remotes closes only when neither is open', async () => {
     const db = tempDB();
     setIssueSync(db, 'both');
     registerRepo(db);
@@ -220,14 +220,14 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     const bothClosed = seedIssue(db, { gh: 9, gl: 10 });
     const { spawnFn } = stub({ gh: new Map([[7, 'CLOSED'], [9, 'CLOSED']]), gl: new Map([[8, 'opened'], [10, 'closed']]) });
 
-    const result = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const result = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     assert.deepEqual(result.closed, [{ issue_id: bothClosed, remote_kind: 'github', remote_iid: 9 }]);
     assert.equal(issueRow(db, halfOpen).status, 'open');
     assert.equal(audits(db, 'issue_closed_from_remote').length, 1);
   });
 
-  it(`reads GitHub state in batches of at most ${GH_RECONCILE_BATCH} issue numbers`, () => {
+  it(`reads GitHub state in batches of at most ${GH_RECONCILE_BATCH} issue numbers`, async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -238,7 +238,7 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     }
     const { spawned, spawnFn } = stub(remote);
 
-    const result = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const result = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     const graphql = spawned.filter((s) => s.cmd === 'gh' && s.args[1] === 'graphql');
     assert.equal(graphql.length, 2);
@@ -249,7 +249,7 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     assert.deepEqual(result.errors, []);
   });
 
-  it('skips with the gate reason and spawns nothing when issue sync is off or env-disabled', () => {
+  it('skips with the gate reason and spawns nothing when issue sync is off or env-disabled', async () => {
     const db = tempDB();
     registerRepo(db);
     const issue = seedIssue(db, { gh: 3 });
@@ -257,22 +257,22 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     const before = snapshot(db);
 
     db.run(`DELETE FROM plugin_config WHERE key = 'issue_sync'`);
-    assert.deepEqual(reconcileRemoteCloses(db, { _spawnFn: spawnFn }), { checked: 0, closed: [], deferred: [], errors: [], skipped: 'issue_sync_off' });
+    assert.deepEqual(await reconcileRemoteCloses(db, { _spawnFn: spawnFn }), { checked: 0, closed: [], deferred: [], errors: [], skipped: 'issue_sync_off' });
 
     setIssueSync(db, 'both');
     process.env.TMB_DISABLE_REMOTE_SYNC = '1';
-    assert.equal(reconcileRemoteCloses(db, { _spawnFn: spawnFn }).skipped, 'env_disabled');
+    assert.equal((await reconcileRemoteCloses(db, { _spawnFn: spawnFn })).skipped, 'env_disabled');
     delete process.env.TMB_DISABLE_REMOTE_SYNC;
 
     setIssueSync(db, 'off');
-    assert.equal(reconcileRemoteCloses(db, { _spawnFn: spawnFn }).skipped, 'issue_sync_off');
+    assert.equal((await reconcileRemoteCloses(db, { _spawnFn: spawnFn })).skipped, 'issue_sync_off');
 
     assert.deepEqual(spawned, []);
     assert.equal(snapshot(db), before, 'a skipped reconcile writes nothing');
     assert.equal(issueRow(db, issue).status, 'open');
   });
 
-  it("skips with no_backend under 'auto' when no CLI is usable", () => {
+  it("skips with no_backend under 'auto' when no CLI is usable", async () => {
     const db = tempDB();
     setIssueSync(db, 'auto');
     registerRepo(db);
@@ -283,13 +283,13 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
       return { status: 1, stdout: '', stderr: 'not logged in' };
     };
 
-    const result = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const result = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     assert.equal(result.skipped, 'no_backend');
     assert.ok(spawned.every((s) => s.args[0] === 'auth'), 'only the availability probe ran');
   });
 
-  it('defers a remote-closed issue with live tasks, one audit row across two runs, then closes it once they close', () => {
+  it('defers a remote-closed issue with live tasks, one audit row across two runs, then closes it once they close', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -298,8 +298,8 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     seedTask(db, issue, 'closed');
     const { spawnFn } = stub({ gh: new Map([[30, 'CLOSED']]), gl: new Map() });
 
-    const first = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
-    const second = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const first = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const second = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     for (const r of [first, second]) {
       assert.deepEqual(r.closed, []);
@@ -311,7 +311,7 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     ]);
 
     const another = seedTask(db, issue, 'pending');
-    reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
     assert.deepEqual(
       audits(db, 'issue_remote_closed_local_open').map((a) => a.content['blocking_task_ids']),
       [[live], [live, another]],
@@ -319,20 +319,20 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
     );
 
     db.run(`UPDATE tasks SET status = 'closed' WHERE issue_id = ?`, [issue]);
-    const last = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const last = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
     assert.deepEqual(last.closed, [{ issue_id: issue, remote_kind: 'github', remote_iid: 30 }]);
     assert.equal(issueRow(db, issue).status, 'closed');
     assert.equal(audits(db, 'issue_closed_from_remote', issue).length, 1);
   });
 
-  it('never checks the system issue or other ids at or below 0', () => {
+  it('never checks the system issue or other ids at or below 0', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
     db.run(`UPDATE issues SET gh_iid = 1, repo = 'app', status = 'open' WHERE id = -1`);
     const { spawned, spawnFn } = stub({ gh: new Map([[1, 'CLOSED']]), gl: new Map() });
 
-    const result = reconcileRemoteCloses(db, { _spawnFn: spawnFn });
+    const result = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
 
     assert.equal(result.checked, 0);
     assert.deepEqual(spawned.filter((s) => s.args[1] === 'graphql'), []);
