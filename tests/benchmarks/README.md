@@ -99,6 +99,25 @@ A directory argument reads every `*.jsonl` directly inside it. Subagent lines (`
 
 The default output is a table plus a totals line. `--json` prints `{provisions: [...], totals: {provisions, reads, source_reads, est_read_tokens, mean_source_reads_per_provision}}`; the mean is `null` when there are no provisions. Unreadable input exits 1. The GH 1352 target is zero `source_reads` on ordinary tasks.
 
+### hot-path.bench (trajectory-server)
+
+Time the hot path as Claude Code pays for it (GH 3232): hook wall time per event, with every registered hook process for the event spawned at once, and MCP tool latency while another tool waits on a `gh` call. It runs against a temp project and a fake `gh`, so it reaches no remote. Build the trajectory-server first, then from `mcp/trajectory-server`:
+
+```bash
+node --experimental-sqlite dist/test/hot-path.bench.js [--rounds 10] [--gh-delay-ms 1000] [--json <out.json>] [--baseline <before.json>]
+```
+
+| Flag | Meaning |
+|---|---|
+| `--rounds N` | Timed rounds per measurement after one warm-up (default 10) |
+| `--gh-delay-ms N` | How long the fake `gh` sleeps per call (default 1000) |
+| `--json <path>` | Write the result as JSON |
+| `--baseline <path>` | Compare to an earlier `--json` result: print each row's delta, exit 1 when a hook scenario's p50 or the cheap tool's latency during the `gh` call is worse by more than max(20%, 15 ms) |
+
+At a 1-minute load of 30 or more it prints `skipped: load <n>` and exits 0. Timing is noisy, so the bench is not part of `tests/run-all.ts`.
+
+**Before/after in a PR:** run it with `--json before.json` on the base branch, then with `--baseline before.json` on the PR branch, and paste both tables and the delta lines into the PR description. A non-zero exit is a regression and blocks the merge.
+
 ## Session JSONL Format
 
 CC session files live at `~/.claude/projects/<project-slug>/<session-id>.jsonl`. Each line is a JSON object. Relevant event types for these tools:
