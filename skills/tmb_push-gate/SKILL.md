@@ -1,6 +1,6 @@
 ---
 name: tmb_push-gate
-description: Bro's push-gate orchestration — reaping unsigned commits, spawning code-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.
+description: Bro's push-gate orchestration — reaping unsigned commits, spawning code-reviewer per task, the all-pass push + PR-create + post-merge cleanup path, and the agile milestone review of a feature branch. Loaded by bro when the push hook blocks, the Human asks for review-before-push, or an agile milestone is reached.
 allowed-tools: Task, AskUserQuestion, mcp__plugin_tmb_trajectory-server
 ---
 
@@ -52,3 +52,20 @@ Read the verdict and `mcp_available` from each task's validation row via `valida
 Once `gh pr view <n> -R <slug> --json state` reports `MERGED` (`glab mr view <n> -R <slug> --output json` reports `merged`): remove any task worktree still on `<feature>` (`git -C <repo path> worktree list`, then `git -C <repo path> worktree remove <path>`), then `git -C <repo path> switch <pr_target> && git -C <repo path> pull --ff-only && git -C <repo path> branch -D <feature> && git -C <repo path> fetch --prune`. The worktree goes first because git refuses to delete a branch a worktree has checked out. A squash merge leaves `<feature>` unmerged by ancestry, so the confirmed merge state is what clears it for `-D`; any other state leaves the branch and its worktree in place.
 
 With no remote, start once the Human says the local merge is done: remove the task worktree the same way, then `git -C <repo path> switch <pr_target> && git -C <repo path> branch -d <feature>`, with no pull or fetch. When `-d` refuses because a squash merge left `<feature>` unmerged by ancestry, ask the Human before running `git -C <repo path> branch -D <feature>`, since no forge confirms the merge.
+
+## C. Agile milestone review
+
+Under the `agile` review mode (`tmb_planning`, "Agile review mode") the closed tasks wait on the feature branch `<feature>`, queued for one grouped review. Start when the Human says the milestone is reached.
+
+1. **Sync the working branch in.** Run `git -C <repo path> fetch origin <pr_target>`; when `git -C <repo path> merge-base --is-ancestor origin/<pr_target> <feature>` exits 0, skip to step 2. Otherwise merge on a scratch branch, because the git guards keep merges off the feature branch, a shared base:
+   - `git -C <repo path> branch <feature>-sync origin/<pr_target>`, then `git -C <repo path> worktree add <sync path> <feature>-sync`, with `<sync path>` = `<repo path>/.claude/worktrees/<feature slug>-sync`;
+   - `git -C <sync path> merge <feature>`, then `git -C <repo path> branch -f <feature> <feature>-sync`, a fast-forward since the merge holds `<feature>`;
+   - `git -C <repo path> worktree remove <sync path>` and `git -C <repo path> branch -d <feature>-sync`, then `git -C <repo path> push origin <feature>`.
+
+   On a conflict, run `git -C <sync path> merge --abort`, remove the worktree and the scratch branch, and ask the Human how to resolve it.
+2. **Group the queue.** `review_queue(agent='bro', repo)` returns the queued tasks in groups whose declared `files[]` overlap; keep the tasks whose `parent_branch_id` (`task_get`) is `<feature>`. A task counts as queued on `<feature>` only once `feature-merge` has landed it there, so the hand-off refuses any other with `task_not_queued`: land it first.
+3. **Hand off each group.** Call `review_batch_handoff(agent='bro', feature_branch=<feature>, task_ids, session_id)` once per group. It runs the close lints at the feature tip and refuses a group that leaves out a queued task sharing one of its changed files: add the tasks `group_splits_shared_file` lists and call again. On `lint_failed`, fix the lints with a fix task (step 5), then hand the group off again.
+4. **Review in parallel.** Spawn one code-reviewer per handoff, all in one message, with `reviewer_spawn.prompt`, `.effort` and `.subagent_type` exactly as returned. When the spawn gate denies one because the feature tip moved since its handoff, call `review_batch_handoff` for that group again. A pass batch-reviews every task of the group; a FAIL leaves them queued.
+5. **Rework a FAIL.** Each FAIL becomes a fix task on the feature branch: `task_provision base=<feature>` with a spec naming the reviewer's findings, then the truest path (`tmb_planning` §6: `review_handoff`, code-reviewer, `bro_atomic_close` after its pass), then `feature-merge` and the push as in "Agile review mode" step 3. Hand the failed group off again at the new tip, adding the fix task when `review_queue` lists it.
+6. **Waive on the Human's word.** When the Human wants to merge without the grouped review, ask one AskUserQuestion naming `<feature>` and its queued tasks. Only on Yes, call `review_waive_record(agent='bro', feature_branch=<feature>, human_answer=<the answer, verbatim>)`; it waives every queued task on the branch.
+7. **Open the PR.** Once no task of `<feature>` is queued, `git -C <repo path> push origin <feature>`, then `gh pr create -R <slug> --head <feature> --base <pr_target>` / `glab mr create -R <slug> --source-branch <feature> --target-branch <pr_target>`, and surface the URL; the merge gate denies the PR while a task of `<feature>` is still queued. With no remote, tell the Human `<feature>` is ready to merge locally, as in Outcomes. After the merge, run the post-merge cleanup above.

@@ -4,7 +4,7 @@ Every case of flow 3.9 in [FLOWS.md](FLOWS.md): how agile work builds up on a lo
 
 The review mode decides who reviews a task and when. It is separate from the merge policy, which decides who merges.
 
-Project-level agile mode has partly shipped: /onboard sets the project's review mode, agile tasks close without a per-task review and fold into a feature branch, each queued for review, and the feature branch's PR into the working branch is gated on that review or an audited Human waiver. Planned (GH 2225, GH 3025): the feature branch review, so until it ships the waiver is the only way through the gate; grouping the queue by the files each task changed; the agent prompts for agile mode; and lane review modes. [Shipped and planned](#shipped-and-planned) marks each piece.
+Project-level agile mode has shipped: /onboard asks for the project's review mode, agile tasks close without a per-task review and fold into a feature branch, each queued for review, code-reviewer reviews the queue in groups at the milestone, and the feature branch's PR into the working branch is gated on that review or an audited Human waiver; the agent prompts walk bro and code-reviewer through each step. Planned (GH 3025, GH 3224): lane review modes, and review states as lifecycle states. [Shipped and planned](#shipped-and-planned) marks each piece.
 
 ## Why a feature branch
 
@@ -128,7 +128,7 @@ flowchart TD
 
 ## Feature branch review
 
-Planned (GH 2225).
+Shipped, project mode only. Two steps run differently today: the hand-off runs the close lints at the feature branch's tip, and the full suite runs in the milestone PR's CI run, not on the feature branch before it; and bro brings the working branch in by hand, asking the Human to resolve any conflict.
 
 ```mermaid
 flowchart TD
@@ -171,7 +171,6 @@ flowchart TD
 
 - **Scope.** Task merges into the feature branch are not gated by the queue. Only the merge into the working branch is.
 - **Waivers.** Only the Human records a waiver. It names the feature branch it covers, and the audit log keeps it with the list of tasks that merged unreviewed.
-- **Until the review ships.** The feature branch review is planned, so a Human waiver is today the only way through the gate.
 - **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. bro records them as dropped and deletes the branch only when the Human says so.
 
 ## Switching review modes
@@ -204,8 +203,9 @@ flowchart TD
 | Feature branch per milestone: tasks cut from it and folded into it locally, with no per-task PR, and checked against it as their base | Shipped, project mode only |
 | Close without a per-task review | Shipped, project mode only |
 | Review states queued, batch-reviewed and waived | Shipped |
-| Queue of a feature branch's tasks, grouped by the files each task changed | Planned (GH 2225) |
-| Feature branch review: one batch review on its net diff | Planned (GH 2225) |
-| Merge gate on the feature branch PR, and audited waiver | Shipped; the waiver is the only way through until the feature branch review ships |
+| Queue of a feature branch's tasks, grouped by the files each task changed | Shipped, project mode only: the queue proposes groups from the files each spec named, and the hand-off refuses a group that leaves out a queued task sharing a changed file |
+| Feature branch review: one batch review on its net diff | Shipped, project mode only; the full suite runs in the milestone PR's CI run |
+| Merge gate on the feature branch PR, and audited waiver | Shipped |
 | Lane review mode and lane feature branch, set at the lane's start, and the lane lookup at the close | Planned (GH 3025, GH 2225) |
-| Agent prompts for agile review mode | Planned (GH 2225) |
+| Agent prompts for agile review mode | Shipped, project mode only |
+| Review states as lifecycle states, moved with the review batch | Planned (GH 3224) |
