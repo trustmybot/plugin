@@ -11,6 +11,9 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { AUDIT_EVENT_TYPES } from '../audit-events.js';
 import type { TrajectoryDB } from '../db.js';
 import { compositeTools } from '../tools/composites.js';
 import { validationTools } from '../tools/validation.js';
@@ -245,5 +248,30 @@ describe('the revert guard reopens a closed issue once per cause (GH 3234)', () 
     assert.equal(out['issue_reopened'], undefined);
     assert.deepEqual(issueOf(db, issueId), { status: 'open', closed_at: null });
     assert.deepEqual(reopenRows(db, issueId), []);
+  });
+});
+
+describe('docs describe the revert guard, not the closed-issue refusal (GH 3234)', () => {
+  const readRepoFile = (relativeToDistTest: string): string =>
+    readFileSync(fileURLToPath(new URL(relativeToDistTest, import.meta.url)), 'utf8');
+  const toolsReadme = readRepoFile('../../src/tools/README.md');
+  const enumsDoc = readRepoFile('../../../../docs/contributing/ENUMS.md');
+  const taskReopened = AUDIT_EVENT_TYPES.find((e) => e.type === 'task_reopened');
+
+  it('src/tools/README.md no longer says rework refuses or skips a task of a closed issue', () => {
+    for (const stale of [
+      'It refuses a task whose issue is closed',
+      'or one of a closed issue, is left as it is',
+      'task of an open issue',
+    ]) {
+      assert.ok(!toolsReadme.includes(stale), `README still says: ${stale}`);
+    }
+    assert.ok(toolsReadme.includes('finding_ids, issue_reopened?}'), 'the reopened result shape lists issue_reopened?');
+  });
+
+  it('the task_reopened description and ENUMS.md no longer limit a FAIL reopen to an open issue', () => {
+    assert.ok(taskReopened, 'task_reopened is registered');
+    assert.ok(!taskReopened.description.includes('of an open issue'), taskReopened.description);
+    assert.ok(!enumsDoc.includes('task of an open issue'), 'ENUMS.md still limits a FAIL reopen to an open issue');
   });
 });
