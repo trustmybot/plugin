@@ -110,7 +110,7 @@ function gqlString(value: string): string {
 // repo, each aliased `i<N>: issue(number: N) { state }`. A partial response
 // (an alias that resolved to null: a deleted issue, a PR number) still answers
 // for the aliases that came back; a call with no parseable data fails the batch.
-function readGithubBatch(slug: string, iids: number[], cwd: string | null, spawnFn: SpawnFn): Map<number, ReadState> {
+async function readGithubBatch(slug: string, iids: number[], cwd: string | null, spawnFn: SpawnFn): Promise<Map<number, ReadState>> {
   const out = new Map<number, ReadState>();
   const failAll = (error: ReconcileError['reason'], message?: string): Map<number, ReadState> => {
     for (const iid of iids) out.set(iid, { error, ...(message ? { message } : {}) });
@@ -122,7 +122,7 @@ function readGithubBatch(slug: string, iids: number[], cwd: string | null, spawn
   const query = `query { repository(owner: ${gqlString(repo.owner)}, name: ${gqlString(repo.name)}) { ${fields} } }`;
   let result: { status: number | null; stdout: string; stderr: string };
   try {
-    result = spawnFn('gh', ['api', 'graphql', '--hostname', repo.host, '-f', `query=${query}`], spawnOptsFor(cwd));
+    result = await spawnFn('gh', ['api', 'graphql', '--hostname', repo.host, '-f', `query=${query}`], spawnOptsFor(cwd));
   } catch (e) {
     return failAll('read_failed', e instanceof Error ? e.message : String(e));
   }
@@ -148,10 +148,10 @@ function readGithubBatch(slug: string, iids: number[], cwd: string | null, spawn
 }
 
 // `glab issue view <iid> -R <slug> --output json`: state is opened / closed.
-function readGitlabIssue(slug: string, iid: number, cwd: string | null, spawnFn: SpawnFn): ReadState {
+async function readGitlabIssue(slug: string, iid: number, cwd: string | null, spawnFn: SpawnFn): Promise<ReadState> {
   let result: { status: number | null; stdout: string; stderr: string };
   try {
-    result = spawnFn('glab', ['issue', 'view', String(iid), '-R', slug, '--output', 'json'], spawnOptsFor(cwd));
+    result = await spawnFn('glab', ['issue', 'view', String(iid), '-R', slug, '--output', 'json'], spawnOptsFor(cwd));
   } catch (e) {
     return { error: 'read_failed', message: e instanceof Error ? e.message : String(e) };
   }
@@ -200,7 +200,7 @@ function lastDeferralIds(db: TrajectoryDB, issueId: number): unknown {
  * `issue_closed_from_remote` audit row in one transaction. `dryRun` reports
  * the same lists and writes nothing.
  */
-export function reconcileRemoteCloses(db: TrajectoryDB, opts: ReconcileOpts = {}): ReconcileResult {
+export async function reconcileRemoteCloses(db: TrajectoryDB, opts: ReconcileOpts = {}): Promise<ReconcileResult> {
   const spawnFn = opts._spawnFn ?? defaultSpawnFn;
   const probe = opts._spawnFn
     ? (cmd: string, args: string[]) => opts._spawnFn!(cmd, args, { encoding: 'utf8' })
@@ -222,7 +222,7 @@ export function reconcileRemoteCloses(db: TrajectoryDB, opts: ReconcileOpts = {}
   for (const c of candidates) ctxOf(c.repo);
   if (candidates.length === 0) ctxOf(null);
   const contexts = [...ctxByRepo.values()].filter((c): c is RepoCtx => c !== null);
-  const gate = remoteSyncGate(db, {
+  const gate = await remoteSyncGate(db, {
     repoRemotes: contexts.length > 0
       ? { github: contexts.some((c) => c.slugFor('github') !== null), gitlab: contexts.some((c) => c.slugFor('gitlab') !== null) }
       : null,
@@ -262,7 +262,7 @@ export function reconcileRemoteCloses(db: TrajectoryDB, opts: ReconcileOpts = {}
         list.push(t);
         ghBySlug.set(remote.slug, list);
       } else {
-        states.set(t, readGitlabIssue(remote.slug, t.iid, t.cwd, spawnFn));
+        states.set(t, await readGitlabIssue(remote.slug, t.iid, t.cwd, spawnFn));
       }
     }
   }
@@ -271,7 +271,7 @@ export function reconcileRemoteCloses(db: TrajectoryDB, opts: ReconcileOpts = {}
     for (let i = 0; i < targets.length; i += GH_RECONCILE_BATCH) {
       const batch = targets.slice(i, i + GH_RECONCILE_BATCH);
       const iids = [...new Set(batch.map((t) => t.iid))];
-      const read = readGithubBatch(slug, iids, batch[0]!.cwd, spawnFn);
+      const read = await readGithubBatch(slug, iids, batch[0]!.cwd, spawnFn);
       for (const t of batch) states.set(t, read.get(t.iid)!);
     }
   }

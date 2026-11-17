@@ -1245,7 +1245,7 @@ export function scanTools(
             .filter((h): h is VerificationDefaultsHint => h !== null);
           for (const r of upsertedRepos) {
             try {
-              syncRepoMilestones(db, r.name, r.path, spawnFn);
+              await syncRepoMilestones(db, r.name, r.path, spawnFn);
             } catch (e) {
               recordScanError(stats.errors, 'milestone_sync', r.name, e);
             }

@@ -109,33 +109,33 @@ afterEach(() => {
 });
 
 describe('remoteSyncGate', () => {
-  it('is off with issue_sync_off when the key is unset or off', () => {
+  it('is off with issue_sync_off when the key is unset or off', async () => {
     const db = tempDB();
     db.run(`DELETE FROM plugin_config WHERE key = 'issue_sync'`);
-    assert.deepEqual(remoteSyncGate(db), { enabled: false, reason: 'issue_sync_off' });
+    assert.deepEqual(await remoteSyncGate(db), { enabled: false, reason: 'issue_sync_off' });
     setIssueSync(db, 'off');
-    assert.deepEqual(remoteSyncGate(db), { enabled: false, reason: 'issue_sync_off' });
+    assert.deepEqual(await remoteSyncGate(db), { enabled: false, reason: 'issue_sync_off' });
     db.close();
   });
 
-  it('env_disabled wins over issue_sync=auto and an injected spawn', () => {
+  it('env_disabled wins over issue_sync=auto and an injected spawn', async () => {
     const db = tempDB();
     setIssueSync(db, 'auto');
     process.env.TMB_DISABLE_REMOTE_SYNC = 'true';
     const { _spawnFn } = makeSpawnFn();
-    assert.deepEqual(remoteSyncGate(db, { repoRemotes: { github: true, gitlab: false }, spawnFn: _spawnFn }), {
+    assert.deepEqual(await remoteSyncGate(db, { repoRemotes: { github: true, gitlab: false }, spawnFn: _spawnFn }), {
       enabled: false,
       reason: 'env_disabled',
     });
     db.close();
   });
 
-  it('auto with no usable remote is no_backend; with a github remote it is enabled', () => {
+  it('auto with no usable remote is no_backend; with a github remote it is enabled', async () => {
     const db = tempDB();
     setIssueSync(db, 'auto');
     const { _spawnFn } = makeSpawnFn();
-    assert.deepEqual(remoteSyncGate(db, { repoRemotes: null, spawnFn: _spawnFn }), { enabled: false, reason: 'no_backend' });
-    assert.deepEqual(remoteSyncGate(db, { repoRemotes: { github: true, gitlab: false }, spawnFn: _spawnFn }), { enabled: true });
+    assert.deepEqual(await remoteSyncGate(db, { repoRemotes: null, spawnFn: _spawnFn }), { enabled: false, reason: 'no_backend' });
+    assert.deepEqual(await remoteSyncGate(db, { repoRemotes: { github: true, gitlab: false }, spawnFn: _spawnFn }), { enabled: true });
     db.close();
   });
 });

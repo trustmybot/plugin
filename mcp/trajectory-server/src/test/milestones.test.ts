@@ -127,7 +127,7 @@ describe('scan_run — milestone reconcile', () => {
       await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
       const calls: Call[] = [];
       const _spawnFn = milestoneSpawn(calls, [{ number: 4, title: 'v2.0.0', state: 'closed' }]);
-      syncRepoMilestones(db, 'app', dir, _spawnFn);
+      await syncRepoMilestones(db, 'app', dir, _spawnFn);
       assert.deepEqual(milestoneRows(db), [{ name: 'v2.0.0', state: 'closed' }]);
       assert.deepEqual(auditContent(db, 'milestones_reconciled'), [{ imported: 0, closed: 1, repo: 'app' }]);
       db.close();
@@ -147,7 +147,7 @@ describe('scan_run — milestone reconcile', () => {
         { id: 11, title: 'v3.0.0', state: 'active' },
         { id: 12, title: 'v2.9.0', state: 'closed' },
       ]);
-      syncRepoMilestones(db, 'app', dir, _spawnFn);
+      await syncRepoMilestones(db, 'app', dir, _spawnFn);
       assert.deepEqual(milestoneRows(db), [
         { name: 'v2.9.0', state: 'closed' },
         { name: 'v3.0.0', state: 'open' },
@@ -211,14 +211,14 @@ describe('scan_run — milestone seed', () => {
     assert.equal(nextPatchMilestone('not-a-version'), null);
   });
 
-  it('package.json 1.4.2 seeds an open v1.4.3; sync off → remote_created=false, no spawn', () => {
+  it('package.json 1.4.2 seeds an open v1.4.3; sync off → remote_created=false, no spawn', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ms-seed-'));
     try {
       writeFileSync(join(dir, 'package.json'), '{"version":"1.4.2"}');
       const db = tempDB();
       registerRepo(db, dir);
       const calls: Call[] = [];
-      syncRepoMilestones(db, 'app', dir, milestoneSpawn(calls));
+      await syncRepoMilestones(db, 'app', dir, milestoneSpawn(calls));
       assert.deepEqual(milestoneRows(db), [{ name: 'v1.4.3', state: 'open' }]);
       assert.equal(calls.length, 0);
       assert.deepEqual(auditContent(db, 'milestone_seeded'), [
@@ -230,14 +230,14 @@ describe('scan_run — milestone seed', () => {
     }
   });
 
-  it('1.5.0-rc.2 seeds v1.5.1', () => {
+  it('1.5.0-rc.2 seeds v1.5.1', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ms-seed-rc-'));
     try {
       mkdirSync(join(dir, '.claude-plugin'));
       writeFileSync(join(dir, '.claude-plugin', 'plugin.json'), '{"version":"1.5.0-rc.2"}');
       const db = tempDB();
       registerRepo(db, dir);
-      syncRepoMilestones(db, 'app', dir, milestoneSpawn([]));
+      await syncRepoMilestones(db, 'app', dir, milestoneSpawn([]));
       assert.deepEqual(milestoneRows(db), [{ name: 'v1.5.1', state: 'open' }]);
       assert.equal(auditContent(db, 'milestone_seeded')[0]!['source'], '.claude-plugin/plugin.json');
       db.close();
@@ -246,7 +246,7 @@ describe('scan_run — milestone seed', () => {
     }
   });
 
-  it('reads pyproject.toml [project] and Cargo.toml [package] versions', () => {
+  it('reads pyproject.toml [project] and Cargo.toml [package] versions', async () => {
     const py = mkdtempSync(join(tmpdir(), 'ms-seed-py-'));
     const rs = mkdtempSync(join(tmpdir(), 'ms-seed-rs-'));
     try {
@@ -254,12 +254,12 @@ describe('scan_run — milestone seed', () => {
       writeFileSync(join(rs, 'Cargo.toml'), '[package]\nname = "c"\nversion = "2.1.0"\n');
       const dbPy = tempDB();
       registerRepo(dbPy, py);
-      syncRepoMilestones(dbPy, 'app', py, milestoneSpawn([]));
+      await syncRepoMilestones(dbPy, 'app', py, milestoneSpawn([]));
       assert.deepEqual(milestoneRows(dbPy), [{ name: 'v0.3.2', state: 'open' }]);
       dbPy.close();
       const dbRs = tempDB();
       registerRepo(dbRs, rs);
-      syncRepoMilestones(dbRs, 'app', rs, milestoneSpawn([]));
+      await syncRepoMilestones(dbRs, 'app', rs, milestoneSpawn([]));
       assert.deepEqual(milestoneRows(dbRs), [{ name: 'v2.1.1', state: 'open' }]);
       dbRs.close();
     } finally {
@@ -268,14 +268,14 @@ describe('scan_run — milestone seed', () => {
     }
   });
 
-  it('falls back to the highest vX.Y.Z git tag', () => {
+  it('falls back to the highest vX.Y.Z git tag', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'ms-seed-tag-'));
     try {
       const root = mkRepo(ws, 'app', { 'README.md': 'app\n' });
       for (const tag of ['v0.9.0', 'v0.10.2', 'v0.10.1']) execFileSync('git', ['tag', tag], { cwd: root });
       const db = tempDB();
       registerRepo(db, root);
-      syncRepoMilestones(db, 'app', root, milestoneSpawn([]));
+      await syncRepoMilestones(db, 'app', root, milestoneSpawn([]));
       assert.deepEqual(milestoneRows(db), [{ name: 'v0.10.3', state: 'open' }]);
       assert.equal(auditContent(db, 'milestone_seeded')[0]!['source'], 'git_tag');
       db.close();
@@ -293,7 +293,7 @@ describe('scan_run — milestone seed', () => {
       await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
       const calls: Call[] = [];
       const _spawnFn = milestoneSpawn(calls, []);
-      syncRepoMilestones(db, 'app', dir, _spawnFn);
+      await syncRepoMilestones(db, 'app', dir, _spawnFn);
       const post = calls.find((c) => c.args.includes('POST'));
       assert.ok(post, 'seed must POST the milestone');
       assert.equal(post.cmd, 'gh');
@@ -306,13 +306,13 @@ describe('scan_run — milestone seed', () => {
     }
   });
 
-  it('no version source and no tags → skipped + audit', () => {
+  it('no version source and no tags → skipped + audit', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'ms-seed-none-'));
     try {
       const root = mkRepo(ws, 'app', { 'README.md': 'app\n' });
       const db = tempDB();
       registerRepo(db, root);
-      syncRepoMilestones(db, 'app', root, milestoneSpawn([]));
+      await syncRepoMilestones(db, 'app', root, milestoneSpawn([]));
       assert.deepEqual(milestoneRows(db), []);
       assert.deepEqual(auditContent(db, 'milestone_seed_skipped'), [{ repo: 'app', reason: 'no_version_source' }]);
       db.close();
@@ -321,14 +321,14 @@ describe('scan_run — milestone seed', () => {
     }
   });
 
-  it('a repo that already has a milestone row is not seeded', () => {
+  it('a repo that already has a milestone row is not seeded', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ms-seed-has-'));
     try {
       writeFileSync(join(dir, 'package.json'), '{"version":"1.4.2"}');
       const db = tempDB();
       registerRepo(db, dir);
       db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v1.0.0', 'app', 'closed')`);
-      syncRepoMilestones(db, 'app', dir, milestoneSpawn([]));
+      await syncRepoMilestones(db, 'app', dir, milestoneSpawn([]));
       assert.deepEqual(milestoneRows(db), [{ name: 'v1.0.0', state: 'closed' }]);
       db.close();
     } finally {

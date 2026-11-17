@@ -1,4 +1,5 @@
-import { spawnSync, SpawnSyncOptions } from 'node:child_process';
+import type { SpawnSyncOptions } from 'node:child_process';
+import { spawnAsync, type SpawnResult } from '../utils/spawn-async.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -26,29 +27,22 @@ function syncLog(entry: Record<string, unknown>): void {
   }
 }
 
+// Real spawns are async so a remote call never blocks the server's event loop;
+// an injected test stub may still return its result synchronously.
 export type SpawnFn = (
   cmd: string,
   args: string[],
   opts: SpawnSyncOptions,
-) => { status: number | null; stdout: string; stderr: string };
+) => SpawnResult | Promise<SpawnResult>;
 
-export function defaultSpawnFn(
-  cmd: string,
-  args: string[],
-  opts: SpawnSyncOptions,
-): { status: number | null; stdout: string; stderr: string } {
+export async function defaultSpawnFn(cmd: string, args: string[], opts: SpawnSyncOptions): Promise<SpawnResult> {
   const blockReason = liveCliBlockReason();
   if (blockReason) {
     const message = liveCliBlockedMessage(blockReason, cmd, args);
     syncLog({ event: 'live_cli_blocked', cmd, args, reason: blockReason });
     return { status: null, stdout: '', stderr: message };
   }
-  const result = spawnSync(cmd, args, opts);
-  return {
-    status: result.status,
-    stdout: result.stdout ? String(result.stdout) : '',
-    stderr: result.stderr ? String(result.stderr) : '',
-  };
+  return spawnAsync(cmd, args, opts);
 }
 
 interface ParsedIid {
@@ -101,11 +95,11 @@ async function readBackVerify(
     if (backend === 'gh') {
       const args = ['issue', 'view', String(iid), '--json', 'number,url'];
       if (repoSlug) args.push('--repo', repoSlug);
-      result = spawnFn('gh', args, spawnOpts);
+      result = await spawnFn('gh', args, spawnOpts);
     } else {
       const args = ['issue', 'view', String(iid)];
       if (repoSlug) args.push('-R', repoSlug);
-      result = spawnFn('glab', args, spawnOpts);
+      result = await spawnFn('glab', args, spawnOpts);
     }
     if (result.status !== 0) {
       return { ok: false, reason: verifyFailureReason('read_back_non_zero_exit', result.stderr) };
@@ -192,11 +186,11 @@ async function fetchRemoteLabelNames(
     if (backend === 'gh') {
       const args = ['label', 'list', '--json', 'name'];
       if (repoSlug) args.push('--repo', repoSlug);
-      result = spawnFn('gh', args, spawnOpts);
+      result = await spawnFn('gh', args, spawnOpts);
     } else {
       const args = ['label', 'list', '-F', 'json'];
       if (repoSlug) args.push('-R', repoSlug);
-      result = spawnFn('glab', args, spawnOpts);
+      result = await spawnFn('glab', args, spawnOpts);
     }
     if (result.status !== 0) return null;
     let parsed: unknown;
@@ -279,11 +273,11 @@ export async function verifyRemoteIssue(
     if (backend === 'gh') {
       const args = ['issue', 'view', String(iid), '--json', 'number,title,state,milestone,labels'];
       if (opts.repoSlug) args.push('--repo', opts.repoSlug);
-      result = spawnFn('gh', args, spawnOpts);
+      result = await spawnFn('gh', args, spawnOpts);
     } else {
       const args = ['issue', 'view', String(iid), '--output', 'json'];
       if (opts.repoSlug) args.push('-R', opts.repoSlug);
-      result = spawnFn('glab', args, spawnOpts);
+      result = await spawnFn('glab', args, spawnOpts);
     }
     if (result.status !== 0) return { ok: false, reason: verifyFailureReason('not_found_or_error', result.stderr) };
     if (backend === 'gh') {
@@ -388,7 +382,7 @@ async function createOnBackend(
   }
 
   try {
-    const result = spawnFn(cmd, args, spawnOpts);
+    const result = await spawnFn(cmd, args, spawnOpts);
     if (result.status !== 0) {
       const silent = result.stdout.trim() === '' && result.stderr.trim() === '';
       const outcome: SyncOutcome = result.status === null || silent ? 'unknown' : 'failed';
@@ -609,7 +603,7 @@ export async function findIssuesByMarker(
   for (const search of [null, markerToken(marker)]) {
     let result: { status: number | null; stdout: string; stderr: string };
     try {
-      result = spawnFn(backend, markerListArgs(backend, opts.repoSlug, search), spawnOpts);
+      result = await spawnFn(backend, markerListArgs(backend, opts.repoSlug, search), spawnOpts);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       syncLog({ event: 'issue_marker_lookup_error', backend, marker, error: message });
@@ -677,7 +671,7 @@ export async function syncIssueClose(opts: SyncIssueCloseOpts): Promise<SyncClos
   }
 
   try {
-    const result = spawnFn(cmd, args, spawnOpts);
+    const result = await spawnFn(cmd, args, spawnOpts);
     if (result.status !== 0) {
       syncLog({
         event: 'issue_close_failed',
@@ -752,7 +746,7 @@ export async function syncIssueUpdate(
   }
 
   try {
-    const result = spawnFn(backend, args, spawnOpts);
+    const result = await spawnFn(backend, args, spawnOpts);
     if (result.status !== 0) {
       syncLog({ event: 'issue_update_failed', backend, remote_iid: iid, stderr: result.stderr, exit_code: result.status });
       return {

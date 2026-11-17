@@ -624,9 +624,6 @@
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 2
-    },
-    "@typescript-eslint/require-await": {
-      "count": 6
     }
   },
   "mcp/trajectory-server/src/sync/pr-sync.ts": {
@@ -2291,15 +2288,12 @@
       "count": 1
     },
     "@typescript-eslint/require-await": {
-      "count": 6
+      "count": 5
     }
   },
   "mcp/trajectory-server/src/tools/milestones.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
-    },
-    "@typescript-eslint/require-await": {
-      "count": 1
     }
   },
   "mcp/trajectory-server/src/tools/onboard-hooks-shim.ts": {
@@ -2331,7 +2325,7 @@
       "count": 2
     },
     "@typescript-eslint/require-await": {
-      "count": 3
+      "count": 1
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
@@ -2348,7 +2342,7 @@
       "count": 2
     },
     "@typescript-eslint/require-await": {
-      "count": 2
+      "count": 1
     }
   },
   "mcp/trajectory-server/src/tools/reports.ts": {

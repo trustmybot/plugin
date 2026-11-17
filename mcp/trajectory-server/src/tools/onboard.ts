@@ -14,6 +14,7 @@
 // rules live here, not in the skill.
 
 import { spawnSync } from 'node:child_process';
+import { spawnAsync } from '../utils/spawn-async.js';
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -190,13 +191,13 @@ function repoDefaultBranch(cwd: string): string {
   return 'main';
 }
 
-function probeCli(cmd: string): { installed: boolean; authed: boolean } {
+async function probeCli(cmd: string): Promise<{ installed: boolean; authed: boolean }> {
   const which = spawnSync('command', ['-v', cmd], { encoding: 'utf8', timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? '').trim().length > 0;
   if (!installed) return { installed: false, authed: false };
 
   if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync(cmd, ['auth', 'status'], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
+  const authR = await spawnAsync(cmd, ['auth', 'status'], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }
 
@@ -1243,8 +1244,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       ['bro'],
       wrapHandler(async () => {
         const git = probeGit(probeDir());
-        const gh = probeCli('gh');
-        const glab = probeCli('glab');
+        const [gh, glab] = await Promise.all([probeCli('gh'), probeCli('glab')]);
 
         const onboarded = readOnboardedFlag(db);
         // first_run is signalled by identity row absence. The row is a pure
@@ -1356,8 +1356,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         const currentPrTarget = policy.pr_target;
         const currentSync = readConfig(db, 'issue_sync') as string | null;
 
-        const gh = probeCli('gh');
-        const glab = probeCli('glab');
+        const [gh, glab] = await Promise.all([probeCli('gh'), probeCli('glab')]);
 
         const questions: BuiltQuestion[] = [];
 

@@ -45,15 +45,15 @@ function collectionPath(target: MilestoneTarget): { host: string; path: string }
   return { host: parts.host, path };
 }
 
-function runApi(
+async function runApi(
   target: MilestoneTarget,
   apiArgs: string[],
   spawnFn: SpawnFn,
-): SpawnResult | { thrown: string } {
+): Promise<SpawnResult | { thrown: string }> {
   const opts: SpawnSyncOptions = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
   if (target.cwd) opts.cwd = target.cwd;
   try {
-    return spawnFn(target.backend, ['api', ...apiArgs], opts);
+    return await spawnFn(target.backend, ['api', ...apiArgs], opts);
   } catch (e) {
     return { thrown: e instanceof Error ? e.message : String(e) };
   }
@@ -81,14 +81,14 @@ function badSlug(target: MilestoneTarget): MilestoneRemoteFailure {
 
 // List every milestone (open and closed) on the remote. GitLab reports
 // `active`/`closed`; `active` maps to `open`.
-export function fetchRemoteMilestones(
+export async function fetchRemoteMilestones(
   target: MilestoneTarget,
   spawnFn: SpawnFn = defaultSpawnFn,
-): { ok: true; milestones: RemoteMilestone[] } | MilestoneRemoteFailure {
+): Promise<{ ok: true; milestones: RemoteMilestone[] } | MilestoneRemoteFailure> {
   const coll = collectionPath(target);
   if (!coll) return badSlug(target);
   const query = target.backend === 'gh' ? '?state=all&per_page=100' : '?per_page=100';
-  const result = runApi(target, ['--hostname', coll.host, `${coll.path}${query}`], spawnFn);
+  const result = await runApi(target, ['--hostname', coll.host, `${coll.path}${query}`], spawnFn);
   if ('thrown' in result || result.status !== 0) return failure(target, result);
   let parsed: unknown;
   try {
@@ -114,28 +114,28 @@ export function fetchRemoteMilestones(
   return { ok: true, milestones };
 }
 
-export function createRemoteMilestone(
+export async function createRemoteMilestone(
   target: MilestoneTarget,
   title: string,
   spawnFn: SpawnFn = defaultSpawnFn,
-): { ok: true } | MilestoneRemoteFailure {
+): Promise<{ ok: true } | MilestoneRemoteFailure> {
   const coll = collectionPath(target);
   if (!coll) return badSlug(target);
-  const result = runApi(target, ['--hostname', coll.host, '-X', 'POST', coll.path, '-f', `title=${title}`], spawnFn);
+  const result = await runApi(target, ['--hostname', coll.host, '-X', 'POST', coll.path, '-f', `title=${title}`], spawnFn);
   if ('thrown' in result || result.status !== 0) return failure(target, result);
   return { ok: true };
 }
 
 // Close a remote milestone by title: look up its number/id, then PATCH
 // (GitHub `state=closed`) or PUT (GitLab `state_event=close`).
-export function closeRemoteMilestone(
+export async function closeRemoteMilestone(
   target: MilestoneTarget,
   title: string,
   spawnFn: SpawnFn = defaultSpawnFn,
-): { ok: true } | MilestoneRemoteFailure {
+): Promise<{ ok: true } | MilestoneRemoteFailure> {
   const coll = collectionPath(target);
   if (!coll) return badSlug(target);
-  const listed = fetchRemoteMilestones(target, spawnFn);
+  const listed = await fetchRemoteMilestones(target, spawnFn);
   if (!listed.ok) return listed;
   const match = listed.milestones.find((m) => m.title === title);
   if (!match) {
@@ -145,7 +145,7 @@ export function closeRemoteMilestone(
   const apiArgs = target.backend === 'gh'
     ? ['--hostname', coll.host, '-X', 'PATCH', `${coll.path}/${match.id}`, '-f', 'state=closed']
     : ['--hostname', coll.host, '-X', 'PUT', `${coll.path}/${match.id}`, '-f', 'state_event=close'];
-  const result = runApi(target, apiArgs, spawnFn);
+  const result = await runApi(target, apiArgs, spawnFn);
   if ('thrown' in result || result.status !== 0) return failure(target, result);
   return { ok: true };
 }

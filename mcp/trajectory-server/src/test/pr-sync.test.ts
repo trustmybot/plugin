@@ -97,13 +97,13 @@ afterEach(() => {
 });
 
 describe('syncRemotePrs (GH 2513)', () => {
-  it('writes one prs row per PR with merged_at only on the merged one, and its same-repo closing issues to pr_closes', () => {
+  it('writes one prs row per PR with merged_at only on the merged one, and its same-repo closing issues to pr_closes', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
     const { spawned, spawnFn } = stub([listed(THREE_PRS)]);
 
-    const result = syncRemotePrs(db, { _spawnFn: spawnFn });
+    const result = await syncRemotePrs(db, { _spawnFn: spawnFn });
 
     assert.deepEqual(result, { repos: 1, upserted: 3, errors: [] });
     const rows = prRows(db);
@@ -130,7 +130,7 @@ describe('syncRemotePrs (GH 2513)', () => {
     assert.equal(flag(args, '--search'), undefined, 'the first sync reads every PR');
   });
 
-  it('a second run searches from the newest updated_at date and updates rows in place, replacing pr_closes', () => {
+  it('a second run searches from the newest updated_at date and updates rows in place, replacing pr_closes', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -138,9 +138,9 @@ describe('syncRemotePrs (GH 2513)', () => {
     const retargeted = { ...THREE_PRS[0]!, closingIssuesReferences: [ref(11)] };
     const { spawned, spawnFn } = stub([listed(THREE_PRS), listed([retargeted, merged])]);
 
-    syncRemotePrs(db, { _spawnFn: spawnFn });
+    await syncRemotePrs(db, { _spawnFn: spawnFn });
     const firstIds = db.all<{ id: number }>('SELECT id FROM prs ORDER BY number').map((r) => r.id);
-    const result = syncRemotePrs(db, { _spawnFn: spawnFn });
+    const result = await syncRemotePrs(db, { _spawnFn: spawnFn });
 
     assert.deepEqual(result, { repos: 1, upserted: 2, errors: [] });
     const args = spawned[1]!.args;
@@ -154,7 +154,7 @@ describe('syncRemotePrs (GH 2513)', () => {
     assert.deepEqual(closes(db), [[5, 11], [6, 12]]);
   });
 
-  it('spawns only gh pr list, never a remote write', () => {
+  it('spawns only gh pr list, never a remote write', async () => {
     const db = tempDB();
     setIssueSync(db, 'auto');
     registerRepo(db);
@@ -167,7 +167,7 @@ describe('syncRemotePrs (GH 2513)', () => {
       return { status: 0, stdout: JSON.stringify(THREE_PRS), stderr: '' };
     };
 
-    const result = syncRemotePrs(db, { _spawnFn: spawnFn });
+    const result = await syncRemotePrs(db, { _spawnFn: spawnFn });
 
     assert.equal(result.repos, 2);
     const reads = spawned.filter((s) => !(s.args[0] === 'auth' && s.args[1] === 'status'));
@@ -176,32 +176,32 @@ describe('syncRemotePrs (GH 2513)', () => {
     assert.deepEqual(reads.map((s) => s.args[3]), ['github.com/owner/repo', 'github.com/owner/lib']);
   });
 
-  it('with the remote-sync gate off spawns nothing, writes nothing and returns {skipped}', () => {
+  it('with the remote-sync gate off spawns nothing, writes nothing and returns {skipped}', async () => {
     const db = tempDB();
     registerRepo(db);
     const { spawned, spawnFn } = stub([listed(THREE_PRS)]);
 
-    assert.deepEqual(syncRemotePrs(db, { _spawnFn: spawnFn }), { repos: 0, upserted: 0, errors: [], skipped: 'issue_sync_off' });
+    assert.deepEqual(await syncRemotePrs(db, { _spawnFn: spawnFn }), { repos: 0, upserted: 0, errors: [], skipped: 'issue_sync_off' });
     setIssueSync(db, 'gh');
     process.env.TMB_DISABLE_REMOTE_SYNC = '1';
-    assert.equal(syncRemotePrs(db, { _spawnFn: spawnFn }).skipped, 'env_disabled');
+    assert.equal((await syncRemotePrs(db, { _spawnFn: spawnFn })).skipped, 'env_disabled');
 
     assert.deepEqual(spawned, []);
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM prs')!.n, 0);
   });
 
-  it('dry_run reads and counts but writes no row', () => {
+  it('dry_run reads and counts but writes no row', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
     const { spawnFn } = stub([listed(THREE_PRS)]);
 
-    assert.deepEqual(syncRemotePrs(db, { dryRun: true, _spawnFn: spawnFn }), { repos: 1, upserted: 3, errors: [], dry_run: true });
+    assert.deepEqual(await syncRemotePrs(db, { dryRun: true, _spawnFn: spawnFn }), { repos: 1, upserted: 3, errors: [], dry_run: true });
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM prs')!.n, 0);
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_closes')!.n, 0);
   });
 
-  it('gives gh pr list a timeout and maxBuffer sized for a full PR listing, not the 5 s / 1 MiB defaults', () => {
+  it('gives gh pr list a timeout and maxBuffer sized for a full PR listing, not the 5 s / 1 MiB defaults', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -212,8 +212,8 @@ describe('syncRemotePrs (GH 2513)', () => {
       return inner(cmd, args, opts);
     };
 
-    syncRemotePrs(db, { _spawnFn: spawnFn });
-    syncRemotePrs(db, { _spawnFn: spawnFn });
+    await syncRemotePrs(db, { _spawnFn: spawnFn });
+    await syncRemotePrs(db, { _spawnFn: spawnFn });
 
     assert.equal(seen.length, 2, 'the full and the incremental read');
     for (const opts of seen) {
@@ -226,7 +226,7 @@ describe('syncRemotePrs (GH 2513)', () => {
     }
   });
 
-  it('a gh failure, a throw or unparseable output lands in errors[] and leaves existing rows untouched', () => {
+  it('a gh failure, a throw or unparseable output lands in errors[] and leaves existing rows untouched', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -236,12 +236,12 @@ describe('syncRemotePrs (GH 2513)', () => {
       new Error('spawn gh ENOENT'),
       { status: 0, stdout: 'not json', stderr: '' },
     ]);
-    syncRemotePrs(db, { _spawnFn: spawnFn });
+    await syncRemotePrs(db, { _spawnFn: spawnFn });
     const before = snapshot(db);
 
-    const failed = syncRemotePrs(db, { _spawnFn: spawnFn });
-    const thrown = syncRemotePrs(db, { _spawnFn: spawnFn });
-    const garbled = syncRemotePrs(db, { _spawnFn: spawnFn });
+    const failed = await syncRemotePrs(db, { _spawnFn: spawnFn });
+    const thrown = await syncRemotePrs(db, { _spawnFn: spawnFn });
+    const garbled = await syncRemotePrs(db, { _spawnFn: spawnFn });
 
     assert.deepEqual(failed, { repos: 1, upserted: 0, errors: [{ repo: 'app', reason: 'read_failed', message: 'HTTP 502' }] });
     assert.deepEqual(thrown.errors, [{ repo: 'app', reason: 'read_failed', message: 'spawn gh ENOENT' }]);
@@ -249,7 +249,7 @@ describe('syncRemotePrs (GH 2513)', () => {
     assert.equal(snapshot(db), before);
   });
 
-  it('skips malformed entries with one parse_failed error, reports a full page as truncated, and flags an unparseable slug', () => {
+  it('skips malformed entries with one parse_failed error, reports a full page as truncated, and flags an unparseable slug', async () => {
     const db = tempDB();
     setIssueSync(db, 'gh');
     registerRepo(db);
@@ -257,17 +257,17 @@ describe('syncRemotePrs (GH 2513)', () => {
     const page = Array.from({ length: PR_FULL_LIMIT }, (_, i) => ({ number: i + 1, state: 'OPEN', createdAt: T0, updatedAt: T0, closingIssuesReferences: [] }));
     const { spawnFn } = stub([listed(malformed), listed(page)]);
 
-    const first = syncRemotePrs(db, { _spawnFn: spawnFn });
+    const first = await syncRemotePrs(db, { _spawnFn: spawnFn });
     assert.deepEqual(first, { repos: 1, upserted: 1, errors: [{ repo: 'app', reason: 'parse_failed', message: '3 malformed PR entries skipped' }] });
     db.run('DELETE FROM prs');
-    const full = syncRemotePrs(db, { _spawnFn: spawnFn });
+    const full = await syncRemotePrs(db, { _spawnFn: spawnFn });
     assert.equal(full.upserted, PR_FULL_LIMIT);
     assert.deepEqual(full.errors.map((e) => e.reason), ['truncated']);
 
     const other = tempDB();
     setIssueSync(other, 'gh');
     registerRepo(other, 'odd', 'https://github.com/');
-    const odd = syncRemotePrs(other, { _spawnFn: stub([]).spawnFn });
+    const odd = await syncRemotePrs(other, { _spawnFn: stub([]).spawnFn });
     assert.equal(odd.upserted, 0);
     assert.deepEqual(odd.errors.map((e) => [e.repo, e.reason]), [['odd', 'slug_unresolved']]);
   });

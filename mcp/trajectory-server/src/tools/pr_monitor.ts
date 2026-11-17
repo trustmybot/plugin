@@ -4,7 +4,8 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend } from '../sync/backend.js';
 import { buildBotPatterns, isBot } from '../sync/bot_patterns.js';
-import { spawnSync, SpawnSyncOptions } from 'node:child_process';
+import type { SpawnSyncOptions } from 'node:child_process';
+import { spawnAsync, type SpawnResult } from '../utils/spawn-async.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
@@ -62,23 +63,14 @@ export type SpawnFn = (
   cmd: string,
   args: string[],
   opts: SpawnSyncOptions,
-) => { status: number | null; stdout: string; stderr: string };
+) => SpawnResult | Promise<SpawnResult>;
 
-function defaultSpawnFn(
-  cmd: string,
-  args: string[],
-  opts: SpawnSyncOptions,
-): { status: number | null; stdout: string; stderr: string } {
+async function defaultSpawnFn(cmd: string, args: string[], opts: SpawnSyncOptions): Promise<SpawnResult> {
   const blockReason = liveCliBlockReason();
   if (blockReason) {
     return { status: null, stdout: '', stderr: liveCliBlockedMessage(blockReason, cmd, args) };
   }
-  const result = spawnSync(cmd, args, opts);
-  return {
-    status: result.status,
-    stdout: result.stdout ? String(result.stdout) : '',
-    stderr: result.stderr ? String(result.stderr) : '',
-  };
+  return spawnAsync(cmd, args, opts);
 }
 
 // Map a pr_review_runs.repo slug (host-qualified "github.com/owner/repo" or bare
@@ -191,17 +183,17 @@ function normalizePrState(raw: string): 'open' | 'merged' | 'closed' {
   return 'closed';
 }
 
-function fetchGithubComments(
+async function fetchGithubComments(
   prNumber: number,
   repo: string,
   since: string | undefined,
   botPatterns: RegExp[],
   spawnFn: SpawnFn,
-): PrCommentsResult | null {
+): Promise<PrCommentsResult | null> {
   const opts: SpawnSyncOptions = { timeout: 15000, encoding: 'utf8' };
   const ghArgs = ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews,headRefName'];
   ghArgs.splice(2, 0, '-R', repo);
-  const result = spawnFn('gh', ghArgs, opts);
+  const result = await spawnFn('gh', ghArgs, opts);
 
   if (result.status !== 0) return null;
 
@@ -276,17 +268,17 @@ function fetchGithubComments(
   return { comments: rawComments, pr_state: prState, remote_kind: 'github', head_branch: parsed.headRefName ?? '' };
 }
 
-function fetchGitlabComments(
+async function fetchGitlabComments(
   prNumber: number,
   repo: string,
   since: string | undefined,
   botPatterns: RegExp[],
   spawnFn: SpawnFn,
-): PrCommentsResult | null {
+): Promise<PrCommentsResult | null> {
   const opts: SpawnSyncOptions = { timeout: 15000, encoding: 'utf8' };
   const glabArgs = ['mr', 'view', String(prNumber), '--comments', '--output', 'json'];
   glabArgs.splice(2, 0, '-R', repo);
-  const result = spawnFn('glab', glabArgs, opts);
+  const result = await spawnFn('glab', glabArgs, opts);
 
   if (result.status !== 0) return null;
 
@@ -333,14 +325,14 @@ function fetchGitlabComments(
   return { comments: rawComments, pr_state: prState, remote_kind: 'gitlab', head_branch: parsed.source_branch ?? '' };
 }
 
-function resolveComments(
+async function resolveComments(
   backend: 'gh' | 'glab' | 'both' | 'off' | null,
   prNumber: number,
   repo: string,
   since: string | undefined,
   botPatterns: RegExp[],
   spawnFn: SpawnFn,
-): PrCommentsResult | null {
+): Promise<PrCommentsResult | null> {
   if (backend === 'gh') {
     return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn);
   }
@@ -349,13 +341,13 @@ function resolveComments(
   }
   if (backend === 'both') {
     return (
-      fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ??
-      fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn)
+      (await fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn)) ??
+      (await fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn))
     );
   }
   return (
-    fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ??
-    fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn)
+    (await fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn)) ??
+    (await fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn))
   );
 }
 
@@ -473,11 +465,11 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
 
       let backend: 'gh' | 'glab' | 'both' | 'off' | null;
       if (configValue === 'off') {
-        const ghAvail = spawn('gh', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' }).status === 0;
+        const ghAvail = (await spawn('gh', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' })).status === 0;
         if (ghAvail) {
           backend = 'gh';
         } else {
-          const glabAvail = spawn('glab', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' }).status === 0;
+          const glabAvail = (await spawn('glab', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' })).status === 0;
           if (!glabAvail) {
             return err('Neither gh nor glab is installed/available; cannot fetch PR comments');
           }
@@ -487,7 +479,7 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
         // repoRemotes is null here: comment fetching resolves the backend from
         // the explicit/derived repo slug and resolveComments falls back to
         // trying both CLIs, so the auto decision needn't re-probe the cwd (#1043).
-        backend = resolveBackend(configValue, null, _spawnFn !== undefined);
+        backend = await resolveBackend(configValue, null, _spawnFn !== undefined);
       }
 
       const configBots = db.get<{ value_json: string }>(
@@ -504,7 +496,7 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       }
       const botPatterns = buildBotPatterns(botsOverride);
 
-      const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn);
+      const fetchResult = await resolveComments(backend, prNumber, repo, since, botPatterns, spawn);
 
       if (!fetchResult) {
         return err('Failed to fetch PR comments — check gh/glab auth and PR number');
