@@ -529,7 +529,7 @@ describe('bro_atomic_close', () => {
     );
   });
 
-  it('sets closed_at on parent issue when close_issue_if_last_task=true (regression: Bug 1)', async () => {
+  it('close_issue_if_last_task leaves the issue open and defers its close to merge (GH 3234)', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'bac-closed-at-'));
     const repoRoot = join(ws, 'app');
     mkdirSync(repoRoot, { recursive: true });
@@ -585,22 +585,24 @@ describe('bro_atomic_close', () => {
         waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-      assert.equal(parse(r)['issue_closed'], true);
+      assert.equal(parse(r)['issue_closed'], false);
+      assert.equal(parse(r)['issue_close_deferred'], 'merge');
+      assert.equal(parse(r)['issue_left_open'], undefined);
 
       const row = db.get<{ status: string; closed_at: string | null }>(
         `SELECT status, closed_at FROM issues WHERE id = ?`,
         [issueId],
       );
       assert.ok(row, 'issue row must exist');
-      assert.equal(row!.status, 'closed');
-      assert.ok(row!.closed_at !== null, 'closed_at must be set by bro_atomic_close auto-close');
+      assert.equal(row!.status, 'open');
+      assert.equal(row!.closed_at, null, 'the issue closes when its task commits reach the target, not at task close');
     } finally {
       db.close();
       rmSync(ws, { recursive: true, force: true });
     }
   });
 
-  it('GH 3115: the auto-close leaves the linked remote open until PR merge', async () => {
+  it('GH 3115: the last task close leaves the linked remote open until merge', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'bac-remote-'));
     const repoRoot = join(ws, 'app');
     mkdirSync(repoRoot, { recursive: true });
@@ -661,11 +663,12 @@ describe('bro_atomic_close', () => {
         close_issue_if_last_task: true, waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', _spawnFn: spawnFn,
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-      assert.equal(parse(r)['issue_closed'], true);
+      assert.equal(parse(r)['issue_closed'], false);
+      assert.equal(parse(r)['issue_close_deferred'], 'merge');
 
       const closeCall = spawnCalls.find((c) => c.args.includes('issue') && c.args.includes('close'));
       assert.equal(closeCall, undefined, `the remote closes at PR merge, not here; got ${JSON.stringify(spawnCalls)}`);
-      assert.deepEqual(parse(r)['remote'], { deferred: 'pr_merge', remotes: [{ remote_kind: 'github', remote_iid: 42 }] });
+      assert.equal(parse(r)['remote'], undefined);
     } finally {
       if (savedEnv === undefined) delete process.env.TMB_DISABLE_REMOTE_SYNC;
       else process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;
@@ -4386,7 +4389,7 @@ describe('task_reopen + task_update_spec', () => {
     }
   });
 
-  it('task_reopen refuses a needs_validation task, a closed issue, and a missing reason', async () => {
+  it('task_reopen refuses a needs_validation task and a missing reason, and reopens a closed issue (GH 3234)', async () => {
     const { ws, db, handlers } = setup();
     try {
       const id = await provision(handlers, 'fix/not-reopenable');
@@ -4397,12 +4400,15 @@ describe('task_reopen + task_update_spec', () => {
       db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
       const noReason = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: '  ' });
       assert.equal(noReason.isError, true);
-      db.run(`UPDATE issues SET status = 'closed' WHERE id = 1`);
-      const closedIssue = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x' });
-      assert.equal(closedIssue.isError, true);
-      assert.match(String(parse(closedIssue)['error']), /issue 1 is closed/);
       assert.equal(taskRow(db, id).status, 'closed');
       assert.equal(auditOf(db, 'task_reopened').length, 0);
+      db.run(`UPDATE issues SET status = 'closed', closed_at = '2026-01-01T00:00:00.000Z' WHERE id = 1`);
+      const closedIssue = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x' });
+      assert.ok(!closedIssue.isError, JSON.stringify(parse(closedIssue)));
+      assert.equal(parse(closedIssue)['issue_reopened'], true);
+      assert.equal(taskRow(db, id).status, 'running');
+      assert.deepEqual({ ...db.get<{ status: string; closed_at: string | null }>('SELECT status, closed_at FROM issues WHERE id = 1')! }, { status: 'open', closed_at: null });
+      assert.equal(auditOf(db, 'issue_reopened').length, 1);
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
@@ -5866,6 +5872,7 @@ describe('bro_atomic_close under agile review mode (GH 2225)', () => {
     const out = parse(await close({ close_issue_if_last_task: true }));
     assert.equal(out['issue_closed'], false);
     assert.equal((out['issue_left_open'] as { reason: string }).reason, 'tasks_without_review');
+    assert.equal(out['issue_close_deferred'], undefined, 'an unreviewed task holds the issue, so it is not ready to close at merge');
     assert.equal(db.get<{ status: string }>('SELECT status FROM issues WHERE id = ?', [issue])!.status, 'open');
     assert.equal(count(db, 'review_queued', task), 1);
     db.close();

@@ -5,7 +5,14 @@ import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware
 import type { FindingSeverity, ReviewFinding, ValidationAttempt } from '../types.js';
 import { insertAudit } from './audit.js';
 import type { Effort } from './config.js';
-import { applyReopenInTx, atLeastReworkFloor, insertEffortRaised, type ClearedCompletion, type ReopenTask } from './reopen.js';
+import {
+  applyReopenInTx,
+  atLeastReworkFloor,
+  insertEffortRaised,
+  reopenClosedIssueInTx,
+  type ClearedCompletion,
+  type ReopenTask,
+} from './reopen.js';
 import { PROBE_SHAPE, parseProbes, probesJson, type ReviewProbe } from './review-probes.js';
 import { parseResponseFormat, responseFormatSchema, withoutKeys } from './response-format.js';
 import { FINDING_ORDER_SQL, PASS_RUN_SQL, VERIFICATION_RUN_REQUIRED, latestVerificationRun, passRunRefusal, type PassRunRow } from './verification-runs.js';
@@ -32,6 +39,7 @@ type ReviewFailReopen =
         effort: Effort;
         effort_raised: boolean;
         finding_ids: string[];
+        issue_reopened?: true;
       };
     }
   | { reopen_skipped: { reason: string; effort_raised?: boolean } };
@@ -44,11 +52,12 @@ function reviewFailSpawnNote(validationId: number, findings: readonly BlockingFi
 
 /**
  * What a code-reviewer FAIL does to its task, inside validation_record's
- * transaction (GH 2866): a completed, needs_validation or closed task of an
- * open issue is reopened to running at the rework floor effort; a running one
- * only has its effort raised to the floor; any other status, or a closed
- * issue, is left as it is. The reopen's task_reopened row keeps the cleared
- * completion report and stamp, which a re-review of the same commit restores.
+ * transaction (GH 2866): a completed, needs_validation or closed task is
+ * reopened to running at the rework floor effort, reopening its issue too when
+ * that issue is closed (the revert guard, GH 3234); a running one only has its
+ * effort raised to the floor; any other status is left as it is. The reopen's
+ * task_reopened row keeps the cleared completion report and stamp, which a
+ * re-review of the same commit restores.
  */
 function reopenAfterReviewFail(
   db: TrajectoryDB,
@@ -62,7 +71,6 @@ function reopenAfterReviewFail(
   );
   if (!task) return { reopen_skipped: { reason: 'task_missing' } };
   if (task.issue_status === null) return { reopen_skipped: { reason: 'issue_missing' } };
-  if (task.issue_status === 'closed') return { reopen_skipped: { reason: 'issue_closed' } };
   const effort = atLeastReworkFloor(task.effort);
   const raise = effort !== task.effort;
   if (task.status === 'running') {
@@ -74,6 +82,14 @@ function reopenAfterReviewFail(
   }
   if (!AUTO_REOPEN_STATUSES.has(task.status)) return { reopen_skipped: { reason: `status_${task.status}` } };
   const findingIds = fail.findings.map((f) => f.id);
+  const issueReopened = reopenClosedIssueInTx(db, {
+    issueId: task.issue_id,
+    branchId: task.branch_id,
+    taskId: task.id,
+    cause: 'review_fail',
+    agent,
+    now: fail.now,
+  });
   const raised = applyReopenInTx(db, {
     task,
     agent,
@@ -90,7 +106,15 @@ function reopenAfterReviewFail(
     },
   });
   return {
-    reopened: { task_id: task.id, from_status: task.status, status: 'running', effort, effort_raised: raised, finding_ids: findingIds },
+    reopened: {
+      task_id: task.id,
+      from_status: task.status,
+      status: 'running',
+      effort,
+      effort_raised: raised,
+      finding_ids: findingIds,
+      ...(issueReopened ? { issue_reopened: true as const } : {}),
+    },
   };
 }
 

@@ -107,6 +107,7 @@ import {
   insertEffortRaised,
   RE_REVIEW_CHANGE,
   reReviewAdmission,
+  reopenClosedIssueInTx,
   restoreForReReviewInTx,
 } from './reopen.js';
 import { REWORK_FLOOR_EFFORT } from '../task-rework.js';
@@ -441,28 +442,6 @@ type IssueLeftOpen =
   | { reason: 'issue_has_open_tasks'; tasks: Array<{ task_id: number; status: string }> }
   | { reason: 'tasks_without_review'; tasks: Array<{ task_id: number; commit_sha: string | null }>; review_pending: true };
 
-interface DeferredRemoteClose {
-  deferred: 'pr_merge';
-  remotes: Array<{ remote_kind: 'github' | 'gitlab'; remote_iid: number }>;
-}
-
-// Closing the last task closes only the local issue (GH 3115): the remote twin
-// stays open until the PR that references it merges; then the PR's closing
-// keyword, or the close-issue-on-merge hook on the PR's closing refs, closes
-// the remote twin; the hook does so for an issue already closed locally too.
-// A task close can run before its branch is even pushed, so closing the
-// remote here would claim a fix the remote branch does not yet carry.
-function deferredRemoteClose(db: TrajectoryDB, issueId: string | number): DeferredRemoteClose {
-  const row = db.get<{ gh_iid: number | null; gl_iid: number | null }>(
-    `SELECT gh_iid, gl_iid FROM issues WHERE id = ?`,
-    [issueId],
-  );
-  const remotes: DeferredRemoteClose['remotes'] = [];
-  if (row?.gh_iid != null) remotes.push({ remote_kind: 'github', remote_iid: row.gh_iid });
-  if (row?.gl_iid != null) remotes.push({ remote_kind: 'gitlab', remote_iid: row.gl_iid });
-  return { deferred: 'pr_merge', remotes };
-}
-
 // task_brief sections (GH 1743): a swe gets 'core' by default and loads the
 // rest on demand; every other caller gets 'all'.
 export const BRIEF_SECTIONS = ['core', 'verification', 'scope', 'history', 'all'] as const;
@@ -496,16 +475,15 @@ export interface CloseScope {
 // Shared close path for bro_atomic_close + task_recover: in the caller's
 // transaction, advance a task to closed (writing bro_verification_pass,
 // stamping tasks.workflow_mode from readWorkflowMode and closing the task's
-// open agent_runs rows) and optionally close the parent issue
-// under the issue_close rules. `bypassClosedBy` names a closer that is not
+// open agent_runs rows) and optionally report whether the parent issue is
+// ready to close at merge under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
 // row. Under workflow_mode 'agile' any closer instead queues an unreviewed
 // task for the grouped review with one review_queued row: a bypass row would
-// take it out of the review queue. Returns whether the issue was
-// closed (so the caller can mirror the close to the remote after the
-// transaction commits), when it was left open, why, and whether the task was
-// queued.
+// take it out of the review queue. Returns issue_closed (always false: the
+// issue closes at merge), issue_close_deferred 'merge' when nothing holds the
+// issue, else issue_left_open with why, and whether the task was queued.
 function closeTaskInTx(
   db: TrajectoryDB,
   task: { id: number; issue_id: number; branch_id: string; status: string; commit_sha: string | null },
@@ -515,7 +493,13 @@ function closeTaskInTx(
   closeIssueIfLast: boolean,
   bypassClosedBy: string | null = null,
   scope: CloseScope | null = null,
-): { issue_closed: boolean; issue_left_open: IssueLeftOpen | null; review_gate_bypassed: boolean; review_queued: boolean } {
+): {
+  issue_closed: false;
+  issue_left_open: IssueLeftOpen | null;
+  issue_close_deferred: 'merge' | null;
+  review_gate_bypassed: boolean;
+  review_queued: boolean;
+} {
   const workflowMode = readWorkflowMode(db);
   // 1. bro_verification_pass audit row — the review anchor of this commit;
   // bro_atomic_close adds the close-time scope record task_brief reads.
@@ -556,10 +540,12 @@ function closeTaskInTx(
   // 4. close every open agent_runs row of the task (bro and swe).
   closeOpenRunsForTask(db, task.id, now, 'completed');
 
-  // 5. optional issue close — the issue_close rules: never over a live task,
-  // never over a closed task without a review.
-  let issueClosed = false;
+  // 5. optional issue readiness under the issue_close rules (never over a live
+  // task, never over a closed task without a review). The issue itself stays
+  // open: it closes once its task commits reach the target branch (GH 3234),
+  // so an integrate that fails after this close still finds it open.
   let leftOpen: IssueLeftOpen | null = null;
+  let closeDeferred: 'merge' | null = null;
   if (closeIssueIfLast) {
     const live = liveTasksOfIssue(db, task.issue_id);
     const unreviewed = live.length === 0 ? closedTasksWithoutReview(db, task.issue_id) : [];
@@ -572,15 +558,17 @@ function closeTaskInTx(
         review_pending: true,
       };
     } else {
-      db.run(
-        `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
-        [now, now, task.issue_id],
-      );
-      issueClosed = true;
+      closeDeferred = 'merge';
     }
   }
 
-  return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed, review_queued: reviewQueued };
+  return {
+    issue_closed: false,
+    issue_left_open: leftOpen,
+    issue_close_deferred: closeDeferred,
+    review_gate_bypassed: reviewGateBypassed,
+    review_queued: reviewQueued,
+  };
 }
 
 interface ScopedTask {
@@ -1478,6 +1466,7 @@ export function compositeTools(
       description:
         "Retry a failed task in one transaction: appends the rationale, creates a new task inheriting issue_id, parent_branch_id and repo, " +
         "its branch and worktree cut by task_provision's environment gate. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
+        'Reopens a closed issue. ' +
         `${verificationPathsDoc('the base')} ` +
         'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, base_sha, wm_commit, env_gate, worktree_path, worktree_adopted?, diagnostic?}.',
       inputSchema: {
@@ -1630,10 +1619,10 @@ export function compositeTools(
     {
       name: 'bro_atomic_close',
       description:
-        "Bro's task close after code-reviewer passed: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
+        "Bro's task close after code-reviewer passed: writes bro_verification_pass and closes the task, never the issue, in one transaction. " +
         "Refuses with review_pass_missing until a passing verdict follows the task's review_handoff for its commit_sha (the task's current commit); " +
         'in agile mode it closes queued (review_queued: true). ' +
-        'An issue left open reports issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes on merge or via issue_close. ' +
+        "issue_close_deferred: 'merge' when ready, else issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes at merge or via issue_close. " +
         'The scope gate refuses changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base). ' +
         'PostToolUse hooks fire on bro_atomic_close, not task_update_status.',
       inputSchema: {
@@ -1649,10 +1638,9 @@ export function compositeTools(
           close_issue_if_last_task: {
             type: 'boolean',
             description:
-              'When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, ' +
-              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. ' +
-              'The linked GitHub/GitLab issue stays open until the PR that references it merges: ' +
-              "remote: {deferred: 'pr_merge', remotes: [{remote_kind, remote_iid}]} lists it.",
+              'When true, report whether the issue is ready to close; the issue itself stays open and closes at merge. ' +
+              "issue_close_deferred: 'merge' when no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, " +
+              'otherwise issue_left_open says why.',
           },
           waive_scope_gate: {
             type: 'boolean',
@@ -1693,10 +1681,9 @@ export function compositeTools(
           close_issue_if_last_task: {
             type: 'boolean',
             description:
-              'When true, also close the issue in the same transaction under the issue_close rules (no live task, ' +
-              'no closed task without a passing review or recorded bypass); otherwise issue_left_open says why. ' +
-              'The linked GitHub/GitLab issue stays open until the PR that references it merges: ' +
-              "remote: {deferred: 'pr_merge', remotes: [{remote_kind, remote_iid}]} lists it.",
+              'When true, report whether the issue is ready to close; the issue itself stays open and closes at merge. ' +
+              "issue_close_deferred: 'merge' under the issue_close rules (no live task, no closed task without a passing review or recorded bypass), " +
+              'otherwise issue_left_open says why.',
           },
         },
         required: ['agent'],
@@ -1799,7 +1786,7 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task: moves a pending, completed, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Refused when the task's issue is closed. " +
+        "Rework a task: moves a pending, completed, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Reopens a closed issue. " +
         `${verificationPathsDoc('the branch tip')} ` +
         'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, base_sha, wm_commit, env_gate, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
@@ -2382,11 +2369,10 @@ export function compositeTools(
           prompt_bearing: number;
           worktree_path: string | null;
           no_code_class: string | null;
-          issue_status: string;
         }>(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  t.prompt_bearing, t.worktree_path, t.no_code_class, i.status AS issue_status
-             FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
+                  t.prompt_bearing, t.worktree_path, t.no_code_class
+             FROM tasks t WHERE t.id = ?`,
           [taskId],
         );
         if (!task) return err(`task_reopen: task ${taskId} not found`);
@@ -2395,9 +2381,6 @@ export function compositeTools(
             `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, completed, closed, failed, escalated or running tasks. ` +
               `Amend a live task's spec with task_update_spec.`,
           );
-        }
-        if (task.issue_status === 'closed') {
-          return err(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
         }
         if (isEffort(effortArg) && effortRank(effortArg) < effortRank(REWORK_FLOOR_EFFORT) && hasFailSinceLastPass(db, taskId)) {
           return err(
@@ -2473,11 +2456,20 @@ export function compositeTools(
           gate = passed;
         }
         const now = nowISO();
+        let issueReopened = false;
         const refused = gatedTransaction(db, gate, () => {
           if (adoptedWorktree !== null && repoPath) {
             const late = recordAdoptedWorktree(db, task.id, repoPath, adoptedWorktree);
             if (late) throw new AdoptRefusedError(late);
           }
+          issueReopened = reopenClosedIssueInTx(db, {
+            issueId: task.issue_id,
+            branchId: task.branch_id,
+            taskId: task.id,
+            cause: 'task_reopen',
+            agent,
+            now,
+          });
           applyReopenInTx(db, {
             task,
             agent,
@@ -2560,6 +2552,7 @@ export function compositeTools(
           effort,
           ...promptBearingDerivedField(promptBearingResolution),
           wontfixed: wontfix.map((w) => w.finding_id),
+          ...(issueReopened ? { issue_reopened: true } : {}),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
           ...setupField(gate?.setup),
@@ -3282,7 +3275,16 @@ export function compositeTools(
             if (refused) throw new AdoptRefusedError(refused);
           }
 
-          return { ...newTask, carried };
+          const issueReopened = reopenClosedIssueInTx(db, {
+            issueId: failed.issue_id,
+            branchId: newBranchId,
+            taskId: newTask.id,
+            cause: 'task_retry',
+            agent,
+            now,
+          });
+
+          return { ...newTask, carried, issueReopened };
         });
         if (isAdoptRefusal(result)) return adoptRefusalResult(result);
 
@@ -3293,6 +3295,7 @@ export function compositeTools(
             effort,
             ...promptBearingDerivedField(promptBearingResolution),
             carried_findings: result.carried,
+            ...(result.issueReopened ? { issue_reopened: true } : {}),
             worktree_path: null,
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ''}'; no branch or worktree was created`,
             ...suggested(),
@@ -3315,6 +3318,7 @@ export function compositeTools(
           worktree_path: worktreePath,
           ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
+          ...(result.issueReopened ? { issue_reopened: true } : {}),
           ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(diagnostic ? { diagnostic } : {}),
           ...suggested(),
@@ -3895,10 +3899,11 @@ export function compositeTools(
             ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),
             ...(closed.review_queued ? { review_queued: true } : {}),
             ...(closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}),
+            ...(closed.issue_close_deferred ? { issue_close_deferred: closed.issue_close_deferred } : {}),
           };
         });
 
-        return ok(result.issue_closed ? { ...result, remote: deferredRemoteClose(db, task.issue_id) } : result);
+        return ok(result);
       })),
     ),
 
@@ -3989,8 +3994,6 @@ export function compositeTools(
           return closeTaskInTx(db, task, commitSha!, verificationSummary, now, closeIssueIfLast, 'task_recover');
         });
 
-        const remote = result.issue_closed ? deferredRemoteClose(db, task.issue_id) : undefined;
-
         return ok({
           recovered: true,
           action: 'closed',
@@ -4000,7 +4003,7 @@ export function compositeTools(
           review_gate_bypassed: result.review_gate_bypassed,
           ...(result.review_queued ? { review_queued: true } : {}),
           ...(result.issue_left_open ? { issue_left_open: result.issue_left_open } : {}),
-          ...(remote ? { remote } : {}),
+          ...(result.issue_close_deferred ? { issue_close_deferred: result.issue_close_deferred } : {}),
           ...sweepResult,
         });
       })),

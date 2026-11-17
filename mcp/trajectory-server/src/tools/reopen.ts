@@ -109,6 +109,35 @@ export function applyReopenInTx(db: TrajectoryDB, w: ReopenWrite): boolean {
   return raised;
 }
 
+/** What moved live work back under an issue: bro's task_reopen or task_retry, or a code-reviewer FAIL. */
+export type IssueReopenCause = 'task_reopen' | 'task_retry' | 'review_fail';
+
+/**
+ * The revert guard (GH 3234, decision #245): an issue closes only when its task
+ * commits reach the target branch, or through issue_close, so live work landing
+ * under a closed issue means that change is being reworked or reverted. Moves
+ * the issue back to open and writes one issue_reopened row; writes nothing for
+ * an open issue. The remote twin is left as it is.
+ */
+export function reopenClosedIssueInTx(
+  db: TrajectoryDB,
+  w: { issueId: number; branchId: string; taskId: number; cause: IssueReopenCause; agent: string; now: string },
+): boolean {
+  const issue = db.get<{ status: string; closed_at: string | null }>('SELECT status, closed_at FROM issues WHERE id = ?', [w.issueId]);
+  if (issue?.status !== 'closed') return false;
+  db.run(`UPDATE issues SET status = 'open', closed_at = NULL, updated_at = ? WHERE id = ?`, [w.now, w.issueId]);
+  insertAudit(db, {
+    issue_id: w.issueId,
+    branch_id: w.branchId,
+    from_node: w.agent,
+    event_type: 'issue_reopened',
+    summary: `Issue ${w.issueId} reopened: ${w.cause} put task ${w.taskId} back to work`,
+    content_json: JSON.stringify({ task_id: w.taskId, cause: w.cause, from_closed_at: issue.closed_at }),
+    created_at: w.now,
+  });
+  return true;
+}
+
 /** True while task <taskId> has a review FAIL since its last passing review. */
 export function hasFailSinceLastPass(db: TrajectoryDB, taskId: number): boolean {
   return (db.get<{ n: number }>(`SELECT ${failsSinceLastPassSql('?1')} AS n`, [taskId])?.n ?? 0) > 0;

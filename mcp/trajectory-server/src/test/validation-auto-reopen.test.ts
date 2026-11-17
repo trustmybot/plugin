@@ -1,7 +1,8 @@
 /**
  * A code-reviewer FAIL reopens its task at high (GH 2866): validation_record
- * moves a completed, needs_validation or closed task of an open issue back to
- * running at effort high in the FAIL's own transaction, raises a running one
+ * moves a completed, needs_validation or closed task back to running at effort
+ * high in the FAIL's own transaction, reopening a closed issue of it with the
+ * task (GH 3234), raises a running one
  * to high, and leaves every other task as it is; require-spawn-effort and
  * task_reopen hold a task with a FAIL since its last pass at high; and
  * require-task-spec denies the swe spawn of a reopened task whose worktree is
@@ -190,28 +191,39 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
     assert.ok(note.includes(`F${id}-1 (a-rather-long-bug-class-name-0)`));
   });
 
-  it('SC2/SC3: a FAIL on a pending task or on a task of a closed issue changes nothing', async () => {
+  it('SC2/SC3: a FAIL on a pending task changes nothing', async () => {
     const pending = task('pending', 'medium');
-    let out = parse(await record(pending, 'fail', [blocking('x')]));
+    const out = parse(await record(pending, 'fail', [blocking('x')]));
     assert.deepEqual(out['reopen_skipped'], { reason: 'status_pending' });
     assert.equal(out['reopened'], undefined);
     assert.equal(row(pending).status, 'pending');
     assert.equal(row(pending).effort, 'medium');
+    assert.equal(auditRows(pending, 'task_reopened').length, 0);
+    assert.equal(auditRows(pending, 'task_effort_raised').length, 0);
+  });
 
+  it('GH 3234: a FAIL on a task of a closed issue reopens the task and the issue in one transaction', async () => {
+    db.run(`UPDATE issues SET status = 'closed', closed_at = '2026-01-01T00:00:00.000Z' WHERE id = 2`);
     const ofClosedIssue = task('completed', 'medium', 2);
-    out = parse(await record(ofClosedIssue, 'fail', [blocking('x')]));
-    assert.deepEqual(out['reopen_skipped'], { reason: 'issue_closed' });
-    assert.equal(row(ofClosedIssue).status, 'completed');
-    assert.equal(row(ofClosedIssue).effort, 'medium');
+    const out = parse(await record(ofClosedIssue, 'fail', [blocking('x')]));
+    assert.equal(out['reopen_skipped'], undefined);
+    assert.equal((out['reopened'] as { issue_reopened?: boolean }).issue_reopened, true);
+    assert.equal(row(ofClosedIssue).status, 'running');
+    assert.equal(row(ofClosedIssue).effort, 'high');
+    assert.deepEqual({ ...db.get<{ status: string; closed_at: string | null }>('SELECT status, closed_at FROM issues WHERE id = 2')! }, { status: 'open', closed_at: null });
+    const issueReopened = auditRows(ofClosedIssue, 'issue_reopened');
+    assert.equal(issueReopened.length, 1);
+    assert.equal(issueReopened[0].from_node, 'code-reviewer');
+    assert.deepEqual(JSON.parse(issueReopened[0].content_json), {
+      task_id: ofClosedIssue,
+      cause: 'review_fail',
+      from_closed_at: '2026-01-01T00:00:00.000Z',
+    });
 
-    const runningOfClosedIssue = task('running', 'medium', 2);
-    await record(runningOfClosedIssue, 'fail', [blocking('x')]);
-    assert.equal(row(runningOfClosedIssue).effort, 'medium');
-
-    for (const id of [pending, ofClosedIssue, runningOfClosedIssue]) {
-      assert.equal(auditRows(id, 'task_reopened').length, 0);
-      assert.equal(auditRows(id, 'task_effort_raised').length, 0);
-    }
+    const ofOpenIssue = task('completed', 'high');
+    const again = parse(await record(ofOpenIssue, 'fail', [blocking('x')]));
+    assert.equal((again['reopened'] as { issue_reopened?: boolean }).issue_reopened, undefined, 'an open issue is left as it is');
+    assert.equal(auditRows(ofOpenIssue, 'issue_reopened').length, 0);
   });
 
   it('SC3: a FAIL on a failed or escalated task changes nothing', async () => {

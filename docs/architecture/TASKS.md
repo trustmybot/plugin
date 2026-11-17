@@ -28,7 +28,7 @@ flowchart TD
     J -- yes --> J1["Rebase, re-verify; patch unchanged, so the pass carries<br/>DB insert: verification run · DB update: task's commit"]
     J1 --> K
     J -- no --> K["bro pushes and opens the PR<br/>DB insert: PR and the issues it closes"]
-    K --> L["Human merges, or the merge policy does<br/>DB update: the branch's tasks and the PR's issues closed"]
+    K --> L["Human merges, or the merge policy does<br/>DB update: the issue closed once all its task commits reach the target branch"]
     L --> M["WM: the merge moves refs; fetch and reindex in the background<br/>concepts the swe proposed apply at the next scan"]
     K -. review comments .-> T[3.5 PR comment triage]
 ```
@@ -72,9 +72,9 @@ flowchart TD
 | Close | swe | deterministic | functionality-level quality: the task completes only when the changelog, stale-doc and leak checks, the verification commands (the repo's standing checks among them), every open finding's probe and the repo's close lints pass on the commit, with a report against every success criterion. A prompt-bearing task also passes the doc-review checklist of 3.2. A world-model check that no downstream caller breaks is planned (GH 3069) |
 | Hand off | bro | deterministic | the commit goes to review only with a passing run and a report that covers it, plus the list of edits outside the file list |
 | Review | code-reviewer | deterministic, then judgment | diff-level quality through 3.3: a recorded verdict for the commit, never read from reply text |
-| Close task | bro | judgment | architecture-level quality: on a pass, bro judges fit to the design and the spec's intent, accepts or refuses out-of-scope edits, and closes the task. It re-runs no check and re-reviews no diff. The task worktree is removed at task close, before the merge |
+| Close task | bro | judgment | architecture-level quality: on a pass, bro judges fit to the design and the spec's intent, accepts or refuses out-of-scope edits, and closes the task. It re-runs no check and re-reviews no diff. The task worktree is removed at task close, before the merge. Closing a task, even the issue's last, leaves the issue open |
 | Integrate and push | bro | deterministic | a moved base is rebased and re-verified before the push. The review pass carries to the rebased commit only when the patch is unchanged, verification passes again and the base changes touch nothing the diff depends on. bro opens the PR |
-| Merge | Human | judgment | the PR merges, unless the project's merge policy delegates it; an in-session merge closes the branch's tasks and the issues the PR closes |
+| Merge | Human | judgment | the PR merges, unless the project's merge policy delegates it. The tasks are already closed at bro's close step; the issue closes when all its task commits reach the target branch, which git detects for local and remote projects alike. Rework that puts a task of a closed issue back to work (a reopen, a retry or a review fail) reopens the issue |
 
 - **A deny is a fix, not a stop.** It names the allowed form or what failed, and swe fixes it in the same run; a policy deny ends the run failed, quoting the deny.
 - **Verification never fails open**, and only provisioning creates task branches and worktrees.
@@ -96,7 +96,7 @@ flowchart TD
     F --> G["code-reviewer passes it with the same checklist<br/>DB insert: verdict and any nits"]
     G --> H["bro closes the task, integrates if the base moved<br/>DB update: task closed · worktree removed"]
     H --> K["bro pushes and opens the PR<br/>DB insert: PR and the issues it closes"]
-    K --> L["Human merges, or the merge policy does<br/>DB update: the branch's tasks and the PR's issues closed"]
+    K --> L["Human merges, or the merge policy does<br/>DB update: the issue closed once all its task commits reach the target branch"]
     L --> M["WM: fetch and reindex in the background"]
 ```
 
