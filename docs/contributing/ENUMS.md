@@ -222,6 +222,17 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 
 ---
 
+## Planned for schema v75
+
+Schema v75 (GH 3224) changes the task status vocabulary. Its code hasn't merged, so the task lifecycle table above still shows v74. When v75 lands, its updated table replaces this section. [`TASKS.md`](../architecture/TASKS.md) holds the lifecycle.
+
+- **in review**: a completed task handed to code-reviewer, awaiting its verdict.
+- **reviewed**: code-reviewer passed the task; it awaits bro's close.
+- **queued**: an agile close merged the task's commit into the milestone feature branch; it awaits its group's review.
+- **batch reviewed**: the review of the queued task's group passed; the task closes when the feature branch merges.
+- **waived**: the Human waived the branch review of a queued task; it closes when the feature branch merges.
+- **needs validation** goes away. v75 moves every such task to completed, and its check refuses the value.
+
 ## How to add a new ENUM value
 
 1. Open a PR that adds the value to the schema/code that consumes it, and to this doc when its column has a table here.

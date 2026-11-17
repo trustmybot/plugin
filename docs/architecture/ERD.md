@@ -1359,6 +1359,17 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `idx_eval_results_flow` | `eval_results` | `flow_name, created_at` |  |  |
 <!-- erd:generated:end -->
 
+## Planned for schema v75
+
+Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't merged, so the generated tables above still show v74. When v75 lands, its regenerated tables replace this section. [`TASKS.md`](./TASKS.md) holds the lifecycle these tables enforce.
+
+- **`task_event_types`** lists every lifecycle event type: its code, a description, and when it went out of use.
+- **`task_status_edges`** lists the allowed moves. Each row is one move from a state to a state, plus the event type that makes it. Only a seeded move can happen.
+- **`task_events`** holds one row per move a task makes: the task, its per-task sequence number, the event type, the from and to states, who acted, an optional cause and a pointer to the row behind it, an optional idempotency key, whether a migration backfilled it, and when. A task's sequence numbers are unique.
+- **`tasks.status`** becomes a cache of the task's latest event and changes only through one. It gains `in_review`, `reviewed`, `queued`, `batch_reviewed` and `waived`, and drops `needs_validation`; v75 moves every such task to `completed`.
+- **`tasks.retry_of`** points a retry at the task it retries.
+- **Review batches** record one grouped review of queued tasks; those tasks' events point at the batch.
+
 ## How the groups connect
 
 - Every workflow row belongs to one issue, directly or through its task. Project-level audit and discussion rows use a schema-seeded system issue that no task may use.
