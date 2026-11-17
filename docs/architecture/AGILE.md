@@ -66,7 +66,7 @@ The review mode on a task is history: it is fixed at the close and never changes
 ```mermaid
 flowchart LR
     T[Truest task] --> RV[Reviewed before its push; never queued]
-    A[Agile task merged into the feature branch] --> Q[Queued]
+    A[Agile task closed without a per-task review] --> Q[Queued]
     Q -- the branch's review passes for its group --> BR[Batch-reviewed]
     Q -- the Human waives the review --> W[Waived]
     Q -- the Human asks for a review now --> IR[In review]
@@ -77,7 +77,7 @@ flowchart LR
     Q -- the Human drops the feature branch --> ES[Cancelled]
 ```
 
-- **Queued** means merged into the feature branch and waiting for review.
+- **Queued** means closed without a per-task review and waiting for one. The task is queued at its close, and it counts toward its feature branch's review and merge gate once it is folded into that branch.
 - **Batch-reviewed** means the feature branch's review passed for the task's group. The move is recorded with the review that cleared it.
 - **Waived** means the Human let the feature branch merge without that review. The waiver names the branch, and the audit log keeps it.
 - **A queued task can leave the queue early.** A review the Human asks for moves it to in review. A pass leaves it reviewed, and it closes with the rest when the feature branch merges. A fail leaves it queued with its findings open: bro reopens it when it is not yet folded into the feature branch, and after rework it closes into the queue again; once it is folded, bro files the findings as a fix task on the feature branch. Dropping the feature branch cancels it.
@@ -138,7 +138,7 @@ flowchart TD
 
 ## Feature branch review
 
-Shipped, project mode only. Two steps run differently today: the hand-off runs the close lints at the feature branch's tip, and the full suite runs in the milestone PR's CI run, not on the feature branch before it; and bro brings the working branch in by hand, asking the Human to resolve any conflict.
+Shipped, project mode only.
 
 ```mermaid
 flowchart TD
@@ -146,19 +146,18 @@ flowchart TD
     B -- a conflict bro cannot settle --> BH[The sync is undone; the Human says how to resolve it]
     BH --> B
     B --> C[Group the queued tasks whose changed files overlap]
-    C --> HO{Hand-off of each group: lints pass at the feature branch's tip, and no queued task sharing a file is left out?}
+    C --> HO{Hand-off of each group: the close lints and the full test suite pass at the feature branch's tip, and no queued task sharing a file is left out?}
     HO -- a task is left out --> C
-    HO -- a lint fails --> H
+    HO -- a lint or the suite fails --> H
     HO -- yes --> D[One code-reviewer per group, groups in parallel]
     D -- the feature branch moved since the hand-off --> HO
     D --> E[Each reviewer reads its group's files in the net diff from the working branch to the feature branch]
-    B --> S[The full test suite runs on the feature branch]
     E --> F{Verdict}
     F -- pass --> G[In one step, every task in the group moves from queued to batch-reviewed, recorded with the review]
     F -- fail --> H[bro files the findings as a new fix task on the feature branch]
     H --> I[The fix is reviewed before it merges, as in truest; the group stays queued]
     I --> HO
-    G --> M{Every group batch-reviewed, and the suite passes?}
+    G --> M{Every group batch-reviewed?}
     M -- yes --> P[bro opens one PR from the feature branch into the working branch]
     P --> CI[One CI run and one merge-queue run]
     CI --> MG[Merged per the merge policy]
@@ -168,9 +167,9 @@ flowchart TD
 - **The Human decides when.** The review runs when the Human says the milestone is reached, such as when an MVP works end to end, not after each task. It is one batch review of the milestone, split into groups that run in parallel.
 - **Groups form after the fact.** Which files a task will touch is hard to know before it is planned, so tasks are not grouped up front. The groups come from the files each task actually changed, and tasks that share a file are reviewed together, so a reviewer sees their combined effect.
 - **Net diff.** The review reads what the feature branch adds to the working branch, not each task's patch. Churn a later task undid is never reviewed, and a conflict resolved on the branch is reviewed as resolved.
-- **The suite covers the gaps.** A reviewer reads its group's files and their dependents. The full suite on the feature branch catches what crosses two groups.
+- **The suite covers the gaps.** A reviewer reads its group's files and their dependents. The full suite runs at the feature branch's tip in each hand-off, and again in the milestone PR's CI run, and catches what crosses two groups.
 - **A pass updates the whole group.** Every task in the group becomes batch-reviewed at once, recorded with the review that cleared it. Each task still records agile as its review mode.
-- **The hand-off checks the group first.** A group goes to its reviewer only when the close lints pass at the feature branch's tip and the group leaves out no queued task that shares one of its changed files. A missing task is added to the group. A failing lint becomes a fix task. When the feature branch moves after a hand-off, the group is handed off again at the new tip.
+- **The hand-off checks the group first.** A group goes to its reviewer only when the close lints and the full suite pass at the feature branch's tip and the group leaves out no queued task that shares one of its changed files. A missing task is added to the group. A failing lint or suite becomes a fix task. When the feature branch moves after a hand-off, the group is handed off again at the new tip.
 - **Failures.** A fail becomes a fix task on the feature branch, and that task is reviewed before it merges, like any truest task. Once the fix has merged, the failed group is handed off and reviewed again on the new net diff, which now holds the fix. A fix task's own pass never batch-reviews the group.
 - **Already-reviewed tasks stay out.** A task that passed a review on request is not queued, so no group includes it.
 - **After the PR opens.** A failing check or a review comment on the milestone PR is fixed the same way: a new fix task on the feature branch, reviewed before it merges, which updates the PR. Batch-reviewed and waived tasks are not reopened.
@@ -226,7 +225,7 @@ flowchart TD
 | Close without a per-task review | Shipped, project mode only |
 | Review states queued, batch-reviewed and waived | Shipped |
 | Queue of a feature branch's tasks, grouped by the files each task changed | Shipped, project mode only. Today the queue proposes groups from the files each spec named, and the hand-off enforces the files each task changed by refusing a group that leaves out a queued task sharing one |
-| Feature branch review: one batch review on its net diff | Shipped, project mode only; the full suite runs in the milestone PR's CI run |
+| Feature branch review: one batch review on its net diff | Shipped, project mode only |
 | Merge gate on the feature branch PR, and audited waiver | Shipped |
 | Lane review mode and lane feature branch, set at the lane's start, and the lane lookup at the close | Planned (GH 3025, GH 2225) |
 | Agent prompts for agile review mode | Shipped, project mode only |
