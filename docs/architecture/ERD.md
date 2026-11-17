@@ -6,11 +6,18 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 74`). O
 
 The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of truth for workflow state, read and written through the trajectory server and its hooks. Its tables fall into five groups:
 
-- **Workflow** — the issue → task chain and everything recorded against it: decisions and discussions, the audit log, verification runs, review verdicts and findings, metered agent runs, roundtables and session handoffs. Every row hangs off an issue or a task.
+- **Workflow** — the issue → task chain and everything recorded against it: each task's lifecycle events and the review batches they point at, decisions and discussions, the audit log, verification runs, review verdicts and findings, metered agent runs, roundtables and session handoffs. Every row hangs off an issue or a task.
 - **Registries** — standalone state not tied to an issue: registered repos with their per-repo branch policy, remotes and toolchain profiles; milestones; agents; capabilities (cheatcodes) and what each install wired; PR records; plugin config and schema metadata.
 - **World model** — the project map (directories, files, symbols, the edges between them, concepts) and its freshness state. A derived cache, keyed by repo and rebuilt by scanning, with no foreign key into the workflow tables.
 - **Search** — FTS5 indexes and embedding caches over discussions, audit rows and the world model, each keyed by its source row.
 - **Eval mode** — capture tables in `schema-eval.sql`, applied only with `TMB_EVAL_MODE=1`, so production DBs never carry them.
+
+## Design requirements
+
+Every table, and every change to one, meets these two requirements. The Human set them.
+
+- **Trajectory.** The trajectory DB is designed for the trajectory purpose. Every table either records a step in the trajectory of work (a fact) or describes something that takes part in it (a dimension). Anything else does not belong in it.
+- **Consistency.** Naming is consistent. An entity table is plural, and its event table is the entity's singular name followed by `_events`: `tasks` → `task_events`, `issues` → `issue_events`, never `task_facts` or another suffix. Reference and lookup tables follow the same rule, such as `task_status_edges`.
 
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
@@ -1366,7 +1373,8 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 - **Verdicts are append-only.** A re-recorded review attempt adds a row instead of replacing one; a finding's status moves from open to fixed or won't-fix, and the finding stays.
 - **Verification is recorded, not re-run.** Each run of a task's checks, and each run of its close lints, is a row with its commands or lints, so bro, code-reviewer and the reviewer preflight read the result for an exact commit.
 - **Cost is metered, not stored as totals.** Agent runs carry measured token counts; task cost and rework are computed from them at read time.
-- **Audit is event-only.** Each audit row is one lifecycle event; tool-call capture lives in the eval-mode tables.
+- **Task history is append-only.** A task row is the task's identity: its issue, branch, base, kind and the task it retries. Every change of state after that is a new lifecycle event. Events are ordered per task by a sequence number, never by timestamp, because two events can share a millisecond. Each event names its from-state and to-state, who made the move, why, and the row it rests on: a verification run, a lint run, a review verdict or a review batch. The DB refuses three kinds of event: one whose from-state is not the task's current state, a move the state graph in [TASKS.md](TASKS.md#task-lifecycle) does not allow, and a repeat of an event already recorded, so a retried hook cannot write twice. A task's current state is its newest event. The task row keeps a copy of that state for fast reads, and only the event insert writes it, in the same transaction. History rebuilt from older records when the table arrived is marked backfilled. Planned, GH 3224. The task's spec, files, checks and commit still change in place until a later step versions them.
+- **Audit is event-only.** Each audit row is one lifecycle event; tool-call capture lives in the eval-mode tables. Drift: hook-call telemetry is still written to audit today and makes up most of its rows; GH 3229 moves it out.
 - **Roles are enforced by the server, not the schema.** Which agent may write which table follows each tool's role check ([`RESPONSIBILITIES.md`](./RESPONSIBILITIES.md)).
 
 ## Data contracts
