@@ -109,8 +109,8 @@ export function applyReopenInTx(db: TrajectoryDB, w: ReopenWrite): boolean {
   return raised;
 }
 
-/** What moved live work back under an issue: bro's task_reopen or task_retry, or a code-reviewer FAIL. */
-export type IssueReopenCause = 'task_reopen' | 'task_retry' | 'review_fail';
+/** What moved live work back under an issue: bro's task_reopen, task_retry or task_provision, or a code-reviewer FAIL. */
+export type IssueReopenCause = 'task_reopen' | 'task_retry' | 'task_provision' | 'review_fail';
 
 /**
  * The revert guard (GH 3234, decision #245): an issue closes only when its task

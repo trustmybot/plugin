@@ -51,6 +51,7 @@ import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
 import { ensureFresh, fetchTargetNow, freshnessBlock, type TargetFetchAttempt } from '../world-model/freshness.js';
+import { closeIssuesReachedTarget } from '../issue-merge-close.js';
 import { readRepoTargetBranch, repoRowPath, repoTargetBase, resolveSoleRepo } from '../utils/repo-paths.js';
 import { prepareWorktreeDeps } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
@@ -1694,9 +1695,9 @@ export function compositeTools(
       description:
         'Sets up one task for swe. First syncs the world model to origin/<target>. Before the DB commit an environment gate runs fetch, branch, worktree, setup and reindex; a failed stage returns env_gate_failed and writes nothing. ' +
         "A new branch is cut from local <base> when it is a fast-forward ahead of origin/<base>, else from origin/<base> (git_setup 'created'); an existing ref at or behind the base tip is fast-forwarded ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind, open PRs) unless reuse_existing. " +
-        "Writes a kind='decision' discussion and the task in one transaction. " +
+        "Writes a kind='decision' discussion and the task in one transaction, reopening a closed issue (issue_reopened). " +
         `${verificationPathsDoc('the base')} ` +
-        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_sha, wm_commit, env_gate, base_diverged?, diagnostic?}.',
+        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, issue_reopened?, base_ref, base_sha, wm_commit, env_gate, base_diverged?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1902,6 +1903,7 @@ export function compositeTools(
   // leaves the provision on the current index.
   const provisionReindex = async (repo: string, agent: string): Promise<TargetFetchAttempt> => {
     const fetched = await fetchTargetNow(db, repo, { agent });
+    await closeIssuesReachedTarget(db, repo, { dbPath });
     const graph = graphHolder?.ensureGraph() ?? null;
     if (graph) {
       try {
@@ -2285,8 +2287,10 @@ export function compositeTools(
           if (specShapeWaived) {
             insertSpecShapeWaiver(db, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, 'task_provision', now);
           }
+          // provisionReindex's merge check may have just closed this issue.
+          const issueReopened = reopenClosedIssueInTx(db, { issueId, branchId, taskId: row.id, cause: 'task_provision', agent, now });
 
-          return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason, effort_inputs: effortInputs };
+          return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason, effort_inputs: effortInputs, issueReopened };
         });
         if (isAdoptRefusal(result)) return adoptRefusalResult(result);
 
@@ -2315,6 +2319,7 @@ export function compositeTools(
           worktree_reused: gate?.worktreeReused ?? false,
           ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
+          ...(result.issueReopened ? { issue_reopened: true } : {}),
           ...(resolvedBaseRef ? { base_ref: resolvedBaseRef } : {}),
           ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(cutBase?.diverged
