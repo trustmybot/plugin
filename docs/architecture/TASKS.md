@@ -31,6 +31,7 @@ flowchart TD
     K --> L["Human merges, or the merge policy does<br/>DB update: the issue closed once all its task commits reach the target branch"]
     L --> M["WM: the merge moves refs; fetch and reindex in the background<br/>concepts the swe proposed apply at the next scan"]
     K -. review comments .-> T[3.5 PR comment triage]
+    K -. "the base moves while the PR is open (planned, GH 3227)" .-> N["Left alone when the forge can still merge it; else rebased, re-verified and force-pushed to the same PR"]
 ```
 
 ### Code task fails a step
@@ -232,6 +233,7 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Review fail | the task is already running at high effort; bro spawns a fresh swe or resumes the one that wrote the commit, or reworks a non-code task itself |
 | Design misfit or other rework | bro amends the spec and reopens the task, recreating its worktree when missing |
 | Wrong approach or integrate conflict | bro escalates the task and retries it as a fresh task, branch and worktree from the current base, carrying its open findings |
+| Base moved while the PR is open (planned, GH 3227) | nothing, when the forge can still merge the PR; a rebase with the patch unchanged and a force-push to the same branch, when the repo requires an up-to-date branch or commits under the task's commit merged into the base; an integrate conflict otherwise ([GIT.md](GIT.md#when-the-base-moves-after-the-pr-is-open)) |
 | Failed check after integrate, or a required CI check failing on the PR | bro reopens the same task naming the check, and its author reworks it; the check leaked, so it also moves into the step that owns it |
 | Rebased commit whose review pass does not carry | one new code-reviewer pass on the rebased commit; the author reworks only if it fails |
 | Broken environment | swe ends its run failed naming the environment rather than repairing it; bro fixes the environment, reopens the task and spawns swe again |
@@ -273,6 +275,7 @@ A task that is stuck because something under it never finished (a hung hook, a d
 | The task closed but did not complete | The close checks on the commit: the run's recorded failure names which one. A non-code task also fails when any changed path is code |
 | The reviewer was refused | The commit is not the task's tip, has no handoff, has no passing run, or its lint record is missing, failing or stale against a moved base. A conflict with the base never refuses it |
 | The push is denied | A pushed task commit lacks a passing verdict of its own, or a newer fail stands over it |
+| The force-push of a rebased branch is denied | Today the gate also checks the base's commits between the branch's old tip and its new one; GH 3227 limits it to the commits the push adds |
 | A task failed though no run reported a failure | It sat running with no live author past the stale window; its last lifecycle event names the stale run |
 | A task is escalated and nothing retries it | Its issue was closed over it, or its agile feature branch was dropped; the cause is on its last lifecycle event |
 | A task keeps failing review | The open findings and their probes; after two fails, the root-cause analysis bro recorded |
