@@ -16,7 +16,8 @@ import { frameUntrusted } from '../utils/untrusted.js';
 import { readBlobSync } from '../utils/git-objects.js';
 import { isTestPath } from '../utils/test-paths.js';
 import { serverLog } from '../logger.js';
-import { ensureFresh, fetchTargetIfDue, freshnessBlock, freshnessFields, isStale, type Freshness, type FreshnessBlock } from '../world-model/freshness.js';
+import { ensureFresh, fetchTargetIfDue, freshnessBlock, freshnessFields, isStale, targetFetchSkipsRole, type Freshness, type FreshnessBlock } from '../world-model/freshness.js';
+import { closeIssuesReachedTarget } from '../issue-merge-close.js';
 import { needsReview, type NeedsReview } from '../world-model/needs-review.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -1431,9 +1432,10 @@ export function worldModelTools(
   const resolveRepo = (arg: unknown): ResolvedWorldModelRepo => resolveWorldModelRepo(db, arg, cwd);
   const sourceOf = (r: ResolvedWorldModelRepo): { repo_source?: RepoSource } =>
     r.repo_source ? { repo_source: r.repo_source } : {};
-  // Fetch each repo's target when its window is due, all at once, then bring
-  // each index to its target before answering (GH 2584). A failure answers
-  // from the index as it is.
+  // Fetch each repo's target when its window is due, all at once, close the
+  // issues whose task commits reached it (not for swe or code-reviewer, whose
+  // base is pinned), then bring each index to its target before answering
+  // (GH 2584). A failure answers from the index as it is.
   const freshenAll = async (repos: readonly string[], agent: unknown): Promise<Map<string, Freshness>> => {
     const byRepo = new Map<string, Freshness>();
     const graph = graphHolder?.ensureGraph() ?? null;
@@ -1441,6 +1443,7 @@ export function worldModelTools(
     const named = repos.filter((repo) => repo);
     const fetched = await Promise.all(named.map((repo) => fetchTargetIfDue(db, repo, { agent })));
     for (const [i, repo] of named.entries()) {
+      if (!targetFetchSkipsRole(agent)) await closeIssuesReachedTarget(db, repo, { dbPath: db.dbPath });
       try {
         const trigger = fetched[i] === 'moved' ? 'fetch' : 'read';
         byRepo.set(repo, await ensureFresh(db, graph, repo, { dbPath: db.dbPath, trigger }));

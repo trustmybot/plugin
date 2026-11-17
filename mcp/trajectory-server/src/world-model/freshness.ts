@@ -28,6 +28,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO, TARGET_SCHEMA_VERSION } from '../db.js';
 import type { WorldModelGraph } from '../graph.js';
 import { WorldModelGraph as Graph } from '../graph.js';
+import { closeIssuesReachedTarget } from '../issue-merge-close.js';
 import { serverLog } from '../logger.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { EXTRACTOR_VERSION } from '../symbol-index.js';
@@ -627,8 +628,9 @@ export interface CatchUpResult {
 }
 
 // startup_catchup: each known repo brought to its target, one at a time, after
-// the periodic fetch of origin/<target branch> when it is due. A failed fetch
-// is logged and the repo reindexes to the local ref.
+// the periodic fetch of origin/<target branch> when it is due and the close of
+// issues whose task commits reached the target. A failed fetch is logged and
+// the repo reindexes to the local ref.
 export async function catchUpRepos(
   db: TrajectoryDB,
   graph: WorldModelGraph,
@@ -638,6 +640,7 @@ export async function catchUpRepos(
   for (const { name } of db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`)) {
     try {
       await fetchTargetIfDue(db, name, { agent: null });
+      await closeIssuesReachedTarget(db, name, { dbPath: opts.dbPath });
       const f = await ensureFresh(db, graph, name, { dbPath: opts.dbPath, trigger: opts.trigger });
       results.push({
         repo: name,
@@ -657,8 +660,9 @@ const REF_MOVE_FETCH_TIMEOUT_MS = 5000;
 
 // The ref-move hook's detached child (hooks/ref-move-reindex.ts): after a
 // forge merge it first fetches origin/<target branch>, which the merge moved
-// on the remote only, then brings the repo to its target without waiting for
-// a lock another process holds.
+// on the remote only, closes the issues whose task commits reached the
+// target, then brings the repo to its target without waiting for a lock
+// another process holds.
 export async function reindexOnRefMove(
   db: TrajectoryDB,
   graph: WorldModelGraph,
@@ -674,6 +678,7 @@ export async function reindexOnRefMove(
     });
     stampTargetFetched(db, repo, Date.now());
   }
+  await closeIssuesReachedTarget(db, repo, { dbPath: opts.dbPath });
   return ensureFresh(db, graph, repo, { dbPath: opts.dbPath, trigger: 'hook', wait: false });
 }
 
@@ -681,6 +686,10 @@ export const TARGET_FETCH_TTL_MS = 10 * 60 * 1000;
 export const TARGET_FETCH_TIMEOUT_MS = 5000;
 // Their worktree base is pinned at spawn (decision 2479).
 const NO_FETCH_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(['swe', 'code-reviewer']);
+
+export function targetFetchSkipsRole(agent: unknown): boolean {
+  return NO_FETCH_ROLES.has(normalizeAgent(agent));
+}
 
 // skipped: no attempt (role, pinned target, window open, no origin); failed:
 // the fetch errored or ran past the cap; moved/unchanged: origin/<target>
@@ -765,7 +774,7 @@ const SKIPPED: TargetFetchAttempt = { result: 'skipped', branch: null, error: nu
 
 async function fetchTargetShared(db: TrajectoryDB, repo: string, opts: { agent: unknown; now?: number; force: boolean }): Promise<TargetFetchAttempt> {
   try {
-    if (NO_FETCH_ROLES.has(normalizeAgent(opts.agent))) return SKIPPED;
+    if (targetFetchSkipsRole(opts.agent)) return SKIPPED;
     if (process.env['TMB_WM_INDEX_TARGET']) return SKIPPED;
     const running = fetching.get(repo);
     if (running) return await running;
