@@ -93,8 +93,8 @@ flowchart TD
     A[Any command that ends in a push, in any shell form] --> B[git runs the repo's pre-push hook and hands it the exact refs and commits]
     B --> C{Pushed from an agent session?}
     C -- no --> OK[Admitted: the Human's own push]
-    C -- yes --> D{Is this repo's policy confirmed?}
-    D -- no --> N[Admitted, with one line naming how to bring the repo under policy]
+    C -- yes --> D{Is this repo managed?}
+    D -- no --> N[Admitted: TMB's workflow rules are off for an unmanaged repo]
     D -- yes --> E{Protected branch?}
     E -- yes --> X[Denied]
     E -- no --> F{Whose branch is it?}
@@ -153,6 +153,17 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
 2. **Resolution is path-keyed.** An operation belongs to the registered repo whose path contains it: the command's git root for a hook, the task's repo for a task. World-model paths are stored relative to their repo.
 3. **Branch policy is per repo.** Each repo's PR target, branching model and protected branches are recorded with its registration and nowhere else; there is no global fallback. The git guards enforce the policy of the repo the command runs in. Planned (GH 3281): the policy of the repo the command targets, so a repo named on the command line wins over the working directory, and a deny names the repo whose policy it applied.
 4. **Single-repo fallback.** When an operation names no repo and exactly one is registered, it resolves to that repo, so single-repo projects need no repo argument anywhere. With several repos registered, an operation that names none and has no path is refused.
-5. **Indexed is not governed.** Planned (GH 3281). A scan only indexes a repo for the world model. The git guards apply to a repo once its policy is confirmed, by first contact or by a recorded setting for that repo, and never enforce a guessed target. Today registration alone turns the guards on, with the repo's default branch as its PR target.
+5. **Each repo has a mode.** Planned (GH 3281). A workspace holds repos that need different amounts of TMB: a product repo, and beside it a private test fixture that never ships. The repo's record says which, and the Human sets it.
+
+   | Repo mode | What applies in the repo |
+   |---|---|
+   | Truest | The full flow: tasks, a review of every task before its push, the git guards |
+   | Agile | The same, with the review deferred to the feature branch ([AGILE.md](AGILE.md)) |
+   | Unmanaged | Indexed for the world model, and nothing else: no task is required, no review, no git guard and no push gate |
+
+   - **A scan only indexes.** A repo a scan finds is unmanaged until the Human gives it a mode, at first contact or later. bro asks once and never enforces a guessed policy. Today registration alone turns the guards on, with the repo's default branch as its PR target.
+   - **A repo with no mode of its own takes the project's.** A lane's review mode still overrides both for a managed repo. Unmanaged is final: no lane and no project setting turns the rules back on.
+   - **Two things stay on in an unmanaged repo.** Containment still keeps every write inside the project, and the trajectory still records what ran there. They protect the Human's machine and the record, not the repo's workflow.
+   - **Its mode shows.** The repo list and the dashboard show each repo's mode, and a deny names the repo and the mode it applied.
 
 A global default repo would force one repo to be "the" repo and make the guards guess what to enforce; it breaks as soon as a second repo joins. Path-keyed resolution lets sibling repos coexist with none privileged.
