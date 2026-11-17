@@ -6,7 +6,7 @@ This page covers purpose, boundaries and the reasons behind the design. Its tabl
 
 ## Substrate
 
-The world model lives in the trajectory DB, beside the workflow audit but with no link into it. It is a derived cache: every row can be rebuilt from git, so a scan can always start over.
+The world model lives in the trajectory DB, beside the workflow audit but with no link into it. It is a derived cache: every row can be rebuilt from git, so a scan can always start over. Because it is a cache and not part of the trajectory, it moves to its own file beside the trajectory DB (planned, GH 3225); deleting that file and scanning again restores it.
 
 | | World model | Workflow records |
 |---|---|---|
@@ -21,10 +21,10 @@ The world model lives in the trajectory DB, beside the workflow audit but with n
 
 ## Design rationale
 
-- **Own index, exact references from LSP.** TMB builds its own index because no off-the-shelf indexer covered this repo's shell and SQL. The index resolves many calls by name and says so in its answers; an edit that needs exact references, such as a rename, uses Claude Code's LSP tool.
+- **Own index, exact references from LSP.** TMB builds its own index because no off-the-shelf indexer covered this repo's shell and SQL. The index links a reference to a definition only on proof: a resolved import, an explicit path, a definition that is the only one of its name, a known receiver type, or the same file. A bare-name match with no such proof stays unlinked, and an answer says which references it could not resolve, so the index never guesses. An edit that needs exact references, such as a rename, uses Claude Code's LSP tool.
 - **Anchors are stable keys.** A concept step stores the symbol's identity (repo, path, kind and qualified name), not a row id, and resolves it at read time. A re-parse never orphans a step; a rename breaks the anchor by design, so the concept is flagged for review instead of silently following the wrong code.
 - **swe proposes, review admits.** The swe that built a flow proposes its concepts in the completion report. A scan applies a proposal only once its task has a passing code-reviewer verdict and every anchor and claim checks out. Bro and consultants write concepts directly.
-- **Indexed from git, never the working tree.** Each repo is indexed from its target commit, the fetched target branch or else `HEAD`, so every session and worktree reads the same map. Reads, spawns and commands that move refs bring the index forward incrementally; a full rebuild is the fallback.
+- **Indexed from git, never the working tree.** Each repo is indexed from its target commit, the fetched target branch or else `HEAD`, so every session and worktree reads the same map. Reads, spawns and commands that move refs bring the index forward incrementally; a full rebuild is the fallback. A task's own commit is indexed too, from git, into its [task overlay](#task-overlay).
 - **One transaction per write.** A scan reads and parses first, then applies everything at once, so a reader sees the old map or the new one, never a mix.
 
 ## Scan
@@ -55,6 +55,33 @@ A capability or a repo added out of band shows up at the next full scan, so the 
 - **Offline.** The target branch is fetched at most once per fixed interval per repo, and always at a task provision. When the fetch fails, the last fetched commit is the target.
 - **Full rebuild of one repo.** Besides a failed incremental reindex, a repo is rebuilt in full when its recorded commit is gone, when its index was built by an older indexer, or when the daily comparison against a clean rebuild finds a difference.
 - **A renamed repo is recognized.** A repo directory renamed since the last scan is recorded as a rename, not registered as a new repo.
+
+## Task overlay
+
+Planned (GH 2957). The shared index holds only what has merged into the target branch, so a task's own code is invisible to it until the PR merges. The overlay makes the task's commit readable through the world model for the agents working on that task, without touching the shared index.
+
+```mermaid
+flowchart TD
+    A[The author closes the task] --> B[Index the paths the task's commit changed against its base]
+    B --> C[Task overlay, keyed by task and commit]
+    R[A read that carries a task: code-reviewer, or the author on rework] --> O{Is the symbol or file in that task's overlay?}
+    O -- yes --> P[Answer from the overlay]
+    O -- no --> S[Answer from the shared index]
+    N[A read with no task] --> S
+    C --> D{What happens to the task?}
+    D -- closes again, or its commit moves in a rebase --> B
+    D -- its PR merges --> X[Overlay dropped; the shared index now holds the code]
+    D -- superseded or cancelled --> X
+    B -- the build fails --> F[No overlay; the failure is recorded, and the reads fall back to the shared index]
+```
+
+- **Built at the close, not at provision.** Provision brings the shared index forward at the task's base. The overlay is built when the author closes the task, from the commit, so it is indexed from git like everything else.
+- **Sized by the diff.** Only the paths the commit changed are indexed, so the cost grows with the diff, not the repo.
+- **Scoped to its task.** A symbol that exists only on one task's branch resolves for reads that carry that task and for no other task.
+- **One overlay per task.** Each close replaces it with one for the new commit, and a rebase that moves the task's commit rebuilds it.
+- **Both task kinds.** A non-code task's overlay holds its files, with no symbols.
+- **A failed build never blocks the close.** The reviewer then reads the diff from git, as it does today.
+- **It is cache.** The overlay holds no link into the workflow records, so it moves with the rest of the world model and can be rebuilt from the task's commit.
 
 ## Consumers
 
