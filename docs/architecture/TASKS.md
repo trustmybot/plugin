@@ -136,12 +136,14 @@ stateDiagram-v2
     pending --> running: author spawned
     running --> pending: spawn rolled back
     running --> completed: author closes, checks pass
-    running --> failed: policy deny, spec contradiction or broken environment
+    running --> failed: policy deny, spec contradiction, broken environment, or stale with no live author
     completed --> in_review: handed to code-reviewer
     in_review --> reviewed: verdict pass
     in_review --> running: verdict fail, reopened at high effort
     reviewed --> closed: bro closes
     completed --> closed: bro closes without a review, recorded as a bypass
+    pending --> closed: branch merged outside the flow, recorded as a bypass; or the recovery step closes a stuck task at its landed commit
+    running --> closed: branch merged outside the flow, recorded as a bypass
     completed --> queued: agile close, merged into the feature branch
     queued --> batch_reviewed: the group's review passes
     queued --> waived: the Human waives the branch review
@@ -151,13 +153,17 @@ stateDiagram-v2
     failed --> running: bro reopens
     closed --> running: bro reopens after a failed check or a PR comment
     closed --> in_review: a rebased commit whose pass does not carry
-    pending --> escalated: retried as a new task
-    running --> escalated: retried as a new task
-    completed --> escalated: retried as a new task
+    pending --> escalated: retried as a new task, or its issue closes
+    running --> escalated: retried as a new task, or its issue closes
+    completed --> escalated: retried as a new task, or its issue closes
+    in_review --> escalated: its issue closes
+    reviewed --> escalated: its issue closes
     failed --> escalated: retried as a new task
     closed --> escalated: integrate conflict, retried as a new task
 ```
 
+- **Escalated is final.** No move leaves it. When bro retries an escalated task, the work continues as a new task. A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
+- **Closing an issue ends its open work.** Live tasks escalate, and no new task picks up their work. Queued, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each move names who made it, why, and the record it rests on: a verification run, a lint run, a review verdict or a review batch.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes into the queue, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
 - **Retries keep their lineage.** A task retried after escalation names the task it retries, so a chain of retries reads as one line.
