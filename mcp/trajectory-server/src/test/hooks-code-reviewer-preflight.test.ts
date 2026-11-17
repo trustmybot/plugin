@@ -650,6 +650,7 @@ describe('code-reviewer-preflight', () => {
       headSha?: string;
       lint?: { fingerprint?: string; exit_code?: number | null };
       fromNode?: string;
+      repo?: string;
     }
 
     /** Queues task 3 for a grouped review at the branch tip: closed agile, review_queued, feature_branch_merged onto BRANCH. */
@@ -677,7 +678,7 @@ describe('code-reviewer-preflight', () => {
         base_sha: f.git('merge-base', 'dev', tip),
         task_ids: [TASK_ID],
         commit_shas: [tip],
-        repo: 'repo',
+        repo: over.repo ?? 'repo',
         lint: { fingerprint: plan.fingerprint, exit_code: 0, results: [], ...over.lint },
       };
       const w = new DatabaseSync(f.db);
@@ -792,6 +793,32 @@ describe('code-reviewer-preflight', () => {
       v.prepare('UPDATE tasks SET commit_sha = ? WHERE id = ?').run(g.git('rev-parse', 'dev'), TASK_ID);
       v.close();
       assert.equal(batchDenial((await run(g, batchPayload(gid))).stdout, gid).check, 'task_not_queued');
+    });
+
+    it('denies task_not_queued once a task is reopened, and when the hand-off names a repo other than the task\'s (GH 2225 one pending-review set)', async () => {
+      const f = fixture();
+      featureCommit(f);
+      const tip = queueAgile(f);
+      const id = await handOff(f, tip);
+      const w = new DatabaseSync(f.db);
+      w.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(TASK_ID);
+      w.close();
+      assert.deepEqual(batchDenial((await run(f, batchPayload(id))).stdout, id), {
+        check: 'task_not_queued',
+        expected: `each task of review_batch_handoff ${id} queued for review on ${BRANCH} at the commit handed off`,
+        actual: `no longer queued: ${TASK_ID}@${tip}`,
+      });
+
+      const g = fixture();
+      featureCommit(g);
+      const gtip = queueAgile(g);
+      // A second repos row at the same checkout: the branch tip resolves, but the task belongs to 'repo'.
+      const v = new DatabaseSync(g.db);
+      v.prepare("INSERT INTO repos (name, path, target_branch) VALUES ('twin', ?, 'dev')").run(g.repo);
+      v.close();
+      const twin = await handOff(g, gtip, { repo: 'twin' });
+      assert.equal(batchDenial((await run(g, batchPayload(twin))).stdout, twin).check, 'task_not_queued');
+      assert.deepEqual(await run(g, batchPayload(await handOff(g, gtip))), { stdout: '', code: 0 }, 'the task\'s own repo still passes');
     });
 
     it('keeps a task-anchored spawn on the task checks, and runs both when a prompt carries both ids', async () => {

@@ -20,7 +20,6 @@ import {
 } from '../hooks/lib/close-lints.js';
 import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { UNREVIEWED_CLOSED_TASK } from '../data-contracts.js';
 import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, batchReviewedSql, featureBranchTaskSql, reviewBatchKey, waivedSql } from '../review-sql.js';
 import { batchReviewerSpawn, type ReviewerSpawn } from '../reviewer-effort.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
@@ -53,6 +52,7 @@ interface QueuedTaskRow {
   base_sha: string | null;
   updated_at: string;
   files: string;
+  repo?: string | null;
 }
 
 export interface QueuedTask {
@@ -78,15 +78,18 @@ function err(message: string): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify({ error: message }) }], isError: true };
 }
 
-// The doctor's agile_review_queued membership, on the task's stamped mode (not
+// The tasks pending review (AGILE_PENDING_REVIEW_SQL), the set the batch
+// hand-off, the waiver and the merge gate read, on the task's stamped mode (not
 // the current plugin_config.workflow_mode), so a switch to truest keeps the queue.
-// updated_at is normalized to ms-ISO so legacy rows order by time.
+// A task with no repo on record is listed under every repo, as
+// featureBranchTaskSql places it. updated_at is normalized to ms-ISO so legacy
+// rows order by time.
 const QUEUE_SQL = `SELECT t.id, t.issue_id, t.branch_id, t.commit_sha, t.base_sha, t.files,
-         strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) AS updated_at
-    FROM tasks t
-   WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND t.workflow_mode = 'agile'
-     AND (:repo IS NULL OR t.repo = :repo)
-     AND (:branch IS NULL OR ${featureBranchTaskSql('t', ':branch')})
+         COALESCE(t.repo, i.repo) AS repo, strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) AS updated_at
+    FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+   WHERE ${AGILE_PENDING_REVIEW_SQL}
+     AND (:repo IS NULL OR COALESCE(t.repo, i.repo, :repo) = :repo)
+     AND (:branch IS NULL OR ${featureBranchTaskSql('t', ':branch', ':repo')})
    ORDER BY t.id`;
 
 function declaredFiles(json: string): string[] {
@@ -104,10 +107,11 @@ export function pathsOverlap(a: string, b: string): boolean {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
-/** Connected components of the tasks under declared-files overlap, ordered by lowest task id. */
+/** Connected components of the tasks under declared-files overlap within one repo, ordered by lowest task id. */
 export function groupQueuedTasks(rows: readonly QueuedTaskRow[]): ReviewGroup[] {
   const sorted = [...rows].sort((x, y) => x.id - y.id);
   const files = sorted.map((r) => declaredFiles(r.files));
+  const sameRepo = (i: number, j: number): boolean => (sorted[i].repo ?? null) === (sorted[j].repo ?? null);
   const parent = sorted.map((_, i) => i);
   const find = (i: number): number => {
     while (parent[i] !== i) {
@@ -118,7 +122,7 @@ export function groupQueuedTasks(rows: readonly QueuedTaskRow[]): ReviewGroup[] 
   };
   for (let i = 0; i < sorted.length; i++) {
     for (let j = i + 1; j < sorted.length; j++) {
-      if (find(i) === find(j)) continue;
+      if (find(i) === find(j) || !sameRepo(i, j)) continue;
       if (files[i].some((a) => files[j].some((b) => pathsOverlap(a, b)))) parent[find(j)] = find(i);
     }
   }
@@ -236,13 +240,38 @@ function parseBatchArgs(args: Record<string, unknown>): BatchArgs {
 
 const HANDOFF_SQL = `SELECT json_extract(content_json, '$.task_ids') AS task_ids,
          json_extract(content_json, '$.head_sha') AS head_sha,
-         json_extract(content_json, '$.feature_branch') AS feature_branch
+         json_extract(content_json, '$.feature_branch') AS feature_branch,
+         json_extract(content_json, '$.repo') AS repo
     FROM audit
    WHERE id = ? AND event_type = 'review_batch_handoff' AND from_node = 'bro' AND json_valid(content_json)`;
 
-// Why the cited review_batch_handoff row does not hand off this exact call, or null.
-function handoffRefusal(db: TrajectoryDB, batch: BatchArgs): BatchRefused | null {
-  const row = db.get<{ task_ids: string | null; head_sha: string | null; feature_branch: string | null }>(HANDOFF_SQL, [batch.batchHandoffId]);
+interface HandoffRow {
+  task_ids: string | null;
+  head_sha: string | null;
+  feature_branch: string | null;
+  repo: string | null;
+}
+
+/** The feature branch's current tip in the repo of the cited hand-off, or why it does not resolve. */
+interface FeatureTip {
+  sha: string | null;
+  where: string;
+}
+
+// Runs git, so recordBatch reads it before the write transaction opens.
+function handedOffTip(db: TrajectoryDB, batch: BatchArgs): FeatureTip {
+  const ref = `refs/heads/${batch.featureBranch}`;
+  const row = db.get<HandoffRow>(HANDOFF_SQL, [batch.batchHandoffId]);
+  const path = row?.repo ? db.get<{ path: string }>('SELECT path FROM repos WHERE name = ?', [row.repo])?.path : undefined;
+  if (!path) return { sha: null, where: `repo ${JSON.stringify(row?.repo ?? null)} has no repos row` };
+  const repoPath = repoRowPath(db, path);
+  return { sha: revParseCommit(repoPath, ref), where: `${ref} in ${repoPath}` };
+}
+
+// Why the cited review_batch_handoff row does not hand off this exact call at
+// the feature branch's current tip, or null.
+function handoffRefusal(db: TrajectoryDB, batch: BatchArgs, tip: FeatureTip): BatchRefused | null {
+  const row = db.get<HandoffRow>(HANDOFF_SQL, [batch.batchHandoffId]);
   if (!row) {
     return new BatchRefused(
       'batch_handoff_unknown',
@@ -260,8 +289,14 @@ function handoffRefusal(db: TrajectoryDB, batch: BatchArgs): BatchRefused | null
   if (handedOff.join(',') !== batch.taskIds.join(',')) mismatches.push(`task_ids [${handedOff.join(', ')}] handed off, [${batch.taskIds.join(', ')}] given`);
   if ((row.head_sha ?? '').toLowerCase() !== batch.headSha) mismatches.push(`head_sha ${row.head_sha} handed off, ${batch.headSha} given`);
   if (row.feature_branch !== batch.featureBranch) mismatches.push(`feature_branch ${row.feature_branch} handed off, ${batch.featureBranch} given`);
-  if (mismatches.length === 0) return null;
-  return new BatchRefused('batch_handoff_mismatch', `review_batch_handoff ${batch.batchHandoffId} does not match this call: ${mismatches.join('; ')}.`);
+  if (mismatches.length > 0) {
+    return new BatchRefused('batch_handoff_mismatch', `review_batch_handoff ${batch.batchHandoffId} does not match this call: ${mismatches.join('; ')}.`);
+  }
+  if (tip.sha?.toLowerCase() === batch.headSha) return null;
+  return new BatchRefused(
+    'head_moved',
+    `${tip.where} is ${tip.sha ?? 'unresolved'}, not head_sha ${batch.headSha}: the feature branch moved since review_batch_handoff ${batch.batchHandoffId}; bro hands the group off again at the new tip.`,
+  );
 }
 
 interface BatchObservation {
@@ -303,11 +338,15 @@ interface BatchTaskRow {
   queued: number;
   batch_reviewed: number;
   waived: number;
+  pending: number;
 }
 
+// queued, batch_reviewed and waived name why a task is refused; pending
+// (AGILE_PENDING_REVIEW_SQL) is the set review_queue lists.
 const BATCH_TASK_SQL = `SELECT t.id, t.issue_id, t.status, t.workflow_mode, t.commit_sha,
          COALESCE(t.repo, i.repo) AS repo, r.path AS repo_path,
-         ${AGILE_QUEUED_SQL} AS queued, ${batchReviewedSql('t')} AS batch_reviewed, ${waivedSql('t')} AS waived
+         ${AGILE_QUEUED_SQL} AS queued, ${batchReviewedSql('t')} AS batch_reviewed, ${waivedSql('t')} AS waived,
+         ${AGILE_PENDING_REVIEW_SQL} AS pending
     FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
     LEFT JOIN repos r ON r.name = COALESCE(t.repo, i.repo)
    WHERE t.id = ?`;
@@ -319,6 +358,7 @@ function batchTaskStateRefusal(row: BatchTaskRow): string | null {
   if (row.queued !== 1) return 'not_queued: no bro review_queued row names its current commit';
   if (row.batch_reviewed === 1) return 'already_batch_reviewed';
   if (row.waived === 1) return 'already_waived: a bro review_waived row names its current commit';
+  if (row.pending !== 1) return 'already_passed: a code-reviewer pass covers its current commit';
   if (row.repo_path === null) return `repo_unknown: no repos row for ${JSON.stringify(row.repo)}`;
   return null;
 }
@@ -360,6 +400,7 @@ interface BatchRecorded {
 
 function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
   const ancestry = batchAncestry(db, batch);
+  const tip = handedOffTip(db, batch);
   return db.transaction(() => {
     const key = reviewBatchKey(batch.taskIds, batch.headSha);
     const latest = db.get<BatchObservation>(BATCH_OBSERVATION_SQL, [REVIEWER_OBSERVE_FROM_NODE, key]);
@@ -395,7 +436,7 @@ function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
         `reviewer agent_id ${reviewer.agentId} is the swe that ran task ${sweOf.map((r) => r.task_id).join(', ')}; spawn a separate code-reviewer.`,
       );
     }
-    const handoff = handoffRefusal(db, batch);
+    const handoff = handoffRefusal(db, batch, tip);
     if (handoff !== null) throw handoff;
 
     const rows: BatchTaskRow[] = [];
@@ -438,7 +479,15 @@ function recordBatch(db: TrajectoryDB, batch: BatchArgs): BatchRecorded {
 
 interface WaiveArgs {
   featureBranch: string;
+  repo: string | null;
   humanAnswer: string;
+}
+
+/** The optional repo arg: a repos.name, or null when omitted. */
+function parseRepo(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.trim() === '') throw new BatchRefused('invalid_args', 'repo must be a non-empty string');
+  return value.trim();
 }
 
 function parseWaiveArgs(args: Record<string, unknown>): WaiveArgs {
@@ -450,20 +499,22 @@ function parseWaiveArgs(args: Record<string, unknown>): WaiveArgs {
   if (typeof humanAnswer !== 'string' || humanAnswer.trim() === '') {
     throw new BatchRefused('invalid_args', "human_answer must be the Human's AskUserQuestion answer, quoted verbatim and non-empty");
   }
-  return { featureBranch: featureBranch.trim(), humanAnswer };
+  return { featureBranch: featureBranch.trim(), repo: parseRepo(args['repo']), humanAnswer };
 }
 
-// The tasks of a feature branch that no grouped review has settled yet.
-const BRANCH_PENDING_SQL = `SELECT t.id, t.issue_id, t.commit_sha, t.base_sha,
+// The tasks of a feature branch in :repo (NULL: every repo) that no grouped
+// review has settled yet, a reopened task (status other than closed) included.
+const BRANCH_PENDING_SQL = `SELECT t.id, t.issue_id, t.status, t.commit_sha, t.base_sha,
          COALESCE(t.repo, i.repo) AS repo, r.path AS repo_path
     FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
     LEFT JOIN repos r ON r.name = COALESCE(t.repo, i.repo)
-   WHERE ${featureBranchTaskSql('t', ':branch')} AND ${AGILE_PENDING_REVIEW_SQL}
+   WHERE ${featureBranchTaskSql('t', ':branch', ':repo')} AND ${AGILE_PENDING_REVIEW_SQL}
    ORDER BY t.id`;
 
 interface PendingTaskRow {
   id: number;
   issue_id: number;
+  status: string;
   commit_sha: string;
   base_sha: string | null;
   repo: string | null;
@@ -479,7 +530,14 @@ interface WaiveRecorded {
 
 function recordWaiver(db: TrajectoryDB, waive: WaiveArgs): WaiveRecorded {
   return db.transaction(() => {
-    const tasks = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch: waive.featureBranch }]);
+    const pending = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch: waive.featureBranch, repo: waive.repo }]);
+    // A task with no repo on record belongs to whichever repo is named, as featureBranchTaskSql places it.
+    const repos = [...new Set(pending.flatMap((t) => (t.repo === null ? [] : [t.repo])))];
+    if (repos.length > 1) {
+      throw new BatchRefused('mixed_repos', `feature branch ${waive.featureBranch} has queued tasks in repos ${repos.map((r) => JSON.stringify(r)).join(', ')}; name one as repo. Nothing was recorded.`);
+    }
+    // A reopened task has no commit to waive yet: it stays pending until it closes and is queued again.
+    const tasks = pending.filter((t) => t.status === 'closed');
     if (tasks.length === 0) {
       throw new BatchRefused('no_queued_task', `feature branch ${waive.featureBranch} has no queued agile task to waive; nothing was recorded.`);
     }
@@ -775,13 +833,19 @@ interface BatchHandoff {
   reviewer_spawn: ReviewerSpawn;
 }
 
-const pendingKey = (rows: readonly PendingTaskRow[]): string => rows.map((t) => `${t.id}@${t.commit_sha}`).join(',');
+const pendingKey = (rows: readonly PendingTaskRow[]): string => rows.map((t) => `${t.id}@${t.commit_sha}:${t.status}`).join(',');
 
 async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHandoff> {
   const branch = h.featureBranch;
-  const pending = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch }]);
-  const byId = new Map(pending.map((t) => [t.id, t]));
-  const notQueued = h.taskIds.filter((id) => !byId.has(id)).map((id) => ({ task_id: id, reason: `not a queued agile task of ${branch} awaiting review` }));
+  // Every repo's pending tasks of the branch; the group's own repo keys the rest.
+  const pendingAll = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch, repo: null }]);
+  const byId = new Map(pendingAll.map((t) => [t.id, t]));
+  const notQueued = h.taskIds.flatMap((id) => {
+    const task = byId.get(id);
+    if (task === undefined) return [{ task_id: id, reason: `not a queued agile task of ${branch} awaiting review` }];
+    if (task.status !== 'closed') return [{ task_id: id, reason: `reopened: status ${task.status}; close it and land it with feature-merge again` }];
+    return [];
+  });
   if (notQueued.length > 0) {
     throw new BatchRefused('task_not_queued', `${notQueued.length} of ${h.taskIds.length} task(s) are not queued for review on ${branch}; nothing was recorded.`, notQueued);
   }
@@ -794,6 +858,9 @@ async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHand
   if (repos.length > 1) throw new BatchRefused('mixed_repos', `the tasks span repos ${repos.join(', ')}; hand off one group per repo.`);
   const repo = repos[0];
   const repoPath = repoRowPath(db, group[0].repo_path as string);
+  // A task with no repo on record stays in, as featureBranchTaskSql places it in every repo.
+  const ofRepo = (rows: readonly PendingTaskRow[]): PendingTaskRow[] => rows.filter((t) => t.repo === repo || t.repo === null);
+  const pending = ofRepo(pendingAll);
 
   const head = revParseCommit(repoPath, `refs/heads/${branch}`);
   if (head === null) throw new BatchRefused('branch_unresolved', `refs/heads/${branch} does not resolve in ${repoPath}.`);
@@ -816,7 +883,7 @@ async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHand
 
   return db.transaction(() => {
     // The lints ran outside the transaction; a task that closed, moved or was reviewed meanwhile voids the checks above.
-    const now = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch }]);
+    const now = ofRepo(db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch, repo: null }]));
     if (pendingKey(now) !== pendingKey(pending)) {
       throw new BatchRefused('task_changed', `the queued tasks of ${branch} changed while review_batch_handoff ran; call it again.`);
     }
@@ -860,18 +927,13 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_queue',
       description:
-        'Closed agile tasks awaiting code review, as agile_review_queued counts them. Returns {total, groups:[{tasks, files, base, head}]}; tasks whose declared files[] overlap share a group. Read-only, no git.',
+        'Agile tasks awaiting code review: queued or reopened after feature-merge. Returns {total, groups:[{tasks, files, base, head}]}; same-repo tasks with overlapping files[] share a group. Read-only, no git.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           repo: { type: 'string', description: 'Only tasks of this repos.name.' },
           feature_branch: { type: 'string', description: 'Only tasks merged onto this feature branch.' },
-          grace_hours: {
-            type: 'number',
-            minimum: 0,
-            description: 'Leave out tasks closed less than this many hours ago. Default 0: every unreviewed agile close.',
-          },
         },
         required: ['agent'],
       },
@@ -895,7 +957,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_batch_record',
       description:
-        'code-reviewer only: one verdict on a group of queued agile tasks at feature-branch head_sha. Refused, writing nothing, unless batch_handoff_id handed off these task_ids at head_sha and every task is closed agile, queued at its commit (not batch-reviewed or waived), that commit an ancestor of head_sha.' +
+        'code-reviewer only: one verdict on queued agile tasks at head_sha. Refused, writing nothing, unless batch_handoff_id handed off these task_ids at head_sha, still the tip, and every task is closed agile, queued at its commit (not batch-reviewed, waived or passed), that commit an ancestor of head_sha. ' +
         'pass batch-reviews them all; fail leaves them queued.',
       inputSchema: {
         type: 'object',
@@ -921,6 +983,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
         properties: {
           agent: { type: 'string' },
           feature_branch: { type: 'string' },
+          repo: { type: 'string', description: 'The repos.name of feature_branch; required when its queued tasks span repos.' },
           human_answer: { type: 'string', description: "The Human's answer, quoted verbatim." },
         },
         required: ['agent', 'feature_branch', 'human_answer'],
@@ -933,11 +996,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
     if (repo !== undefined && repo !== null && typeof repo !== 'string') return err('repo must be a string');
     const branchArg = args['feature_branch'];
     const branch = branchArg === undefined ? null : parseFeatureBranch(branchArg);
-    const grace = args['grace_hours'] ?? 0;
-    if (typeof grace !== 'number' || !Number.isFinite(grace) || grace < 0) {
-      return err('grace_hours must be a non-negative number');
-    }
-    const rows = db.all<QueuedTaskRow>(QUEUE_SQL, [{ grace_hours: grace, repo: repo ?? null, branch }]);
+    const rows = db.all<QueuedTaskRow>(QUEUE_SQL, [{ repo: repo ?? null, branch }]);
     const groups = groupQueuedTasks(rows);
     return ok({ total: rows.length, groups });
   };

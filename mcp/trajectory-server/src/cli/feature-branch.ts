@@ -156,12 +156,14 @@ class FeatureBranch extends TaskRebase {
   /** A task <alias> of this repo on <name>: merged onto it by feature-merge, or headed there by its parent_branch_id. */
   private onBranchSql(alias: string, name: string): string {
     const branch = `'${sqlQuote(name)}'`;
-    return `${alias}.repo = '${sqlQuote(this.repoName)}' AND (${featureBranchTaskSql(alias, branch)} OR ${alias}.parent_branch_id = ${branch})`;
+    const repo = `'${sqlQuote(this.repoName)}'`;
+    return `${alias}.repo = ${repo} AND (${featureBranchTaskSql(alias, branch, repo)} OR ${alias}.parent_branch_id = ${branch})`;
   }
 
   /** A task t of this repo merged onto <name> and still pending the grouped review. */
   private queuedSql(name: string): string {
-    return `t.repo = '${sqlQuote(this.repoName)}' AND ${featureBranchTaskSql('t', `'${sqlQuote(name)}'`)} AND ${AGILE_PENDING_REVIEW_SQL}`;
+    const repo = `'${sqlQuote(this.repoName)}'`;
+    return `t.repo = ${repo} AND ${featureBranchTaskSql('t', `'${sqlQuote(name)}'`, repo)} AND ${AGILE_PENDING_REVIEW_SQL}`;
   }
 
   private noLiveTaskSql(name: string): string {

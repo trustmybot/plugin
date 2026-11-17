@@ -289,7 +289,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     const pending = (taskId: number) =>
       db.get<{ ok: number }>(`SELECT ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [taskId])!.ok === 1;
     const queuedIds = async () => {
-      const r = (await reviewQueueTools(db).handlers['review_queue']({ agent: 'bro', grace_hours: 0 })) as RawResult;
+      const r = (await reviewQueueTools(db).handlers['review_queue']({ agent: 'bro' })) as RawResult;
       const body = JSON.parse(r.content[0].text) as { groups: Array<{ tasks: Array<{ id: number }> }> };
       return body.groups.flatMap((g) => g.tasks.map((t) => t.id));
     };
@@ -352,6 +352,23 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
       const again = await call('review_handoff', { agent: 'bro', task_id: String(taskId) });
       assert.match(String(again.body['error']), /^verification_run_missing: /);
       assert.equal(handoffs(taskId), 1);
+    });
+
+    it('GH 2225 SC1: a FAIL on a folded task reworked to needs_validation reopens it, though it is pending review', async () => {
+      const { taskId, sha } = await closeQueued('feat/discount-agile-reworked');
+      db.run(
+        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES ((SELECT issue_id FROM tasks WHERE id = ?), 'bro', 'feature_branch_merged', 'm', ?, ?)`,
+        [taskId, JSON.stringify({ task_id: taskId, feature_branch: 'feat/epic', commit_sha: sha, rebased: false }), new Date().toISOString()],
+      );
+      db.run(`UPDATE tasks SET status = 'needs_validation' WHERE id = ?`, [taskId]);
+      assert.ok(pending(taskId), 'the reopened fold is pending review');
+      seedReviewerObservation(db, taskId, 1, { agentId: `reviewer1agent${taskId}y` });
+      const failed = await ok('validation_record', {
+        agent: 'code-reviewer', task_id: String(taskId), attempt_n: 1, verdict: 'fail', feedback: 'fail', mcp_available: true, probes: TEST_PROBES,
+        findings: [{ criterion_id: 'SC1', probe_cmd: 'grep -q "Math.round" lib/discount.js', expected: 'rounded', observed: 'not rounded' }],
+      });
+      assert.equal(failed['reopen_skipped'], undefined, JSON.stringify(failed));
+      assert.notEqual(status(taskId), 'needs_validation', 'the FAIL sends the rework back to swe');
     });
 
     it('SC1: a closed truest task is refused', async () => {
