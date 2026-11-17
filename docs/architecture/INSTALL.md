@@ -40,7 +40,7 @@ claude plugin marketplace update trustmybot   # no scope flag
 Other channels: `trustmybot/marketplace-rc` with `tmb@trustmybot-rc`, or `trustmybot/marketplace-dev` with `tmb@trustmybot-dev`.
 
 - **The Human installs and restarts.** Any plugin change applies only after a full quit and relaunch of Claude Code. Installing at both scopes is safe; the project install wins.
-- **Node.js 22+ on PATH**, or session start prints `TMB DEGRADED: missing node …`.
+- **Node.js 22.16 or later on PATH**, or session start prints `TMB DEGRADED: missing node, or node older than 22.16 …`, and no hook or server starts until it is fixed.
 - **One plugin loads together:** the swe and code-reviewer agents, the trajectory server and the hooks. Everything TMB writes stays under the project root ([CONTAINMENT.md](CONTAINMENT.md)).
 - **bro's persona comes from hooks.** Claude Code never loads a plugin's own `CLAUDE.md`, so hooks deliver bro's persona at session start, resume, `/clear` and compaction, and on the first prompt of a session that started before the hooks loaded; after a compaction they bring back bro's state from the DB. TMB never writes to `<project>/CLAUDE.md`; a `<!-- tmb:persona start … -->` block an older `/onboard` copied there can be deleted.
 
@@ -76,8 +76,8 @@ To remove them:
 
 ## Session start
 
-- **Advisory, never blocking.** Session start checks health, required tools, leftovers from older versions and the project inventory. When something is broken, a degraded banner names it and the session goes on.
-- **One compact nudge.** Once per session, when bro's context passes a configurable token threshold (off when set to zero), bro gets one line suggesting /compact at the next natural break. The compaction restore brings back every open issue the session owns, the current issue, its tasks and the newest decision.
+- **Advisory, never blocking.** Session start checks health, required tools, leftovers from older versions and the project inventory. When something is broken, a degraded banner names it and the session goes on. The required tools are Node with its built-in SQLite, and git. A project whose repos have no remote gets one line saying TMB is operating locally and skips remote and push steps; that is not degraded.
+- **One compact nudge.** Once per session, when bro's context passes a configurable token threshold (off when set to zero), bro gets one line suggesting /compact at the next natural break. The compaction restore brings back the session's open issues, newest first up to a fixed limit with the counts of the rest, the current issue, its tasks and the newest decision.
 - **Which DB.** The session uses the project's trajectory DB; [MEMORY.md](MEMORY.md#where-the-trajectory-db-lives) gives the rule that finds it.
 
 ## Debugging
