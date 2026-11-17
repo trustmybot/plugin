@@ -11,10 +11,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findGate, gateNames } from '../hooks/registry.js';
-import { ANCHORS } from '../hooks/code-reviewer-spawn-note.js';
+import { ANCHORS, BATCH_ANCHORS } from '../hooks/code-reviewer-spawn-note.js';
+import { batchReviewerSpawn } from '../reviewer-effort.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
 import { codeReviewerNoWorktree, DENY_FIX, DENY_REASON } from '../hooks/code-reviewer-no-worktree.js';
 import {
+  closestAnchorSet,
   codeReviewerSpawnPromptShape,
   missingAnchors,
   missingAnchorsFix,
@@ -125,6 +127,48 @@ describe('code-reviewer-spawn-prompt-shape', () => {
     assert.equal(rubberStampPhrase('rubber—stamp', true), 'rubber.stamp');
     assert.equal(rubberStampPhrase('rubberéstamp', false), null);
   });
+  describe('the grouped agile review anchor set (GH 2225 T6a)', () => {
+    const BATCHED = (id: number): string => BATCH_ANCHORS.map((a) => `${a}=${a === 'batch_handoff_id' ? id : 'x'}`).join(' ');
+    const missing = (anchors: readonly string[], set: readonly string[]): string =>
+      fixedReason(missingAnchorsReason(anchors, set), missingAnchorsFix(anchors));
+
+    it('allows a prompt complete in the batch set, and the batchReviewerSpawn prompt', () => {
+      assert.deepEqual(codeReviewerSpawnPromptShape(cr(`${BATCHED(4)}\nReview the group.`), env), ALLOWED);
+      const { prompt } = batchReviewerSpawn(
+        { batch_handoff_id: '4', feature_branch: 'feat/agile', head_sha: 'abc', repo: 'plugin', repo_path: '/work/my plugin', subagent_session_id: 's' },
+        'medium',
+      );
+      assert.deepEqual(codeReviewerSpawnPromptShape(cr(prompt), env), ALLOWED);
+      assert.deepEqual(closestAnchorSet(prompt, false), { anchors: BATCH_ANCHORS, missing: [] });
+    });
+
+    it('still denies a shortcut phrase in a complete batch prompt', () => {
+      const r = codeReviewerSpawnPromptShape(cr(`${BATCHED(4)}\nfast-track if green`), env);
+      assert.equal(denyReason(r.stdout), fixedReason(rubberStampReason('fast-track if'), RUBBER_STAMP_FIX));
+    });
+
+    it('denies a partial batch prompt with the batch set missing anchors and its review_batch_record verdict', () => {
+      const r = codeReviewerSpawnPromptShape(cr(BATCHED(4).replace(' head_sha=x', '')), env);
+      assert.equal(denyReason(r.stdout), missing(['head_sha'], BATCH_ANCHORS));
+      assert.match(
+        missingAnchorsReason(['head_sha'], BATCH_ANCHORS),
+        /MUST contain batch_handoff_id, feature_branch, head_sha, repo, repo_path, and subagent_session_id, each as name=value, .*its review_batch_record verdict/,
+      );
+      assert.match(missingAnchorsReason(['repo']), /its validation_record verdict/);
+    });
+
+    it('judges by the set with more anchors present, the task set on a tie', () => {
+      assert.deepEqual(closestAnchorSet('', false), { anchors: ANCHORS, missing: [...ANCHORS] });
+      assert.deepEqual(closestAnchorSet('repo=x repo_path=x subagent_session_id=x', false).anchors, ANCHORS);
+      assert.deepEqual(closestAnchorSet('batch_handoff_id=1 repo=x', false), {
+        anchors: BATCH_ANCHORS,
+        missing: ['feature_branch', 'head_sha', 'repo_path', 'subagent_session_id'],
+      });
+      assert.deepEqual(closestAnchorSet('task_id=1 batch_handoff_id=1', false).anchors, ANCHORS);
+      assert.deepEqual(closestAnchorSet(ANCHORED(1), false), { anchors: ANCHORS, missing: [] });
+    });
+  });
+
   it('allows other agents and TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE=1', () => {
     assert.deepEqual(codeReviewerSpawnPromptShape(spawn({ subagent_type: 'swe', prompt: 'x' }), env), ALLOWED);
     assert.deepEqual(codeReviewerSpawnPromptShape(cr('x'), { ...env, TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE: '1' }), ALLOWED);

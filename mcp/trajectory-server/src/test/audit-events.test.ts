@@ -216,6 +216,32 @@ describe('review_waived — written only by review_waive_record (GH 2225 T5)', (
   }
 });
 
+describe('review_batch_handoff — written only by review_batch_handoff (GH 2225 T6a)', () => {
+  it('is registered as a server-only event', () => {
+    const entry = AUDIT_EVENT_TYPES.find((e) => e.type === 'review_batch_handoff');
+    assert.ok(entry, 'review_batch_handoff is in the registry');
+    assert.deepEqual(entry.writers, ['server']);
+  });
+
+  // A forged handoff would carry a lint result no lint run produced, which code-reviewer-preflight and review_batch_record trust.
+  for (const agent of ['bro', 'code-reviewer', 'swe']) {
+    it(`audit_append refuses review_batch_handoff for ${agent}`, async () => {
+      const db = tempDB();
+      const r = (await auditTools(db).handlers['audit_append']({
+        agent,
+        issue_id: '-1',
+        summary: 's',
+        event_type: 'review_batch_handoff',
+        content_json: JSON.stringify({ feature_branch: 'feat/x', head_sha: 'abc1234', task_ids: [1], commit_shas: ['abc1234'], lint: { fingerprint: 'v1:x', exit_code: 0, results: [] } }),
+      })) as RawResult;
+      assert.equal(r.isError, true);
+      assert.equal((JSON.parse(r.content[0].text) as { error: string }).error, 'audit_event_not_writable_by_role');
+      assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'review_batch_handoff'")?.n, 0);
+      db.close();
+    });
+  }
+});
+
 describe('insertAudit writer check', () => {
   it('throws AuditWriterError and writes nothing when the writer is not listed', () => {
     const db = tempDB();
