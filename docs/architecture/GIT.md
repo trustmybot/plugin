@@ -25,6 +25,7 @@ This is the standard developer flow: commit locally, push, open a PR. The TMB tw
 - **Bro provisions.** One step creates the task, fetches `<base>`, cuts `<feature>` and attaches a worktree (see [Keeping the base fresh](#keeping-the-base-fresh)). The main checkout never switches branches; swe never creates branches or worktrees.
 - **No bro-side merge.** swe's commits are already on `<feature>`, so bro just pushes it.
 - **Push gate.** A push is admitted only when every pushed task commit has a passing code-reviewer verdict.
+- **A session inside a worktree adopts it.** A session that itself runs in a linked worktree uses that worktree for its task instead of getting a new one, and no other session may adopt it. A close keeps an adopted worktree.
 - **Cleanup.** A passing review removes the task's worktree and returns the main checkout to `<base>`; reopening the task for rework recreates the worktree. A merge in the session also removes the merged local branch and prunes deleted remote branches.
 
 ## Why this design
@@ -48,11 +49,11 @@ Work always starts from the latest `<base>`, so a task never builds on stale cod
 
 Hooks hold the rest of this model in place, each enforcing the policy of the repo the command runs in:
 
-- **Destructive commands.** Hard resets, forced cleans and force-pushes to protected branches are denied, as are direct commits, merges and rebases on a shared base.
+- **Destructive commands.** Force-pushes to protected branches are denied, as are direct commits, merges and rebases on a shared base. Denying hard resets and forced cleans is planned (GH 3260).
 - **The main checkout stays on `<base>`.** Checking out a branch that belongs to an open task is denied; the task's worktree is the place to work on it.
 - **swe stays in its lane.** swe cannot push, create branches or worktrees, or touch files outside its worktree. A swe spawn waits until its task's branch exists, and its worktree is created if missing.
 - **Pushes are reviewed.** See the push gate above.
-- **Remote identity is the Human's.** Forge logins and commands that change remote identity or create repos are denied.
+- **Remote identity is the Human's.** An interactive forge login is denied in a repo with no remote, where it would hang, and a remote write that cites a local issue number under the wrong remote number is denied. Denying commands that change remote identity or create repos is planned (GH 3260).
 - **The world model follows the refs.** A command that moves refs, such as a fetch, merge, rebase or reset, triggers a background re-index.
 
 ## Rebasing a reviewed task
@@ -89,6 +90,6 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
 1. **Repos are identified by registration.** A repo takes part in TMB only once `/scan` has registered it. Registration is the same step that warms the world model, so the two stay aligned.
 2. **Resolution is path-keyed.** An operation belongs to the registered repo whose path contains it: the command's git root for a hook, the task's repo for a task. World-model paths are stored relative to their repo.
 3. **Branch policy is per repo.** Each repo's PR target, branching model and protected branches are recorded with its registration and nowhere else; there is no global fallback. The git guards enforce the policy of the repo the command runs in.
-4. **Single-repo fallback.** When an operation names no repo and exactly one is registered, it resolves to that repo, so single-repo projects need no repo argument anywhere.
+4. **Single-repo fallback.** When an operation names no repo and exactly one is registered, it resolves to that repo, so single-repo projects need no repo argument anywhere. With several repos registered, an operation that names none and has no path is refused.
 
 A global default repo would force one repo to be "the" repo and make the guards guess what to enforce; it breaks as soon as a second repo joins. Path-keyed resolution lets sibling repos coexist with none privileged.

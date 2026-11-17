@@ -27,6 +27,8 @@ flowchart TD
     H -- yes --> T{Consuming agent resolved?}
     T -- no, and it is a skill --> X[Install refused: no orphan skill]
     T -- yes, or a pure server tool --> I[Install in one transaction]
+    I -- the external install fails --> N[Nothing recorded; bro reports the error]
+    I -- the artifact landed but its attachment or record failed --> O[Entry recorded as broken; the next reconcile reports it]
     I --> K{Kind}
     K -- standalone skill --> U[Usable now]
     K -- plugin or MCP server --> R[Loads at the next restart]
@@ -44,7 +46,7 @@ flowchart TD
 | Vet | a trust tier and the candidate's capabilities; vetting never decides |
 | Approve | the Human approves before anything installs |
 | Target | the consuming agent: the one the Human named, one inferred from the domain, or the Human's answer when it is ambiguous; a pure server tool needs none |
-| Install | one transaction: the registry entry, its attachments to the consuming agent, and the audit; idempotent on name and source |
+| Install | the external install runs first, and its failure records nothing; then one transaction holds the registry entry, its attachments to the consuming agent, and the audit; idempotent on name and source |
 | Activate | when the cheatcode becomes usable ([Hot-load](#hot-load)) |
 | Reconcile | each server start and scan checks the registry against what is on disk and audits drift |
 | Uninstall | Human-confirmed; reverses the install and its attachments ([Teardown](#teardown)) |
@@ -62,7 +64,7 @@ A passive path keeps the registry honest too: each scan records capabilities alr
 
 ## Safety invariants
 
-- **Human-approved, never silent.** Approval is per candidate, and the install gate fails closed without it.
+- **Human-approved, never silent.** Approval is per candidate, and the install gate fails closed without it. An approval is for one source at one version and is used up by one install, so a reinstall or a new version asks again, and a decline is audited with the candidate (planned, GH 3260; today an approval for a source stands for good).
 - **Marketplace path only.** Plugins install through the marketplace, never by copying files or loading a plugin directory.
 - **Web posture respected.** Discovery honours any web deny, and sources are shown to the Human before install.
 - **The user project only.** Materialization writes the user project's `.claude/`, never the plugin repo, and never bypasses the Human review of prompt files.
@@ -75,8 +77,8 @@ Installing loads a cheatcode; attachment decides which agent can use it, and dep
 |---|---|
 | Plugin contributing skills | The install loads its skills; an agent with a restricted skill list gets the name added. |
 | Plugin contributing a tool | The tool is added to the consuming agent's allowed tools. |
-| MCP toolkit | Registering the server is the attachment: any agent can call it. |
-| Standalone skill | Added to the consuming agent's skills through a project-local copy of its prompt file; for bro, a reference in the project's `CLAUDE.md`. |
+| MCP toolkit | Registering the server is the attachment: any agent can call it. Planned (GH 3260): today an MCP candidate is refused at install with nothing recorded, and bro tells the Human to register the server by hand. |
+| Standalone skill | Added to the consuming agent's skills through a project-local copy of its prompt file; for bro, a reference in the project's `CLAUDE.md`. The skill's file is fetched from its source into the project's skills folder as part of the install, and an install that cannot fetch it is refused (planned, GH 3260; today only the name is attached). |
 
 Plugin and MCP kinds are preferred. Every attachment is recorded so an uninstall reverses exactly what was wired, and a skill with no consuming agent is refused.
 
@@ -88,4 +90,4 @@ Whether a cheatcode works in the current session is decided by its kind, not gue
 
 Acquisition must be reversible. An uninstall reverses each recorded attachment, removes the artifact through the marketplace or MCP uninstall path, and audits the removal, in one transaction. It is idempotent, and honest: when teardown fails, the entry stays, marked broken, and the result says so instead of claiming a clean removal.
 
-Removal is safer than addition, so an uninstall is proposed by bro and confirmed by the Human rather than gated by a hook. When an open task depends on the cheatcode, bro says so before removing it.
+Removal is safer than addition, so an uninstall is proposed by bro and confirmed by the Human rather than gated by a hook. When an open task depends on the cheatcode, bro says so before removing it. Uninstalling a standalone skill removes its file and its name from every agent it was attached to (planned, GH 3260).
