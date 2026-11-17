@@ -36,6 +36,7 @@ import {
   type CoveringRunner,
   type ScoredSymbol,
   type SymbolRow,
+  type SymbolView,
 } from '../symbol-index.js';
 import { taskOverlay } from '../world-model/overlay.js';
 import type { FunctionParams, ParamInfo } from '../parsing/extract.js';
@@ -1054,6 +1055,26 @@ function attributedTask(
   return task ? { task_id: taskId, ...task } : null;
 }
 
+// world_model_search hands out shared ids, and an overlay view hides the
+// shared symbols under each path the branch re-parsed or deleted. Such an id
+// resolves to the overlay symbol with the same anchor key, or, when the branch
+// removed the symbol, to the shared row read through the shared view.
+function symbolForId(
+  db: TrajectoryDB,
+  id: number,
+  view: SymbolView,
+): { symbol: SymbolRow; view: SymbolView; removedOnBranch: boolean } | null {
+  const inView = symbolById(db, id, view);
+  if (inView) return { symbol: inView, view, removedOnBranch: false };
+  if (view === SHARED_VIEW) return null;
+  const shared = symbolById(db, id);
+  if (!shared) return null;
+  const counterpart = symbolsByName(db, shared.repo, shared.qualified_name, shared.path, view).find((s) => s.kind === shared.kind);
+  return counterpart
+    ? { symbol: counterpart, view, removedOnBranch: false }
+    : { symbol: shared, view: SHARED_VIEW, removedOnBranch: true };
+}
+
 function recordToolCall(db: TrajectoryDB, tool: string, args: Payload, result: CallToolResult, latencyMs: number): void {
   const agent = String(args['agent']);
   const error = result.isError === true;
@@ -1669,17 +1690,23 @@ export function worldModelTools(
           });
         }
         const overlay = await taskOverlay(db, attributedTask(db, String(args['agent']))?.task_id ?? null);
-        const view = overlay?.view ?? SHARED_VIEW;
+        let view = overlay?.view ?? SHARED_VIEW;
         const id = args['id'];
         let symbol: SymbolRow | null = null;
         let source: { repo_source?: RepoSource; path_normalized?: string } = {};
         let fresh: Map<string, Freshness> = new Map();
+        let removedOnBranch = false;
         if (typeof id === 'number') {
-          const before = symbolById(db, id, view);
+          const before = symbolForId(db, id, view);
           if (!before) return err(`symbol ${id} not found`);
-          fresh = await freshenAll([before.repo], args['agent']);
-          symbol = symbolById(db, id, view) ?? symbolsByName(db, before.repo, before.qualified_name, before.path, view)[0] ?? null;
-          if (!symbol) return err(`symbol ${id} not found: ${before.qualified_name} left ${before.path} at the target commit`);
+          const { repo, qualified_name, path } = before.symbol;
+          fresh = await freshenAll([repo], args['agent']);
+          const after = symbolForId(db, id, view);
+          const resolved = after ?? { ...before, symbol: symbolsByName(db, repo, qualified_name, path, before.view)[0] ?? null };
+          symbol = resolved.symbol;
+          if (!symbol) return err(`symbol ${id} not found: ${qualified_name} left ${path} at the target commit`);
+          view = resolved.view;
+          removedOnBranch = resolved.removedOnBranch;
         } else {
           const qualified = args['qualified_name'];
           const name = typeof qualified === 'string' && qualified ? qualified : args['name'];
@@ -1761,6 +1788,9 @@ export function worldModelTools(
           ...freshnessFields(fr),
           symbol: { ...framedCardSymbol(card.symbol), stale: card.symbol.stale || (!fromOverlay && isStale(fr, symbol.path)) },
           ...(overlay ? { overlay: { task_id: overlay.task_id, commit_sha: overlay.commit_sha } } : {}),
+          ...(removedOnBranch
+            ? { warning: 'removed_on_branch', message: `the task branch removed ${symbol.qualified_name}; this card reads the target commit` }
+            : {}),
           ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth, view) } : {}),
           ...(args['source'] === true ? symbolSource(db, symbol, fromOverlay ? overlay.commit_sha : undefined) : {}),
           ...(await checkoutLag(db, symbol.repo)),

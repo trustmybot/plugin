@@ -210,6 +210,45 @@ describe('world model overlay: task-context reads (SC1)', () => {
     }
   });
 
+  it('a shared id from world_model_search resolves in a task context whose overlay re-parsed or deleted its file', async () => {
+    const fx = await fixture();
+    try {
+      const sha = fx.branchCommit({ 'a.ts': A_BRANCH, 'c.ts': null });
+      const task = seedTask(fx, 'feat/overlay-ids');
+      const sharedId = (name: string) =>
+        fx.db.get<{ id: number }>(`SELECT id FROM wm_symbols WHERE qualified_name = ? AND kind != 'module'`, [name])!.id;
+      const alphaId = sharedId('alpha');
+      const doomedId = sharedId('doomed');
+      await close(fx, task, sha);
+      openRun(fx, 'code-reviewer', task);
+
+      const searched = parse(await fx.wm['world_model_search']({ agent: 'code-reviewer', query: 'alpha', repo: 'app', mode: 'keyword', k: 20 }));
+      const hitIds = (searched['results'] as Array<{ kind: string; id?: number }>).filter((h) => h.kind === 'symbol').map((h) => h.id);
+      assert.ok(hitIds.includes(alphaId), 'world_model_search hands out the shared id');
+
+      const alpha = (await fx.wm['world_model_symbol']({ agent: 'code-reviewer', id: alphaId })) as Raw;
+      assert.ok(!alpha.isError, alpha.content[0].text);
+      const alphaCard = parse(alpha);
+      assert.equal((alphaCard['symbol'] as Payload)['qualified_name'], 'alpha');
+      assert.ok(Number((alphaCard['symbol'] as Payload)['id']) < 0, 'a re-parsed shared id resolves to its overlay counterpart');
+      assert.equal(alphaCard['warning'], undefined);
+      const callers = (alphaCard['callers'] as { refs: Array<{ qualified_name: string }> }).refs.map((r) => r.qualified_name).sort();
+      assert.deepEqual(callers, ['beta', 'gamma']);
+
+      const doomed = (await fx.wm['world_model_symbol']({ agent: 'code-reviewer', id: doomedId })) as Raw;
+      assert.ok(!doomed.isError, doomed.content[0].text);
+      const doomedCard = parse(doomed);
+      assert.equal((doomedCard['symbol'] as Payload)['id'], doomedId, 'a symbol the branch removed reads the shared row');
+      assert.equal((doomedCard['symbol'] as Payload)['path'], 'c.ts');
+      assert.equal(doomedCard['warning'], 'removed_on_branch');
+
+      const missing = (await fx.wm['world_model_symbol']({ agent: 'code-reviewer', id: 999_999 })) as Raw;
+      assert.ok(missing.isError, 'an id in neither index is still refused');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
   it('a non-code task overlay holds file rows only', async () => {
     const fx = await fixture();
     try {
