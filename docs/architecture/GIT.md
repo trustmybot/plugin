@@ -60,6 +60,30 @@ Hooks hold the rest of this model in place, each enforcing the policy of the rep
 
 swe never fetches, rebases or pulls. When `<base>` moves after a task passed review, bro rebases the reviewed commit in a scratch worktree, refuses when the rebased patch differs from the reviewed one or conflicts, and re-runs the task's verification on the result. Only on a pass do the branch and the task's recorded commit move to the rebased commit. Because the patch is unchanged, the review carries over, the way Gerrit carries a vote across a trivial rebase; any other new commit needs a fresh review. The push gate applies the same patch-identity rule to rebased commits no task records.
 
+### When the base moves after the PR is open
+
+Planned (GH 3227). The rebase above runs before the first push. Once the PR is open, a moved base is not by itself a reason to rebase: a rebase rewrites the commit, so the branch on origin can only be updated by a force-push. Today bro rebases an open PR's branch whenever the base moved, and the push gate then also checks the base's own commits between the old tip and the new one, so the force-push is denied.
+
+```mermaid
+flowchart TD
+    A[The base moves while the task's PR is open] --> B{Can the forge still merge the PR as it stands?}
+    B -- yes --> C[Leave the branch alone; the merge, or the forge's merge queue, tests it on the new base]
+    B -- "no: the repo requires an up-to-date branch, or commits under the task's commit merged into the base" --> D[Rebase the reviewed commit in a scratch worktree and re-run its verification]
+    B -- no: it conflicts with the base --> E[Integrate conflict: the task is retried as a fresh task from the current base]
+    D --> F{Result?}
+    F -- patch unchanged, verification passes --> G[Force-push to the task's own branch, refused when origin's branch moved since bro last read it]
+    F -- patch changed --> H[One new review of the rebased commit, then the same push]
+    F -- verification fails --> I[The task is reopened and its author reworks it]
+    G --> J[Same PR, same review thread]
+    H --> J
+```
+
+- **Behind is not broken.** A PR whose branch is behind the base, with no conflict, is left alone unless the repo's rules require an up-to-date branch.
+- **A stack is the common case.** A task cut on top of another branch has that branch's commits under its own. When they merge into the base, the task's commit is rebased onto the base and the commits already there drop out.
+- **The force-push is narrow.** It goes only to the task's own branch, never to a protected one, and it is refused when origin's branch holds a commit bro has not seen, so nobody's push is overwritten.
+- **The gate checks only what the push adds.** That is the commits reachable from the new tip and not from the base. A commit already on the base passed its own gate when it merged, and needs no new verification.
+- **The PR is kept.** A rebase never opens a new branch or a new PR, so the review thread and history stay in one place.
+
 ## Agile feature branches
 
 Shipped for the project review mode; a lane's feature branch is planned (GH 3025). In agile review mode a long-lived feature branch stands between the task branches and `<base>`. Each `<feature>` is cut from the feature branch's tip instead of `<base>`, and bro merges it back into the feature branch locally once the task closes, with no PR. bro pushes the feature branch as a backup and brings `<base>` into it at the milestone, or earlier in an optional periodic sync. Only the feature branch itself reaches `<base>`, as one PR after its review passes or the Human waives it. [AGILE.md](AGILE.md) covers every case.
