@@ -144,7 +144,11 @@ function write(db: string, sql: string, env: NodeJS.ProcessEnv): WriteResult {
   return r;
 }
 
-function execute(command: string, cwd: string, env: NodeJS.ProcessEnv, seconds: number, outPath: string): Promise<number> {
+/**
+ * `bash -c <command>` in <cwd>, its output to <outPath>; its exit code, or
+ * LINT_TIMED_OUT once its process group is SIGKILLed at <seconds>.
+ */
+export function runBashKilledAt(command: string, cwd: string, env: NodeJS.ProcessEnv, seconds: number, outPath: string): Promise<number> {
   return new Promise((done) => {
     const fd = openSync(outPath, 'w');
     let fired = false;
@@ -223,7 +227,7 @@ export async function runCloseLints(
       }
       const outPath = join(scratch, `out-${i + 1}`);
       const t0 = Date.now();
-      const rc = await execute(lint.command, repo, lintEnv, left, outPath);
+      const rc = await runBashKilledAt(lint.command, repo, lintEnv, left, outPath);
       const elapsedS = seconds(Date.now() - t0);
       let output = '';
       try {

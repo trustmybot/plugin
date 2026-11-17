@@ -8,12 +8,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { CLOSE_LINTS_PATH } from '../hooks/lib/lint-fingerprint.js';
+import { VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
 import { tempDB } from './helpers.js';
 import { DATA_CONTRACTS, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { groupQueuedTasks, pathsOverlap, reviewQueueTools } from '../tools/review-queue.js';
 import { AGILE_QUEUED_SQL, reviewBatchKey } from '../review-sql.js';
 import { closedTasksWithoutReview } from '../tools/lifecycle.js';
+import { SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { issueTools } from '../tools/issues.js';
 import { __setGitAsyncRunnerForTests, __setGitRunnerForTests } from '../utils/git-run.js';
 import { spawnAsync } from '../utils/spawn-async.js';
@@ -893,10 +895,23 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
   const AT_HEAD_LINT = { name: 'at-head', command: 'test -n "$TMB_LINT_BASE_SHA" && grep -q c3 a.txt' };
   // main: base (a.txt, b.txt, c.txt, the close lints). feat/agile: c1 (a.txt), c2 (b.txt), c3 (a.txt), c4 (c.txt).
   // side: off base, no ancestor of feat/agile. feat/bad: off base, its close lint fails.
-  let repo: { root: string; git: (...a: string[]) => string; base: string; c: string[]; side: string; bad: string };
+  // feat/suite-*: off base, a passing close lint and a stub verification-defaults suite each (feat/suite-lint-bad: a failing lint).
+  const SUITE_BRANCHES = ['feat/suite-ok', 'feat/suite-bad', 'feat/suite-lint-bad', 'feat/suite-full', 'feat/suite-invalid'] as const;
+  type SuiteBranch = (typeof SUITE_BRANCHES)[number];
+  let repo: {
+    root: string;
+    git: (...a: string[]) => string;
+    base: string;
+    c: string[];
+    side: string;
+    bad: string;
+    suite: Record<SuiteBranch, string>;
+    markers: string;
+  };
 
   before(() => {
     const root = mkdtempSync(join(tmpdir(), 'batch-handoff-'));
+    const markers = mkdtempSync(join(tmpdir(), 'batch-handoff-markers-'));
     const git = (...a: string[]) => execFileSync('git', ['-C', root, ...a], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 }).toString().trim();
     git('init', '-q', '-b', 'main');
     git('config', 'user.email', 't@t.t');
@@ -919,11 +934,40 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
     const side = commit({ 'side.txt': 'side\n' }, 'side');
     git('checkout', '-q', '-b', 'feat/bad', base);
     const bad = commit({ 'd.txt': 'bad\n', [CLOSE_LINTS_PATH]: lints({ name: 'fails', command: 'echo broken; exit 3' }) }, 'bad');
+    const passingLint = lints({ name: 'ok', command: 'true' });
+    const defaults = (commands: string[]) => JSON.stringify({ version: 1, commands });
+    const suiteFiles: Record<SuiteBranch, Record<string, string>> = {
+      // suite.txt exists only at this tip, so the first command passes only in a checkout of it.
+      'feat/suite-ok': { 'suite.txt': 'tip\n', [CLOSE_LINTS_PATH]: passingLint, [VERIFICATION_DEFAULTS_FILE]: defaults(['test -f suite.txt && echo first', 'echo second']) },
+      'feat/suite-bad': {
+        [CLOSE_LINTS_PATH]: passingLint,
+        [VERIFICATION_DEFAULTS_FILE]: defaults(['echo first ok', 'echo suite broke; exit 5', `touch '${join(markers, 'after-failure')}'`]),
+      },
+      'feat/suite-lint-bad': {
+        [CLOSE_LINTS_PATH]: lints({ name: 'fails', command: 'exit 4' }),
+        [VERIFICATION_DEFAULTS_FILE]: defaults([`touch '${join(markers, 'lint-bad-suite')}'`]),
+      },
+      // A tests/run-all.sh command is a full suite, so it runs holding a suite slot.
+      'feat/suite-full': {
+        'tests/run-all.sh': 'test -n "$TMB_SUITE_LOCK_HELD"\n',
+        [CLOSE_LINTS_PATH]: passingLint,
+        [VERIFICATION_DEFAULTS_FILE]: defaults(['bash tests/run-all.sh']),
+      },
+      'feat/suite-invalid': { [CLOSE_LINTS_PATH]: passingLint, [VERIFICATION_DEFAULTS_FILE]: JSON.stringify({ version: 2, commands: ['true'] }) },
+    };
+    const suite = {} as Record<SuiteBranch, string>;
+    for (const branch of SUITE_BRANCHES) {
+      git('checkout', '-q', '-b', branch, base);
+      suite[branch] = commit(suiteFiles[branch], branch);
+    }
     git('checkout', '-q', 'main');
-    repo = { root, git, base, c, side, bad };
+    repo = { root, git, base, c, side, bad, suite, markers };
   });
 
-  after(() => rmSync(repo.root, { recursive: true, force: true }));
+  after(() => {
+    rmSync(repo.root, { recursive: true, force: true });
+    rmSync(repo.markers, { recursive: true, force: true });
+  });
 
   function handoffDb(): { db: TrajectoryDB; issue: number } {
     const db = tempDB();
@@ -958,6 +1002,7 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
   }
 
   const auditCount = (db: TrajectoryDB): number => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit')!.n;
+  const handoffRows = (db: TrajectoryDB): number => db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'review_batch_handoff'`)!.n;
 
   // The temporary lint worktree is gone: git lists only the main checkout and no review-batch dir is left.
   function assertNoLintWorktree(): void {
@@ -1011,6 +1056,7 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
             commit_shas: [repo.c[0], repo.c[2]],
             repo: 'app',
             lint: { exit_code: 0, results: [{ name: 'at-head', exit_code: 0 }] },
+            suite: { commands: [], passed: true, note: `no ${VERIFICATION_DEFAULTS_FILE} at ${head}, so no suite ran` },
           },
           'the lint passed, so it ran on a checkout of the tip, not the main checkout',
         );
@@ -1148,6 +1194,152 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
         assert.match(r.content[0].text, /Lint fails exited 3/);
         assert.equal(auditCount(db), before);
         assertNoLintWorktree();
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  // Sets each process.env key for the call (undefined unsets it), restoring the old values after.
+  async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+    const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+    const apply = (values: Record<string, string | undefined>): void => {
+      for (const [k, v] of Object.entries(values)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    };
+    apply(vars);
+    try {
+      return await fn();
+    } finally {
+      apply(saved);
+    }
+  }
+
+  async function suiteHandoff(db: TrajectoryDB, issue: number, branch: SuiteBranch): Promise<RawResult> {
+    const t = seedMerged(db, issue, repo.base, repo.suite[branch], branch);
+    return handoff(db, { feature_branch: branch, task_ids: [t] });
+  }
+
+  type SuiteBody = { suite?: { commands: string[]; passed: boolean; failed_command?: string; exit_code?: number; tail?: string } };
+
+  describe('decision #320 item 2: the verification-defaults suite runs at the tip after the close lints', () => {
+    it('runs every command in the temporary worktree and records suite {commands, passed} in the result and the row', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const r = await suiteHandoff(db, issue, 'feat/suite-ok');
+        assert.ok(!r.isError, r.content[0].text);
+        const commands = ['test -f suite.txt && echo first', 'echo second'];
+        assert.deepEqual((JSON.parse(r.content[0].text) as SuiteBody).suite, { commands, passed: true });
+        const row = db.get<{ passed_type: string; commands: string }>(
+          `SELECT json_type(content_json, '$.suite.passed') AS passed_type, json_extract(content_json, '$.suite.commands') AS commands
+             FROM audit WHERE event_type = 'review_batch_handoff'`,
+        )!;
+        assert.equal(row.passed_type, 'true', 'the row records $.suite.passed true');
+        assert.deepEqual(JSON.parse(row.commands), commands);
+        assertNoLintWorktree();
+      } finally {
+        db.close();
+      }
+    });
+
+    it('refuses suite_failed with the failing command and its output tail, runs no later command, and writes nothing', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const r = await suiteHandoff(db, issue, 'feat/suite-bad');
+        const body = refused(r, 'suite_failed') as Refusal & SuiteBody;
+        assert.equal(body.suite?.passed, false);
+        assert.equal(body.suite?.failed_command, 'echo suite broke; exit 5');
+        assert.equal(body.suite?.exit_code, 5);
+        assert.equal(body.suite?.tail, 'suite broke');
+        assert.equal(existsSync(join(repo.markers, 'after-failure')), false, 'the command after the failing one did not run');
+        assert.equal(handoffRows(db), 0, 'no review_batch_handoff row');
+        assertNoLintWorktree();
+      } finally {
+        db.close();
+      }
+    });
+
+    it('runs no suite when the close lints fail', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        refused(await suiteHandoff(db, issue, 'feat/suite-lint-bad'), 'lint_failed');
+        assert.equal(existsSync(join(repo.markers, 'lint-bad-suite')), false);
+        assertNoLintWorktree();
+      } finally {
+        db.close();
+      }
+    });
+
+    it('runs a full-suite command holding a suite slot, and releases it after', async () => {
+      const { db, issue } = handoffDb();
+      const lockDir = mkdtempSync(join(tmpdir(), 'batch-handoff-lock-'));
+      try {
+        const r = await withEnv({ TMB_SUITE_LOCK_DIR: lockDir, [SUITE_LOCK_HELD_ENV]: undefined, TMB_TEST_SUITE_SLOTS: '1' }, () => suiteHandoff(db, issue, 'feat/suite-full'));
+        assert.ok(!r.isError, r.content[0].text);
+        assert.equal(existsSync(join(lockDir, 'slot-0')), false, 'the slot is released');
+      } finally {
+        rmSync(lockDir, { recursive: true, force: true });
+        db.close();
+      }
+    });
+
+    it('refuses suite_slot_busy when every suite slot stays held, and writes nothing', async () => {
+      const { db, issue } = handoffDb();
+      const lockDir = mkdtempSync(join(tmpdir(), 'batch-handoff-lock-'));
+      try {
+        mkdirSync(join(lockDir, 'slot-0'));
+        const holder = { pid: process.pid, pgid: null, worktree: '/elsewhere', command: 'bash tests/run-all.sh', started: iso() };
+        writeFileSync(join(lockDir, 'slot-0', 'holder'), JSON.stringify(holder));
+        const env = { TMB_SUITE_LOCK_DIR: lockDir, [SUITE_LOCK_HELD_ENV]: undefined, TMB_TEST_SUITE_SLOTS: '1', TMB_VERIFICATION_TIMEOUT_S: '1' };
+        refused(await withEnv(env, () => suiteHandoff(db, issue, 'feat/suite-full')), 'suite_slot_busy');
+        assert.equal(handoffRows(db), 0, 'no review_batch_handoff row');
+        assertNoLintWorktree();
+      } finally {
+        rmSync(lockDir, { recursive: true, force: true });
+        db.close();
+      }
+    });
+
+    it('refuses an invalid verification-defaults file at the tip', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const r = await suiteHandoff(db, issue, 'feat/suite-invalid');
+        refused(r, 'verification_defaults_invalid');
+        assert.match(r.content[0].text, /version must be 1/);
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  describe('decision #320 item 4: review_queue feature_branch filter', () => {
+    it('returns only the queued tasks merged onto the branch; omitted, every task', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const onFeature = seedBranch(db, issue);
+        const other = seedMerged(db, issue, repo.base, repo.side, 'feat/other');
+        const unmerged = seedMerged(db, issue, repo.base, repo.side, null);
+        const filtered = await queueOk(db, { feature_branch: FEATURE });
+        assert.deepEqual(ids(filtered), onFeature);
+        assert.equal(filtered.total, onFeature.length);
+        assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/other' })), [other]);
+        assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/none' })), []);
+        assert.deepEqual(ids(await queueOk(db)), [...onFeature, other, unmerged]);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('refuses an empty or non-string feature_branch with invalid_args', async () => {
+      const { db } = handoffDb();
+      try {
+        for (const feature_branch of ['', '  ', 42, null]) {
+          const r = await queue(db, { feature_branch });
+          assert.equal(r.isError, true, r.content[0].text);
+          assert.equal((JSON.parse(r.content[0].text) as { error: string }).error, 'invalid_args');
+        }
       } finally {
         db.close();
       }

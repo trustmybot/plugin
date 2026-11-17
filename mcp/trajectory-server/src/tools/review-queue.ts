@@ -1,20 +1,29 @@
 // review_queue: the closed agile tasks still waiting for code review, grouped by overlapping declared files[].
 // review_batch_record: code-reviewer's one verdict on a group of them.
 // review_waive_record: the Human's waiver of that review for a feature branch, recorded by bro.
-// review_batch_handoff: bro's hand-off of one such group at the feature-branch tip, its close lints run there.
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+// review_batch_handoff: bro's hand-off of one such group at the feature-branch tip, its close lints and verification-defaults suite run there.
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
-import { closeLintsPlan, type CloseLintsRun, describeFailures, runCloseLints, tailLines } from '../hooks/lib/close-lints.js';
+import {
+  closeLintsPlan,
+  type CloseLintsRun,
+  describeFailures,
+  LINT_TIMED_OUT,
+  runBashKilledAt,
+  runCloseLints,
+  tailLines,
+} from '../hooks/lib/close-lints.js';
 import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { UNREVIEWED_CLOSED_TASK } from '../data-contracts.js';
 import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, batchReviewedSql, featureBranchTaskSql, reviewBatchKey, waivedSql } from '../review-sql.js';
 import { batchReviewerSpawn, type ReviewerSpawn } from '../reviewer-effort.js';
+import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { diffNameStatus, isAncestor, mergeBase, revParseCommit } from '../utils/git-objects.js';
 import { resolveBaseRef } from '../utils/git-refs.js';
 import { runGitAsync } from '../utils/git-run.js';
@@ -24,6 +33,7 @@ import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.
 import { parseRunSessionId, RUN_SESSION_ID_SCHEMA } from './agent-runs.js';
 import { insertAudit } from './audit.js';
 import { resolveEffortDefaults } from './config.js';
+import { readVerificationDefaults, VERIFICATION_DEFAULTS_FILE } from './verification-defaults.js';
 import {
   REVIEWER_OBSERVATION_TTL_S,
   REVIEWER_OBSERVE_FROM_NODE,
@@ -76,6 +86,7 @@ const QUEUE_SQL = `SELECT t.id, t.issue_id, t.branch_id, t.commit_sha, t.base_sh
     FROM tasks t
    WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND t.workflow_mode = 'agile'
      AND (:repo IS NULL OR t.repo = :repo)
+     AND (:branch IS NULL OR ${featureBranchTaskSql('t', ':branch')})
    ORDER BY t.id`;
 
 function declaredFiles(json: string): string[] {
@@ -149,6 +160,7 @@ class BatchRefused extends Error {
     readonly reason: string,
     message: string,
     readonly tasks?: readonly RefusedTask[],
+    readonly detail?: Readonly<Record<string, unknown>>,
   ) {
     super(message);
   }
@@ -565,10 +577,92 @@ async function removeTempWorktree(repoPath: string, wt: string): Promise<void> {
   await runGitAsync(repoPath, ['worktree', 'prune']);
 }
 
-// The close lints of <head> against <base>, run in a temporary detached
-// worktree of <repoPath> prepared as cli.js integrate prepares its own; the
-// run, or why none ran.
-async function runBatchLints(repoPath: string, head: string, base: string, budgetS: number): Promise<CloseLintsRun | string> {
+/** The verification-defaults commands of a hand-off, as its row and result store them. */
+interface HandoffSuite {
+  commands: string[];
+  passed: boolean;
+  /** Why no suite ran, when commands is empty. */
+  note?: string;
+}
+
+interface SuiteFailure {
+  command: string;
+  exit_code: number;
+  tail: string;
+}
+
+const SUITE_TAIL_CHARS = 2000;
+
+function suiteTail(output: string): string {
+  const tail = tailLines(output);
+  return tail.length > SUITE_TAIL_CHARS ? tail.slice(-SUITE_TAIL_CHARS) : tail;
+}
+
+function readOutput(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+// Each command in <wt> in order, sharing <budgetS>, stopping at the first
+// that exits non-zero: that failure, or null when all pass. A full suite
+// (isFullSuite) first takes a suite slot, as the swe-verification-gate does,
+// waiting at most the budget; a slot still busy then refuses the hand-off.
+async function runSuiteCommands(wt: string, commands: readonly string[], budgetS: number, env: NodeJS.ProcessEnv): Promise<SuiteFailure | null> {
+  if (commands.length === 0) return null;
+  const started = Date.now();
+  const leftS = (): number => budgetS - (Date.now() - started) / 1000;
+  const fullSuite = commands.find(isFullSuite);
+  let runEnv = env;
+  let release = (): void => {};
+  if (fullSuite !== undefined) {
+    const slot = await acquireSuiteSlot({ command: fullSuite, worktree: wt, env, maxWaitS: Math.max(0, Math.floor(budgetS)) });
+    if (slot.kind === 'busy') {
+      throw new BatchRefused('suite_slot_busy', `the suite did not run: every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s. Hand the group off again once that suite finishes.`);
+    }
+    if (slot.kind === 'held') {
+      runEnv = { ...env, [SUITE_LOCK_HELD_ENV]: slot.slot };
+      release = slot.release;
+    }
+  }
+  const scratch = mkdtempSync(join(env.TMPDIR || tmpdir(), 'tmb-review-suite-'));
+  try {
+    for (const [i, command] of commands.entries()) {
+      const left = leftS();
+      if (left <= 0) return { command, exit_code: LINT_TIMED_OUT, tail: `the ${budgetS}s verification budget ran out before it started` };
+      const outPath = join(scratch, `out-${i + 1}`);
+      const rc = await runBashKilledAt(command, wt, runEnv, left, outPath);
+      if (rc === 0) continue;
+      const printed = suiteTail(readOutput(outPath));
+      const killed = rc === LINT_TIMED_OUT ? `killed at the ${budgetS}s verification budget` : '';
+      return { command, exit_code: rc, tail: [printed, killed].filter((s) => s !== '').join('\n') };
+    }
+    return null;
+  } finally {
+    release();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+// Refuses the hand-off as suite_failed when a suite command fails in <wt>.
+async function assertSuitePasses(wt: string, head: string, commands: readonly string[], budgetS: number, env: NodeJS.ProcessEnv): Promise<void> {
+  const failure = await runSuiteCommands(wt, commands, budgetS, env);
+  if (failure === null) return;
+  throw new BatchRefused(
+    'suite_failed',
+    `the suite (${VERIFICATION_DEFAULTS_FILE}) fails on ${head}: \`${failure.command}\` exited ${failure.exit_code}; fix it on the feature branch, then hand the group off again.\n${failure.tail}`,
+    undefined,
+    { suite: { commands: [...commands], passed: false, failed_command: failure.command, exit_code: failure.exit_code, tail: failure.tail } },
+  );
+}
+
+// The close lints of <head> against <base>, then, once they pass, the
+// <suiteCommands>, all within <budgetS>, in a temporary detached worktree of
+// <repoPath> prepared as cli.js integrate prepares its own; the lint run, or
+// why none ran. A failing suite command refuses the hand-off.
+async function runBatchChecks(repoPath: string, head: string, base: string, budgetS: number, suiteCommands: readonly string[]): Promise<CloseLintsRun | string> {
   const env = process.env;
   const worktrees = join(repoPath, '.claude', 'worktrees');
   let wt: string;
@@ -589,27 +683,47 @@ async function runBatchLints(repoPath: string, head: string, base: string, budge
     if (setup.error !== undefined) return describeSetupFailure(setup);
     const lintDb = join(scratch, 'lints.db');
     createScratchLintDb(lintDb);
-    return await runCloseLints(wt, head, base, budgetS, runEnv, { db: lintDb, taskId: '0', source: 'gate' });
+    const started = Date.now();
+    const lints = await runCloseLints(wt, head, base, budgetS, runEnv, { db: lintDb, taskId: '0', source: 'gate' });
+    if (typeof lints === 'string' || lints.exitCode !== 0) return lints;
+    await assertSuitePasses(wt, head, suiteCommands, budgetS - (Date.now() - started) / 1000, runEnv);
+    return lints;
   } finally {
     await removeTempWorktree(repoPath, wt);
     rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-async function batchLint(db: TrajectoryDB, repoPath: string, head: string, base: string): Promise<HandoffLint> {
+interface BatchChecks {
+  lint: HandoffLint;
+  suite: HandoffSuite;
+}
+
+// The close lints and the verification-defaults suite of <head>, both as
+// committed there; refuses the hand-off when either fails or cannot run.
+async function batchChecks(db: TrajectoryDB, repoPath: string, head: string, base: string): Promise<BatchChecks> {
   const plan = await closeLintsPlan(repoPath, head, process.env, '');
   if (typeof plan === 'string') throw new BatchRefused('lint_unavailable', `the close lints of ${head} cannot run: ${plan}`);
-  if (plan.lints.length === 0) return { fingerprint: plan.fingerprint, exit_code: 0, results: [] };
-  const run = await runBatchLints(repoPath, head, base, lintBudgetS(db));
-  if (typeof run === 'string') throw new BatchRefused('lint_unavailable', `the close lints of ${head} cannot run: ${run}`);
+  const defaults = readVerificationDefaults(repoPath, head);
+  if ('error' in defaults) {
+    throw new BatchRefused('verification_defaults_invalid', `${VERIFICATION_DEFAULTS_FILE} at ${head} is invalid: ${defaults.error}`);
+  }
+  const suite: HandoffSuite =
+    defaults.commands.length === 0
+      ? { commands: [], passed: true, note: `no ${VERIFICATION_DEFAULTS_FILE} at ${head}, so no suite ran` }
+      : { commands: defaults.commands, passed: true };
+  if (plan.lints.length === 0 && defaults.commands.length === 0) return { lint: { fingerprint: plan.fingerprint, exit_code: 0, results: [] }, suite };
+  const run = await runBatchChecks(repoPath, head, base, lintBudgetS(db), defaults.commands);
+  if (typeof run === 'string') throw new BatchRefused('lint_unavailable', `the close lints and suite of ${head} cannot run: ${run}`);
   if (run.exitCode !== 0) {
     throw new BatchRefused('lint_failed', `the close lints fail on ${head}; fix them on the feature branch, then hand the group off again.\n${describeFailures(run)}`);
   }
-  return {
+  const lint = {
     fingerprint: run.fingerprint,
     exit_code: run.exitCode,
     results: run.results.map((r) => ({ name: r.name, exit_code: r.exitCode, elapsed_s: r.elapsedS, output_tail: tailLines(r.output) })),
   };
+  return { lint, suite };
 }
 
 // The paths <task> changed: git diff --name-only <base_sha> <commit_sha>.
@@ -657,6 +771,7 @@ interface BatchHandoff {
   head_sha: string;
   base_sha: string;
   task_ids: number[];
+  suite: HandoffSuite;
   reviewer_spawn: ReviewerSpawn;
 }
 
@@ -697,7 +812,7 @@ async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHand
     );
   }
   assertGroupKeepsSharedFiles(repoPath, repo, group, pending);
-  const lint = await batchLint(db, repoPath, head, base);
+  const { lint, suite } = await batchChecks(db, repoPath, head, base);
 
   return db.transaction(() => {
     // The lints ran outside the transaction; a task that closed, moved or was reviewed meanwhile voids the checks above.
@@ -720,6 +835,7 @@ async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHand
         commit_shas: commitShas,
         repo,
         lint,
+        suite,
       }),
       created_at: nowISO(),
     });
@@ -727,12 +843,12 @@ async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHand
       { batch_handoff_id: String(auditId), feature_branch: branch, head_sha: head, repo, repo_path: repoPath, subagent_session_id: h.sessionId },
       resolveEffortDefaults(db).reviewer,
     );
-    return { batch_handoff_id: auditId, head_sha: head, base_sha: base, task_ids: h.taskIds, reviewer_spawn };
+    return { batch_handoff_id: auditId, head_sha: head, base_sha: base, task_ids: h.taskIds, suite, reviewer_spawn };
   });
 }
 
 function refusal(e: BatchRefused): CallToolResult {
-  const body = { error: e.reason, message: e.message, ...(e.tasks ? { tasks: e.tasks } : {}) };
+  const body = { error: e.reason, message: e.message, ...(e.tasks ? { tasks: e.tasks } : {}), ...e.detail };
   return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: true };
 }
 
@@ -750,6 +866,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
         properties: {
           agent: { type: 'string' },
           repo: { type: 'string', description: 'Only tasks of this repos.name.' },
+          feature_branch: { type: 'string', description: 'Only tasks merged onto this feature branch.' },
           grace_hours: {
             type: 'number',
             minimum: 0,
@@ -762,8 +879,8 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_batch_handoff',
       description:
-        'bro only: hands queued agile tasks of feature_branch to one review at its tip, after the close lints pass there. Returns {batch_handoff_id, head_sha, base_sha, task_ids, reviewer_spawn}. ' +
-        'Refused, writing nothing, if a task is not queued on the branch or not under the tip, the lints fail, or a queued task left out shares a changed file.',
+        "bro only: hands feature_branch's queued tasks to a review at its tip once its close lints then verification-defaults suite pass. Returns {batch_handoff_id, head_sha, base_sha, task_ids, suite, reviewer_spawn}. " +
+        'Refused, writing nothing, if a task is not queued there or under the tip, a check fails, or a left-out task shares a changed file.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -814,11 +931,13 @@ export function reviewQueueTools(db: TrajectoryDB): {
   const handler = (args: Record<string, unknown>): CallToolResult => {
     const repo = args['repo'];
     if (repo !== undefined && repo !== null && typeof repo !== 'string') return err('repo must be a string');
+    const branchArg = args['feature_branch'];
+    const branch = branchArg === undefined ? null : parseFeatureBranch(branchArg);
     const grace = args['grace_hours'] ?? 0;
     if (typeof grace !== 'number' || !Number.isFinite(grace) || grace < 0) {
       return err('grace_hours must be a non-negative number');
     }
-    const rows = db.all<QueuedTaskRow>(QUEUE_SQL, [{ grace_hours: grace, repo: repo ?? null }]);
+    const rows = db.all<QueuedTaskRow>(QUEUE_SQL, [{ grace_hours: grace, repo: repo ?? null, branch }]);
     const groups = groupQueuedTasks(rows);
     return ok({ total: rows.length, groups });
   };
@@ -830,7 +949,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
         try {
           return Promise.resolve(handler(args));
         } catch (e) {
-          return Promise.resolve(err((e as Error).message));
+          return Promise.resolve(e instanceof BatchRefused ? refusal(e) : err((e as Error).message));
         }
       }),
       review_batch_handoff: requireRoles('review_batch_handoff', ['bro'], async (args) => {
