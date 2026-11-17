@@ -69,12 +69,19 @@ flowchart LR
     A[Agile task merged into the feature branch] --> Q[Queued]
     Q -- the branch's review passes for its group --> BR[Batch-reviewed]
     Q -- the Human waives the review --> W[Waived]
+    Q -- the Human asks for a review now --> IR[In review]
+    IR -- pass --> RD[Reviewed; closes when the feature branch merges]
+    IR -- fail: stays queued, findings open --> Q
+    Q -- bro reopens it before the fold --> RW[Running: back to its author]
+    RW -- the author closes it again --> A
+    Q -- the Human drops the feature branch --> ES[Cancelled]
 ```
 
 - **Queued** means merged into the feature branch and waiting for review.
 - **Batch-reviewed** means the feature branch's review passed for the task's group. The move is recorded with the review that cleared it.
 - **Waived** means the Human let the feature branch merge without that review. The waiver names the branch, and the audit log keeps it.
-- **Review states are lifecycle states.** Queued, batch-reviewed and waived are states of the task lifecycle in [TASKS.md](TASKS.md#task-lifecycle), and each move into one is a lifecycle event, not a separate record. A group review is recorded once, as a review batch. In the same transaction, every task in the group moves to batch-reviewed, and each move points at that batch. Planned, GH 3224.
+- **A queued task can leave the queue early.** A review the Human asks for moves it to in review. A pass leaves it reviewed, and it closes with the rest when the feature branch merges. A fail leaves it queued with its findings open: bro reopens it when it is not yet folded into the feature branch, and after rework it closes into the queue again; once it is folded, bro files the findings as a fix task on the feature branch. Dropping the feature branch cancels it.
+- **Review states are lifecycle states.** Queued (named review-deferred in the lifecycle), batch-reviewed and waived are states of the task lifecycle in [TASKS.md](TASKS.md#task-lifecycle), and each move into one is a lifecycle event, not a separate record. A group review is recorded once, as a review batch. In the same transaction, every task in the group moves to batch-reviewed, and each move points at that batch. Planned, GH 3224.
 
 ## Task flow
 
@@ -92,12 +99,14 @@ flowchart TD
     G --> Q[Task is queued]
     H[Human asks for a review now] -. optional .-> CR[code-reviewer reviews this task, as in truest]
     CR -. pass .-> X[Task never queues, or leaves the queue]
+    CR -. fail on a task not yet closed .-> C
+    CR -. fail on a queued task .-> RF[Stays queued: bro reopens it before the fold, or files a fix task after]
 ```
 
 - **swe tests the patch.** It runs the checks for the paths it touched, and the spec's checks run once more on its commit before the completion counts. These local checks replace the per-task CI run.
 - **bro tests the design.** It judges whether the report covers every success criterion and whether the change fits the architecture. It reviews no diff line by line.
 - **bro merges into the feature branch.** The merge policy covers PRs into the working branch. A task's merge into its feature branch is bro's, because it is local work no one else has seen yet.
-- **code-reviewer is on call.** The Human can ask for a review of any task at any time, and a passing review keeps that task out of the queue.
+- **code-reviewer is on call.** The Human can ask for a review of any task at any time, and a passing review keeps that task out of the queue. A fail on a task not yet closed reopens it at high effort, as in truest. A fail on a queued task leaves it queued and reopens nothing by itself: bro reopens it when it is not yet folded, and files a fix task on the feature branch when it is.
 
 ## Safe close
 
@@ -146,6 +155,7 @@ flowchart TD
     M -- yes --> P[bro opens one PR from the feature branch into the working branch]
     P --> CI[One CI run and one merge-queue run]
     CI --> MG[Merged per the merge policy]
+    CI -- a check fails, or a review comment asks for a change --> H
 ```
 
 - **The Human decides when.** The review runs when the Human says the milestone is reached, such as when an MVP works end to end, not after each task. It is one batch review of the milestone, split into groups that run in parallel.
@@ -154,6 +164,7 @@ flowchart TD
 - **The suite covers the gaps.** A reviewer reads its group's files and their dependents. The full suite on the feature branch catches what crosses two groups.
 - **A pass updates the whole group.** Every task in the group becomes batch-reviewed at once, recorded with the review that cleared it. Each task still records agile as its review mode.
 - **Failures.** A fail becomes a fix task on the feature branch, and that task is reviewed before it merges, like any truest task. Once it passes, the group is batch-reviewed.
+- **After the PR opens.** A failing check or a review comment on the milestone PR is fixed the same way: a new fix task on the feature branch, reviewed before it merges, which updates the PR. Batch-reviewed and waived tasks are not reopened.
 - **Visibility.** TMB's health check reports agile tasks closed more than a day ago, by default, with neither a passing review nor a waiver, so the queue never hides (shipped).
 
 ## Merge gate
@@ -162,16 +173,19 @@ The feature branch reaches the working branch only through one gated PR.
 
 ```mermaid
 flowchart TD
-    A[PR from the feature branch into the working branch] --> B{Any of its tasks still queued?}
+    A[PR from the feature branch into the working branch] --> B{Any of its tasks still queued, in review or being reworked?}
     B -- no --> OK[Allowed to merge per the merge policy]
     B -- yes --> W{Human recorded a waiver for this branch?}
     W -- yes --> L[Allowed; the covered tasks move to waived, and the waiver goes to the audit log]
     W -- no --> X[Blocked: run the feature branch review first]
+    D[Human abandons the feature branch] --> E[Its queued tasks are cancelled, with the dropped branch as the cause]
+    E --> F[bro deletes the branch only when the Human says so]
 ```
 
 - **Scope.** Task merges into the feature branch are not gated by the queue. Only the merge into the working branch is.
 - **Waivers.** Only the Human records a waiver. It names the feature branch it covers, and the audit log keeps it with the list of tasks that merged unreviewed.
-- **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. bro records them as dropped and deletes the branch only when the Human says so.
+- **A waiver covers queued tasks only.** A task in review or being reworked blocks the merge until its review passes or its rework closes back into the queue.
+- **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. They are cancelled with the dropped branch as the cause, which ends them without a retry (escalated, until schema v75 splits that state), and bro deletes the branch only when the Human says so.
 
 ## Switching review modes
 
@@ -182,7 +196,7 @@ flowchart TD
     C[Human changes a lane's review mode] --> C1[Later closes in that lane use it]
     B1 --> K[Closed tasks keep their mode and review state]
     C1 --> K
-    K --> Q[Queued tasks stay queued until batch-reviewed or waived]
+    K --> Q[Queued tasks stay queued until batch-reviewed, waived, reviewed on request, reopened or dropped]
     E[Task open when a mode changed] --> F[Takes the mode resolved at its close]
 ```
 
