@@ -1371,6 +1371,16 @@ Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't me
 - **`tasks.retry_of`** points a retry at the task it retries.
 - **`review_batches`** records one grouped review of review-deferred tasks; those tasks' events point at the batch.
 
+## Planned for run trajectories
+
+Sessions, agent runs, hook runs and verification runs each record a start, an end and a parent (GH 3255). [`TRAJECTORY.md`](./TRAJECTORY.md) holds the design these tables carry. Its code hasn't merged, so the generated tables above don't show them.
+
+- **`sessions`** holds one row per session, lanes included: its stable id, the session that started it, and the project. **`session_events`** holds its start, each compaction, clear and resume, and its end with an outcome.
+- **`agent_run_events`** holds each agent run's start and its end with an outcome and a cause. `agent_runs` keeps the run's identity and gains the session it ran in; its end fields become a cache of the end event.
+- **`hook_run_events`** holds each hook run's start and end. A hook run has no row of its own: it is the pair of events that share its id, which keeps a call on every tool use to two inserts. The end keeps its detail only for a deny, a timeout or a crash. The hook rows now in `audit` move here (GH 3229).
+- **`verification_run_events`** holds each verification run's start and end; `verification_runs` keeps the run's identity and commands.
+- Each end names an outcome from a lookup table and, when it is not a clean finish, a cause from one, as task events do.
+
 ## How the groups connect
 
 - Every workflow row belongs to one issue, directly or through its task. Project-level audit and discussion rows use a schema-seeded system issue that no task may use.
@@ -1386,7 +1396,7 @@ Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't me
 - **Verification is recorded, not re-run.** Each run of a task's checks, and each run of its close lints, is a row with its commands or lints, so bro, code-reviewer and the reviewer preflight read the result for an exact commit.
 - **Cost is metered, not stored as totals.** Agent runs carry measured token counts; task cost and rework are computed from them at read time.
 - **Task history is append-only.** A task row is the task's identity: its issue, branch, base, kind and the task it retries. Every change of state after that is a new lifecycle event. Events are ordered per task by a sequence number, never by timestamp, because two events can share a millisecond. Each event names its from-state and to-state, the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The state graph in [TASKS.md](TASKS.md#task-lifecycle) names the kind of record each move requires, so no move is taken on someone's word. Each event keeps two times, when the move happened and when it was recorded, which differ only for backfilled history. The DB refuses four kinds of event: one whose from-state is not the task's current state, a move the state graph does not allow, one without the record its move requires, and a repeat of an event already recorded, so a retried hook cannot write twice. A task's current state is its newest event. The task row keeps a copy of that state for fast reads, and only the event insert writes it, in the same transaction. History rebuilt from older records when the table arrived is marked backfilled. Planned, GH 3224. A task fact that changes no state is an event too, with the same from-state and to-state: an amended spec, a commit changed by a rebase, a checkpoint. The task's spec, files, checks and commit still change in place, but each change writes such an event naming what changed, so the history is kept; a later step versions the values themselves.
-- **Audit is event-only.** Each audit row is one lifecycle event; tool-call capture lives in the eval-mode tables. Drift: hook-call telemetry is still written to audit today and makes up most of its rows; GH 3229 moves it out.
+- **Audit is event-only.** Each audit row is one lifecycle event; tool-call capture lives in the eval-mode tables. Drift: hook-call telemetry is still written to audit today and makes up most of its rows; GH 3229 moves it out, into the hook run events of [`TRAJECTORY.md`](./TRAJECTORY.md).
 - **Roles are enforced by the server, not the schema.** Which agent may write which table follows each tool's role check ([`RESPONSIBILITIES.md`](./RESPONSIBILITIES.md)).
 
 ## Data contracts
