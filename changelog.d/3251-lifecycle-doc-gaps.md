@@ -4,3 +4,4 @@
 - **The planned v75 lifecycle renames completed to submitted and queued to review-deferred** (GH 3251), so each state name means what it means in other workflow tools.
 - **Planned v75 lifecycle events now name their evidence, cause, actor run and two times** (GH 3251): every move requires a record of a set kind, its cause is a code from a fixed list, it names the agent run that made it, and it keeps both when it happened and when it was recorded.
 - **AGILE now says how a failing check or a review comment on the milestone PR is fixed** (GH 3251): a new fix task on the feature branch, reviewed before it merges.
+- **Planned v75 records task facts that change no state as events** (GH 3251): an amended spec, a rebased commit and a checkpoint each keep the state and name what changed.
