@@ -93,9 +93,9 @@ flowchart TD
     A[Any command that ends in a push, in any shell form] --> B[git runs the repo's pre-push hook and hands it the exact refs and commits]
     B --> C{Pushed from an agent session?}
     C -- no --> OK[Admitted: the Human's own push]
-    C -- yes --> D{Is this repo managed?}
-    D -- no --> N[Admitted: TMB's workflow rules are off for an unmanaged repo]
-    D -- yes --> E{Protected branch?}
+    C -- yes --> D{Is this repo exempt?}
+    D -- yes --> N[Admitted: an exempt repo is excused from TMB's workflow rules]
+    D -- no --> E{Protected branch?}
     E -- yes --> X[Denied]
     E -- no --> F{Whose branch is it?}
     F -- a task's --> G[Net diff between the base and the pushed tip]
@@ -159,11 +159,12 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
    |---|---|
    | Truest | The full flow: tasks, a review of every task before its push, the git guards |
    | Agile | The same, with the review deferred to the feature branch ([AGILE.md](AGILE.md)) |
-   | Unmanaged | Indexed for the world model, and nothing else: no task is required, no review, no git guard and no push gate |
+   | Exempt | Indexed for the world model, and excused from the workflow rules: no task is required, no review, no git guard and no push gate |
 
-   - **A scan only indexes.** A repo a scan finds is unmanaged until the Human gives it a mode, at first contact or later. bro asks once and never enforces a guessed policy. Today registration alone turns the guards on, with the repo's default branch as its PR target.
-   - **A repo with no mode of its own takes the project's.** A lane's review mode still overrides both for a managed repo. Unmanaged is final: no lane and no project setting turns the rules back on.
-   - **Two things stay on in an unmanaged repo.** Containment still keeps every write inside the project, and the trajectory still records what ran there. They protect the Human's machine and the record, not the repo's workflow.
+   - **A scan only indexes.** A repo a scan finds is exempt until the Human gives it a mode, at first contact or later. bro asks once and never enforces a guessed policy. Today registration alone turns the guards on, with the repo's default branch as its PR target.
+   - **A repo with no mode of its own takes the project's.** A lane's review mode still overrides both for a repo that is not exempt. Exempt is final: no lane and no project setting turns the rules back on.
+   - **Two things stay on in an exempt repo.** Containment still keeps every write inside the project, and the trajectory still records what ran there. They protect the Human's machine and the record, not the repo's workflow.
+   - **A task in an exempt repo is recorded, not gated.** Tasks are optional there. One that exists keeps its lifecycle events, its agent runs and its own checks, and it closes without a review: the close carries a cause naming the repo's mode, so the record says why no review ran.
    - **Its mode shows.** The repo list and the dashboard show each repo's mode, and a deny names the repo and the mode it applied.
 
 A global default repo would force one repo to be "the" repo and make the guards guess what to enforce; it breaks as soon as a second repo joins. Path-keyed resolution lets sibling repos coexist with none privileged.

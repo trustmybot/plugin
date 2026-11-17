@@ -24,7 +24,7 @@ flowchart TD
     A[Task closes] --> B{Its lane has its own review mode?}
     B -- yes --> L[Use the lane's review mode]
     B -- no, or no lane --> R{"Its repo has its own mode? (planned, GH 3281)"}
-    R -- yes --> RM[Use the repo's mode; an unmanaged repo has no review at all]
+    R -- yes --> RM[Use the repo's mode; an exempt repo has no review at all]
     R -- no --> P[Use the project's review mode]
     L --> R[The task records that mode, fixed from now on]
     P --> R
