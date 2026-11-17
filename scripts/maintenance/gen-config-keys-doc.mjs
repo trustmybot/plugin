@@ -190,8 +190,8 @@ export const KEYS = [
     name: 'workflow_mode',
     type: 'string: `truest` \\| `agile`',
     defaultText: 'unset (read as `truest`)',
-    setBy: 'the Human through `/onboard` only, which does not ask for it yet: `config_set` refuses the key, and any value other than `truest` or `agile` is refused',
-    effect: 'The project\'s workflow mode, stamped on each task when it closes; unset, unparseable or unknown reads as `truest`. No gate reads it yet.',
+    setBy: 'the Human through `/onboard` only, in its review-mode round: `config_set` refuses the key, and any value other than `truest` or `agile` is refused',
+    effect: 'The project\'s review mode; unset, unparseable or unknown reads as `truest`. Under `agile` a task closes with no code-reviewer pass and is queued for a grouped review, and the close\'s scope check, the worktree freshness check, the close lints, the verification gate and the reviewer checks measure the task against its feature branch instead of the PR target. The close stamps the mode on the task; `cli.js feature-merge`, the push guard, the merge gate, `review_queue` and `trajectory_doctor`\'s review-queue check read that stamp, so a switch back to `truest` leaves queued tasks queued.',
   },
   {
     name: 'world_model_test_lane',

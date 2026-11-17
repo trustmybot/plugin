@@ -145,6 +145,20 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 - **Exit 5** — rebased, verified and the branch moved, but the pass does not carry, because condition (c) failed (stderr names the reason and up to 10 overlapping paths) or the world model could not answer. The task records the printed SHA, and the push guard denies it until a review covers it. Spawn exactly one new code-reviewer pass on that SHA before the push, with no swe rework unless that review fails; its FAIL reopens the task like any other.
 - **Exit 130 or 143** — integrate was interrupted (INT or TERM) and finished its open verification run with that code; rerun it.
 
+### Agile review mode
+
+`config_get(agent='bro', key='workflow_mode')` gives the project's review mode; null reads as `truest`, which runs §5 and §6 as written. Under `agile` the work lands on one long-lived feature branch with no per-task review, and code-reviewer reviews it at the milestone (`tmb_push-gate`), so each task runs these steps instead of §6:
+
+1. **Feature branch.** Propose the feature branch and the milestone's scope; once the Human approves, `git -C <repo path> fetch origin <pr_target>`, `git -C <repo path> branch <feature> origin/<pr_target>` and `git -C <repo path> push origin <feature>`. Every task of the milestone passes `task_provision base=<feature>`, which records the feature branch as its parent.
+2. **Close with no review.** When swe returns `completed`, judge scope extras and architecture fit as in §6, then call `bro_atomic_close` with no `review_handoff` and no code-reviewer spawn. It returns `review_queued: true`: the task waits in the grouped review queue.
+3. **Land on the feature branch.** Run `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" feature-merge <task_id>`. It fast-forwards the feature branch to the task's commit, or rebases the commit onto it in a temporary worktree and re-runs `verification[]`; a rebase moves the task's commit and keeps it queued. The push is yours. Its exit code says what to do next:
+   - **Exit 0** — merged; stdout is the new feature tip. Push it as a backup with `git -C <repo path> push origin <feature>`, and open no PR: the PR waits for the milestone review.
+   - **Exit 1** — `verification[]` failed on the rebased commit and the feature branch is unmoved; `task_reopen` the task and spawn swe on it.
+   - **Exit 2** — a conflict or patch drift; move the task to `escalated` with `task_update_status`, then `task_retry`, which cuts the fresh task from the same feature branch.
+   - **Exit 3** — the task did not close in agile mode; it takes the truest path (§6 and the integrate above).
+   - **Exit 4** — a precondition failed: no feature branch recorded, the parent is the PR target or a protected branch, the branch is missing locally, the task has no `verification[]`, or the audit write failed and the refs moved back. Surface its stderr and fix the cause, then rerun; when stderr says a worktree has `<feature>` checked out, switch that worktree off it first.
+4. **Per-task review on request.** When the Human asks for a task's review before its close, run §6's `review_handoff`, code-reviewer and `bro_atomic_close`, then step 3. After the close, `review_handoff` refuses the task, since it takes only a completed or needs_validation task, so its review joins the milestone's grouped review.
+
 ### Rework and spec changes
 
 - **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
