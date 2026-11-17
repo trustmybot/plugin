@@ -226,6 +226,7 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Fail | bro | the fail has already reopened the task at high effort; bro surfaces it, holds the push and sends the task back to its author (swe, or bro itself on a non-code task) without asking the Human |
 
 - **No push before review.** A push is denied unless each pushed task commit's newest verdict is a pass for that commit; a pass for an earlier commit, or one under a newer fail, does not count.
+- **Planned: the gate moves to git's own hook** (GH 3281). It judges the branch's net diff against the base, not each commit, and a task closes only after integrate succeeds. [GIT.md](GIT.md#the-push-gate-at-gits-own-hook) holds the design.
 - **Append-only record.** Verdicts and findings are never rewritten; a repeated attempt is a new one, and the newest verdict decides.
 
 ## 3.4 Retry and escalation
