@@ -7,7 +7,10 @@
  *
  * An agile task's branch is measured against its parent feature branch
  * instead (GH 2225): origin/<parent> after one bounded fetch, else the local
- * parent, so no origin does not pass it.
+ * parent, so no origin does not pass it. A branch the DB records as a
+ * feature branch (recordedFeatureBranch) passes, since it gathers merged
+ * tasks and catches up with the target through `cli.js feature-branch sync`,
+ * never by being recreated; the target branch itself is never admitted so.
  *
  * A command tree-sitter-bash cannot parse is denied with git-guards'
  * PARSE_REASON when the DB resolves. The payload is read with no jq on PATH,
@@ -19,7 +22,7 @@ import { denyResult } from './lib/deny.js';
 import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
-import { agileParentRef, gateWorkflowMode, normalizeBase } from './lib/git-refs.js';
+import { agileParentRef, gateWorkflowMode, normalizeBase, recordedFeatureBranch } from './lib/git-refs.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { repoNameForRoot } from './lib/repo.js';
 import { payloadCwdOf, statementRows } from './lib/statement-rows.js';
@@ -82,6 +85,11 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
   const prTarget = targetBranch || 'main';
 
   if (!await gitOk(root, ['rev-parse', '--verify', branch], env)) return ALLOW;
+  if (branch !== prTarget) {
+    const featureBranch = recordedFeatureBranch(db, repo, branch, env);
+    if (featureBranch === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
+    if (featureBranch) return ALLOW;
+  }
   const hasOrigin = await gitOut(root, ['remote', 'get-url', 'origin'], env) !== '';
   const agileBase = await agileTaskBase(db, root, repo, branch, targetBranch, hasOrigin, env);
   if (agileBase === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };

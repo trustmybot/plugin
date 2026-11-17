@@ -1,0 +1,2 @@
+### Fixed
+- **The worktree freshness check no longer tells bro to delete a feature branch** (GH 2225): `git worktree add <path> <branch>` on a branch the trajectory DB records as an agile feature branch (the parent branch of an agile task, or the branch a `cli.js feature-merge` run merged into) is now let through even when it is behind the repo's target branch. Before, it was blocked with a fix that ran `git branch -D` on it, which would have discarded every task merged onto it. The target branch itself, and every other branch, are checked as before.

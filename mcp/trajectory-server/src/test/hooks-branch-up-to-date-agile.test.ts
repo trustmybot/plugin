@@ -2,7 +2,8 @@
  * branch-up-to-date-with-remote under workflow_mode agile (GH 2225): an agile
  * task's branch is measured against its parent feature branch (origin/<parent>,
  * else the local parent), not repos.target_branch; a truest task, and an agile
- * task whose parent does not resolve, keep origin/<target_branch>.
+ * task whose parent does not resolve, keep origin/<target_branch>. A branch
+ * the DB records as a feature branch is admitted even behind origin/<target_branch>.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -136,6 +137,88 @@ describe('branch-up-to-date-with-remote measures an agile task against its paren
     setMode('agile');
     assert.ok(denyReason(await attach('feat/gone-parent')).startsWith("BLOCKED: branch 'feat/gone-parent' is behind origin/main by 1 commit(s)."));
   });
+
+  const withDb = (sql: string, run: () => Promise<void>) => async (): Promise<void> => {
+    const d = new DatabaseSync(db);
+    d.exec(sql);
+    d.close();
+    try {
+      await run();
+    } finally {
+      const reset = new DatabaseSync(db);
+      reset.exec("UPDATE tasks SET workflow_mode = NULL; DELETE FROM tasks WHERE id >= 10; DELETE FROM audit WHERE event_type = 'feature_branch_merged';");
+      reset.close();
+    }
+  };
+
+  /** SC3/SC4: a recorded feature branch behind origin/main is admitted, and nothing the gate says names `branch -D`. */
+  const assertAdmitted = async (branch: string): Promise<void> => {
+    const r = await attach(branch);
+    assert.deepEqual(r, ALLOW, `${branch} is a recorded feature branch: ${r.stdout}`);
+    assert.ok(!r.stdout.includes('branch -D'), r.stdout);
+  };
+
+  it('a feature branch nothing records yet keeps the behind-origin/main deny', async () => {
+    setMode(null);
+    assert.ok(denyReason(await attach(FEATURE)).startsWith(`BLOCKED: branch '${FEATURE}' is behind origin/main by 1 commit(s).`));
+  });
+
+  for (const mode of ['agile', 'truest', null] as const) {
+    it(
+      `${mode ?? 'unset'} mode: admits a feature branch an agile task names as parent_branch_id, though behind origin/main`,
+      withDb("UPDATE tasks SET workflow_mode = 'agile' WHERE id = 1", async () => {
+        setMode(mode);
+        await assertAdmitted(FEATURE);
+      }),
+    );
+  }
+
+  it(
+    'admits a feature branch a task names as origin/<branch>',
+    withDb(
+      `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, workflow_mode, created_at, updated_at)
+        VALUES (10, 1, 'feat/t10', 'origin/${FEATURE}', 'd', 'pending', 'work', 'agile', datetime('now'), datetime('now'))`,
+      async () => await assertAdmitted(FEATURE),
+    ),
+  );
+
+  it(
+    'admits a feature branch a bro feature_branch_merged row names',
+    withDb(
+      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+        VALUES (1, 'feat/t9', 'bro', 'feature_branch_merged', 'm', '{"task_id":9,"feature_branch":"${LOCAL_FEATURE}","commit_sha":"x","rebased":false}', 'work', datetime('now'))`,
+      async () => {
+        setMode('truest');
+        await assertAdmitted(LOCAL_FEATURE);
+      },
+    ),
+  );
+
+  it(
+    'a parent_branch_id on a truest task, or a feature_branch_merged row not from bro, records no feature branch',
+    withDb(
+      `UPDATE tasks SET workflow_mode = 'truest' WHERE id = 1;
+       INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+        VALUES (1, 'feat/t9', 'executor', 'feature_branch_merged', 'm', '{"feature_branch":"${LOCAL_FEATURE}"}', 'work', datetime('now'))`,
+      async () => {
+        setMode('truest');
+        assert.ok(denyReason(await attach(FEATURE)).includes(`git branch -D ${FEATURE}`));
+        assert.ok(denyReason(await attach(LOCAL_FEATURE)).startsWith(`BLOCKED: branch '${LOCAL_FEATURE}' is behind origin/main`));
+      },
+    ),
+  );
+
+  it(
+    'the target branch stays denied when behind, even when an agile task names it as parent',
+    withDb(
+      `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, workflow_mode, created_at, updated_at)
+        VALUES (11, 1, 'feat/t11', 'main', 'd', 'pending', 'work', 'agile', datetime('now'), datetime('now'))`,
+      async () => {
+        setMode('agile');
+        assert.ok(denyReason(await attach('main')).startsWith("BLOCKED: branch 'main' is behind origin/main by 1 commit(s)."));
+      },
+    ),
+  );
 
   for (const mode of ['truest', null] as const) {
     it(`${mode ?? 'unset'} mode: measures a stacked task against origin/main as before`, async () => {
