@@ -59,11 +59,12 @@ Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or `TMB_TEST_RUN_ID`) the hooks neve
 
 | DB state | Meaning | Gates that can deny | Advisory hooks |
 |---|---|---|---|
-| unresolved | No DB anywhere, no SQLite backend, or the only DB found predates the current task schema and has not been migrated yet | Allow | Silent no-op |
+| unresolved | No DB anywhere, or no SQLite backend | Allow | Silent no-op |
+| needs migration | The only DB found predates the current task schema and has not been migrated yet | Deny, naming the migration that has not run (planned, GH 3260; today this counts as unresolved and allows) | Allow, print one stderr line |
 | ok | The DB answers a read | Decide normally | Run normally |
 | error | The DB resolved but the read failed: busy, corrupt, or unreadable | Deny with `BLOCKED: trajectory DB unavailable — <hook> could not read <path> …` | Allow, print one stderr line |
 
-Failing closed on an unreadable DB keeps a gate from admitting what it cannot check; allowing when there is no DB keeps TMB out of projects it never touched. A DB the server created for a project that has not finished first contact is `ok`: gates decide normally, and bro's first turn runs first contact.
+Failing closed on an unreadable DB keeps a gate from admitting what it cannot check; allowing when there is no DB keeps TMB out of projects it never touched. A project that has a DB is TMB's, so TMB works there only when its health check is green: a DB that still needs its migration denies like an unreadable one. A DB the server created for a project that has not finished first contact is `ok`: gates decide normally, and bro's first turn runs first contact.
 
 ## Every agent
 

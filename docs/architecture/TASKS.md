@@ -186,6 +186,7 @@ stateDiagram-v2
 - **Closed is not final.** A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
 - **Closing an issue ends its open work.** Live tasks are cancelled, and no new task picks up their work. Review-deferred, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each event names the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The table below gives the record each move requires, and the DB refuses a move without it.
+- **No bypass is silent.** bro can take one of the chart's moves by hand, for example to free a wedged task, without the record that move usually rests on. Such a move rests on bro's recorded decision instead, carries the manual cause, and must carry a note saying why; the DB refuses it without the note. The same holds for every bypass: it is recorded with its reason, never taken quietly.
 - **Facts that change no state are events too.** An amended spec, a commit changed by a rebase and a checkpoint each write an event that keeps the task's state and names what changed.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes with its review deferred, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
 - **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review. A pass leaves it reviewed until its feature branch merges. A fail returns it to review-deferred with its findings open: bro reopens it when it is not yet folded into the feature branch, and otherwise files the findings as a fix task on that branch. When its feature branch is dropped, it is cancelled.
@@ -198,6 +199,7 @@ stateDiagram-v2
 | Move | The record it rests on |
 |---|---|
 | Provisioned | bro's provisioning decision |
+| Any move bro takes by hand | bro's decision, with the manual cause and a required note |
 | Author spawned, spawn rolled back, failed | the agent run that started, was rolled back or stopped |
 | Author closes | the passing verification run and lint run for the commit |
 | Handed to code-reviewer, or reviewed on request | the handoff for that commit |
@@ -224,6 +226,7 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Fail | bro | the fail has already reopened the task at high effort; bro surfaces it, holds the push and sends the task back to its author (swe, or bro itself on a non-code task) without asking the Human |
 
 - **No push before review.** A push is denied unless each pushed task commit's newest verdict is a pass for that commit; a pass for an earlier commit, or one under a newer fail, does not count.
+- **Planned: the gate moves to git's own hook** (GH 3281). It judges the branch's net diff against the base, not each commit, and a task closes only after integrate succeeds. [GIT.md](GIT.md#the-push-gate-at-gits-own-hook) holds the design.
 - **Append-only record.** Verdicts and findings are never rewritten; a repeated attempt is a new one, and the newest verdict decides.
 
 ## 3.4 Retry and escalation
