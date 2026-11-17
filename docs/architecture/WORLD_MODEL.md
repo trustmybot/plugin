@@ -6,7 +6,11 @@ This page covers purpose, boundaries and the reasons behind the design. Its tabl
 
 ## Substrate
 
-The world model lives in the trajectory DB, beside the workflow audit but with no link into it. It is a derived cache: every row can be rebuilt from git, so a scan can always start over. Because it is a cache and not part of the trajectory, it moves to its own file beside the trajectory DB (planned, GH 3225); deleting that file and scanning again restores it.
+The world model lives in the trajectory DB, beside the workflow audit but with no link into it. It is a derived cache: every row can be rebuilt from git, so a scan can always start over. Because it is a cache and not part of the trajectory, it moves to its own file beside the trajectory DB (planned, GH 3225); deleting that file and scanning again restores it. [ERD.md](ERD.md#planned-for-the-world-model-file) lists what moves.
+
+- **The file holds no fact of its own.** The map is derived from git. Concepts and author-written file purposes are written by agents, so each such write is recorded in the trajectory DB as a fact, and the world-model file holds only their current state. A scan of an empty file replays them.
+- **Scans and reindexes are trajectory.** That a scan ran, when, why and how it ended is a fact about the work, so it is recorded in the trajectory DB. The world-model file keeps only the latest state per repo.
+- **Two files, no shared transaction.** A fact is written to the trajectory DB first and the cache second. When the two disagree after a crash, the trajectory DB is right and the next read or scan repairs the cache.
 
 | | World model | Workflow records |
 |---|---|---|
