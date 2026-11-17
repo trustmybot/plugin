@@ -1,7 +1,14 @@
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { tempDB } from './helpers.js';
 import { spawnAsync } from '../utils/spawn-async.js';
+import { findOnPath } from '../tools/cheatcode-runtime.js';
+import { fetchBaseStage } from '../tools/env-gate.js';
+import { checkoutLag } from '../tools/world_model.js';
 import { issueTools } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
 import { setRemoteSync, upsertRepoRemotes } from '../repos/remotes.js';
@@ -15,6 +22,9 @@ async function call(handlers: Handlers, name: string, args: Record<string, unkno
   assert.ok(handler, `Handler not found: ${name}`);
   return (await handler(args)) as RawResult;
 }
+
+const MIB = 1024 * 1024;
+const GIT_SETUP_TIMEOUT_MS = 30_000;
 
 function node(script: string): [string, string[]] {
   return [process.execPath, ['-e', script]];
@@ -49,6 +59,82 @@ describe('spawnAsync (the helper defaultSpawnFn spawns gh/glab through)', () => 
     const [cmd, args] = node('setTimeout(() => {}, 5000)');
     assert.equal((await spawnAsync(cmd, args, { timeout: 100, encoding: 'utf8' })).status, null);
     assert.equal((await spawnAsync('tmb-no-such-binary', [], { encoding: 'utf8' })).status, null);
+  });
+
+  it('caps stdout at spawnSync\'s 1 MiB when no maxBuffer is given; an explicit maxBuffer wins', async () => {
+    const [cmd, args] = node(`process.stdout.write('x'.repeat(${MIB + 1024}))`);
+    assert.equal((await spawnAsync(cmd, args, { encoding: 'utf8' })).status, null);
+    const roomy = await spawnAsync(cmd, args, { encoding: 'utf8', maxBuffer: 4 * MIB });
+    assert.equal(roomy.status, 0);
+    assert.equal(roomy.stdout.length, MIB + 1024);
+  });
+});
+
+describe('the server\'s long-running git spawns leave the event loop free', () => {
+  // A git on PATH that sleeps ~300 ms before a fetch or rev-list, then runs
+  // the real git, so the calls under test go through runGitAsync's real spawn.
+  let ws: string;
+  let repo: string;
+  let savedPath: string | undefined;
+  const git = (...a: string[]): string =>
+    execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8', timeout: GIT_SETUP_TIMEOUT_MS });
+
+  before(() => {
+    ws = mkdtempSync(join(tmpdir(), 'async-git-spawn-'));
+    const realGit = findOnPath('git', { projectRoot: ws });
+    assert.ok(realGit, 'git is on PATH');
+    const bin = join(ws, 'bin');
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\ncase " $* " in *" fetch "*|*" rev-list "*) sleep 0.3 ;; esac\nexec "${realGit}" "$@"\n`,
+    );
+    chmodSync(join(bin, 'git'), 0o755);
+    const origin = join(ws, 'origin.git');
+    repo = join(ws, 'repo');
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: GIT_SETUP_TIMEOUT_MS });
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], { timeout: GIT_SETUP_TIMEOUT_MS });
+    git('commit', '-q', '--allow-empty', '-m', 'base');
+    git('commit', '-q', '--allow-empty', '-m', 'merged lane');
+    git('remote', 'add', 'origin', origin);
+    git('push', '-q', 'origin', 'main');
+    git('reset', '-q', '--hard', 'HEAD~1');
+    savedPath = process.env['PATH'];
+    process.env['PATH'] = `${bin}:${savedPath ?? ''}`;
+  });
+
+  after(() => {
+    process.env['PATH'] = savedPath;
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  async function ticksDuring<T>(run: () => Promise<T>): Promise<{ ticks: number; value: T }> {
+    let ticks = 0;
+    const timer = setInterval(() => { ticks += 1; }, 20);
+    try {
+      const value = await run();
+      return { ticks, value };
+    } finally {
+      clearInterval(timer);
+    }
+  }
+
+  it('fetchBaseStage: the interval keeps ticking during a slow git fetch', async () => {
+    const { ticks, value } = await ticksDuring(() => fetchBaseStage(repo, 'main'));
+    assert.deepEqual(value, { ok: true, report: { stage: 'fetch', status: 'pass' } });
+    assert.ok(ticks >= 3, `the interval ticked ${ticks} times during the fetch; a blocking spawn ticks 0`);
+  });
+
+  it('checkoutLag: the interval keeps ticking during a slow git rev-list', async () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repo]);
+      const { ticks, value } = await ticksDuring(() => checkoutLag(db, 'app'));
+      assert.deepEqual(value, { checkout_behind_upstream: 1, upstream: 'origin/main' });
+      assert.ok(ticks >= 3, `the interval ticked ${ticks} times during the rev-list; a blocking spawn ticks 0`);
+    } finally {
+      db.close();
+    }
   });
 });
 

@@ -8,10 +8,9 @@ import type { DirectoryNode, FileNode, GraphHolder, KeywordMatch, Scored } from 
 import { topKByCosine, type WorldModelEmbeddableTable } from '../embeddings/store.js';
 import { backfillMissing, startWorldModelBackfill, WORLD_MODEL_TABLES } from '../embeddings/backfill.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import type { SpawnSyncReturns } from 'node:child_process';
 import { probeBaseRef, resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
-import { gitUnanswered, runGit } from '../utils/git-run.js';
-import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { gitUnanswered, runGit, runGitAsync } from '../utils/git-run.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readBlobSync } from '../utils/git-objects.js';
 import { isTestPath } from '../utils/test-paths.js';
@@ -253,7 +252,7 @@ export interface CheckoutLag {
 // last fetch (reads and the startup catch-up run fetchTargetIfDue, at most every
 // 10 minutes); this never fetches. Null when the target has no origin ref, the
 // checkout is current, or git fails.
-export function checkoutLag(db: TrajectoryDB, repo: string): CheckoutLag | null {
+export async function checkoutLag(db: TrajectoryDB, repo: string): Promise<CheckoutLag | null> {
   if (!repo) return null;
   const repoRow = db.get<{ path: string; target_branch: string | null }>(
     `SELECT path, target_branch FROM repos WHERE name = ?`,
@@ -265,11 +264,8 @@ export function checkoutLag(db: TrajectoryDB, repo: string): CheckoutLag | null 
   const upstream = resolveBaseRef(repoPath, repoRow.target_branch || resolveRepoDefaultBranch(repoPath));
   if (!upstream?.startsWith('origin/')) return null;
 
-  const res = spawnSync('git', ['-C', repoPath, 'rev-list', '--count', `HEAD..refs/remotes/${upstream}`], {
-    encoding: 'utf8',
-    timeout: SUBPROCESS_TIMEOUT_MS,
-  });
-  if (res.error || res.status !== 0) return null;
+  const res = await runGitAsync(repoPath, ['rev-list', '--count', `HEAD..refs/remotes/${upstream}`]);
+  if (res.status !== 0) return null;
   const behind = Number.parseInt(res.stdout.trim(), 10);
   return Number.isInteger(behind) && behind > 0 ? { checkout_behind_upstream: behind, upstream } : null;
 }
@@ -1488,7 +1484,7 @@ export function worldModelTools(
         // the world-model warning takes precedence; the unmerged_work array
         // still rides along so bro sees in-flight branch work either way.
         const unmerged = computeUnmergedWork(db, repo);
-        const lag = checkoutLag(db, repo);
+        const lag = await checkoutLag(db, repo);
 
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
@@ -1564,7 +1560,7 @@ export function worldModelTools(
         }
         const repo = resolved.name;
         const source = sourceOf(resolved);
-        const lag = checkoutLag(db, repo);
+        const lag = await checkoutLag(db, repo);
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) return ok({ repo, ...source, ...empty, warning: 'world-model-unavailable', ...lag });
         return ok({ repo, ...source, ...(await scopeSuggest(db, graph, repo, objective, anchors, k)), ...lag });
@@ -1620,7 +1616,7 @@ export function worldModelTools(
         const repo = resolved.name;
         const scope = resolved.repo_source ? { repo, repo_source: resolved.repo_source } : {};
 
-        const lag = checkoutLag(db, repo);
+        const lag = await checkoutLag(db, repo);
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
           return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag, ...blockOf(repo, args['agent']) });
@@ -1710,7 +1706,7 @@ export function worldModelTools(
               warning: 'not_found',
               did_you_mean: didYouMean,
               message,
-              ...(allRepos ? {} : checkoutLag(db, repo)),
+              ...(allRepos ? {} : await checkoutLag(db, repo)),
               ...blockOf(allRepos ? resolved.available_repos : repo, args['agent']),
             });
           }
@@ -1728,7 +1724,7 @@ export function worldModelTools(
                 path: m.path,
                 line_start: m.start_line,
               })),
-              ...(allRepos ? {} : checkoutLag(db, repo)),
+              ...(allRepos ? {} : await checkoutLag(db, repo)),
               ...(allRepos ? {} : indexErrorOf(lastScan(db), repo)),
               ...blockOf(allRepos ? resolved.available_repos : repo, args['agent']),
             });
@@ -1755,7 +1751,7 @@ export function worldModelTools(
           symbol: { ...framedCardSymbol(card.symbol), stale: card.symbol.stale || isStale(fr, symbol.path) },
           ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
           ...(args['source'] === true ? symbolSource(db, symbol) : {}),
-          ...checkoutLag(db, symbol.repo),
+          ...(await checkoutLag(db, symbol.repo)),
           ...indexErrorOf(lastScan(db), symbol.repo),
           ...blockOf(symbol.repo, args['agent']),
         });

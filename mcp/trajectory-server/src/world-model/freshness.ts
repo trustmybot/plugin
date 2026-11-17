@@ -36,7 +36,7 @@ import { insertAudit } from '../tools/audit.js';
 import { blobMd5, scannedAtNow, walkRepoAtCommit, type ScanFile, type ScanOutput } from '../tools/scan-walk.js';
 import { persistRepoReindex, type ReindexScope, type ScanError } from '../tools/scan.js';
 import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, logOrder, lsTree, resolveRefCommit } from '../utils/git-objects.js';
-import { runGit } from '../utils/git-run.js';
+import { runGitAsync } from '../utils/git-run.js';
 import { resolveIndexTargetRef, targetBranchOf } from '../utils/index-target.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 
@@ -668,7 +668,7 @@ export async function reindexOnRefMove(
   const path = repoState(db, repo)?.path;
   if (!path) return null;
   if (opts.fetch) {
-    runGit(path, ['fetch', '-q', 'origin', targetBranchOf(db, repo, path)], {
+    await runGitAsync(path, ['fetch', '-q', 'origin', targetBranchOf(db, repo, path)], {
       timeout: REF_MOVE_FETCH_TIMEOUT_MS,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     });
@@ -725,8 +725,8 @@ function fetchDue(db: TrajectoryDB, repo: string, nowMs: number): boolean {
   return !(elapsed >= 0 && elapsed < TARGET_FETCH_TTL_MS);
 }
 
-function hasOrigin(repoPath: string): boolean {
-  const res = runGit(repoPath, ['remote', 'get-url', 'origin']);
+async function hasOrigin(repoPath: string): Promise<boolean> {
+  const res = await runGitAsync(repoPath, ['remote', 'get-url', 'origin']);
   return res.status === 0 && res.stdout.trim() !== '';
 }
 
@@ -771,8 +771,9 @@ async function fetchTargetShared(db: TrajectoryDB, repo: string, opts: { agent: 
     if (running) return await running;
     const nowMs = opts.now ?? Date.now();
     const path = repoState(db, repo)?.path;
-    if (!path || (!opts.force && !fetchDue(db, repo, nowMs)) || !hasOrigin(path)) return SKIPPED;
-    const run = fetchTarget(db, repo, path, nowMs);
+    if (!path || (!opts.force && !fetchDue(db, repo, nowMs))) return SKIPPED;
+    // Registered before the origin probe yields, so a concurrent caller joins this run.
+    const run = (async () => ((await hasOrigin(path)) ? fetchTarget(db, repo, path, nowMs) : SKIPPED))();
     fetching.set(repo, run);
     try {
       return await run;

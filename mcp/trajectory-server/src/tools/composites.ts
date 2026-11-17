@@ -1290,15 +1290,16 @@ function reopenBranchStage(repoPath: string, branchId: string, base: string, rep
 }
 
 // Runs a gated tool's DB transaction; a throw removes what the gate created.
-function gatedTransaction<T>(db: TrajectoryDB, gate: EnvGatePass | null, fn: () => T): T | AdoptRefusal {
+async function gatedTransaction<T>(db: TrajectoryDB, gate: EnvGatePass | null, fn: () => T): Promise<T | AdoptRefusal> {
+  let result: T | AdoptRefusal;
   try {
-    const result = adoptingTransaction(db, fn);
-    if (isAdoptRefusal(result)) gate?.rollback();
-    return result;
+    result = adoptingTransaction(db, fn);
   } catch (e) {
-    gate?.rollback();
+    await gate?.rollback();
     throw e;
   }
+  if (isAdoptRefusal(result)) await gate?.rollback();
+  return result;
 }
 
 // Refuses a branch_id the issue already has a task on, before any git call, so
@@ -2140,7 +2141,7 @@ export function compositeTools(
         const nothingWritten = 'No task row was created — retry with the same branch_id once the cause is fixed.';
         let fetched: EnvStageReport | null = null;
         if (adoptedWorktree === null) {
-          const fetch = fetchBaseStage(repoPath, base);
+          const fetch = await fetchBaseStage(repoPath, base);
           if (!fetch.ok) return envGateFailedResult('task_provision', fetch, nothingWritten);
           fetched = fetch.report;
         }
@@ -2214,7 +2215,7 @@ export function compositeTools(
         // Any DB error rolls back the whole transaction.
         const now = nowISO();
         const gitRepoPath = repoPath;
-        const result = gatedTransaction(db, gate, () => {
+        const result = await gatedTransaction(db, gate, () => {
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -2428,7 +2429,7 @@ export function compositeTools(
         const gatedBase = gatedRepo ? normalizeBase(gatedRepo, reworkBase(db, gatedRepo, task.repo, task.parent_branch_id)) : null;
         let fetched: EnvStageReport | null = null;
         if (gatedRepo && gatedBase) {
-          const fetch = fetchBaseStage(gatedRepo, gatedBase);
+          const fetch = await fetchBaseStage(gatedRepo, gatedBase);
           if (!fetch.ok) return envGateFailedResult('task_reopen', fetch, nothingWritten);
           fetched = fetch.report;
         }
@@ -2473,7 +2474,7 @@ export function compositeTools(
           gate = passed;
         }
         const now = nowISO();
-        const refused = gatedTransaction(db, gate, () => {
+        const refused = await gatedTransaction(db, gate, () => {
           if (adoptedWorktree !== null && repoPath) {
             const late = recordAdoptedWorktree(db, task.id, repoPath, adoptedWorktree);
             if (late) throw new AdoptRefusedError(late);
@@ -2854,7 +2855,7 @@ export function compositeTools(
           };
         };
 
-        const scopeSection = (): Record<string, unknown> => {
+        const scopeSection = async (): Promise<Record<string, unknown>> => {
           // The dirs the task's typed files[] touch, resolved in the world model.
           const dirs = filesToDirs(parseTaskFiles(task.files));
           let scope_world_model: Array<{
@@ -2913,7 +2914,7 @@ export function compositeTools(
             scope_world_model: concise
               ? scope_world_model.map((d) => ({ dir: d.dir, children: d.children.map((c) => ({ path: c.path })) }))
               : scope_world_model,
-            ...checkoutLag(db, repo),
+            ...(await checkoutLag(db, repo)),
             ...(world_model_warning ? { world_model_warning } : {}),
           };
         };
@@ -3005,7 +3006,7 @@ export function compositeTools(
           ...(want('core') ? coreSection() : {}),
           ...(section === 'core' ? { sections: BRIEF_SECTION_HINTS } : {}),
           ...(want('verification') ? verificationSection() : {}),
-          ...(want('scope') ? scopeSection() : {}),
+          ...(want('scope') ? await scopeSection() : {}),
           ...(want('history') ? historySection() : {}),
           ...(want('core') ? { freshness: freshnessBlock(db, repo || null) } : {}),
         };
@@ -3141,7 +3142,7 @@ export function compositeTools(
         const nothingWritten = 'No task row was created.';
         let fetched: EnvStageReport | null = null;
         if (repoPath && retryBase && adoptedWorktree === null) {
-          const fetch = fetchBaseStage(repoPath, retryBase);
+          const fetch = await fetchBaseStage(repoPath, retryBase);
           if (!fetch.ok) return envGateFailedResult('task_retry', fetch, nothingWritten);
           fetched = fetch.report;
         }
@@ -3206,7 +3207,7 @@ export function compositeTools(
         }
 
         const now = nowISO();
-        const result = gatedTransaction(db, gate, () => {
+        const result = await gatedTransaction(db, gate, () => {
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
