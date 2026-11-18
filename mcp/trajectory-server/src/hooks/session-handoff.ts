@@ -20,13 +20,15 @@ import { SESSION_ID_LINE } from './activation-routine.js';
 import { ALLOW, type SyncGate } from './gate.js';
 import { dbWrite } from './lib/audit.js';
 import { dbPath, sqliteRo, sqlQuote } from './lib/db.js';
+import { LIVE, sqlList, TASK_STATE } from '../task-states.js';
 
 export const GATE_NAME = 'session-handoff';
 
 const LIVE_TASK_LIMIT = 20;
 const LANE_ISSUE_LIMIT = 30;
 const LANE_OBJECTIVE_CHARS = 160;
-const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed','escalated'";
+// Escalated tasks still wait on bro, so the handoff carries them with the live ones.
+const LIVE_TASK_STATUSES = sqlList([...LIVE, TASK_STATE.escalated]);
 const CONSUME_SOURCE = 'compact';
 const HOOK_CONTEXT_CAP = 10_000;
 const CONTEXT_SEPARATOR = '\n\n';

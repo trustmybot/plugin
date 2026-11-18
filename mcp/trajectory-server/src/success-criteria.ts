@@ -5,7 +5,7 @@
  * id, `- SC<n>: ...`, unique within the spec; nested sub-bullets (Writer: /
  * Populated: lines) carry none. task_provision, task_update_spec and
  * task_create_batch refuse a spec_body without them (specCriteriaProblem);
- * task_update_status(status='completed') needs a report covering each id
+ * a task_update_status move to completed needs a report covering each id
  * exactly once (parseCompletionReport), and review_handoff refuses a handoff
  * whose stored report misses one (reportMissingIds). A spec written before
  * the ids (no SC-prefixed bullet) is legacy: specCriterionIds returns [] and
@@ -27,6 +27,7 @@
  * one `wm_feedback` audit row, and validation_record takes the same shape.
  */
 import { EXPECTED_FORM, MAX_SUBJECT_CHARS, subjectViolation } from './commit-subject.js';
+import { TASK_STATE } from './task-states.js';
 import type { ConceptInput } from './world-model/concepts.js';
 
 export const CONCEPT_KINDS = ['flow', 'subsystem', 'invariant'] as const;
@@ -249,7 +250,7 @@ export function parseCompletionReport(raw: unknown, ids: readonly string[]): Com
     if (ids.length === 0) return null;
     throw new Error(
       `completion_report_missing: the spec's Success Criteria carry ids ${ids.join(', ')}; ` +
-        `task_update_status(status='completed') needs a report with one criteria entry per id ` +
+        `task_update_status(status='${TASK_STATE.completed}') needs a report with one criteria entry per id ` +
         `(status met | not_met | not_applicable). A minimal valid report: report=${examplePayload(ids)}`,
     );
   }

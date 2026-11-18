@@ -1,5 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import { DONE, inGroup } from '../task-states.js';
 import type { ScanError } from './scan.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
@@ -215,7 +216,7 @@ function computeUnmergedWork(
       entry = { parent_branch_id: r.parent_branch_id, closed_tasks: 0 };
       byBranch.set(r.branch_id, entry);
     }
-    if (r.status === 'closed') entry.closed_tasks++;
+    if (inGroup(DONE, r.status)) entry.closed_tasks++;
   }
 
   const unmerged_work: UnmergedBranch[] = [];

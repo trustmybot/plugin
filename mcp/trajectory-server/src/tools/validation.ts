@@ -18,13 +18,14 @@ import { PROBE_SHAPE, parseProbes, probesJson, type ReviewProbe } from './review
 import { parseResponseFormat, responseFormatSchema, withoutKeys } from './response-format.js';
 import { FINDING_ORDER_SQL, PASS_RUN_SQL, VERIFICATION_RUN_REQUIRED, latestVerificationRun, passRunRefusal, type PassRunRow } from './verification-runs.js';
 import { SPAWN_NOTE_MAX_CHARS, WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
+import { AWAITING_CLOSE, DONE, statusIn, unionOf } from '../task-states.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
 
 /** The statuses a code-reviewer FAIL moves back to running: work handed to review, or closed after it. */
-const AUTO_REOPEN_STATUSES: ReadonlySet<string> = new Set(['completed', 'needs_validation', 'closed']);
+const AUTO_REOPEN_STATUSES: ReadonlySet<string> = new Set(unionOf(AWAITING_CLOSE, DONE));
 
 interface BlockingFinding {
   id: string;
@@ -74,7 +75,7 @@ function reopenAfterReviewFail(
   if (task.issue_status === null) return { reopen_skipped: { reason: 'issue_missing' } };
   // A per-task review of a closed agile task leaves it closed and queued;
   // bro decides on rework with task_reopen.
-  const agileQueued = db.get<{ ok: number }>(`SELECT t.status = 'closed' AND ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [task.id])?.ok === 1;
+  const agileQueued = db.get<{ ok: number }>(`SELECT ${statusIn('t', DONE)} AND ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [task.id])?.ok === 1;
   if (agileQueued) return { reopen_skipped: { reason: 'agile_queued' } };
   const effort = atLeastReworkFloor(task.effort);
   const raise = effort !== task.effort;

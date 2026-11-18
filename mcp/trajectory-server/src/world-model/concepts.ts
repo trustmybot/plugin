@@ -10,6 +10,7 @@ import { splitWords, STOPWORDS } from '../parsing/extract.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { CLAIMS, CONCEPT_KINDS, HANDOFFS, parseStoredReport } from '../success-criteria.js';
 import { HAS_PASS_SQL } from '../review-sql.js';
+import { DONE, statusIn } from '../task-states.js';
 import { insertAudit } from '../tools/audit.js';
 
 export { CLAIMS, CONCEPT_KINDS, HANDOFFS };
@@ -448,7 +449,7 @@ export function applyConceptProposals(
   const soleRepo = Number(repos?.n) === 1 ? repos?.name ?? null : null;
   const tasks = db.all<ProposingTask>(
     `SELECT t.id, t.issue_id, t.branch_id, t.repo, t.updated_at, t.completion_report FROM tasks t
-      WHERE t.status = 'closed'
+      WHERE ${statusIn('t', DONE)}
         AND CASE WHEN json_valid(t.completion_report) THEN json_type(t.completion_report, '$.concepts') END = 'array'
         AND ${HAS_PASS_SQL}
       ORDER BY t.id`,

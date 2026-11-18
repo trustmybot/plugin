@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { batchReviewedSql, HAS_PASS_SQL, reviewSkipAuthoredSql, waivedSql } from './review-sql.js';
 import { storedAgileSql, storedReviewOwedSql } from './stored-mode.js';
+import { DONE, ISSUE_STATE, LIVE, sqlList, statusIn } from './task-states.js';
 import { STALE_RUNNING_HOURS_DEFAULT } from './tools/lifecycle.js';
 import { STRAY_DB_MAX_DEPTH, claudeProjectRootOfDb, otherClaudeDbs } from './platform.js';
 import { isProseFile } from './prose-files.js';
@@ -157,7 +158,7 @@ const SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias: string): string =>
 export const REVIEW_GRACE_HOURS_DEFAULT = 24;
 
 export const UNREVIEWED_CLOSED_TASK = (alias: string): string =>
-  `${alias}.status = 'closed' AND ${ts(`${alias}.updated_at`)} >= ${daysAgo(30)}
+  `${statusIn(alias, DONE)} AND ${ts(`${alias}.updated_at`)} >= ${daysAgo(30)}
                AND ${ts(`${alias}.updated_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
                AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = ${alias}.id AND v.verdict = 'pass')
                AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql('a')}
@@ -174,7 +175,7 @@ const runMatchesTaskCommit = (run: string, task: string): string =>
 // tasks closed before it predate the recorder.
 const V36_RECORDING_SINCE = `(SELECT MIN(${ts('started_at')}) FROM verification_runs)`;
 
-const VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(7)}
+const VERIFIED_CLOSE_SCOPE = `${statusIn('t', DONE)} AND ${ts('t.updated_at')} >= ${daysAgo(7)}
                AND ${ts('t.updated_at')} >= ${V36_RECORDING_SINCE}
                AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')
                AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND ${auditTaskId('w')} = t.id)`;
@@ -183,8 +184,6 @@ const UNCONSUMED_STALE_OBSERVATION = (alias: string): string =>
   `${alias}.event_type = 'reviewer_identity_observed' AND ${ts(`${alias}.created_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
-
-const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed'";
 
 // The L2 concept tables (GH 1680) arrived in v45, tasks.completion_report in v48.
 const CONCEPTS_SCHEMA = 45;
@@ -215,7 +214,7 @@ const auditField = (alias: string, field: string): string =>
 // PENDING_PROPOSAL_DAYS days ago.
 const PENDING_PROPOSALS = `tasks t,
                json_each(CASE WHEN json_valid(t.completion_report) THEN t.completion_report ELSE '{}' END, '$.concepts') c
-             WHERE t.status = 'closed' AND ${ts('t.updated_at')} < ${daysAgo(PENDING_PROPOSAL_DAYS)}
+             WHERE ${statusIn('t', DONE)} AND ${ts('t.updated_at')} < ${daysAgo(PENDING_PROPOSAL_DAYS)}
                AND ${HAS_PASS_SQL}
                AND NOT EXISTS (SELECT 1 FROM audit p
                                 WHERE p.event_type IN ('concept_proposal_applied','concept_proposal_rejected')
@@ -536,10 +535,10 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       severity: 'error',
       description: 'no closed issue still has a pending/running/needs_validation/completed task',
       sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN tasks t ON t.issue_id = i.id
-             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES})`,
+             WHERE i.status = '${ISSUE_STATE.closed}' AND t.status IN (${sqlList(LIVE)})`,
       expect: { op: '=', value: 0 },
       sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
-             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES}) ORDER BY i.id DESC, t.id LIMIT 5`,
+             WHERE i.status = '${ISSUE_STATE.closed}' AND t.status IN (${sqlList(LIVE)}) ORDER BY i.id DESC, t.id LIMIT 5`,
     },
     {
       id: 'issues_open_after_remote_close',

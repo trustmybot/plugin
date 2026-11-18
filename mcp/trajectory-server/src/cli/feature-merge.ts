@@ -43,6 +43,7 @@ import { dbPath, GATE_READ_ERROR, gateRead, sqlInt, sqlQuote } from '../hooks/li
 import { commandSubstitution } from '../hooks/lib/project-env.js';
 import { HAS_PASS_SQL } from '../review-sql.js';
 import { isStoredAgile } from '../stored-mode.js';
+import { DONE, inGroup } from '../task-states.js';
 import type { CliIo } from './fallback-db.js';
 import { Exit, runTaskRebase, TaskRebase, type VerifiedRebase } from './integrate.js';
 
@@ -215,7 +216,7 @@ SELECT changes();`;
     if (row === '') this.die(4, `no task ${this.taskId}`);
     const [, status = '', mode = '', taskRepo = '', branch = '', commitSha = '', issueId = '', parent = '', hasPass = ''] = row.split('\n');
     this.hasPass = hasPass === '1';
-    if (status !== 'closed' || !isStoredAgile(mode)) {
+    if (!inGroup(DONE, status) || !isStoredAgile(mode)) {
       this.die(3, `task ${this.taskId} is not a closed agile task (status '${status}', workflow_mode '${mode}')`);
     }
     this.branch = branch;

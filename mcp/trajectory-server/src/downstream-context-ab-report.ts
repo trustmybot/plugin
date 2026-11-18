@@ -19,6 +19,7 @@
  * Read-only.
  */
 import { DOWNSTREAM_AB_ARMS, DOWNSTREAM_AB_EVENT } from './downstream-context-ab.js';
+import { DONE, statusIn } from './task-states.js';
 import type { StatsReader } from './tools/stats.js';
 import type { DownstreamContextAbConfig } from './tools/config.js';
 
@@ -146,7 +147,7 @@ function cellReport(db: StatsReader, cell: Cell, taskIds: number[]): CellReport 
 export function downstreamContextAbReport(db: StatsReader, ab: DownstreamContextAbConfig): DownstreamContextAbReport {
   const baseline = db
     .all<{ id: number }>(
-      `SELECT id FROM tasks WHERE status = 'closed' AND COALESCE(completed_at, updated_at) < ?
+      `SELECT id FROM tasks WHERE ${statusIn('', DONE)} AND COALESCE(completed_at, updated_at) < ?
         ORDER BY COALESCE(completed_at, updated_at) DESC, id DESC LIMIT ?`,
       [ab.tools_shipped_at, BASELINE_TASKS],
     )

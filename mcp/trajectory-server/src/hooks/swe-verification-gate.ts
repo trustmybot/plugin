@@ -1,5 +1,5 @@
 /**
- * PreToolUse gate (GH 1692): a swe's task_update_status(status='completed') runs the task's typed
+ * PreToolUse gate (GH 1692): a swe's task_update_status move to completed runs the task's typed
  * verification[] (Typed Rails #673), then the probe_cmd of every blocking review
  * finding not wontfix (GH 1737, GH 1955; every severity on a DB below v57), in
  * the task worktree, and denies on a failing
@@ -92,6 +92,7 @@ import { reusableRun, runCommandSql, runFinishSql, runStartSql, shellLength } fr
 import { rawOrEmpty } from './swe-brief-gate.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { describeSetupFailure, runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
+import { TASK_STATE } from '../task-states.js';
 
 export const GATE_NAME = 'swe-verification-gate';
 
@@ -123,7 +124,7 @@ const WAIVER_UNRECORDED_DENY = `${denyJson(
   'BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured.',
   { allowed: 'the same call again, once the trajectory DB is writable' },
 )}\n`;
-const RETRY_FIXED: DenyFix = { allowed: "task_update_status(status='completed', commit_sha, report) again once the fix is committed" };
+const RETRY_FIXED: DenyFix = { allowed: `task_update_status(status='${TASK_STATE.completed}', commit_sha, report) again once the fix is committed` };
 const NO_VERIFICATION_CONTEXT =
   "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: task has no typed verification[] — verification gate skipped. Ask bro to set the task's verification[] field (Typed Rails #673) to enforce verification commands.\"}}\n";
 const UNRECORDED_PASS_CONTEXT =
@@ -796,7 +797,7 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
   const field = (key: string): string => commandSubstitution(rawOrEmpty(input, ['tool_input', key]));
   const role = normalizeRole(field('agent'));
   if (role !== 'swe' && role !== 'bro') return ALLOW;
-  if (field('status') !== 'completed') return ALLOW;
+  if (field('status') !== TASK_STATE.completed) return ALLOW;
   const taskId = field('task_id');
   if (!/^[0-9]+$/.test(taskId)) return ALLOW;
 
@@ -931,7 +932,7 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
       if (slot.kind === 'busy') {
         return deny(
           `BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (${capWhy}). No verification run was recorded.`,
-          { allowed: "task_update_status(status='completed', commit_sha, report) again once that suite finishes" },
+          { allowed: `task_update_status(status='${TASK_STATE.completed}', commit_sha, report) again once that suite finishes` },
         );
       }
       try {

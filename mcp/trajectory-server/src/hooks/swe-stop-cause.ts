@@ -32,6 +32,7 @@ import { ALLOW, type GateResult } from './gate.js';
 import { dbWrite } from './lib/audit.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
 import { jqAlternatives } from './lib/jq.js';
+import { TASK_STATE } from '../task-states.js';
 
 export const GATE_NAME = 'swe-stop-cause';
 export const STOP_DETAIL_MAX_CHARS = 500;
@@ -67,7 +68,7 @@ function resultText(content: unknown): string {
 }
 
 function isCompletedReport(name: string, input: unknown): boolean {
-  return STATUS_TOOL_RE.test(name) && typeof input === 'object' && input !== null && (input as { status?: unknown }).status === 'completed';
+  return STATUS_TOOL_RE.test(name) && typeof input === 'object' && input !== null && (input as { status?: unknown }).status === TASK_STATE.completed;
 }
 
 /** The deny text of the run's last counted tool_result when it is a PreToolUse hook block and the run made no completion report, else null. */

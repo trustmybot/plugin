@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_CLASSIFICATION_LABELS, DEFAULT_PRIORITY_LABELS } from '../../mcp/trajectory-server/src/tools/issues.ts';
+import { DONE, inGroup, ISSUE_STATE, statusIn, TASK_STATE } from '../../mcp/trajectory-server/src/task-states.ts';
 import { releaseAt, type Release } from './releases.ts';
 
 type Row = Record<string, unknown>;
@@ -22,7 +23,7 @@ export function summary(db: DatabaseSync): Row {
   return {
     issues: one(
       db,
-      `SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed
+      `SELECT SUM(status = '${ISSUE_STATE.open}') AS open, SUM(status = '${ISSUE_STATE.closed}') AS closed
          FROM issues WHERE id > 0`,
     ),
     tasks_by_status: all(
@@ -119,7 +120,7 @@ export function issues(db: DatabaseSync): { issues: Row[]; label_taxonomy: Label
             i.created_at, i.updated_at, i.closed_at, i.labels,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id) AS task_count,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id
-               AND t.status IN ('completed','closed')) AS tasks_done,
+               AND ${statusIn('t', [TASK_STATE.completed, ...DONE])}) AS tasks_done,
             (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = i.id) AS discussion_count,
             ${prs} AS prs
        FROM issues i
@@ -382,7 +383,7 @@ const taskReady = (t: GateTask) =>
 
 export function gateState(tasks: GateTask[]): GateState {
   if (tasks.some(taskBlocked)) return 'blocked';
-  const open = tasks.filter((t) => t.status !== 'closed');
+  const open = tasks.filter((t) => !inGroup(DONE, t.status));
   const gated = open.length > 0 ? open : tasks;
   return gated.length > 0 && gated.every(taskReady) ? 'ready' : 'pending';
 }
@@ -393,7 +394,7 @@ export function gateBoard(db: DatabaseSync): GateBranch[] {
     `SELECT branch_id, MAX(updated_at) AS updated_at
        FROM tasks
       GROUP BY branch_id
-     HAVING SUM(status <> 'closed') > 0
+     HAVING SUM(NOT ${statusIn('', DONE)}) > 0
          OR julianday(MAX(updated_at)) >= julianday('now', ?)
       ORDER BY MAX(updated_at) DESC, branch_id
       LIMIT ?`,
@@ -1055,7 +1056,7 @@ function throughputOf(db: DatabaseSync, f: InsightFilter, p: Period): Row[] {
     db,
     `SELECT substr(COALESCE(t.completed_at, t.updated_at), 1, 10) AS day, COUNT(*) AS closed
        FROM tasks t
-      WHERE t.status = 'closed' AND ${closedIn.sql}
+      WHERE ${statusIn('t', DONE)} AND ${closedIn.sql}
         AND (? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)
       GROUP BY day ORDER BY day`,
     ...closedIn.args,

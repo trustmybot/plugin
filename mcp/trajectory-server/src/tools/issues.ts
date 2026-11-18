@@ -14,6 +14,7 @@ import type { SpawnFn, SyncFailure, SyncIssueUpdateFields } from '../sync/issue_
 import { reconcileRemoteCloses } from '../sync/issue-reconcile.js';
 import { syncRemotePrs } from '../sync/pr-sync.js';
 import { serverLog } from '../logger.js';
+import { ACTIONABLE, DONE, ISSUE_STATE, statusIn, TASK_STATE } from '../task-states.js';
 import { insertAudit } from './audit.js';
 import {
   WAIVE_REVIEW_REASON_MIN,
@@ -615,7 +616,7 @@ export interface RemoteCloseResult {
 }
 
 // Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
-// linked to. The local `issues.status='closed'` UPDATE is the caller's
+// linked to. The local UPDATE that closes the issues row is the caller's
 // responsibility — this is only the remote-sync half, and every remote close
 // goes through `remoteSyncGate`: a gated-off close spawns nothing and leaves one
 // `issue_close_remote_skipped` audit row. A linked remote whose provider has no
@@ -1366,7 +1367,7 @@ export function issueTools(
 
       const task = db.get<Task>(
         `SELECT * FROM tasks
-         WHERE issue_id = ? AND status IN ('pending', 'failed')
+         WHERE issue_id = ? AND ${statusIn('', ACTIONABLE)}
          ORDER BY branch_id ASC
          LIMIT 1`,
         [issueId],
@@ -1471,8 +1472,8 @@ export function issueTools(
       }>(
         `SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as tasks_completed,
-           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_awaiting_close,
+           SUM(CASE WHEN ${statusIn('', DONE)} THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = '${TASK_STATE.completed}' THEN 1 ELSE 0 END) as tasks_awaiting_close,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`,
         [issueId],
@@ -1485,7 +1486,7 @@ export function issueTools(
       };
 
       let phase: 'discussion' | 'tasks' | 'done' | 'ready_to_close';
-      if (issue.status === 'closed') {
+      if (issue.status === ISSUE_STATE.closed) {
         phase = 'done';
       } else if (counts.tasks_total === 0) {
         phase = 'discussion';
@@ -1740,7 +1741,7 @@ export function issueTools(
 
       const issue = decodeIssue(row);
 
-      if (row.status === 'closed') {
+      if (row.status === ISSUE_STATE.closed) {
         const retryCwd = retryCtx.cwd;
         const retryTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
         if (row.gh_iid != null) {

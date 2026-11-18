@@ -5,7 +5,7 @@ import type { GraphHolder, WorldModelGraph } from '../graph.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { insertAudit } from './audit.js';
 import { taskWorktreeDir } from './composites.js';
-import { LIVE_TASK_STATUSES } from './lifecycle.js';
+import { LIVE } from '../task-states.js';
 export { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRemotes, type Remote } from '../repos/remotes.js';
 
@@ -66,7 +66,7 @@ function blockingTasks(db: TrajectoryDB, old: string, oldPath: string): Array<{ 
     `SELECT t.id, t.status, t.branch_id, t.worktree_path, r.path AS repo_path
        FROM tasks t LEFT JOIN repos r ON r.name = t.repo
       WHERE t.status IN (SELECT value FROM json_each(?))`,
-    [JSON.stringify(LIVE_TASK_STATUSES)],
+    [JSON.stringify(LIVE)],
   );
   const blocking: Array<{ id: number; status: string; worktree: string }> = [];
   for (const t of tasks) {

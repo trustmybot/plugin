@@ -4,6 +4,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import type { Discussion, Issue, Task, AuditEventEntry } from '../types.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { DONE, statusIn, TASK_STATE } from '../task-states.js';
 import { projectRootFromDbPath } from './containment.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -117,8 +118,8 @@ export function reportTools(db: TrajectoryDB): {
       if (mode === 'summary') {
         const taskCounts = db.get<{ total: number; closed: number; awaiting_close: number; failed: number }>(
           `SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed,
-                  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS awaiting_close,
+                  SUM(CASE WHEN ${statusIn('', DONE)} THEN 1 ELSE 0 END) AS closed,
+                  SUM(CASE WHEN status = '${TASK_STATE.completed}' THEN 1 ELSE 0 END) AS awaiting_close,
                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
            FROM tasks WHERE issue_id = ?`,
           [issueId],

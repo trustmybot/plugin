@@ -7,6 +7,7 @@ import { buildBotPatterns, isBot } from '../sync/bot_patterns.js';
 import type { SpawnSyncOptions } from 'node:child_process';
 import { spawnAsync, type SpawnResult } from '../utils/spawn-async.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { sqlList, TERMINAL_FAILED } from '../task-states.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { repoRemotes } from '../repos/remotes.js';
@@ -128,7 +129,7 @@ function resolveCarrierIssueId(
        JOIN tasks t ON t.id = r.task_id
       WHERE r.pr_number = ? ${repo !== '' ? 'AND r.repo = ?' : ''}
         ${repoName ? 'AND (t.repo = ? OR t.repo IS NULL)' : ''}
-        AND t.status NOT IN ('failed','escalated')
+        AND t.status NOT IN (${sqlList(TERMINAL_FAILED)})
       ORDER BY t.updated_at DESC, t.id DESC LIMIT 1`,
     linkedParams,
   );
@@ -137,7 +138,7 @@ function resolveCarrierIssueId(
   const byBranch = db.get<{ issue_id: number }>(
     `SELECT issue_id FROM tasks
       WHERE branch_id = ? ${repoName ? 'AND (repo = ? OR repo IS NULL)' : ''}
-        AND status NOT IN ('failed','escalated')
+        AND status NOT IN (${sqlList(TERMINAL_FAILED)})
       ORDER BY updated_at DESC, id DESC LIMIT 1`,
     repoName ? [headBranch, repoName] : [headBranch],
   );

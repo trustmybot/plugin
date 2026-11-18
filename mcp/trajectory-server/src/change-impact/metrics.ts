@@ -9,6 +9,7 @@
  */
 import type { StatsReader } from '../tools/stats.js';
 import { SWE_SPAWN_SQL } from '../task-rework.js';
+import { DONE, statusIn } from '../task-states.js';
 
 export interface Sample {
   at: string;
@@ -40,7 +41,7 @@ interface RunRow {
 const RUN_COLUMNS =
   'id, task_id, session_id, started_at, plugin_version, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, hook_block_tokens';
 
-const DONE_TASK_SQL = "status = 'closed' AND commit_sha IS NOT NULL AND commit_sha <> '' AND completed_at IS NOT NULL";
+const DONE_TASK_SQL = `${statusIn('', DONE)} AND commit_sha IS NOT NULL AND commit_sha <> '' AND completed_at IS NOT NULL`;
 
 function measured(r: RunRow): boolean {
   return r.tokens_in !== null;

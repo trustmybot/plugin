@@ -21,6 +21,7 @@ import { auditAppend } from './lib/audit.js';
 import { dbPath, dbPathAdvisory, haveSqlite, projectRoot, sqliteRo } from './lib/db.js';
 import { jqCompact, jqFieldOr } from './lib/jq.js';
 import { commandSubstitution, installRoot, posixDirname, setlocaleUtf8 } from './lib/project-env.js';
+import { AWAITING_CLOSE, DONE, statusIn, unionOf } from '../task-states.js';
 
 export const GATE_NAME = 'prompt-intent-hints';
 const SUMMARY_MAX_BYTES = 200;
@@ -138,7 +139,7 @@ Only fall back to \`discussion_list(issue_id=N)\` / \`issue_get_with_discussions
 const PENDING_SQL = `
         SELECT t.id || '|' || t.branch_id || '|' || substr(COALESCE(t.title, ''), 1, 60)
           FROM tasks t
-         WHERE t.status IN ('needs_validation', 'completed', 'closed')
+         WHERE ${statusIn('t', unionOf(AWAITING_CLOSE, DONE))}
            AND t.commit_sha IS NOT NULL
            AND NOT EXISTS (
              SELECT 1 FROM validation_attempts v

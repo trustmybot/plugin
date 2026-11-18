@@ -5,11 +5,7 @@ import { dropTaskOverlay } from '../world-model/overlay.js';
 import { batchReviewedSql, GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL, waivedSql } from '../review-sql.js';
 import { storedExemptSql } from '../stored-mode.js';
 import { sqlText, taskStatusUpdate } from '../task-status.js';
-
-// Task statuses that still hold work open on an issue.
-export const LIVE_TASK_STATUSES = ['pending', 'running', 'needs_validation', 'completed'] as const;
-
-const LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(', ');
+import { DONE, ISSUE_STATE, LIVE, statusIn } from '../task-states.js';
 
 export const WAIVE_REVIEW_REASON_MIN = 10;
 
@@ -24,7 +20,7 @@ export interface LifecycleTask {
 export function liveTasksOfIssue(db: TrajectoryDB, issueId: number | string): LifecycleTask[] {
   return db.all<LifecycleTask>(
     `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
-      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
+      WHERE issue_id = ? AND ${statusIn('', LIVE)} ORDER BY id`,
     [issueId],
   );
 }
@@ -51,7 +47,7 @@ function reviewStateAt(db: TrajectoryDB, taskId: number, commitSha: string | nul
 export function closedTasksWithoutReview(db: TrajectoryDB, issueId: number | string): LifecycleTask[] {
   return db.all<LifecycleTask>(
     `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
-      WHERE t.issue_id = ? AND t.status = 'closed' AND NOT ${storedExemptSql('t')}
+      WHERE t.issue_id = ? AND ${statusIn('t', DONE)} AND NOT ${storedExemptSql('t')}
         AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL} AND NOT ${batchReviewedSql('t')} AND NOT ${waivedSql('t')}
       ORDER BY t.id`,
     [issueId],
@@ -142,7 +138,7 @@ export function escalateLiveTasksForIssueClose(
 
 export function markIssueClosed(db: TrajectoryDB, issueId: number | string, now: string): void {
   db.run(
-    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
+    `UPDATE issues SET status = '${ISSUE_STATE.closed}', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
     [now, now, issueId],
   );
 }

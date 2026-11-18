@@ -38,7 +38,8 @@ import { RESPONSE_FORMATS, parseResponseFormat, withoutKeys } from './response-f
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
 import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
 import { isPromptSurfaceUnder } from '../hooks/cmd-analysis/surface.js';
-import { sqlText, taskStatusUpdate, type TaskStatus } from '../task-status.js';
+import { sqlText, TASK_STATUSES, taskStatusUpdate, type TaskStatus } from '../task-status.js';
+import { ACTIONABLE, statusIn, TASK_STATE } from '../task-states.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -291,15 +292,7 @@ function ensureBranchInRepo(
   return { branchId, startPoint, repoPath };
 }
 
-const VALID_STATUSES = new Set([
-  'pending',
-  'running',
-  'needs_validation',
-  'completed',
-  'closed',
-  'failed',
-  'escalated',
-]);
+const VALID_STATUSES = new Set<string>(TASK_STATUSES);
 
 // Allowed status transitions for bro (#278). Without this, bro could move any
 // status to any status — e.g. pending→closed (skipping verification) or
@@ -653,7 +646,7 @@ export function taskTools(db: TrajectoryDB): {
           report: {
             type: 'object',
             description:
-              "The typed completion report; only with status='completed'. Required when the spec's Success Criteria carry SC<n>: ids: criteria covers each id exactly once.",
+              `The typed completion report; only with status='${TASK_STATE.completed}'. Required when the spec's Success Criteria carry SC<n>: ids: criteria covers each id exactly once.`,
             properties: {
               criteria: {
                 type: 'array',
@@ -1502,7 +1495,7 @@ export function taskTools(db: TrajectoryDB): {
         const allowed = BRO_TRANSITIONS[task.status] ?? new Set<string>();
         if (!allowed.has(status)) {
           const valid = [...allowed].join(', ') || '(none — terminal)';
-          if (task.status === 'completed' && status === 'running') {
+          if (task.status === TASK_STATE.completed && status === TASK_STATE.running) {
             throw new Error(
               `task_update_status rejected: bro may not move task ${taskId} from 'completed' to 'running'. ` +
               `Reopen it for rework with task_reopen(task_id, reason), which records the task_reopened row. See GH 2972.`
@@ -1516,14 +1509,14 @@ export function taskTools(db: TrajectoryDB): {
         }
       }
 
-      if (args['report'] !== undefined && args['report'] !== null && status !== 'completed') {
-        throw new Error(`task_update_status: report is accepted only with status='completed' (got '${status}').`);
+      if (args['report'] !== undefined && args['report'] !== null && status !== TASK_STATE.completed) {
+        throw new Error(`task_update_status: report is accepted only with status='${TASK_STATE.completed}' (got '${status}').`);
       }
       const hasCheckpoint = args['checkpoint'] !== undefined && args['checkpoint'] !== null;
       if (hasCheckpoint && status !== 'running') {
         throw new Error(`task_update_status: checkpoint is accepted only with status='running' (got '${status}').`);
       }
-      const report = status === 'completed' ? parseCompletionReport(args['report'], specCriterionIds(task.spec_body)) : null;
+      const report = status === TASK_STATE.completed ? parseCompletionReport(args['report'], specCriterionIds(task.spec_body)) : null;
       if (report?.wm_feedback && agent !== 'swe') {
         throw new Error(`wm_feedback_invalid: only swe may pass report.wm_feedback (got agent '${agent}').`);
       }
@@ -1540,12 +1533,14 @@ export function taskTools(db: TrajectoryDB): {
       // stale completion stamp that downstream gates would trust (#278).
       // completion_report follows the same rule (GH 1744).
       const completedAt =
-        status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
+        status === TASK_STATE.completed ? now : status === TASK_STATE.closed ? task.completed_at : null;
       const completionReport =
-        status === 'completed' ? (report ? JSON.stringify(report) : null) : status === 'closed' ? task.completion_report : null;
+        status === TASK_STATE.completed
+          ? (report ? JSON.stringify(report) : null)
+          : status === TASK_STATE.closed ? task.completion_report : null;
       const checkpoint = hasCheckpoint
         ? JSON.stringify(parseCheckpoint(args['checkpoint'], now))
-        : status === 'completed'
+        : status === TASK_STATE.completed
           ? null
           : task.checkpoint;
 
@@ -1554,7 +1549,7 @@ export function taskTools(db: TrajectoryDB): {
         // grouped review, as bro_atomic_close does; an exempt task owes no
         // review; under truest it is recorded as a bypass. The close stamps the
         // mode it resolved, so the queue and the gates read it later.
-        const closing = status === 'closed' && task.status !== 'closed';
+        const closing = status === TASK_STATE.closed && task.status !== TASK_STATE.closed;
         const closeMode = closing ? resolveWorkflowMode(db, task.repo) : null;
         if (closeMode === 'agile') {
           recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha ?? task.commit_sha ?? null }, now);
@@ -1612,7 +1607,7 @@ export function taskTools(db: TrajectoryDB): {
 
       const task = db.get<Task>(
         `SELECT * FROM tasks
-         WHERE issue_id = ? AND status IN ('pending', 'failed')
+         WHERE issue_id = ? AND ${statusIn('', ACTIONABLE)}
          ORDER BY branch_id ASC
          LIMIT 1`,
         [issueId],

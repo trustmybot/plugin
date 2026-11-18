@@ -21,10 +21,10 @@ import { deadlineSignal, noteSpawn, spawnLimit } from './lib/deadline.js';
 import { isDir } from './lib/git.js';
 import { commandOnPath } from './lib/host.js';
 import { repoResolvePath } from './lib/repo.js';
+import { LIVE, statusIn } from '../task-states.js';
 
 export const GATE_NAME = 'close-forge-merged';
 
-const LIVE = "'pending','running','needs_validation','completed'";
 const GH_TIMEOUT_MS = 10_000;
 const PR_LIST_ARGS = ['pr', 'list', '--state', 'merged', '--json', 'headRefName,number,mergedAt,body,closingIssuesReferences', '--limit', '100'] as const;
 
@@ -50,7 +50,7 @@ function liveBranchesByRepo(db: string, env: NodeJS.ProcessEnv): Map<string, Liv
     `SELECT t.branch_id || char(9) || COALESCE(t.repo, i.repo, '') || char(9)
             || COALESCE(CAST(MAX(ROUND((julianday(t.created_at) - 2440587.5) * 86400000)) AS INTEGER), '')
        FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
-      WHERE t.status IN (${LIVE}) AND t.branch_id <> ''
+      WHERE ${statusIn('t', LIVE)} AND t.branch_id <> ''
       GROUP BY t.branch_id, COALESCE(t.repo, i.repo, '')
       ORDER BY 1;`,
     env,

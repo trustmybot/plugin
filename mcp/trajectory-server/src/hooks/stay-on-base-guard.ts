@@ -21,6 +21,7 @@ import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveS
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { repoGitRoot } from './lib/repo.js';
 import { payloadCwdOf, readTabFields, statementRows } from './lib/statement-rows.js';
+import { IN_PROGRESS, statusIn } from '../task-states.js';
 
 export const GATE_NAME = 'stay-on-base-guard';
 
@@ -96,7 +97,7 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
       `
     SELECT id FROM tasks
      WHERE branch_id = '${sqlQuote(target)}'
-       AND status IN ('pending','running','needs_validation')
+       AND ${statusIn('', IN_PROGRESS)}
      LIMIT 1;
   `,
       env,

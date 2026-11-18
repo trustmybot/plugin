@@ -55,6 +55,7 @@ import { normalizeRole } from './lib/role.js';
 import { sweStopCause } from './swe-stop-cause.js';
 import { toolOutputSize } from './tool-output-size.js';
 import { taskStatusUpdateSql } from '../task-status.js';
+import { AWAITING_CLOSE, DONE, inGroup, TASK_STATE, unionOf } from '../task-states.js';
 
 export const GATE_NAME = 'swe-atomic-close';
 
@@ -650,7 +651,7 @@ SELECT 1 FROM tasks
       );
       out.stdout += r.stdout;
       if (!r.ok) process.stderr.write(`${r.error}\n`);
-      context = `SWE for task #${taskId} stopped with commits at ${wtHead} but no passing verification run for that commit, so the task stays ${taskStatus}. Resume the swe so it closes through task_update_status(status='completed'), whose gate runs the changelog and doc checks and verification[] on HEAD.`;
+      context = `SWE for task #${taskId} stopped with commits at ${wtHead} but no passing verification run for that commit, so the task stays ${taskStatus}. Resume the swe so it closes through task_update_status(status='${TASK_STATE.completed}'), whose gate runs the changelog and doc checks and verification[] on HEAD.`;
     } else if (hasCommits) {
       decision = 'auto-completed';
       const closedAt = nowIso();
@@ -696,7 +697,7 @@ ${closeAuditSql}`,
   }
 
   const exitReason =
-    decision === 'auto-completed' || ['completed', 'closed', 'needs_validation'].includes(taskStatus)
+    decision === 'auto-completed' || inGroup(unionOf(AWAITING_CLOSE, DONE), taskStatus)
       ? 'completed'
       : taskStatus === 'escalated'
         ? 'escalated'

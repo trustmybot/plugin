@@ -35,11 +35,13 @@ import { commandSubstitution, jqRawText } from './lib/project-env.js';
 import { forgeCommandDir, forgeRepoDir } from './lib/repo.js';
 import { RUN_UNMEASURED_SQL } from './swe-spawn-rollback.js';
 import { sqlText, taskStatusUpdateSql } from '../task-status.js';
+import { DONE, ISSUE_STATE, LIVE, sqlList, unionOf } from '../task-states.js';
 
 export const GATE_NAME = 'close-issue-on-merge';
 
 const FROM = 'hook:close-issue-on-merge';
-const LIVE = "'pending','running','needs_validation','completed'";
+const LIVE_SQL = sqlList(LIVE);
+const LIVE_OR_DONE_SQL = sqlList(unionOf(LIVE, DONE));
 const GH_TIMEOUT_MS = 10_000;
 const WRAPPERS = new Set(['sudo', 'env', 'command', 'nohup', 'time']);
 const VALUE_FLAGS = new Set([
@@ -205,7 +207,7 @@ class Merge {
     const now = sqlQuote(stamp);
     const out: string[] = [];
     const rows = this.read(`SELECT t.id || '|' || t.issue_id || '|' || COALESCE(t.commit_sha, '') FROM tasks t
-     WHERE t.branch_id = '${branch}' AND t.status IN (${LIVE}, 'closed')
+     WHERE t.branch_id = '${branch}' AND t.status IN (${LIVE_OR_DONE_SQL})
        AND ${storedReviewOwedSql('t')}
        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL} ORDER BY t.id;`);
     for (const row of rows.split('\n')) {
@@ -233,11 +235,11 @@ class Merge {
            exit_reason = 'completed',
            ${RUN_UNMEASURED_SQL}
      WHERE completed_at IS NULL
-       AND task_id IN (SELECT id FROM tasks WHERE branch_id = '${branch}' AND status IN (${LIVE}, 'closed'));
+       AND task_id IN (SELECT id FROM tasks WHERE branch_id = '${branch}' AND status IN (${LIVE_OR_DONE_SQL}));
     ${taskStatusUpdateSql({
       status: 'closed',
       set: { completed_at: sqlText(`COALESCE(completed_at, '${now}')`), updated_at: stamp },
-      where: `branch_id = '${branch}' AND status IN (${LIVE})`,
+      where: `branch_id = '${branch}' AND status IN (${LIVE_SQL})`,
     })};`);
     return out.join('\n');
   }
@@ -256,11 +258,11 @@ class Merge {
     const id = sqlInt(localId);
     if (id === '') return '';
     const branch = sqlQuote(this.head);
-    if (this.read(`SELECT status FROM issues WHERE id = ${id};`) !== 'open') return '';
+    if (this.read(`SELECT status FROM issues WHERE id = ${id};`) !== ISSUE_STATE.open) return '';
     const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
     const ghJson = ghIid === '' ? 'null' : ghIid;
     const blocking = this.read(`SELECT id FROM tasks WHERE issue_id = ${id}
-      AND status IN (${LIVE}) AND branch_id != '${branch}' ORDER BY id;`);
+      AND status IN (${LIVE_SQL}) AND branch_id != '${branch}' ORDER BY id;`);
     if (blocking !== '') {
       const ids = blocking
         .split('\n')
@@ -278,8 +280,8 @@ class Merge {
     }
     const now = sqlQuote(nowIso());
     const out = [
-      `UPDATE issues SET status = 'closed', closed_at = COALESCE(closed_at, '${now}'), updated_at = '${now}'
-     WHERE id = ${id} AND status != 'closed';`,
+      `UPDATE issues SET status = '${ISSUE_STATE.closed}', closed_at = COALESCE(closed_at, '${now}'), updated_at = '${now}'
+     WHERE id = ${id} AND status != '${ISSUE_STATE.closed}';`,
     ];
     const closed = this.audit({
       issueId: id,
@@ -329,7 +331,7 @@ class Merge {
     for (const ref of closingRefs(prJson)) {
       const localId = this.localIssue(ref);
       if (localId === '') continue;
-      if (this.read(`SELECT status FROM issues WHERE id = ${localId};`) === 'closed') {
+      if (this.read(`SELECT status FROM issues WHERE id = ${localId};`) === ISSUE_STATE.closed) {
         const remoteSql = this.alreadyClosedSql(localId);
         if (remoteSql !== '') this.sql.push(remoteSql);
         continue;

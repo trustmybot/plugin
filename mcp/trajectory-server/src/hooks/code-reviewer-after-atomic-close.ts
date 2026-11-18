@@ -18,11 +18,10 @@ import { isCodeReviewerSpawn, spawnDeny, spawnField } from './code-reviewer-no-w
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlInt } from './lib/db.js';
 import type { DenyFix } from './lib/deny.js';
 import { grepMultibyte, grepSpace } from './lib/lint-shell.js';
+import { AWAITING_CLOSE, DONE, inGroup } from '../task-states.js';
 
 export const GATE_NAME = 'code-reviewer-after-atomic-close';
 export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_CLOSE_GATE';
-
-const REVIEWABLE_UNCLOSED = new Set(['completed', 'needs_validation']);
 
 export function notHandedOffReason(taskId: string, status: string): string {
   return `BLOCKED: code-reviewer spawn for task ${taskId} (status=${status}) has no review_handoff for the task's current commit.
@@ -70,7 +69,7 @@ export const codeReviewerAfterAtomicClose: SyncGate = (payload, env): GateResult
   if (state === '') return ALLOW;
   const sep = state.lastIndexOf('|');
   const status = state.slice(0, sep);
-  if (status === 'closed') return ALLOW;
-  if (REVIEWABLE_UNCLOSED.has(status) && state.slice(sep + 1) === '1') return ALLOW;
+  if (inGroup(DONE, status)) return ALLOW;
+  if (inGroup(AWAITING_CLOSE, status) && state.slice(sep + 1) === '1') return ALLOW;
   return spawnDeny(notHandedOffReason(taskId, status), notHandedOffFix(taskId));
 };

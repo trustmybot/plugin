@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { DONE, statusIn } from '../../mcp/trajectory-server/src/task-states.ts';
 import { nearestRank, periodOf, periodWhere, sinceOf, type InsightFilter, type Period, type Slice } from './queries.ts';
 
 type Row = Record<string, unknown>;
@@ -281,7 +282,7 @@ function taskRows(db: DatabaseSync, f: InsightFilter, p: Period): TaskRow[] {
              FROM agent_runs WHERE agent_type IN ('swe', 'code-reviewer') AND task_id IS NOT NULL GROUP BY task_id
          ) a ON a.task_id = t.id
          LEFT JOIN (SELECT task_id, COUNT(*) AS fails FROM validation_attempts WHERE verdict = 'fail' GROUP BY task_id) v ON v.task_id = t.id
-        WHERE t.status = 'closed' AND t.commit_sha IS NOT NULL AND t.completed_at IS NOT NULL
+        WHERE ${statusIn('t', DONE)} AND t.commit_sha IS NOT NULL AND t.completed_at IS NOT NULL
           AND ${period.sql}
           AND (? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)
         ORDER BY t.id`,

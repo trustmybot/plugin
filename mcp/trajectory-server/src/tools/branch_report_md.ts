@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import type { Issue, Task, AuditEventEntry } from '../types.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { DONE, inGroup, TASK_STATE } from '../task-states.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -45,7 +46,7 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 
 // A completed task still waits on code-reviewer and then bro_atomic_close; only closed counts as done.
 function statusLabel(status: string): string {
-  return status === 'completed' ? 'completed (awaiting review and close)' : status;
+  return status === TASK_STATE.completed ? 'completed (awaiting review and close)' : status;
 }
 
 export function branchReportMdTools(db: TrajectoryDB): {
@@ -116,8 +117,8 @@ export function branchReportMdTools(db: TrajectoryDB): {
         lines.push(`**Issue objective:** ${issue.objective}`);
         lines.push('');
 
-        const doneCount = tasks.filter((t) => t.status === 'closed').length;
-        const awaitingClose = tasks.filter((t) => t.status === 'completed').length;
+        const doneCount = tasks.filter((t) => inGroup(DONE, t.status)).length;
+        const awaitingClose = tasks.filter((t) => t.status === TASK_STATE.completed).length;
         lines.push(`**Done:** ${doneCount} of ${tasks.length} closed, ${awaitingClose} awaiting close`);
         lines.push('');
 
@@ -180,7 +181,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
         for (const t of tasks) {
           const title = t.title || t.description.slice(0, 60);
           const commit = t.commit_sha || '—';
-          const closed = t.status === 'closed' && t.completed_at ? t.completed_at : '—';
+          const closed = inGroup(DONE, t.status) && t.completed_at ? t.completed_at : '—';
           lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} | ${t.created_at} | ${closed} |`);
         }
         lines.push('');

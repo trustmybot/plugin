@@ -71,6 +71,7 @@ import {
   userSettingsJson,
 } from '../hooks/lib/install.js';
 import { installRoot, jqRawText, posixDirname, TMB_DB_FILENAME } from '../hooks/lib/project-env.js';
+import { ACTIVE, statusIn } from '../task-states.js';
 import type { CliIo } from './fallback-db.js';
 
 const SCOPE_DOC = 'docs/architecture/INSTALL.md#recommended-scope-project-or-local';
@@ -426,7 +427,7 @@ export function health(_argv: readonly string[], env: NodeJS.ProcessEnv, io: Cli
   const pending =
     db !== '' && sqliteOk
       ? dbRead(
-          "SELECT id || ' [' || status || '] ' || COALESCE(branch_id,'') FROM tasks WHERE status IN ('pending','running');",
+          `SELECT id || ' [' || status || '] ' || COALESCE(branch_id,'') FROM tasks WHERE ${statusIn('', ACTIVE)};`,
         )
       : '';
   if (worktrees.length === 0 && pending === '') {

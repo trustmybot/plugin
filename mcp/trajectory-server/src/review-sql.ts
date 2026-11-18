@@ -4,6 +4,7 @@
  * import without the tool layer.
  */
 import { storedAgileSql } from './stored-mode.js';
+import { DONE, LIVE, statusIn } from './task-states.js';
 
 // The review anchor of a task's current commit: the earliest of the
 // review_handoff, bro_verification_pass and task_integrated audit rows naming
@@ -101,7 +102,7 @@ export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
 // the repo's pr_target. As with skips, only bro's rows count. A batch-reviewed
 // or waived task (batchReviewedSql, waivedSql) keeps its row, so the push
 // guard still admits it.
-export const AGILE_QUEUED_SQL = `(t.status = 'closed' AND ${storedAgileSql('t')} AND EXISTS (SELECT 1 FROM audit q
+export const AGILE_QUEUED_SQL = `(${statusIn('t', DONE)} AND ${storedAgileSql('t')} AND EXISTS (SELECT 1 FROM audit q
   WHERE q.event_type = 'review_queued' AND q.from_node = 'bro'
     AND json_valid(q.content_json)
     AND json_extract(q.content_json, '$.task_id') = t.id
@@ -142,7 +143,7 @@ export const waivedSql = (alias: string): string => `EXISTS (SELECT 1 FROM audit
 // feature_branch_merged row names it) and later reopened for rework: its fold
 // no longer holds the commit the feature branch will ship, so no earlier
 // review, waiver or pass settles it until it closes and is queued again.
-const AGILE_REOPENED_SQL = `(${storedAgileSql('t')} AND t.status IN ('pending', 'running', 'needs_validation', 'completed')
+const AGILE_REOPENED_SQL = `(${storedAgileSql('t')} AND ${statusIn('t', LIVE)}
   AND EXISTS (SELECT 1 FROM audit f
     WHERE f.event_type = 'feature_branch_merged' AND f.from_node = 'bro'
       AND ${jsonSql('json_extract', 'f', '$.task_id')} = t.id))`;

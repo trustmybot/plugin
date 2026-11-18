@@ -12,11 +12,10 @@ import { serverLog } from './logger.js';
 import type { SpawnFn } from './sync/issue_sync.js';
 import { insertAudit } from './tools/audit.js';
 import { syncIssueCloseRemotes } from './tools/issues.js';
-import { closedTasksWithoutReview, LIVE_TASK_STATUSES, liveTasksOfIssue, markIssueClosed } from './tools/lifecycle.js';
+import { closedTasksWithoutReview, liveTasksOfIssue, markIssueClosed } from './tools/lifecycle.js';
+import { DONE, LIVE, statusIn } from './task-states.js';
 import { runGit } from './utils/git-run.js';
 import { targetBranchOf } from './utils/index-target.js';
-
-const LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(', ');
 
 interface ClosedCommit {
   task_id: number;
@@ -30,8 +29,8 @@ function candidateIssues(db: TrajectoryDB, repo: string): number[] {
     .all<{ id: number }>(
       `SELECT i.id FROM issues i
         WHERE i.repo = ? AND i.status = 'open'
-          AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue_id = i.id AND t.status = 'closed' AND t.commit_sha IS NOT NULL)
-          AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue_id = i.id AND t.status IN (${LIVE_IN}))
+          AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue_id = i.id AND ${statusIn('t', DONE)} AND t.commit_sha IS NOT NULL)
+          AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue_id = i.id AND ${statusIn('t', LIVE)})
         ORDER BY i.id`,
       [repo],
     )

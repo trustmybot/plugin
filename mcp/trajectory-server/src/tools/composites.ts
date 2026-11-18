@@ -118,8 +118,9 @@ import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { briefConcepts, briefLocations } from '../brief-locations.js';
+import { AWAITING_CLOSE, DONE, IN_PROGRESS, inGroup, LIVE, TASK_STATE } from '../task-states.js';
 import { checkoutLag } from './world_model.js';
-import { sqlText, taskStatusUpdate } from '../task-status.js';
+import { sqlText, TASK_STATUSES, taskStatusUpdate } from '../task-status.js';
 
 const STDOUT_KEEP = 4096;
 const STDERR_KEEP = 2048;
@@ -657,7 +658,7 @@ function handoffGateError(
     return (
       `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ` +
       `${task.completion_report ? 'does not cover' : 'is missing for'}: ${unreported.join(', ')}. Resume the swe on ` +
-      `task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}', report={criteria: ` +
+      `task_id=${task.id} to call task_update_status(status='${TASK_STATE.completed}', commit_sha='${commitSha}', report={criteria: ` +
       `[{id, status}, ...]}) with one entry per id, then retry review_handoff.`
     );
   }
@@ -678,7 +679,7 @@ function handoffGateError(
       `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no ` +
       `passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before ` +
       `verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: ` +
-      `resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') — ` +
+      `resume the swe on task_id=${task.id} to call task_update_status(status='${TASK_STATE.completed}', commit_sha='${commitSha}') — ` +
       `swe-verification-gate runs verification[] in the task worktree and records the run — then retry review_handoff. ` +
       `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
     );
@@ -854,7 +855,7 @@ function clearPrReviewWorktree(repoPath: string, wtPath: string): void {
 // only from that linked worktree's session.
 export const ADOPT_WORKTREE_ENABLED = true;
 
-const ADOPT_HOLDING_STATUSES = ['pending', 'running', 'needs_validation'] as const;
+const ADOPT_HOLDING_STATUSES = IN_PROGRESS;
 
 export type AdoptTaskWorktreeError =
   | 'adopt_worktree_unavailable'
@@ -1438,10 +1439,10 @@ function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): Wontfix
   });
 }
 
-const REOPENABLE_STATUSES = new Set(['pending', 'completed', 'closed', 'failed', 'escalated', 'running']);
-const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
+const REOPENABLE_STATUSES = new Set<string>(TASK_STATUSES.filter((s) => s !== TASK_STATE.needs_validation));
+const SPEC_AMENDABLE_STATUSES = LIVE;
 // A running task also hands off, through reReviewAdmission, to re-review a FAILed commit.
-const HANDOFF_STATUSES = new Set(['completed', 'needs_validation']);
+const HANDOFF_STATUSES = AWAITING_CLOSE;
 
 // A closed task also hands off for a per-task review when it closed under
 // agile and is still queued for review at its current commit; it stays closed.
@@ -2640,7 +2641,7 @@ export function compositeTools(
           [taskId],
         );
         if (!task) return err(`task_update_spec: task ${taskId} not found`);
-        if (!SPEC_AMENDABLE_STATUSES.has(task.status)) {
+        if (!inGroup(SPEC_AMENDABLE_STATUSES, task.status)) {
           return err(
             `task_update_spec: task ${taskId} is '${task.status}'; only pending, running, needs_validation or completed tasks ` +
               `are amended. Reopen a closed, failed or escalated task with task_reopen (files_add / verification_add).`,
@@ -2909,7 +2910,7 @@ export function compositeTools(
           // instead of recomputing the diff — and, once closed, the extras
           // bro_atomic_close accepted for that commit.
           const handoff = scopeRecordFor<HandoffScope>(db, 'review_handoff', task.id, task.commit_sha);
-          const closeScope = task.status === 'closed' ? scopeRecordFor<CloseScope>(db, 'bro_verification_pass', task.id, task.commit_sha) : null;
+          const closeScope = inGroup(DONE, task.status) ? scopeRecordFor<CloseScope>(db, 'bro_verification_pass', task.id, task.commit_sha) : null;
           const movedFrom = handoff ?? closeScope;
           const scope = {
             files: parseTaskFiles(task.files),
@@ -3714,8 +3715,8 @@ export function compositeTools(
               `a passing verification run is recorded for the commit and its latest task_rework_analysis, dated after that FAIL, names ${RE_REVIEW_CHANGE}.`,
           );
         }
-        const agileQueued = task.status === 'closed' && agileReviewPending(db, task.id);
-        if (reReview === null && !HANDOFF_STATUSES.has(task.status) && !agileQueued) {
+        const agileQueued = inGroup(DONE, task.status) && agileReviewPending(db, task.id);
+        if (reReview === null && !inGroup(HANDOFF_STATUSES, task.status) && !agileQueued) {
           return err(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation", ` +
               `or "closed" under workflow_mode agile and still queued for review at its commit_sha. ` +
@@ -3729,7 +3730,7 @@ export function compositeTools(
         if (!commitSha) {
           return err(
             `commit_sha_missing: task ${task.id} records no commit_sha. Resume the swe on task_id=${task.id} to call ` +
-              `task_update_status(status='completed', commit_sha=<sha>), then retry review_handoff.`,
+              `task_update_status(status='${TASK_STATE.completed}', commit_sha=<sha>), then retry review_handoff.`,
           );
         }
         const gateError = handoffGateError(db, handedOff, commitSha);
@@ -3810,7 +3811,7 @@ export function compositeTools(
           [taskId],
         );
         if (!task) return err(`No task with id=${taskId}`);
-        if (task.status !== 'completed' && task.status !== 'needs_validation') {
+        if (!inGroup(AWAITING_CLOSE, task.status)) {
           return err(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
               `bro_atomic_close runs after SWE flips status to completed and code-reviewer passes the commit.`,
@@ -3985,7 +3986,7 @@ export function compositeTools(
 
         // Idempotent: already-closed (or any non-recoverable status) → no-op
         // naming the status. Never throws on an already-recovered task.
-        if (current.status !== 'pending' && current.status !== 'completed') {
+        if (current.status !== TASK_STATE.pending && current.status !== TASK_STATE.completed) {
           return ok({
             recovered: false,
             action: 'noop',

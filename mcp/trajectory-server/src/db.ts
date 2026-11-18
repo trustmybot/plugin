@@ -14,6 +14,7 @@ import {
 } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
+import { ISSUE_STATE } from './task-states.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 import { sqlText, taskStatusUpdateSql } from './task-status.js';
 
@@ -2301,7 +2302,7 @@ function migrateV32toV33(db: DatabaseSync): void {
       const leaked = db
         .prepare(
           `SELECT t.id, t.issue_id, t.branch_id, t.status FROM tasks t JOIN issues i ON i.id = t.issue_id
-            WHERE i.status = 'closed' AND t.status IN ('pending','running','needs_validation','completed')
+            WHERE i.status = '${ISSUE_STATE.closed}' AND t.status IN ('pending','running','needs_validation','completed')
             ORDER BY t.id`,
         )
         .all() as Array<{ id: number; issue_id: number; branch_id: string; status: string }>;

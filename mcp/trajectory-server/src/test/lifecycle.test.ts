@@ -411,7 +411,7 @@ describe('issue_close: review evidence for closed tasks', () => {
   it('the cleanup-worktree-on-task-close gate queries the shared pass rule', () => {
     const src = gateSource('cleanup-worktree-on-task-close');
     assert.match(src, /^import \{ HAS_PASS_SQL \} from '\.\.\/review-sql\.js';$/m);
-    assert.match(src, /t\.status='closed' AND \$\{HAS_PASS_SQL\}/);
+    assert.match(src, /\$\{statusIn\('t', DONE\)\} AND \$\{HAS_PASS_SQL\}/);
   });
 
   it('cli.js integrate queries the shared pass rule', () => {

@@ -30,6 +30,7 @@ import {
 import { jqCompact, jsonStream } from './lib/jq.js';
 import { installRoot, jqRawText, posixBasename, posixDirname } from './lib/project-env.js';
 import { localeCollates } from './lib/scope-fence.js';
+import { ACTIVE, statusIn } from '../task-states.js';
 
 export const GATE_NAME = 'session-start-prescan';
 
@@ -443,7 +444,7 @@ export async function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: strin
 
   const counts = sqliteRo(
     db,
-    "SELECT\n  (SELECT COUNT(*) FROM issues WHERE status='open'),\n  (SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running'));",
+    `SELECT\n  (SELECT COUNT(*) FROM issues WHERE status='open'),\n  (SELECT COUNT(*) FROM tasks WHERE ${statusIn('', ACTIVE)});`,
     env,
   ).split('\n')[0];
   const [openIssues = '', pendingTasks = ''] = counts.split('|');

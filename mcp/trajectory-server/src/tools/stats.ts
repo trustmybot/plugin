@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { elapsedMs, reworkCount, SWE_SPAWN_SQL } from '../task-rework.js';
+import { DONE, inGroup } from '../task-states.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -238,7 +239,7 @@ export function reworkStats(db: StatsReader, taskId: number, now: Date): ReworkS
   );
   const spawns = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`, [taskId]);
   const sweSpawnCount = spawns?.n ?? 0;
-  const endedAt = task?.status === 'closed' ? new Date(task.updated_at) : now;
+  const endedAt = task && inGroup(DONE, task.status) ? new Date(task.updated_at) : now;
   return {
     wall_clock_ms: task ? elapsedMs(task.created_at, endedAt) : null,
     review_fail_count: fails?.n ?? 0,

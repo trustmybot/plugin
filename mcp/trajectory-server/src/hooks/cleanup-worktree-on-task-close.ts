@@ -13,6 +13,7 @@
  * It needs neither jq nor the sqlite3 CLI.
  */
 import { HAS_PASS_SQL } from '../review-sql.js';
+import { DONE, statusIn, TASK_STATE } from '../task-states.js';
 import { taskLocation } from './lib/agent-context.js';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { branchSlug, dbPath, haveSqlite, sqlInt, sqliteRo } from './lib/db.js';
@@ -89,14 +90,14 @@ export async function cleanupWorktree(payload: string, env: NodeJS.ProcessEnv, s
     if (jqCapture(input, ['tool_input', 'verdict']) !== 'pass') return ALLOW;
   } else if (tool.endsWith('task_update_status')) {
     if (jqCapture(input, ['tool_input', 'agent']) !== 'bro') return ALLOW;
-    if (jqCapture(input, ['tool_input', 'status']) !== 'closed') return ALLOW;
+    if (jqCapture(input, ['tool_input', 'status']) !== TASK_STATE.closed) return ALLOW;
   }
   const safeId = sqlInt(taskId);
   if (safeId === '') return ALLOW;
   const db = dbPath(env);
   if (db === null || db === '' || !isFile(db) || !haveSqlite(env)) return ALLOW;
   if (closesAfterPass) {
-    const passed = sqliteRo(db, `SELECT 1 FROM tasks t WHERE t.id=${safeId} AND t.status='closed' AND ${HAS_PASS_SQL};`, env);
+    const passed = sqliteRo(db, `SELECT 1 FROM tasks t WHERE t.id=${safeId} AND ${statusIn('t', DONE)} AND ${HAS_PASS_SQL};`, env);
     if (passed !== '1') return ALLOW;
   }
   const branch = sqliteRo(db, `SELECT branch_id FROM tasks WHERE id=${safeId} LIMIT 1;`, env);

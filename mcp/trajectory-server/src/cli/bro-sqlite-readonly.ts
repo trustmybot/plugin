@@ -12,6 +12,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node
 import { walCold } from '../hooks/lib/db.js';
 import { posixDirname } from '../hooks/lib/project-env.js';
 import { loadNodeSqlite } from '../hooks/lib/sqlite-shell.js';
+import { ACTIONABLE, ISSUE_STATE, statusIn, TASK_STATE } from '../task-states.js';
 import { type CliIo, dbNotFoundJson, digitsOr, fallbackDbPath, isFile } from './fallback-db.js';
 import { type PyDict, type PyValue, pyDumps, pyLoads, pyStr } from './py-json.js';
 
@@ -47,7 +48,7 @@ const ISSUE_SQL =
   'SELECT id, objective, description, status, created_at, updated_at, closed_at, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?;';
 const ISSUE_FULL_SQL = 'SELECT * FROM issues WHERE id = ?;';
 const FIRST_ACTIONABLE_SQL =
-  "SELECT * FROM tasks WHERE issue_id = ? AND status IN ('pending','failed') ORDER BY branch_id ASC LIMIT 1;";
+  `SELECT * FROM tasks WHERE issue_id = ? AND ${statusIn('', ACTIONABLE)} ORDER BY branch_id ASC LIMIT 1;`;
 
 class Exit extends Error {
   constructor(readonly code: number) {
@@ -226,7 +227,7 @@ function runTool(tool: ReadTool, args: string, s: ReadSession): { out: string; c
       const issueRows = s.rows('SELECT id, status FROM issues WHERE id = ?;', [id]);
       if (issueRows.length === 0) throw new ToolError(`Not found: ${id}`);
       const countRows = s.rows(
-        "SELECT COUNT(*) as tasks_total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as tasks_completed, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as tasks_failed FROM tasks WHERE issue_id = ?;",
+        `SELECT COUNT(*) as tasks_total, SUM(CASE WHEN status='${TASK_STATE.completed}' THEN 1 ELSE 0 END) as tasks_completed, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as tasks_failed FROM tasks WHERE issue_id = ?;`,
         [id],
       );
       const counts = countRows[0] ?? new Map<string, PyValue>();
@@ -235,7 +236,7 @@ function runTool(tool: ReadTool, args: string, s: ReadSession): { out: string; c
       const completed = count('tasks_completed');
       const status = issueRows[0].get('status') ?? '';
       const phase =
-        status === 'closed'
+        status === ISSUE_STATE.closed
           ? 'done'
           : Number(total) === 0
             ? 'discussion'

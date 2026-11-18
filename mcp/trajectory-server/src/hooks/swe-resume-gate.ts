@@ -18,6 +18,7 @@ import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote } from './lib/d
 import type { DenyFix } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
 import { denyPreToolUse, denyUnreadable, reworkLimitVerdict } from './rework-limit.js';
+import { DONE, inGroup } from '../task-states.js';
 
 export const GATE_NAME = 'swe-resume-gate';
 
@@ -57,7 +58,7 @@ export const sweResumeGate: SyncGate = (payload, env) => {
   if (out === GATE_READ_ERROR) return denyUnreadable(GATE_NAME, env);
   if (out === '') return ALLOW;
   const target = JSON.parse(out.split('\n')[0]) as SweTarget;
-  if (target.status === 'closed') return ALLOW;
+  if (inGroup(DONE, target.status)) return ALLOW;
   const verdict = reworkLimitVerdict(GATE_NAME, db, String(target.task_id), env);
   if (verdict !== ALLOW) return verdict;
   if (target.run_effort !== null && target.task_effort !== null && target.run_effort !== target.task_effort) {
