@@ -141,12 +141,14 @@ Every task of both kinds moves through one state machine, and every move is reco
 ```mermaid
 stateDiagram-v2
     [*] --> pending: provisioned
-    pending --> running: author spawned
+    pending --> running: author spawned, or bro begins a task it writes itself
     running --> pending: spawn rolled back
     running --> submitted: author closes, checks pass
-    running --> failed: policy deny, spec contradiction, broken environment, or stale with no live author
+    running --> failed: policy deny, spec contradiction, broken environment, or its author's process is gone
+    running --> submitted: bro hands an unchanged commit back for a re-review
     submitted --> in_review: handed to code-reviewer
     in_review --> reviewed: verdict pass
+    reviewed --> running: bro reopens for a design misfit
     in_review --> running: verdict fail, reopened at high effort
     in_review --> closed: branch merged outside the flow, recorded as a bypass
     reviewed --> closed: bro closes; or the branch merges outside the flow; or an agile task's feature branch merges
@@ -161,6 +163,9 @@ stateDiagram-v2
     review_deferred --> running: bro reopens, before the task is folded into its feature branch
     in_review --> review_deferred: verdict fail on a task reviewed on request
     review_deferred --> cancelled: its feature branch is dropped
+    batch_reviewed --> cancelled: its feature branch is dropped
+    waived --> cancelled: its feature branch is dropped
+    reviewed --> cancelled: its feature branch is dropped
     batch_reviewed --> closed: the feature branch merges
     waived --> closed: the feature branch merges; or bro closes a task whose own review the Human waived
     submitted --> running: bro reopens
@@ -171,6 +176,8 @@ stateDiagram-v2
     running --> superseded: retried as a new task
     submitted --> superseded: retried as a new task
     failed --> superseded: retried as a new task
+    in_review --> superseded: retried as a new task
+    reviewed --> superseded: retried as a new task
     closed --> superseded: integrate conflict, retried as a new task
     pending --> cancelled: its issue closes
     running --> cancelled: its issue closes
@@ -183,17 +190,26 @@ stateDiagram-v2
 - **The lifecycle schema (GH 3224) renames three states**, so each name means what it means in other workflow tools. Sections 3.1 to 3.4 and [AGILE.md](AGILE.md) keep today's names until it ships. It is named by its issue, not by a schema version: version 75 went to the task overlay.
   - Completed becomes submitted. The author has submitted the work and its checks passed, but review is still ahead, and elsewhere completed means finished for good.
   - Queued becomes review-deferred. The task already ran and merged into its feature branch; only its review waits, and elsewhere queued means not started.
-  - Escalated splits into superseded and cancelled. The migration moves each escalated task to superseded when another task retries it, and to cancelled otherwise.
+  - Escalated splits into superseded and cancelled. The migration moves each escalated task to superseded when another task retries it. One that nothing retried is not migrated blind: it becomes failed, which bro can still reopen, and bro judges each at its next session, cancelling the ones whose work is over.
 - **Closed is not final.** A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
 - **Closing an issue ends its open work.** Live tasks are cancelled, and no new task picks up their work. Review-deferred, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
+- **One writer.** Every status change goes through one writer, in two steps (GH 3224). First each path that sets a status today is routed through that writer, with no schema change. Then the writer records the event with the status, and the DB rejects a status written any other way. Today about ten paths set it directly, some from other processes.
+- **A move that cannot be recorded does not happen.** When the event cannot be written, the action it records is denied: a spawn whose start cannot be recorded does not start, and bro retries. A repeat of a recorded event, or a move another writer already made, writes nothing and fails nothing.
+- **Old tasks get one event.** At the migration each task gets one backfilled event that states its current state. An open task takes the state its records show, not only a renamed one: a task already handed to review becomes in review, and one with a pass for its commit becomes reviewed.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each event names the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The table below gives the record each move requires, and the DB refuses a move without it.
 - **No bypass is silent.** bro can take one of the chart's moves by hand, for example to free a wedged task, without the record that move usually rests on. Such a move rests on bro's recorded decision instead, carries the manual cause, and must carry a note saying why; the DB refuses it without the note. The same holds for every bypass: it is recorded with its reason, never taken quietly.
 - **An exempt repo's task closes unreviewed, on the record.** In a repo whose mode is exempt ([GIT.md](GIT.md#multi-repo-workspaces)) a task closes with no review and records exempt as its mode (shipped, GH 3281). Planned with the lifecycle events (GH 3224): the move from submitted to closed carries a cause that names the repo's mode.
 - **Facts that change no state are events too.** An amended spec, a commit changed by a rebase and a checkpoint each write an event that keeps the task's state and names what changed.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes with its review deferred, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
 - **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review. A pass leaves it reviewed until its feature branch merges. A fail returns it to review-deferred with its findings open: bro reopens it when it is not yet folded into the feature branch, and otherwise files the findings as a fix task on that branch. When its feature branch is dropped, it is cancelled.
-- **The fold is a fact, not a move.** Folding an agile task into its feature branch keeps the task's state and is recorded as an event.
-- **Review is the default, and only the Human waives it.** Every task is reviewed before its push, bro's own no-code tasks included, because an author's check of its own work is no gate. The Human can waive the review of one task or of a named set, such as the docs PRs of one session; bro never waives on its own. The waiver is recorded in the Human's words and the task becomes waived, which is its own event and no bypass. A task that merges with neither a review nor a waiver is still a bypass. Planned (GH 3275); today such a task closes only through the recovery step, with a bypass record.
+- **The fold is a fact, not a move.** Folding an agile task into its feature branch keeps the task's state and is recorded as an event. The task is review-deferred from bro's close, so for a short time it is deferred and not yet on the branch; the grouped review takes it only once it is folded.
+- **A verdict that cannot judge keeps the task in review.** When code-reviewer cannot judge the commit, the task stays in review and the open question is recorded as a fact.
+- **Review is the default, and only the Human waives it.** Every task is reviewed before its push, bro's own no-code tasks included, because an author's check of its own work is no gate. The Human can waive the review of one task or of a named set, such as the docs PRs of one session; bro never waives on its own. A task that merges with neither a review nor a waiver is a bypass. Planned (GH 3275); today such a task closes only through the recovery step, with a bypass record.
+- **What a waiver is.** A waiver is the Human's recorded decision that named work merges without the review its mode requires. It is its own record: the question bro asked, the Human's answer word for word, and its scope. Only a session the Human is talking to can record one.
+  - **Scope.** One task, a listed set, one issue, or one session's no-code tasks. It can be given in advance: each matching task takes it when it is submitted, and a standing waiver ends with its session.
+  - **What it covers.** The commit it was given for, and a rebase that leaves the patch unchanged. A reopened task, or one whose patch changed, needs a review or a new waiver. A waived commit passes the push gate as a reviewed one does.
+  - **When the scope is wide.** A waiver that would cover most of an issue or a session is a sign the mode is wrong: bro suggests switching to agile or exempt instead, and the Human decides.
+  - **Everything else is a bypass.** bro's own waiver at an issue close, with a short reason, is a bypass and is recorded as one.
 - **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed, superseded or cancelled closes, and each one with no passing review gets a bypass record.
 - **Reviewed and batch-reviewed stay apart.** Reviewed means code-reviewer passed that one task's commit. Batch-reviewed means it passed the task's group in the feature branch's net diff, and the move points at that review batch.
 - **Retries keep their lineage.** The task that replaces a superseded one names the task it retries, so a chain of retries reads as one line.

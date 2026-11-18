@@ -114,7 +114,7 @@ flowchart TD
 
 - **Last activity needs no heartbeat.** It is the newest event under the record: a hook run under an agent run, an agent run under a session.
 - **A sweep ends a record; it never deletes one.** The swept record keeps its start, and its end names the sweep.
-- **Stalled is a judgment, not a limit.** No fixed time ends or flags a run. bro compares a run with the recorded run times of its kind, the same statistics the dashboard shows, and probes one that has passed the median. A long test run and a hang look the same from outside, so bro reads the run's events before it calls it stalled.
+- **Stalled is a judgment, not a limit.** No fixed time ends or flags a run. bro compares a run with the past month's run times of its kind, the same statistics the dashboard shows. Past the median bro makes a light probe: it reads the run's latest events without interrupting it. Past the 75th percentile it makes a deeper one: it asks the agent for its state and tells the Human. With no recorded runs of the kind, bro flags nothing on time alone. Today the recovery step still fails a running task after a fixed six hours with no open run; that window goes (GH 3260). A long test run and a hang look the same from outside, so bro reads the run's events before it calls it stalled.
 - **Stalled is not dead.** A run whose process is alive is reported, never ended. Only the Human or the host kills it.
 - **Waiting is a recorded state of mind.** An agent that is waiting on the Human or on another lane writes what it waits on, so a quiet session reads as waiting, not stuck.
 
