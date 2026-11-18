@@ -54,6 +54,7 @@ import { repoDefaultBranch, repoResolve } from './lib/repo.js';
 import { normalizeRole } from './lib/role.js';
 import { sweStopCause } from './swe-stop-cause.js';
 import { toolOutputSize } from './tool-output-size.js';
+import { taskStatusUpdateSql } from '../task-status.js';
 
 export const GATE_NAME = 'swe-atomic-close';
 
@@ -652,8 +653,8 @@ SELECT 1 FROM tasks
       context = `SWE for task #${taskId} stopped with commits at ${wtHead} but no passing verification run for that commit, so the task stays ${taskStatus}. Resume the swe so it closes through task_update_status(status='completed'), whose gate runs the changelog and doc checks and verification[] on HEAD.`;
     } else if (hasCommits) {
       decision = 'auto-completed';
-      const safeWtHead = sqlQuote(wtHead);
-      safeNow = sqlQuote(nowIso());
+      const closedAt = nowIso();
+      safeNow = sqlQuote(closedAt);
       const closeJson = jqCompact({
         task_id: jqNumber(safeTaskId),
         commit_sha: wtHead,
@@ -676,7 +677,11 @@ SELECT 1 FROM tasks
       const closeAuditSql = audit.code === 0 ? audit.sql : '';
       const closed = write(
         db,
-        `UPDATE tasks SET status='completed', commit_sha='${safeWtHead}', updated_at='${safeNow}', completed_at='${safeNow}', checkpoint=NULL WHERE id=${safeTaskId};
+        `${taskStatusUpdateSql({
+          status: 'completed',
+          set: { commit_sha: wtHead, updated_at: closedAt, completed_at: closedAt, checkpoint: null },
+          where: `id=${safeTaskId}`,
+        })};
 ${closeAuditSql}`,
         env,
         out,

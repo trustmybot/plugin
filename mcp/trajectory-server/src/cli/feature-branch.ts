@@ -48,6 +48,7 @@ import { dbPath, GATE_READ_ERROR, gateRead, sqlQuote } from '../hooks/lib/db.js'
 import { commandSubstitution, shellPwd } from '../hooks/lib/project-env.js';
 import { repoGitRoot, repoNameForRoot } from '../hooks/lib/repo.js';
 import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
+import { taskStatusUpdateSql } from '../task-status.js';
 import type { CliIo } from './fallback-db.js';
 import { runTaskRebase, TaskRebase } from './integrate.js';
 
@@ -196,13 +197,18 @@ class FeatureBranch extends TaskRebase {
     const issue = `COALESCE((SELECT t.issue_id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id LIMIT 1),
     (SELECT l.issue_id FROM tasks l WHERE ${this.onBranchSql('l', name)} ORDER BY l.id LIMIT 1), -1)`;
     const taskIds = `(SELECT json_group_array(id) FROM (SELECT t.id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id))`;
+    const escalateQueued = taskStatusUpdateSql({
+      status: 'escalated',
+      alias: 't',
+      set: { completed_at: null, updated_at: now },
+      where: `${this.queuedSql(name)} AND ${this.noLiveTaskSql(name)}`,
+    });
     return `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
   SELECT ${issue}, '${branch}', 'bro', '${DROPPED_EVENT}', '${sqlQuote(`feature branch ${name} dropped; its queued tasks escalated`)}',
     json_object('feature_branch', '${branch}', 'repo', '${repo}', 'task_ids', json(${taskIds})), '${repo}', '${now}'
   WHERE ${this.noLiveTaskSql(name)};
 SELECT changes();
-UPDATE tasks AS t SET status = 'escalated', completed_at = NULL, updated_at = '${now}'
-  WHERE ${this.queuedSql(name)} AND ${this.noLiveTaskSql(name)};
+${escalateQueued};
 SELECT content_json FROM audit WHERE id = last_insert_rowid() AND event_type = 'feature_branch_dropped';`;
   }
 

@@ -15,6 +15,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
+import { sqlText, taskStatusUpdateSql } from './task-status.js';
 
 export const TARGET_SCHEMA_VERSION = 76;
 
@@ -2311,7 +2312,11 @@ function migrateV32toV33(db: DatabaseSync): void {
           )
         : null;
       const escalate = db.prepare(
-        `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ${ISO_NOW_SQL} WHERE id = ?`,
+        taskStatusUpdateSql({
+          status: 'escalated',
+          set: { completed_at: null, updated_at: sqlText(ISO_NOW_SQL) },
+          where: 'id = ?',
+        }),
       );
       const closeRuns = db.prepare(
         `UPDATE agent_runs
