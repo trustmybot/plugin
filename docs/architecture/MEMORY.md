@@ -59,12 +59,22 @@ Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or `TMB_TEST_RUN_ID`) the hooks neve
 
 | DB state | Meaning | Gates that can deny | Advisory hooks |
 |---|---|---|---|
-| unresolved | No DB anywhere, or no SQLite backend | Allow | Silent no-op |
+| unresolved | No DB anywhere. Today a missing SQLite backend also counts as unresolved; planned (GH 3260): when a DB file exists and SQLite is missing, gates deny | Allow | Silent no-op |
 | needs migration | The only DB found predates the current task schema and has not been migrated yet | Deny, naming the migration that has not run (planned, GH 3260; today this counts as unresolved and allows) | Allow, print one stderr line |
+| newer than the plugin | The DB was migrated by a newer plugin than the one running: a downgrade, or two channels in one project | Planned (GH 3260): deny at session start and name the plugin version to upgrade to; nothing downgrades a DB. A session already open when another session migrates keeps running until its restart. Today the tools vanish and the gates decide against a schema they do not know | Allow, print one stderr line |
 | ok | The DB answers a read | Decide normally | Run normally |
 | error | The DB resolved but the read failed: busy, corrupt, or unreadable | Deny with `BLOCKED: trajectory DB unavailable — <hook> could not read <path> …` | Allow, print one stderr line |
 
 Failing closed on an unreadable DB keeps a gate from admitting what it cannot check; allowing when there is no DB keeps TMB out of projects it never touched. A project that has a DB is TMB's, so TMB works there only when its health check is green: a DB that still needs its migration denies like an unreadable one. A DB the server created for a project that has not finished first contact is `ok`: gates decide normally, and bro's first turn runs first contact.
+
+### When the health check is not green
+
+Planned (GH 3260); the Human decided these on 2026-11-18. Today a DB that cannot be read denies every Bash call and every file write, so the agent cannot run the health check or read a log.
+
+- **What not green means.** The trajectory DB or the world model is unreadable, needs its migration or is newer than the plugin, or the trajectory server is not running. A warning of the health check never makes it not green.
+- **What is denied.** Writes and workflow actions: file writes, commits and pushes, task and issue changes, agent spawns. Read-only commands and the health check stay allowed, so the agent can see what is wrong and tell the Human.
+- **A migration in progress is waited for.** At the start of an upgraded session the server may still be migrating. A gate that finds the DB mid-migration waits a short time and reads again before it denies.
+- **The way out is in the message.** Each deny names the state and the step that clears it: restart for a migration that has not run, the version to install for a newer DB, the backup to restore for a migration that failed.
 
 ## Every agent
 
