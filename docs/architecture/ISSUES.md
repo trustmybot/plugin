@@ -52,7 +52,7 @@ flowchart TD
 
 - **A project starts with labels that work.** TMB ships a ready environment, and labels are part of it: with no knowledge of a project, bro cannot invent good ones. So every group has a shipped default, and a new project can file and find issues from its first session.
 - **Four groups mean the same everywhere:** the types, the priorities, the triage status and the two decision values.
-- **Themes start from a short shipped list** of problems common to software projects, such as a design gap, docs that have drifted from the code, a regression and technical debt. The project drops what it does not use.
+- **Themes start from a shipped list of four** problems common to software projects: a design gap, docs that have drifted from the code, a regression, and technical debt. The project drops what it does not use and adds its own.
 - **Areas come from the project, once TMB knows it.** bro proposes areas only after the first scan, from the world model: the project's main parts, what their READMEs say they are, and the paths each one covers, so an area can later be inferred from the paths an issue names. The Human edits the list ([ONBOARD.md](ONBOARD.md)). In a repo with no code yet, bro proposes none and asks again when a scan first finds some.
 - **Everything can be changed.** The Human can rename, add or drop any label, in any group, per project. The per-issue rules follow the project's own list.
 - **A project that already has labels keeps them.** bro offers a mapping from the existing labels to the groups, and nothing on the forge is renamed, created or removed without the Human's yes. A label the mapping leaves out stays on its issues and is ignored by the rules.
