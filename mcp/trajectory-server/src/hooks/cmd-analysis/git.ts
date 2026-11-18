@@ -663,6 +663,7 @@ export function gitSubcommandUnknown(statement: SubcommandInput): boolean {
 const CONTINUATION = /\\\n/g;
 const UNQUOTE = /['"\\]/g;
 const GIT_WORD = /\bgit\b/;
+const XARGS_WORD = /\bxargs\b/;
 const EXPANDS = /[$`*?[{]/;
 
 /** <command> with its line continuations joined and its quotes and backslashes dropped: the text a keyword prefilter reads, so `g''it` or `che"ck"out` is not missed (GH 2634, GH 2641). */
@@ -691,9 +692,53 @@ export function gitBesideExpansion(command: string): boolean {
   return GIT_WORD.test(bare) && (EXPANDS.test(bare) || ENCODED_BYTE.test(bare));
 }
 
+/** prefilterPasses with the keyword test "holds a git word and an `xargs` word": a command a keyword prefilter must hand to parsing, since xargs may give git a subcommand or argument the command never names (GH 2850). */
+export function gitBehindXargs(command: string): boolean {
+  return prefilterPasses(command, (text) => GIT_WORD.test(text) && XARGS_WORD.test(text));
+}
+
 /** The deny reason for the git statement <what> whose subcommand is unknown, the guard unable to tell whether it <verb> (GH 2634, GH 2641). */
 export function ambiguousSubcommandReason(what: string, verb: string): string {
   return `BLOCKED: ambiguous_git_subcommand: \`${what}\` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement ${verb}. Write the subcommand and git's options before it literally.`;
+}
+
+/**
+ * Whether git in <statement> runs behind `xargs`, which adds the words it
+ * reads from its input to git's, so a gate cannot read every argument git
+ * gets (GH 2144, GH 2850); the `wrappers` the listing stripped count.
+ */
+export function gitFedByXargs(statement: SubcommandInput): boolean {
+  const { stmt, wrappers } = typeof statement === 'string' ? { stmt: statement, wrappers: undefined } : statement;
+  const w = readWords(stmt);
+  return gitWord(wrappers === undefined ? w : [...readWords(wrappers), ...w])?.xargs === true;
+}
+
+/** The deny reason for the git statement <what> that runs git through xargs, the guard unable to tell whether it <verb> (GH 2144, GH 2850). */
+export function xargsArgumentsReason(what: string, verb: string): string {
+  return `BLOCKED: ambiguous_git_arguments: \`${what}\` runs git through xargs, which adds the words it reads from its input to git's arguments, so the guard cannot tell whether the statement ${verb}. Run git with its arguments written literally.`;
+}
+
+/**
+ * Per `${dir}\t${stmt}` line of <statements>: the `wrappers` the listing
+ * stripped from the statement that line starts, undefined on every other
+ * line, so a gate reading one line at a time still sees `env $X` before
+ * `git` (GH 2808).
+ */
+export function lineWrappers(statements: readonly Statement[]): Array<string | undefined> {
+  return statements.flatMap(({ dir, stmt, wrappers }) => {
+    const rest = `${dir}\t${stmt}`.split('\n').length - 1;
+    return [wrappers, ...new Array<undefined>(rest).fill(undefined)];
+  });
+}
+
+/** <rows>, one per `${dir}\t${stmt}` line of <statements>, each row a statement starts given that statement's `wrappers` in place (lineWrappers, GH 2808). */
+export function rowsWithWrappers<T extends Record>(rows: T[], statements: readonly Statement[]): T[] {
+  const wrappers = lineWrappers(statements);
+  rows.forEach((row, i) => {
+    const lead = wrappers[i];
+    if (lead !== undefined) row.wrappers = lead;
+  });
+  return rows;
 }
 
 /** The index of git's subcommand in a git statement's words: past git's own options. */

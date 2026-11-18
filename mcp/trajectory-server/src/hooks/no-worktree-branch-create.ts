@@ -2,8 +2,11 @@
  * PreToolUse gate (GH 1692): `git worktree add` may neither create a branch (-b/-B/--create-branch,
  * bypass TMB_ALLOW_WORKTREE_BRANCH_CREATE=1) nor detach (--detach, bypass
  * TMB_ALLOW_WORKTREE_DETACH=1) once a trajectory DB resolves, nor may a git
- * statement whose subcommand is not literal text (gitSubcommandOf, GH 2641);
- * a DB read error denies.
+ * statement whose subcommand is not literal text (gitSubcommandOf, GH 2641),
+ * a wrapper the listing stripped with a non-literal word included (`env $X
+ * git …`, GH 2808), nor a worktree add run through xargs, whose input may
+ * add either flag (GH 2850, admitted only with both bypasses set); a DB read
+ * error denies.
  *
  * A command tree-sitter-bash cannot parse is a violation denied with
  * git-guards' PARSE_REASON once the DB resolves. The payload is read with no
@@ -11,7 +14,18 @@
  */
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
-import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, type Statement } from './cmd-analysis/index.js';
+import {
+  ambiguousSubcommandReason,
+  cmdStatements,
+  gitBehindXargs,
+  gitBesideExpansion,
+  gitFedByXargs,
+  gitSubcommandOf,
+  prefilterPasses,
+  rowsWithWrappers,
+  type Statement,
+  xargsArgumentsReason,
+} from './cmd-analysis/index.js';
 import { dbPath, dbState, denyDbUnavailable } from './lib/db.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -32,17 +46,23 @@ const WORKTREE_ADD_FIX: DenyFix = {
 
 const DETACH_FIX: DenyFix = { allowed: 'git worktree add <path> <branch>' };
 const UNKNOWN_FIX: DenyFix = { allowed: 'git -C <path> worktree add <path> <branch>, the subcommand written literally' };
+const XARGS_FIX: DenyFix = { allowed: 'git -C <path> worktree add <path> <branch>, its arguments written literally' };
+/** A worktree add, or a bare `worktree` whose action xargs may supply. */
+const WORKTREE_ADD = /^worktree($| add( |$))/;
 
 type Violation = readonly [string, DenyFix];
 
 function violationOf(statements: readonly Statement[], env: NodeJS.ProcessEnv): Violation | null {
-  for (const row of statementRows(statements)) {
+  const branchCreateAllowed = (env.TMB_ALLOW_WORKTREE_BRANCH_CREATE ?? '0') === '1';
+  const detachAllowed = (env.TMB_ALLOW_WORKTREE_DETACH ?? '0') === '1';
+  for (const row of rowsWithWrappers(statementRows(statements), statements)) {
     const sub = gitSubcommandOf(row);
     if (sub === undefined) return [ambiguousSubcommandReason(row.src ?? row.stmt, 'adds a worktree'), UNKNOWN_FIX];
-    if (!sub.startsWith('worktree add ')) continue;
+    if (!WORKTREE_ADD.test(sub)) continue;
     const padded = ` ${sub} `;
-    if (CREATES_BRANCH.some((flag) => padded.includes(flag)) && (env.TMB_ALLOW_WORKTREE_BRANCH_CREATE ?? '0') !== '1') return [BRANCH_CREATE_REASON, WORKTREE_ADD_FIX];
-    if (padded.includes(' --detach ') && (env.TMB_ALLOW_WORKTREE_DETACH ?? '0') !== '1') return [DETACH_REASON, DETACH_FIX];
+    if (CREATES_BRANCH.some((flag) => padded.includes(flag)) && !branchCreateAllowed) return [BRANCH_CREATE_REASON, WORKTREE_ADD_FIX];
+    if (padded.includes(' --detach ') && !detachAllowed) return [DETACH_REASON, DETACH_FIX];
+    if (gitFedByXargs(row) && !(branchCreateAllowed && detachAllowed)) return [xargsArgumentsReason(row.src ?? row.stmt, 'adds a worktree that creates a branch or detaches HEAD'), XARGS_FIX];
   }
   return null;
 }
@@ -51,7 +71,7 @@ export const noWorktreeBranchCreate: Gate = async (payload, env) => {
   const input = jqInput(payload);
   if (jqCapture(input, ['tool_name']) !== 'Bash') return ALLOW;
   const command = jqCapture(input, ['tool_input', 'command']);
-  if (!prefilterPasses(command, (text) => text.includes('worktree')) && !gitBesideExpansion(command)) return ALLOW;
+  if (!prefilterPasses(command, (text) => text.includes('worktree')) && !gitBesideExpansion(command) && !gitBehindXargs(command)) return ALLOW;
 
   const listed = await cmdStatements(command, '/', env);
   const violation = listed.ok ? violationOf(listed.statements, env) : ([PARSE_REASON, PARSE_FIX] as const);
