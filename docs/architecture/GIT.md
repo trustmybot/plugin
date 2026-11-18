@@ -158,7 +158,7 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
 2. **Resolution is path-keyed.** An operation belongs to the registered repo whose path contains it: the command's git root for a hook, the task's repo for a task. World-model paths are stored relative to their repo.
 3. **Branch policy is per repo.** Each repo's PR target, branching model and protected branches are recorded with its registration and nowhere else; there is no global fallback. The git guards enforce the policy of the repo the command runs in. The PR-target guard already follows the repo the command names (GH 3278): a repo named on the command line wins over the working directory, a name that matches no registered repo gets no verdict from this guard, and a name the guard cannot read literally falls back to the working directory. Planned (GH 3281): the other guards follow the targeted repo too, and a deny names the repo whose policy it applied.
 4. **Single-repo fallback.** When an operation names no repo and exactly one is registered, it resolves to that repo, so single-repo projects need no repo argument anywhere. With several repos registered, an operation that names none and has no path is refused.
-5. **Each repo has a mode.** Planned (GH 3281). A workspace holds repos that need different amounts of TMB: a product repo, and beside it a private test fixture that never ships. The repo's record says which, and the Human sets it.
+5. **Each repo has a mode.** Partly shipped (GH 3281); the bullets say which parts. A workspace holds repos that need different amounts of TMB: a product repo, and beside it a private test fixture that never ships. The repo's record says which, and the Human sets it.
 
    | Repo mode | What applies in the repo |
    |---|---|
@@ -175,10 +175,11 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
      | A protected branch, CI, several authors or releases | Truest |
      | Nothing clear | Agile, the default |
 
-   - **A scan only indexes.** A repo a scan finds after onboarding is exempt until the Human answers, and bro asks at its first contact with that repo. bro never enforces a guessed policy. Today registration alone turns the guards on, with the repo's default branch as its PR target.
+   - **A scan only indexes.** A repo a scan finds after onboarding is exempt until the Human answers, and bro asks at its first contact with that repo. bro never enforces a guessed policy. Shipped: a scan registers a new repo as exempt and a later scan never changes its mode; at the upgrade, a repo with no confirmed policy became exempt and every onboarded repo kept its rules. The question at first contact is planned; until it ships, onboarding a repo puts it on the project's mode.
+   - **What exempt switches off today.** Shipped: the git guards and the push guard stand down in an exempt repo. Planned: the other rules that still need a task there, such as the guard on editing outside a task, and the close of an exempt repo's task without a review.
    - **A repo left on the project's mode takes it.** The Human can answer "the project's" for a repo, and it then follows the project's review mode, truest or agile, and agile when the project has none stored. The project's mode is never exempt, so one setting cannot switch the rules off in every repo. A lane's review mode still overrides both for a repo that is not exempt. Exempt is final: no lane and no project setting turns the rules back on.
    - **Two things stay on in an exempt repo.** Containment still keeps every write inside the project, and the trajectory still records what ran there. They protect the Human's machine and the record, not the repo's workflow.
    - **A task in an exempt repo is recorded, not gated.** Tasks are optional there. One that exists keeps its lifecycle events, its agent runs and its own checks, and it closes without a review: the close carries a cause naming the repo's mode, so the record says why no review ran.
-   - **Its mode shows.** The repo list and the dashboard show each repo's mode, and a deny names the repo and the mode it applied.
+   - **Its mode shows.** The repo list shows each repo's stored mode and the mode in effect, and a deny names the repo and the mode it applied (shipped). The dashboard showing it is planned.
 
 A global default repo would force one repo to be "the" repo and make the guards guess what to enforce; it breaks as soon as a second repo joins. Path-keyed resolution lets sibling repos coexist with none privileged.
