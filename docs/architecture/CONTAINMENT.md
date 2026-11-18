@@ -24,7 +24,7 @@ Everything sits in the project's state directory: the trajectory DB, logs, short
 - task worktrees, under the project;
 - one ignore line per repo, added at session start. Today it ignores the project's whole Claude folder, which also hides a team install's shared settings, agents and skills from commits; planned (GH 3260): it ignores only TMB's own state, the local settings and the task worktrees;
 - the agent, skill and cheatcode files the Human approved one by one;
-- after a yes during onboarding, the optional headless enforcement shim and the sandbox settings in the project's local Claude Code settings, each entry stamped as TMB's.
+- after a yes during onboarding, the optional headless enforcement shim and the sandbox settings in the project's local Claude Code settings, each entry stamped as TMB's. Planned (GH 3360): the headless shim is cut.
 
 ## Tests never touch the live DB
 
@@ -109,9 +109,11 @@ The default answer comes from evidence: a recorded live probe per platform runs 
 
 The guard still judges temp paths because a live probe showed the sandbox leaves its own temp dir writable by default.
 
+Planned (GH 3360): onboarding stops setting up the sandbox. Whether Claude Code's sandbox is on is the Human's own Claude Code setting. TMB writes no sandbox settings, runs no probe and moves no package cache. In a project where TMB wrote them, it removes only what it added.
+
 ### Planned: Claude Code's sandbox instead of write prediction
 
-(planned, GH 2098) Predicting what an arbitrary program will write cannot be done in general, so the parser both denies legitimate commands and misses real writes. The planned design stops predicting, and TMB builds no sandbox of its own: sandboxing is Claude Code's job. Claude Code's Bash sandbox becomes the hard boundary for Bash, set so that agents cannot write to TMB's own state inside the project. The guard keeps judging the file tools by their target path and does not read Bash commands. Hooks decide only from what the literal input shows and never read an arbitrary program. One limit is accepted: Claude Code's sandbox covers the whole session, so a swe's Bash command can write anywhere in the project, not only in its task's worktree. Deliberate evasion is out of the threat model, since agents make mistakes but do not attack TMB.
+(planned, GH 2098) Predicting what an arbitrary program will write cannot be done in general, so the parser both denies legitimate commands and misses real writes. The planned design stops predicting, and TMB builds no sandbox of its own: sandboxing is Claude Code's job. Where the Human turned on Claude Code's Bash sandbox, it is the hard boundary for Bash. TMB does not set it up, so TMB's own state inside the project gets no wall of its own: it is the Human's data, like the rest of the project. The guard keeps judging the file tools by their target path and does not read Bash commands. Hooks decide only from what the literal input shows and never read an arbitrary program. One limit is accepted: Claude Code's sandbox covers the whole session, so even with it on a swe's Bash command can write anywhere in the project, not only in its task's worktree. Deliberate evasion is out of the threat model, since agents make mistakes but do not attack TMB.
 
 ## Enforcement
 

@@ -2,6 +2,8 @@
 
 How bro acquires cheatcodes (published skills, MCP toolkits and plugins) on demand, and the trust and approval gates on the way. [FLOWS.md](./FLOWS.md) shows where acquiring a capability fits among TMB's other workflows; this page holds the design decisions behind it.
 
+Planned (GH 3360): cheatcodes are cut. The skill creator's attach step also takes a skill the Human downloaded, so a skill still reaches the agent that needs it.
+
 ## Principle
 
 The mechanical pipeline (search, record, vet, install, activate) is deterministic: tools and hooks, not a checklist in a prompt. Only three decisions stay with bro's judgment:

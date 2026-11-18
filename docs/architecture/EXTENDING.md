@@ -64,6 +64,8 @@ When a prompt matches a consultant's domain, a hint suggests routing it to that 
 
 ## 4.5 Roundtable
 
+Planned (GH 3360): the roundtable is cut; consultants stay.
+
 ```mermaid
 flowchart TD
     A{Human typed /roundtable?} -- no --> X[No table, short of an audited waiver with a reason]
