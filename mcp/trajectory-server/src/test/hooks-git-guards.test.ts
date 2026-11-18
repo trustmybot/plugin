@@ -263,7 +263,7 @@ describe('git-guards: a PR/MR create naming -R/--repo is judged by that repo pol
         assert.deepEqual(await judge(`gh pr create ${flag} --base develop --head feat/x`, beta), ALLOW_RESULT, flag);
         const r = reason((await judge(`gh pr create ${flag} --base main --head feat/x`, beta)).stdout);
         assert.match(r, /^BLOCKED: PRs must target develop branch in repo alpha\./, flag);
-        assert.match(r, new RegExp(`Allowed form: gh pr create --repo ${spec.replace(/[.]/g, '\\.')} --base develop --head <branch>$`), flag);
+        assert.ok(r.endsWith(`Allowed form: gh pr create --repo ${spec} --base develop --head <branch>`), `${flag}: ${r}`);
       }
     }
     assert.deepEqual(await judge('gh -R acme/alpha pr create --base develop --head feat/x', beta), ALLOW_RESULT);
@@ -338,7 +338,8 @@ describe('git-guards: a PR/MR create naming -R/--repo is judged by that repo pol
   it('without a readable DB a --repo create gets no verdict, and a cwd create is named by its root', async () => {
     const noDb = { ...env, TRAJECTORY_DB_PATH: join(dir, 'none.db') };
     assert.deepEqual(await judge('gh pr create --repo acme/alpha --base anything', beta, noDb), ALLOW_RESULT);
-    assert.match(reason((await judge('gh pr create --base anything', beta, noDb)).stdout), new RegExp(`^BLOCKED: PRs must target main branch in repo ${beta}\\.`));
+    const cwdDeny = reason((await judge('gh pr create --base anything', beta, noDb)).stdout);
+    assert.ok(cwdDeny.startsWith(`BLOCKED: PRs must target main branch in repo ${beta}.`), cwdDeny);
   });
 
   it('forgeSpecMatchesRemote compares host only when the spec names one, ignoring case, scheme, user, port and .git', () => {
