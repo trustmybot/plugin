@@ -3852,12 +3852,65 @@ function addRepoMode(db: DatabaseSync): void {
   db.exec("UPDATE repos SET mode = 'exempt' WHERE target_branch IS NULL");
 }
 
+// v76 step, tasks.workflow_mode admits exempt (GH 3281). SQLite cannot widen a
+// CHECK in place, so tasks is rebuilt with every row copied unchanged: NULL,
+// truest and agile stay as they are and nothing is backfilled to exempt. The
+// rebuild keeps ids and the AUTOINCREMENT mark, so the child tables' task_id
+// references still resolve; applySchema holds foreign_keys OFF, so the drop
+// cascades nothing, and the tasks indexes come back in the schema.sql reapply.
+function widenTaskWorkflowMode(db: DatabaseSync): void {
+  if (!tableExists(db, 'tasks') || readTableSql(db, 'tasks').includes("'truest','agile','exempt'")) return;
+  rebuildTable(
+    db,
+    'tasks',
+    `
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      issue_id          INTEGER NOT NULL REFERENCES issues(id),
+      branch_id         TEXT    NOT NULL,
+      parent_branch_id  TEXT,
+      title             TEXT    NOT NULL DEFAULT '',
+      description       TEXT    NOT NULL,
+      status            TEXT    NOT NULL DEFAULT 'pending'
+                          CHECK (status IN ('pending','running','needs_validation','completed','closed','failed','escalated')),
+      spec_body         TEXT    NOT NULL DEFAULT '',
+      commit_sha        TEXT,
+      repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+      prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+      files             TEXT    NOT NULL DEFAULT '[]',
+      verification      TEXT    NOT NULL DEFAULT '[]',
+      created_at        TEXT    NOT NULL,
+      updated_at        TEXT    NOT NULL,
+      completed_at      TEXT,
+      effort            TEXT    NOT NULL DEFAULT 'medium'
+                          CHECK (effort IN ('low','medium','high')),
+      completion_report TEXT,
+      spawn_note        TEXT,
+      checkpoint        TEXT,
+      worktree_path     TEXT,
+      worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1)),
+      workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')),
+      base_sha          TEXT,
+      wm_commit         TEXT,
+      no_code_class     TEXT CHECK (no_code_class IS NULL OR no_code_class IN ('docs','prompts'))
+    `,
+    [
+      ['id', 'NULL'], ['issue_id', '0'], ['branch_id', "''"], ['parent_branch_id', 'NULL'], ['title', "''"],
+      ['description', "''"], ['status', "'pending'"], ['spec_body', "''"], ['commit_sha', 'NULL'], ['repo', 'NULL'],
+      ['prompt_bearing', '0'], ['files', "'[]'"], ['verification', "'[]'"], ['created_at', "''"],
+      ['updated_at', "''"], ['completed_at', 'NULL'], ['effort', "'medium'"], ['completion_report', 'NULL'],
+      ['spawn_note', 'NULL'], ['checkpoint', 'NULL'], ['worktree_path', 'NULL'], ['worktree_adopted', '0'],
+      ['workflow_mode', 'NULL'], ['base_sha', 'NULL'], ['wm_commit', 'NULL'], ['no_code_class', 'NULL'],
+    ],
+  );
+}
+
 // v75→v76: one transaction; each schema step is its own guarded, idempotent
 // block, so a later v76 constraint change joins as one more step.
 function migrateV75toV76(db: DatabaseSync): void {
   beginImmediate(db);
   try {
     addRepoMode(db);
+    widenTaskWorkflowMode(db);
     commitTransaction(db);
   } catch (err) {
     try {

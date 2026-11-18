@@ -213,9 +213,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1)),
     -- workflow_mode (v66 GH 2225): plugin_config.workflow_mode as the shared
     -- close path read it when the task closed. NULL for open tasks and for
-    -- tasks closed before v66. Keep this comment comma-free for the same DROP
-    -- COLUMN reason.
-    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile')),
+    -- tasks closed before v66. v76 (GH 3281) also admits exempt: the stamp
+    -- may carry the repo's mode while the project key stays truest or agile.
+    -- Keep this comment comma-free for the same DROP COLUMN reason.
+    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')),
     -- base_sha (v67 GH 2866): the base commit the task worktree was cut from
     -- as the environment gate of task_provision / task_reopen / task_retry
     -- resolved it after its fetch. NULL for tasks created before v67.

@@ -180,7 +180,7 @@ erDiagram
         TEXT checkpoint
         TEXT worktree_path
         INTEGER worktree_adopted "NOT NULL; CHECK worktree_adopted IN (0,1)"
-        TEXT workflow_mode "CHECK workflow_mode IS NULL OR workflow_mode IN ('truest','agile')"
+        TEXT workflow_mode "CHECK workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')"
         TEXT base_sha
         TEXT wm_commit
         TEXT no_code_class "CHECK no_code_class IS NULL OR no_code_class IN ('docs','prompts')"
@@ -745,7 +745,7 @@ Table constraints:
 | `checkpoint` | TEXT | nullable |  |  |
 | `worktree_path` | TEXT | nullable |  |  |
 | `worktree_adopted` | INTEGER | NOT NULL | `0` | CHECK `worktree_adopted IN (0,1)` |
-| `workflow_mode` | TEXT | nullable |  | CHECK `workflow_mode IS NULL OR workflow_mode IN ('truest','agile')` |
+| `workflow_mode` | TEXT | nullable |  | CHECK `workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')` |
 | `base_sha` | TEXT | nullable |  |  |
 | `wm_commit` | TEXT | nullable |  |  |
 | `no_code_class` | TEXT | nullable |  | CHECK `no_code_class IS NULL OR no_code_class IN ('docs','prompts')` |

@@ -7007,6 +7007,89 @@ describe('schema upgrade — v75 -> v76 adds repos.mode (GH 3279)', () => {
   });
 });
 
+describe('schema upgrade — v75 -> v76 widens tasks.workflow_mode to admit exempt (GH 3281)', () => {
+  it('rebuilds tasks keeping every row, child row, index and FK, leaves NULL, truest and agile unchanged, and a re-run is a no-op', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    new TrajectoryDB(dbPath, undefined, MIGRATE).close();
+    const raw = new DatabaseSync(dbPath);
+    raw.exec('PRAGMA foreign_keys = OFF');
+    const tasksSql = (raw.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get() as { sql: string }).sql;
+    const v75TasksSql = tasksSql
+      .replace(/^CREATE TABLE (?:IF NOT EXISTS )?"?tasks"?/, 'CREATE TABLE tasks_v75')
+      .replace("workflow_mode IN ('truest','agile','exempt')", "workflow_mode IN ('truest','agile')");
+    assert.ok(v75TasksSql.startsWith('CREATE TABLE tasks_v75') && !v75TasksSql.includes("'exempt'"), v75TasksSql);
+    raw.exec(`
+      ${v75TasksSql};
+      DROP TABLE tasks;
+      ALTER TABLE tasks_v75 RENAME TO tasks;
+      CREATE UNIQUE INDEX idx_tasks_issue_branch ON tasks(issue_id, branch_id);
+      CREATE INDEX idx_tasks_status ON tasks(status);
+      CREATE INDEX idx_tasks_commit_sha ON tasks(commit_sha);
+      INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (5, 'o', 'open', '2026-11-17T09:00:00.000Z', '2026-11-17T09:00:00.000Z');
+      INSERT INTO tasks (id, issue_id, branch_id, description, status, commit_sha, workflow_mode, created_at, updated_at) VALUES
+        (7, 5, 'feat/7-open', 'd', 'running', NULL, NULL, '2026-11-17T09:00:00.000Z', '2026-11-17T09:00:00.000Z'),
+        (8, 5, 'feat/8-truest', 'd', 'closed', 'abc1234', 'truest', '2026-11-17T09:00:00.000Z', '2026-11-17T10:00:00.000Z'),
+        (9, 5, 'feat/9-agile', 'd', 'closed', 'def5678', 'agile', '2026-11-17T09:00:00.000Z', '2026-11-17T11:00:00.000Z'),
+        (12, 5, 'feat/12-gone', 'd', 'pending', NULL, NULL, '2026-11-17T09:00:00.000Z', '2026-11-17T09:00:00.000Z');
+      DELETE FROM tasks WHERE id = 12;
+      INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
+        VALUES (8, 'abc1234', 'gate', '2026-11-17T09:30:00.000Z', '2026-11-17T09:31:00.000Z', 0, 60);
+      INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at)
+        VALUES (8, 1, 'code-reviewer', 'pass', 1, '2026-11-17T09:45:00.000Z');
+      UPDATE plugin_meta SET schema_version = 75 WHERE id = 1;
+    `);
+    assert.throws(() => raw.exec(`UPDATE tasks SET workflow_mode = 'exempt' WHERE id = 7`), /CHECK/, 'the seeded v75 tasks table refuses exempt');
+    const before = raw.prepare('SELECT * FROM tasks ORDER BY id').all().map((r) => ({ ...r }));
+    raw.close();
+
+    const migrated = new TrajectoryDB(dbPath, undefined, MIGRATE);
+    const fresh = new TrajectoryDB(join(tmpDir, 'fresh.db'));
+    assertSchemaParity(migrated, fresh);
+    assert.equal(migrated.get<{ schema_version: number }>('SELECT schema_version FROM plugin_meta WHERE id = 1')?.schema_version, 76);
+    assert.deepEqual(migrated.all<Record<string, unknown>>('SELECT * FROM tasks ORDER BY id').map((r) => ({ ...r })), before);
+    assert.deepEqual(
+      migrated.all<{ id: number; workflow_mode: string | null }>('SELECT id, workflow_mode FROM tasks ORDER BY id').map((r) => ({ ...r })),
+      [
+        { id: 7, workflow_mode: null },
+        { id: 8, workflow_mode: 'truest' },
+        { id: 9, workflow_mode: 'agile' },
+      ],
+    );
+    assert.equal(migrated.get<{ n: number }>('SELECT COUNT(*) AS n FROM verification_runs WHERE task_id = 8')?.n, 1, 'the drop cascaded nothing');
+    assert.equal(migrated.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = 8')?.n, 1);
+    assert.deepEqual(migrated.all('PRAGMA foreign_key_check'), []);
+    migrated.run(`INSERT INTO tasks (issue_id, branch_id, description, workflow_mode, created_at, updated_at)
+                    VALUES (5, 'feat/x-exempt', 'd', 'exempt', '2026-11-17T12:00:00.000Z', '2026-11-17T12:00:00.000Z')`);
+    assert.equal(
+      migrated.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'feat/x-exempt'`)?.id,
+      13,
+      'the AUTOINCREMENT mark survives the rebuild, so a deleted id is not reused',
+    );
+    assert.throws(
+      () => migrated.run(`INSERT INTO tasks (issue_id, branch_id, description, workflow_mode, created_at, updated_at)
+                            VALUES (5, 'feat/x-other', 'd', 'other', '2026-11-17T12:00:00.000Z', '2026-11-17T12:00:00.000Z')`),
+      /CHECK/,
+    );
+    assert.equal(readdirSync(tmpDir).filter((f) => f.startsWith('trajectory.db.pre-v76.') && f.endsWith('.bak')).length, 1);
+    migrated.close();
+    fresh.close();
+
+    const again = new TrajectoryDB(dbPath, undefined, MIGRATE);
+    assert.deepEqual(
+      again.all<{ id: number; workflow_mode: string | null }>('SELECT id, workflow_mode FROM tasks ORDER BY id').map((r) => ({ ...r })),
+      [
+        { id: 7, workflow_mode: null },
+        { id: 8, workflow_mode: 'truest' },
+        { id: 9, workflow_mode: 'agile' },
+        { id: 13, workflow_mode: 'exempt' },
+      ],
+    );
+    assert.equal(readdirSync(tmpDir).filter((f) => f.startsWith('trajectory.db.pre-v76.') && f.endsWith('.bak')).length, 1);
+    again.close();
+  });
+});
+
 describe('schema upgrade — only a migrating opener upgrades the DB (GH 1639)', () => {
   const storedVersion = (dbPath: string): number => {
     const raw = new DatabaseSync(dbPath);

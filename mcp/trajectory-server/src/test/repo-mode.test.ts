@@ -4,6 +4,8 @@
  * keeps whatever mode the row holds, repo_rename carries it and onboard_apply
  * clears exempt. isExempt is an allowlist: only a stored exempt stands the
  * git guards and the push gate down; every other deny names the repo and mode.
+ * The stored task mode (GH 3281) admits exempt while the project's
+ * workflow_mode key stays truest or agile.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,14 +13,16 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DATA_CONTRACTS, isSqlContract } from '../data-contracts.js';
 import { TrajectoryDB } from '../db.js';
 import { gitGuards } from '../hooks/git-guards.js';
 import { gitPushGuard } from '../hooks/git-push-guard.js';
 import { isExempt, repoMode, repoModeLabel } from '../hooks/lib/repo.js';
-import { WORKFLOW_MODE_KEY } from '../tools/config.js';
+import { WORKFLOW_MODE_KEY, configTools, setConfigValues } from '../tools/config.js';
 import { onboardTools } from '../tools/onboard.js';
 import { repoTools } from '../tools/repos.js';
 import { scanTools } from '../tools/scan.js';
+import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
@@ -328,6 +332,77 @@ describe('repo mode — scan_run, repos_list, repo_rename and onboard_apply', ()
     const out = await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
     assert.equal(out.ok, true, JSON.stringify(out));
     assert.deepEqual(modes(db), { a: null, b: 'truest' });
+    db.close();
+  });
+});
+
+describe('stored task mode — tasks.workflow_mode admits exempt, the project key does not (GH 3281)', () => {
+  const NOW_MS = Date.now();
+  const iso = (offsetHours: number): string => new Date(NOW_MS + offsetHours * 3_600_000).toISOString();
+
+  /** One issue and one task closed 25 hours ago (past the review grace) under <mode>; <reviewed> adds a passing verdict. */
+  const closedTask = (db: TrajectoryDB, mode: string | null, reviewed: boolean): number => {
+    db.run(`INSERT INTO issues (id, objective, created_at, updated_at) VALUES (5, 'o', ?, ?)`, [iso(-48), iso(-48)]);
+    db.run(
+      `INSERT INTO tasks (id, issue_id, branch_id, description, status, commit_sha, workflow_mode, created_at, updated_at)
+         VALUES (7, 5, 'feat/7-x', 'd', 'closed', 'abc1234', ?, ?, ?)`,
+      [mode, iso(-30), iso(-25)],
+    );
+    if (reviewed) {
+      db.run(
+        `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (7, 1, 'code-reviewer', 'pass', 1, ?)`,
+        [iso(-26)],
+      );
+    }
+    return 7;
+  };
+
+  const violations = (db: TrajectoryDB): Array<{ id: string; actual: unknown }> =>
+    runDataContracts(trajectoryDbReader(db), DATA_CONTRACTS.filter(isSqlContract), { env: {} })
+      .violations.map((v) => ({ id: v.id, actual: v.actual }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+
+  it('a task row stores exempt, and a value outside truest, agile and exempt fails the CHECK', () => {
+    const db = tempDB();
+    closedTask(db, null, false);
+    for (const mode of ['truest', 'agile', 'exempt', null]) db.run(`UPDATE tasks SET workflow_mode = ? WHERE id = 7`, [mode]);
+    assert.throws(() => db.run(`UPDATE tasks SET workflow_mode = 'other' WHERE id = 7`), /CHECK/);
+    db.close();
+  });
+
+  it('config_set, setConfigValues and onboard_apply still refuse exempt for the project key, writing nothing', async () => {
+    const db = tempDB();
+    const set = (await configTools(db).handlers['config_set']({ agent: 'bro', key: WORKFLOW_MODE_KEY, value: 'exempt' })) as RawResult;
+    assert.equal(set.isError, true);
+    assert.match(set.content[0].text, /human_only_config_key:/);
+    assert.throws(() => setConfigValues(db, [{ key: WORKFLOW_MODE_KEY, value: 'exempt' }]), /typed_field_violation: config key "workflow_mode" must be one of truest, agile,/);
+    const onboard = onboardTools(db);
+    const applied = (await onboard.handlers['onboard_apply']({ agent: 'bro', shape: 'local', review_mode: 'exempt' })) as RawResult;
+    assert.equal(applied.isError, true);
+    assert.match(applied.content[0].text, /review_mode must be 'truest', 'agile' or '__keep__'/);
+    const question = await call(onboard.handlers, 'onboard_get_questions', { round: 'review_mode' });
+    assert.ok(!JSON.stringify(question).includes('exempt'), 'the review_mode round offers no exempt option');
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM plugin_config WHERE key = ?`, [WORKFLOW_MODE_KEY])!.n, 0);
+    db.close();
+  });
+
+  it('the data contracts trajectory_doctor runs raise nothing for a reviewed task stored exempt', () => {
+    const exempt = tempDB();
+    const truest = tempDB();
+    closedTask(exempt, 'exempt', true);
+    closedTask(truest, 'truest', true);
+    assert.deepEqual(violations(exempt), violations(truest));
+    assert.equal(violations(exempt).find((v) => v.id === 'closed_tasks_reviewed' || v.id === 'agile_review_queued'), undefined);
+    exempt.close();
+    truest.close();
+  });
+
+  it('an unreviewed exempt close reads as not agile: closed_tasks_reviewed counts it, agile_review_queued does not', () => {
+    const db = tempDB();
+    closedTask(db, 'exempt', false);
+    const found = violations(db);
+    assert.deepEqual(found.find((v) => v.id === 'closed_tasks_reviewed'), { id: 'closed_tasks_reviewed', actual: 1 });
+    assert.equal(found.find((v) => v.id === 'agile_review_queued'), undefined);
     db.close();
   });
 });
