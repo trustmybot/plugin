@@ -75,10 +75,10 @@ export function buildSandbox(s: string): void {
     db.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'reviewer spawn gates', 'open', ?, ?)").run(T1, T1);
     const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, commit_sha, created_at, updated_at) VALUES (?, 1, ?, 'd', ?, ?, ?, ?)");
     task.run(11, 'feat/closed', 'closed', null, T1, T1);
-    task.run(12, 'feat/completed', 'completed', 'bbbbbbb', T1, T1);
+    task.run(12, 'feat/completed', 'submitted', 'bbbbbbb', T1, T1);
     task.run(13, 'feat/running', 'running', null, T1, T1);
-    task.run(14, 'feat/needs-validation', 'needs_validation', null, T1, T1);
-    task.run(15, 'feat/handed-off', 'completed', 'ccccccc', T1, T1);
+    task.run(14, 'feat/needs-validation', 'submitted', null, T1, T1);
+    task.run(15, 'feat/handed-off', 'submitted', 'ccccccc', T1, T1);
     const handoff = db.prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (1, 'bro', 'review_handoff', 'handoff', ?, ?)");
     handoff.run(JSON.stringify({ task_id: 12, commit_sha: 'aaaaaaa' }), T1);
     handoff.run(JSON.stringify({ task_id: 15, commit_sha: 'ccccccc' }), T1);

@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 76`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 77`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -22,7 +22,7 @@ Every table, and every change to one, meets these two requirements. The Human se
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 76`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 77`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -36,6 +36,13 @@ erDiagram
     milestones |o--o{ issues : "milestone, repo (RESTRICT)"
     issues ||--o{ tasks : "issue_id (NO ACTION)"
     repos |o--o{ tasks : "repo (RESTRICT)"
+    tasks |o--o{ tasks : "retry_of (NO ACTION)"
+    task_event_types ||--o{ task_status_edges : "event_type (NO ACTION)"
+    task_event_causes |o--o{ task_status_edges : "required_cause (NO ACTION)"
+    tasks ||--o{ task_events : "task_id (NO ACTION)"
+    task_event_types ||--o{ task_events : "event_type (NO ACTION)"
+    agent_runs |o--o{ task_events : "agent_run_id (NO ACTION)"
+    task_event_causes ||--o{ task_events : "cause (NO ACTION)"
     issues ||--o{ audit : "issue_id (NO ACTION)"
     repos |o--o{ audit : "repo (RESTRICT)"
     tasks ||--o{ validation_attempts : "task_id (NO ACTION)"
@@ -164,7 +171,7 @@ erDiagram
         TEXT parent_branch_id
         TEXT title "NOT NULL"
         TEXT description "NOT NULL"
-        TEXT status "NOT NULL; CHECK pending|running|needs_validation|completed|closed|failed|escalated"
+        TEXT status "NOT NULL; CHECK pending|running|submitted|failed|closed|superseded|cancelled"
         TEXT spec_body "NOT NULL"
         TEXT commit_sha
         TEXT repo FK "→ repos.name RESTRICT"
@@ -184,6 +191,46 @@ erDiagram
         TEXT base_sha
         TEXT wm_commit
         TEXT no_code_class "CHECK no_code_class IS NULL OR no_code_class IN ('docs','prompts')"
+        INTEGER retry_of FK "→ tasks.id NO ACTION"
+    }
+
+    task_event_types {
+        TEXT code PK
+        TEXT description "NOT NULL"
+        TEXT retired_at
+    }
+
+    task_event_causes {
+        TEXT code PK
+        TEXT description "NOT NULL"
+        TEXT retired_at
+    }
+
+    task_status_edges {
+        TEXT from_state
+        TEXT to_state "NOT NULL"
+        TEXT event_type FK "NOT NULL; → task_event_types.code NO ACTION"
+        TEXT record_kind "NOT NULL; CHECK task|agent_run|verification_run|audit|issue"
+        TEXT required_cause FK "→ task_event_causes.code NO ACTION"
+    }
+
+    task_events {
+        INTEGER id PK "NOT NULL"
+        INTEGER task_id FK "NOT NULL; → tasks.id NO ACTION"
+        INTEGER seq "NOT NULL"
+        TEXT event_type FK "NOT NULL; → task_event_types.code NO ACTION"
+        TEXT from_state
+        TEXT to_state "NOT NULL"
+        TEXT role "NOT NULL"
+        INTEGER agent_run_id FK "→ agent_runs.id NO ACTION"
+        TEXT cause FK "NOT NULL; → task_event_causes.code NO ACTION"
+        TEXT note
+        TEXT record_kind "CHECK record_kind IS NULL OR record_kind IN ('task','agent_run','verification_run','audit','issue')"
+        INTEGER record_id
+        TEXT idempotency_key UK
+        INTEGER backfilled "NOT NULL; CHECK backfilled IN (0,1)"
+        TEXT occurred_at "NOT NULL"
+        TEXT recorded_at "NOT NULL"
     }
 
     audit {
@@ -729,7 +776,7 @@ Table constraints:
 | `parent_branch_id` | TEXT | nullable |  |  |
 | `title` | TEXT | NOT NULL | `''` |  |
 | `description` | TEXT | NOT NULL |  |  |
-| `status` | TEXT | NOT NULL | `'pending'` | CHECK `status IN ('pending','running','needs_validation','completed','closed','failed','escalated')` |
+| `status` | TEXT | NOT NULL | `'pending'` | CHECK `status IN ('pending','running','submitted','failed','closed','superseded','cancelled')` |
 | `spec_body` | TEXT | NOT NULL | `''` |  |
 | `commit_sha` | TEXT | nullable |  |  |
 | `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
@@ -749,6 +796,58 @@ Table constraints:
 | `base_sha` | TEXT | nullable |  |  |
 | `wm_commit` | TEXT | nullable |  |  |
 | `no_code_class` | TEXT | nullable |  | CHECK `no_code_class IS NULL OR no_code_class IN ('docs','prompts')` |
+| `retry_of` | INTEGER | nullable |  | FK → `tasks.id` ON DELETE NO ACTION |
+
+### `task_event_types`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `code` | TEXT | nullable |  | PK |
+| `description` | TEXT | NOT NULL |  |  |
+| `retired_at` | TEXT | nullable |  |  |
+
+### `task_event_causes`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `code` | TEXT | nullable |  | PK |
+| `description` | TEXT | NOT NULL |  |  |
+| `retired_at` | TEXT | nullable |  |  |
+
+### `task_status_edges`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `from_state` | TEXT | nullable |  |  |
+| `to_state` | TEXT | NOT NULL |  |  |
+| `event_type` | TEXT | NOT NULL |  | FK → `task_event_types.code` ON DELETE NO ACTION |
+| `record_kind` | TEXT | NOT NULL |  | CHECK `record_kind IN ('task','agent_run','verification_run','audit','issue')` |
+| `required_cause` | TEXT | nullable |  | FK → `task_event_causes.code` ON DELETE NO ACTION |
+
+### `task_events`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `task_id` | INTEGER | NOT NULL |  | FK → `tasks.id` ON DELETE NO ACTION |
+| `seq` | INTEGER | NOT NULL |  |  |
+| `event_type` | TEXT | NOT NULL |  | FK → `task_event_types.code` ON DELETE NO ACTION |
+| `from_state` | TEXT | nullable |  |  |
+| `to_state` | TEXT | NOT NULL |  |  |
+| `role` | TEXT | NOT NULL |  |  |
+| `agent_run_id` | INTEGER | nullable |  | FK → `agent_runs.id` ON DELETE NO ACTION |
+| `cause` | TEXT | NOT NULL |  | FK → `task_event_causes.code` ON DELETE NO ACTION |
+| `note` | TEXT | nullable |  |  |
+| `record_kind` | TEXT | nullable |  | CHECK `record_kind IS NULL OR record_kind IN ('task','agent_run','verification_run','audit','issue')` |
+| `record_id` | INTEGER | nullable |  |  |
+| `idempotency_key` | TEXT | nullable |  | UNIQUE |
+| `backfilled` | INTEGER | NOT NULL | `0` | CHECK `backfilled IN (0,1)` |
+| `occurred_at` | TEXT | NOT NULL |  |  |
+| `recorded_at` | TEXT | NOT NULL |  |  |
+
+Table constraints:
+
+- UNIQUE `(task_id, seq)`
 
 ### `audit`
 
@@ -1333,6 +1432,13 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `issues` | `milestone, repo` | `milestones(name, repo)` | RESTRICT |
 | `tasks` | `issue_id` | `issues(id)` | NO ACTION |
 | `tasks` | `repo` | `repos(name)` | RESTRICT |
+| `tasks` | `retry_of` | `tasks(id)` | NO ACTION |
+| `task_status_edges` | `event_type` | `task_event_types(code)` | NO ACTION |
+| `task_status_edges` | `required_cause` | `task_event_causes(code)` | NO ACTION |
+| `task_events` | `task_id` | `tasks(id)` | NO ACTION |
+| `task_events` | `event_type` | `task_event_types(code)` | NO ACTION |
+| `task_events` | `agent_run_id` | `agent_runs(id)` | NO ACTION |
+| `task_events` | `cause` | `task_event_causes(code)` | NO ACTION |
 | `audit` | `issue_id` | `issues(id)` | NO ACTION |
 | `audit` | `repo` | `repos(name)` | RESTRICT |
 | `validation_attempts` | `task_id` | `tasks(id)` | NO ACTION |
@@ -1434,6 +1540,8 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_wm_directories_embeddings_model` | `wm_directories_embeddings` | `model_id` |  |  |
 | `idx_wm_files_embeddings_model` | `wm_files_embeddings` | `model_id` |  |  |
 | _UNIQUE constraint_ | `repo_env` | `repo, package_path, ecosystem` | yes | |
+| _UNIQUE constraint_ | `task_events` | `idempotency_key` | yes | |
+| _UNIQUE constraint_ | `task_events` | `task_id, seq` | yes | |
 | _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
 | _UNIQUE constraint_ | `agents` | `name` | yes | |
 | _UNIQUE constraint_ | `lanes` | `session_id` | yes | |

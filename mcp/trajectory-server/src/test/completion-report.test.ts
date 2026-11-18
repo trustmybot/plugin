@@ -1,7 +1,7 @@
 /**
  * Success Criteria ids and the typed swe completion report (GH 1744):
  * the spec-writing tools refuse unlabeled criteria, task_update_status needs a
- * report covering every id on a move to completed, task_brief returns it,
+ * report covering every id on a move to submitted, task_brief returns it,
  * review_handoff refuses a commit it does not cover and stores spawn_note,
  * bro_atomic_close keeps both, and task_reopen clears the report.
  */
@@ -133,11 +133,11 @@ describe('Success Criteria ids (GH 1744)', () => {
 describe('task_update_status completion report (GH 1744)', () => {
   const complete = (tasks: Handlers, id: number, report?: unknown) =>
     call(tasks, 'task_update_status', {
-      agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234',
+      agent: 'swe', task_id: String(id), status: 'submitted', commit_sha: 'abc1234',
       ...(report === undefined ? {} : { report }),
     });
 
-  it('refuses a move to completed without a report when the spec has ids, showing a minimal payload', async () => {
+  it('refuses a move to submitted without a report when the spec has ids, showing a minimal payload', async () => {
     const { db, tasks } = fixture();
     const id = seed(db, SPEC);
     const msg = errorOf(await complete(tasks, id));
@@ -164,7 +164,7 @@ describe('task_update_status completion report (GH 1744)', () => {
     db.close();
   });
 
-  it('stores a full report with the move to completed', async () => {
+  it('stores a full report with the move to submitted', async () => {
     const { db, tasks } = fixture();
     const id = seed(db, SPEC);
     const r = await complete(tasks, id, FULL_REPORT);
@@ -182,13 +182,13 @@ describe('task_update_status completion report (GH 1744)', () => {
     db.close();
   });
 
-  it('rejects a report with any status but completed, and a move to needs_validation clears the stored report', async () => {
-    const { db, tasks } = fixture();
+  it('rejects a report with any status but submitted, and a reopen clears the stored report', async () => {
+    const { db, tasks, composites } = fixture();
     const id = seed(db, SPEC);
     const withFailed = await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'failed', report: FULL_REPORT });
-    assert.match(errorOf(withFailed), /report is accepted only with status='completed'/);
+    assert.match(errorOf(withFailed), /report is accepted only with status='submitted'/);
     assert.ok(!(await complete(tasks, id, FULL_REPORT)).isError);
-    const back = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(id), status: 'needs_validation' });
+    const back = await call(composites, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review found a missing test' });
     assert.ok(!back.isError, JSON.stringify(parse(back)));
     assert.equal(stored(db, id).completion_report, null);
     db.close();
@@ -197,7 +197,7 @@ describe('task_update_status completion report (GH 1744)', () => {
 
 describe('task_update_status report.wm_feedback (GH 2417)', () => {
   const complete = (tasks: Handlers, id: number, report: unknown) =>
-    call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report });
+    call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'submitted', commit_sha: 'abc1234', report });
   const feedbackRows = (db: TrajectoryDB) =>
     db.all<{ issue_id: number; from_node: string; content_json: string }>(
       `SELECT issue_id, from_node, content_json FROM audit WHERE event_type = 'wm_feedback' ORDER BY id`,
@@ -247,7 +247,7 @@ describe('task_update_status report.wm_feedback (GH 2417)', () => {
     const { db, tasks } = fixture();
     const id = seed(db, SPEC);
     const report = { ...FULL_REPORT, wm_feedback: { answered: 'callers of insertAudit' } };
-    const asBro = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report });
+    const asBro = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(id), status: 'submitted', commit_sha: 'abc1234', note: 'submitted by hand', report });
     assert.match(errorOf(asBro), /^wm_feedback_invalid: .*only swe/);
     assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [id])!.status, 'running');
     assert.equal(stored(db, id).completion_report, null);
@@ -284,7 +284,7 @@ describe('completion report and spawn_note through task_brief, review_handoff, b
     const before = parse(await call(composites, 'task_brief', { agent: 'bro', task_id: id }));
     assert.equal(before['completion_report'], null);
     assert.equal(before['spawn_note'], null);
-    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report: FULL_REPORT });
+    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'submitted', commit_sha: 'abc1234', report: FULL_REPORT });
     const after = parse(await call(composites, 'task_brief', { agent: 'bro', task_id: id }));
     assert.deepEqual(after['completion_report'], FULL_REPORT);
     db.close();
@@ -292,19 +292,19 @@ describe('completion report and spawn_note through task_brief, review_handoff, b
 
   it('review_handoff refuses a commit whose stored report misses ids, naming them', async () => {
     const { db, composites } = fixture();
-    const id = seed(db, SPEC, 'completed');
+    const id = seed(db, SPEC, 'submitted');
     const none = errorOf(await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id) }));
     assert.match(none, /^completion_report_missing: .*is missing for: SC1, SC2/);
     db.run('UPDATE tasks SET completion_report = ? WHERE id = ?', [JSON.stringify({ criteria: [{ id: 'SC1', status: 'met' }] }), id]);
     const partial = errorOf(await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id) }));
     assert.match(partial, /does not cover: SC2/);
-    assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [id])!.status, 'completed');
+    assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [id])!.status, 'submitted');
     db.close();
   });
 
   it('review_handoff on a legacy spec needs no report', async () => {
     const { db, composites } = fixture();
-    const id = seed(db, LEGACY_SPEC, 'completed');
+    const id = seed(db, LEGACY_SPEC, 'submitted');
     const r = await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id) });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
     db.close();
@@ -313,7 +313,7 @@ describe('completion report and spawn_note through task_brief, review_handoff, b
   it('review_handoff stores spawn_note and task_brief returns it; a note over 300 chars is refused; bro_atomic_close takes none', async () => {
     const { db, tasks, composites } = fixture();
     const id = seed(db, SPEC);
-    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report: FULL_REPORT });
+    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'submitted', commit_sha: 'abc1234', report: FULL_REPORT });
     const long = errorOf(await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id), spawn_note: 'x'.repeat(301) }));
     assert.match(long, /spawn_note is 301 characters \(max 300\)/);
     const r = await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id), spawn_note: 'Check the v48 migration backup.' });
@@ -329,7 +329,7 @@ describe('completion report and spawn_note through task_brief, review_handoff, b
   it('bro_atomic_close after a review pass keeps the stored report and spawn_note', async () => {
     const { db, tasks, composites } = fixture();
     const id = seed(db, SPEC);
-    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report: FULL_REPORT });
+    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'submitted', commit_sha: 'abc1234', report: FULL_REPORT });
     db.run(`UPDATE tasks SET spawn_note = 'Check the v48 migration backup.' WHERE id = ?`, [id]);
     seedReviewedCommit(db, 1, id, CLOSE_ARGS.commit_sha);
     const r = await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id });

@@ -143,7 +143,7 @@ describe('close-forge-merged', () => {
   });
 
   it('SC1: closes a task with a passing review and writes no bypass row', async () => {
-    addTask(1, 'feat/x', 'completed');
+    addTask(1, 'feat/x', 'submitted');
     addPass(1);
     answer(prList([{ head: 'feat/x', mergedAt: AFTER_TASK }]));
     await closeForgeMerged(PAYLOAD, env());

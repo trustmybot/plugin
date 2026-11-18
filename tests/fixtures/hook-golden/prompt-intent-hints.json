@@ -17,7 +17,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -39,7 +39,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -61,7 +61,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -83,7 +83,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -105,7 +105,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -127,7 +127,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -149,7 +149,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -171,7 +171,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -193,7 +193,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -215,7 +215,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -237,7 +237,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -259,7 +259,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -281,7 +281,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -303,7 +303,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -325,7 +325,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -347,7 +347,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -369,7 +369,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -391,7 +391,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -413,7 +413,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -435,7 +435,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -457,7 +457,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -479,7 +479,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -501,7 +501,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -523,7 +523,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -545,7 +545,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -567,7 +567,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -589,7 +589,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -611,7 +611,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -633,7 +633,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -655,7 +655,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -677,7 +677,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -699,7 +699,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -721,7 +721,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -743,7 +743,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -765,7 +765,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -787,7 +787,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -809,7 +809,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -831,7 +831,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -853,7 +853,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -875,7 +875,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -897,7 +897,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -919,7 +919,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -941,7 +941,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -963,7 +963,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -985,7 +985,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1007,7 +1007,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1029,7 +1029,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1051,7 +1051,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1073,7 +1073,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1095,7 +1095,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1117,7 +1117,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1139,7 +1139,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: domain perf\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: domain perf\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
       }
     }
   },
@@ -1161,7 +1161,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: domain security\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: domain security\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
       }
     }
   },
@@ -1183,7 +1183,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1205,7 +1205,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: named-role pm\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: named-role pm\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
       }
     }
   },
@@ -1227,7 +1227,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: named-role architect\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:prompt-intent-hints\",\"event_type\":\"consultant_spawn_nudged\",\"summary\":\"Consultant-spawn nudge emitted: named-role architect\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"<now>\"}]}"
       }
     }
   },
@@ -1249,7 +1249,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1271,7 +1271,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1293,7 +1293,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1315,7 +1315,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1337,7 +1337,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1359,7 +1359,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1381,7 +1381,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1403,7 +1403,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   },
@@ -1425,7 +1425,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"completed\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":1,\"status\":\"submitted\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":2,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/next\",\"from_node\":\"bro\",\"event_type\":\"planning_complete\",\"summary\":\"planned\",\"content_json\":\"{}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}"
       }
     }
   }

@@ -317,21 +317,21 @@
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='completed', commit_sha, report)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='submitted', commit_sha, report)\"}}\n"
     }
   },
   "deny-a-git-push-after-cd.json": {
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='completed', commit_sha, report)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='submitted', commit_sha, report)\"}}\n"
     }
   },
   "deny-a-git-push.json": {
     "C,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='completed', commit_sha, report)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='submitted', commit_sha, report)\"}}\n"
     }
   },
   "deny-b-gh-api-post.json": {
@@ -821,21 +821,21 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='completed', commit_sha, report)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='submitted', commit_sha, report)\"}}\n"
     }
   },
   "generic/deny-a-git-push-after-cd.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='completed', commit_sha, report)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='submitted', commit_sha, report)\"}}\n"
     }
   },
   "generic/deny-a-git-push.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='completed', commit_sha, report)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree. Allowed form: task_update_status(status='submitted', commit_sha, report)\"}}\n"
     }
   },
   "generic/deny-b-gh-api-post.json": {

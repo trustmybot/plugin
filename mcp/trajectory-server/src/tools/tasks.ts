@@ -4,9 +4,8 @@ import { nowISO } from '../db.js';
 import type { Task, TaskInput } from '../types.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
-import { buildTaskOverlay, dropTaskOverlay } from '../world-model/overlay.js';
+import { buildTaskOverlay } from '../world-model/overlay.js';
 import { insertAudit } from './audit.js';
-import { recordReviewBypassIfUnreviewed, recordReviewQueuedIfUnreviewed } from './lifecycle.js';
 import {
   closeOpenRunsForTask,
   exitReasonForStatus,
@@ -18,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
-import { EFFORT_LEVELS, computeEffort, isEffort, resolveWorkflowMode, type Effort, type EffortReason } from './config.js';
+import { EFFORT_LEVELS, computeEffort, isEffort, type Effort, type EffortReason } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import {
@@ -38,7 +37,8 @@ import { RESPONSE_FORMATS, parseResponseFormat, withoutKeys } from './response-f
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
 import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
 import { isPromptSurfaceUnder } from '../hooks/cmd-analysis/surface.js';
-import { sqlText, TASK_STATUSES, taskStatusUpdate, type TaskStatus } from '../task-status.js';
+import { TASK_STATUS_EDGES, type TaskStatusEdge } from '../task-events.js';
+import { runTaskStatusMove, sqlText, taskProvisionedEvent, type TaskStatus, type TaskStatusWrite } from '../task-status.js';
 import { ACTIONABLE, statusIn, TASK_STATE } from '../task-states.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -232,15 +232,13 @@ function validateTypedRailsFields(t: TaskInput): { files: string[]; verification
   };
 }
 
-// Allowed target statuses for swe. SWE may only set running, completed, or
-// failed — pre-execution states (pending, escalated) are bro-managed; 'closed'
-// is bro's atomic-close transition; 'needs_validation' is not a valid SWE
-// terminal state. Additionally, closed and escalated are terminal for SWE —
-// a closed task cannot be touched by SWE. See #114, #343.
-const SWE_ALLOWED_TARGET_STATUSES = new Set(['running', 'completed', 'failed']);
-
-// States that SWE may not transition OUT OF (terminal for SWE).
-const SWE_LOCKED_SOURCE_STATES = new Set(['closed', 'escalated']);
+// The moves swe makes: starting a pending task, and ending a running one
+// submitted or failed. Every other move is bro's; a same-status call only
+// updates the task's other columns. See #114, #343.
+const SWE_MOVES: Record<string, ReadonlySet<string>> = {
+  pending: new Set([TASK_STATE.running]),
+  running: new Set([TASK_STATE.submitted, TASK_STATE.failed]),
+};
 
 type BranchAutocreatedAudit = {
   branchId: string;
@@ -292,32 +290,72 @@ function ensureBranchInRepo(
   return { branchId, startPoint, repoPath };
 }
 
-const VALID_STATUSES = new Set<string>(TASK_STATUSES);
+// The statuses task_update_status sets. closed, superseded and cancelled are
+// reached only through bro_atomic_close, task_retry and issue_close.
+const UPDATABLE_STATUSES: readonly TaskStatus[] = [TASK_STATE.pending, TASK_STATE.running, TASK_STATE.submitted, TASK_STATE.failed];
 
-// Allowed status transitions for bro (#278). Without this, bro could move any
-// status to any status — e.g. pending→closed (skipping verification) or
-// closed→completed (re-satisfying a downstream gate by fiat). Keys not present
-// reject every outbound move; a same-status no-op is always allowed.
-//   - Into 'completed' only from a work state (running / needs_validation) —
-//     bro can't fabricate completion from pending or a terminal state.
-//   - The only path from a verified work state (needs_validation / completed)
-//     into 'closed' is bro_atomic_close, so task_update_status must not offer
-//     those edges (else bro could close a task without the atomic close's
-//     side effects).
-//   - 'closed'→'escalated' lets bro reopen a closed task's case for rework or
-//     redesign; bro owns the next step (task_retry admits an escalated task).
-//   - code-reviewer runs before the close, so a failed review leaves the task
-//     completed; its rework goes completed → running only through task_reopen,
-//     which records the task_reopened row that starts the new stint (GH 2972).
-const BRO_TRANSITIONS: Record<string, Set<string>> = {
-  pending: new Set(['running', 'failed', 'escalated']),
-  running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
-  needs_validation: new Set(['running', 'completed', 'failed', 'escalated']),
-  completed: new Set(['needs_validation', 'failed', 'escalated']),
-  failed: new Set(['pending', 'running', 'escalated', 'closed']),
-  escalated: new Set(['pending', 'running', 'failed', 'closed']),
-  closed: new Set(['escalated']),
+// The moves bro takes by hand (#278), each a chart edge with the manual cause
+// and a required note. A submitted task's rework goes back to running only
+// through task_reopen, which records the task_reopened row (GH 2972).
+const BRO_TRANSITIONS: Record<string, ReadonlySet<string>> = {
+  pending: new Set([TASK_STATE.running]),
+  running: new Set([TASK_STATE.pending, TASK_STATE.submitted, TASK_STATE.failed]),
+  failed: new Set([TASK_STATE.running]),
 };
+
+/** The chart edge a by-hand move takes: the first one between the two states that admits any cause. */
+function manualEdge(from: string, to: string): TaskStatusEdge | undefined {
+  return TASK_STATUS_EDGES.find((e) => e.from === from && e.to === to && e.requiredCause === null);
+}
+
+type StatusMove = Pick<TaskStatusWrite, 'status' | 'event' | 'cause' | 'role' | 'agentRunId' | 'note' | 'record'>;
+
+/**
+ * The event a task_update_status move records: bro's by hand, with the
+ * manual cause and its note; swe's on the record it rests on, the agent run
+ * it started or stopped in, or the passing verification run of the commit it
+ * submits. Throws when swe's move has no record to rest on.
+ */
+function statusMoveFor(
+  db: TrajectoryDB,
+  task: Pick<Task, 'id' | 'status'>,
+  status: TaskStatus,
+  agent: string,
+  note: string,
+  commitSha: string | null,
+): StatusMove {
+  if (agent !== 'swe') {
+    const edge = manualEdge(task.status, status);
+    if (!edge) throw new Error(`task_update_status rejected: no move from '${task.status}' to '${status}'.`);
+    return { status, event: edge.eventType, cause: 'manual', role: agent, note };
+  }
+  const run = db.get<{ id: number }>(
+    `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' ORDER BY completed_at IS NULL DESC, id DESC LIMIT 1`,
+    [task.id],
+  );
+  if (status === TASK_STATE.submitted) {
+    const passing = commitSha
+      ? db.get<{ id: number }>(
+          `SELECT id FROM verification_runs
+            WHERE task_id = ? AND commit_sha = ? AND exit_code = 0 AND timed_out = 0 AND finished_at IS NOT NULL
+            ORDER BY id DESC LIMIT 1`,
+          [task.id, commitSha],
+        )
+      : undefined;
+    const via = { status, role: agent, agentRunId: run?.id ?? null };
+    return passing
+      ? { ...via, event: 'submitted', cause: 'checks_passed', record: { kind: 'verification_run', id: passing.id } }
+      : { ...via, event: 'submitted_unverified', cause: 'unverified', record: { kind: 'task', id: task.id } };
+  }
+  if (!run) {
+    throw new Error(
+      `task_update_status rejected: task ${task.id} has no swe agent run to record the move to '${status}' on; a swe spawn or task_brief opens one.`,
+    );
+  }
+  const event = status === TASK_STATE.running ? 'spawned' : 'failed';
+  const cause = status === TASK_STATE.running ? 'author_spawned' : 'author_stopped';
+  return { status, event, cause, role: agent, agentRunId: run.id, record: { kind: 'agent_run', id: run.id } };
+}
 
 /** The head of swe's final message (GH 1959), built from the row task_update_status just wrote. */
 export function sweReturnLine(task: Pick<Task, 'id' | 'status' | 'commit_sha'>): string {
@@ -626,10 +664,10 @@ export function taskTools(db: TrajectoryDB): {
     {
       name: 'task_update_status',
       description:
-        "Update a task's status. A move to completed on a spec whose Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id and no unknown id; the report is stored and task_brief returns it. " +
+        "Update a task's status, recorded as one task event. A move to submitted on a spec whose Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id and no unknown id; the report is stored and task_brief returns it. " +
         "report.concepts (at most 5, world_model_concept_upsert's shape) are only shape-checked here; scan_run applies them once the task closes with a passing code-reviewer verdict. " +
         'Only swe may pass report.wm_feedback; any other agent is refused with wm_feedback_invalid. ' +
-        'A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row (review_queued under workflow_mode agile).',
+        "bro's moves are by hand and need `note`.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -637,8 +675,9 @@ export function taskTools(db: TrajectoryDB): {
           task_id: { type: 'string' },
           status: {
             type: 'string',
-            enum: ['pending', 'running', 'needs_validation', 'completed', 'closed', 'failed', 'escalated'],
+            enum: [...UPDATABLE_STATUSES],
           },
+          note: { type: 'string', description: "Why bro moves the task by hand; required for bro's moves." },
           commit_sha: {
             type: 'string',
             description: 'Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update.',
@@ -646,7 +685,7 @@ export function taskTools(db: TrajectoryDB): {
           report: {
             type: 'object',
             description:
-              `The typed completion report; only with status='${TASK_STATE.completed}'. Required when the spec's Success Criteria carry SC<n>: ids: criteria covers each id exactly once.`,
+              `The typed completion report; only with status='${TASK_STATE.submitted}'. Required when the spec's Success Criteria carry SC<n>: ids: criteria covers each id exactly once.`,
             properties: {
               criteria: {
                 type: 'array',
@@ -732,7 +771,7 @@ export function taskTools(db: TrajectoryDB): {
           checkpoint: {
             type: 'object',
             description:
-              "A handback instead of running on; only with status='running'. Stored with `at` (now) and returned by task_brief so the next spawn resumes from it. A move to completed clears it; every other move keeps it.",
+              "A handback instead of running on; only with status='running'. Stored with `at` (now) and returned by task_brief so the next spawn resumes from it. A move to submitted clears it; every other move keeps it.",
             properties: {
               done: { type: 'string', description: `What is done, at most ${CHECKPOINT_TEXT_MAX_CHARS} chars.` },
               left: { type: 'string', description: `What is left, at most ${CHECKPOINT_TEXT_MAX_CHARS} chars.` },
@@ -1237,6 +1276,8 @@ export function taskTools(db: TrajectoryDB): {
             'SELECT * FROM tasks WHERE rowid = last_insert_rowid()',
           );
           if (row) {
+            const provisioned = taskProvisionedEvent(row.id, (args['agent'] as string) ?? 'bro', 'planned', now);
+            db.run(provisioned.sql, provisioned.params);
             const assigned = enrollEffortAb(db, computedEffort, {
               id: row.id, issue_id: row.issue_id, branch_id: row.branch_id,
               from_node: (args['agent'] as string) ?? 'bro', created_at: now,
@@ -1456,11 +1497,16 @@ export function taskTools(db: TrajectoryDB): {
         ? (args['commit_sha'] as string).toLowerCase()
         : undefined;
 
-      if (!VALID_STATUSES.has(status)) {
+      if (status === 'completed') {
+        throw new Error(`Invalid status: completed was renamed submitted at schema v77; call task_update_status(status='${TASK_STATE.submitted}').`);
+      }
+      if (!(UPDATABLE_STATUSES as readonly string[]).includes(status)) {
         throw new Error(
-          `Invalid status: ${status}. Valid values: ${[...VALID_STATUSES].join(', ')}`,
+          `Invalid status: ${status}. Valid values: ${UPDATABLE_STATUSES.join(', ')}. ` +
+          `A task is closed only through bro_atomic_close, superseded through task_retry and cancelled through issue_close. See #1025.`,
         );
       }
+      const note = typeof args['note'] === 'string' ? args['note'].trim() : '';
 
       if (rawCommitSha !== undefined) {
         if (rawCommitSha.length < 7 || !/^[0-9a-f]+$/.test(rawCommitSha)) {
@@ -1475,48 +1521,43 @@ export function taskTools(db: TrajectoryDB): {
         throw new Error(`Not found: ${taskId}`);
       }
 
-      if (agent === 'swe') {
-        if (SWE_LOCKED_SOURCE_STATES.has(task.status)) {
-          throw new Error(
-            `task_update_status rejected: SWE may not move task ${taskId} out of '${task.status}'. ` +
-            `'${task.status}' is terminal for SWE. See #114.`
-          );
-        }
-        if (!SWE_ALLOWED_TARGET_STATUSES.has(status)) {
-          throw new Error(
-            `task_update_status rejected: SWE may only set status to 'running', 'completed', or 'failed' (got '${status}'). ` +
-            `Pre-execution states (pending, escalated) are bro-managed; 'closed' is bro's atomic-close transition; ` +
-            `'needs_validation' is not a valid SWE terminal state — use 'failed' instead if the work blocked. See #114.`
-          );
-        }
+      const moving = status !== task.status;
+      if (agent === 'swe' && moving && !(SWE_MOVES[task.status]?.has(status) ?? false)) {
+        throw new Error(
+          `task_update_status rejected: SWE may not move task ${taskId} from '${task.status}' to '${status}'. ` +
+          `SWE starts a pending task (running) and ends a running one as 'submitted', or 'failed' if the work blocked; every other move is bro's. See #114.`
+        );
       }
 
-      if (agent === 'bro' && status !== task.status) {
+      if (agent === 'bro' && moving) {
         const allowed = BRO_TRANSITIONS[task.status] ?? new Set<string>();
         if (!allowed.has(status)) {
-          const valid = [...allowed].join(', ') || '(none — terminal)';
-          if (task.status === TASK_STATE.completed && status === TASK_STATE.running) {
+          const valid = [...allowed].join(', ') || '(none)';
+          if (task.status === TASK_STATE.submitted && status === TASK_STATE.running) {
             throw new Error(
-              `task_update_status rejected: bro may not move task ${taskId} from 'completed' to 'running'. ` +
+              `task_update_status rejected: bro may not move task ${taskId} from 'submitted' to 'running'. ` +
               `Reopen it for rework with task_reopen(task_id, reason), which records the task_reopened row. See GH 2972.`
             );
           }
           throw new Error(
             `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. ` +
             `Allowed from '${task.status}': ${valid}. ` +
-            `Close verified work via bro_atomic_close; reopen a task for rework with task_reopen. See #278.`
+            `Close verified work via bro_atomic_close, reopen with task_reopen, replace with task_retry. See #278.`
           );
+        }
+        if (note === '') {
+          throw new Error(`task_update_status rejected: bro's move of task ${taskId} is by hand and needs a note saying why.`);
         }
       }
 
-      if (args['report'] !== undefined && args['report'] !== null && status !== TASK_STATE.completed) {
-        throw new Error(`task_update_status: report is accepted only with status='${TASK_STATE.completed}' (got '${status}').`);
+      if (args['report'] !== undefined && args['report'] !== null && status !== TASK_STATE.submitted) {
+        throw new Error(`task_update_status: report is accepted only with status='${TASK_STATE.submitted}' (got '${status}').`);
       }
       const hasCheckpoint = args['checkpoint'] !== undefined && args['checkpoint'] !== null;
       if (hasCheckpoint && status !== 'running') {
         throw new Error(`task_update_status: checkpoint is accepted only with status='running' (got '${status}').`);
       }
-      const report = status === TASK_STATE.completed ? parseCompletionReport(args['report'], specCriterionIds(task.spec_body)) : null;
+      const report = status === TASK_STATE.submitted ? parseCompletionReport(args['report'], specCriterionIds(task.spec_body)) : null;
       if (report?.wm_feedback && agent !== 'swe') {
         throw new Error(`wm_feedback_invalid: only swe may pass report.wm_feedback (got agent '${agent}').`);
       }
@@ -1527,54 +1568,30 @@ export function taskTools(db: TrajectoryDB): {
       const commitSha = rawCommitSha !== undefined ? resolveTaskCommitSha(db, task, rawCommitSha) : undefined;
 
       const now = nowISO();
-      // completed_at is carried only by post-completion states. Stamp it on
-      // 'completed', preserve it through 'closed', and clear it on any move to
-      // an active/failed/escalated state — a reopened task must not keep a
-      // stale completion stamp that downstream gates would trust (#278).
-      // completion_report follows the same rule (GH 1744).
-      const completedAt =
-        status === TASK_STATE.completed ? now : status === TASK_STATE.closed ? task.completed_at : null;
-      const completionReport =
-        status === TASK_STATE.completed
-          ? (report ? JSON.stringify(report) : null)
-          : status === TASK_STATE.closed ? task.completion_report : null;
-      const checkpoint = hasCheckpoint
-        ? JSON.stringify(parseCheckpoint(args['checkpoint'], now))
-        : status === TASK_STATE.completed
-          ? null
-          : task.checkpoint;
+      // completed_at and completion_report are carried only by a submitted
+      // task: stamped on the submit and cleared on any other move, so a
+      // reopened task keeps no stale completion that gates would trust (#278,
+      // GH 1744).
+      const submitting = status === TASK_STATE.submitted;
+      const set: Record<string, string | null> = {
+        updated_at: now,
+        completed_at: submitting ? now : null,
+        completion_report: submitting && report ? JSON.stringify(report) : null,
+        checkpoint: hasCheckpoint ? JSON.stringify(parseCheckpoint(args['checkpoint'], now)) : submitting ? null : task.checkpoint,
+        ...(commitSha !== undefined ? { commit_sha: commitSha } : {}),
+      };
+      const move = moving ? statusMoveFor(db, task, status as TaskStatus, agent, note, commitSha ?? task.commit_sha) : null;
 
       db.transaction(() => {
-        // Under the task's mode 'agile' an unreviewed close is queued for the
-        // grouped review, as bro_atomic_close does; an exempt task owes no
-        // review; under truest it is recorded as a bypass. The close stamps the
-        // mode it resolved, so the queue and the gates read it later.
-        const closing = status === TASK_STATE.closed && task.status !== TASK_STATE.closed;
-        const closeMode = closing ? resolveWorkflowMode(db, task.repo) : null;
-        if (closeMode === 'agile') {
-          recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha ?? task.commit_sha ?? null }, now);
-        } else if (closeMode === 'truest') {
-          recordReviewBypassIfUnreviewed(
-            db,
-            { ...task, commit_sha: commitSha ?? task.commit_sha ?? null },
-            'task_update_status',
-            agent,
-            now,
-          );
+        if (move !== null) {
+          // The key names the move as well as its time: a running and a submitted
+          // move in the same millisecond are two writes, not a repeat.
+          const key = `task_update_status:${task.status}>${status}:${now}`;
+          runTaskStatusMove(db, { ...move, key, at: now, set, where: sqlText('id = ?', taskId) });
+        } else {
+          const columns = Object.keys(set);
+          db.run(`UPDATE tasks SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`, [...columns.map((c) => set[c] ?? null), taskId]);
         }
-        const statusWrite = taskStatusUpdate({
-          status: status as TaskStatus,
-          set: {
-            updated_at: now,
-            completed_at: completedAt,
-            completion_report: completionReport,
-            checkpoint,
-            ...(commitSha !== undefined ? { commit_sha: commitSha } : {}),
-          },
-          where: sqlText('id = ?', taskId),
-        });
-        db.run(statusWrite.sql, statusWrite.params);
-        if (closeMode !== null) db.run(`UPDATE tasks SET workflow_mode = ? WHERE id = ?`, [closeMode, taskId]);
         if (TERMINAL_TASK_STATUSES.has(status)) {
           closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));
         }
@@ -1585,8 +1602,7 @@ export function taskTools(db: TrajectoryDB): {
         'SELECT id, status, commit_sha FROM tasks WHERE id = ?',
         [taskId],
       ) ?? task;
-      if (status === 'escalated') dropTaskOverlay(db, task.id);
-      if (status === 'completed' && updated.commit_sha) {
+      if (status === TASK_STATE.submitted && updated.commit_sha) {
         try {
           await buildTaskOverlay(db, task.id);
         } catch (e) {

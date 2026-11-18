@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tempDB } from './helpers.js';
+import { setTaskStatus, tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -110,7 +110,7 @@ describe('issue_close: refuse or cascade', () => {
     const db = tempDB();
     const issue = seedIssue(db);
     const running = seedTask(db, issue, 'running');
-    const completed = seedTask(db, issue, 'completed', { commit: 'abc1234' });
+    const submitted = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
     seedTask(db, issue, 'failed');
     const tools = issueTools(db, DB_PATH);
 
@@ -120,13 +120,13 @@ describe('issue_close: refuse or cascade', () => {
     assert.equal(out['error'], 'issue_has_open_tasks');
     assert.deepEqual(out['tasks'], [
       { task_id: running, status: 'running' },
-      { task_id: completed, status: 'completed' },
+      { task_id: submitted, status: 'submitted' },
     ]);
     assert.equal(issueStatus(db, issue), 'open');
     db.close();
   });
 
-  it('cascade escalates live tasks, closes their runs issue_closed, audits each, then closes remote once after local', async () => {
+  it('cascade cancels live tasks, closes their runs issue_closed, audits each, then closes remote once after local', async () => {
     const db = tempDB();
     db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
     upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
@@ -136,12 +136,12 @@ describe('issue_close: refuse or cascade', () => {
     const issue = seedIssue(db, 77);
     const pending = seedTask(db, issue, 'pending');
     const running = seedTask(db, issue, 'running');
-    const needsValidation = seedTask(db, issue, 'needs_validation');
-    const completed = seedTask(db, issue, 'completed', { commit: 'abc1234' });
+    const submitted = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
     const failed = seedTask(db, issue, 'failed');
+    const superseded = seedTask(db, issue, 'superseded');
     openRun(db, running, 'swe');
     openRun(db, running, 'bro');
-    openRun(db, completed, 'bro');
+    openRun(db, submitted, 'bro');
 
     const spawns: Array<{ args: string[]; issueStatusAtSpawn: string }> = [];
     const spawnFn = (_cmd: string, args: string[]) => {
@@ -153,12 +153,17 @@ describe('issue_close: refuse or cascade', () => {
       agent: 'bro', issue_id: String(issue), cascade: true, reason: 'superseded by a new plan', _spawnFn: spawnFn,
     });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
-    assert.deepEqual(parse(r)['tasks_escalated'], [pending, running, needsValidation, completed]);
+    assert.deepEqual(parse(r)['tasks_escalated'], [pending, running, submitted]);
 
-    for (const id of [pending, running, needsValidation, completed]) {
-      assert.equal(taskStatus(db, id), 'escalated', `task ${id} escalated`);
+    for (const id of [pending, running, submitted]) {
+      assert.equal(taskStatus(db, id), 'cancelled', `task ${id} cancelled`);
+      const last = db.get<{ event_type: string; record_kind: string | null; record_id: number | null }>(
+        'SELECT event_type, record_kind, record_id FROM task_events WHERE task_id = ? ORDER BY seq DESC LIMIT 1', [id],
+      )!;
+      assert.deepEqual({ ...last }, { event_type: 'issue_cancelled', record_kind: 'issue', record_id: issue }, `task ${id} records the issue close`);
     }
-    assert.equal(taskStatus(db, failed), 'failed', 'terminal tasks are untouched');
+    assert.equal(taskStatus(db, failed), 'failed', 'ended tasks are untouched');
+    assert.equal(taskStatus(db, superseded), 'superseded', 'final tasks are untouched');
 
     const runs = db.all<{ completed_at: string | null; exit_reason: string | null }>(
       'SELECT completed_at, exit_reason FROM agent_runs ORDER BY id',
@@ -172,8 +177,7 @@ describe('issue_close: refuse or cascade', () => {
       [
         { task_id: pending, from_status: 'pending', reason: 'superseded by a new plan' },
         { task_id: running, from_status: 'running', reason: 'superseded by a new plan' },
-        { task_id: needsValidation, from_status: 'needs_validation', reason: 'superseded by a new plan' },
-        { task_id: completed, from_status: 'completed', reason: 'superseded by a new plan' },
+        { task_id: submitted, from_status: 'submitted', reason: 'superseded by a new plan' },
       ],
     );
 
@@ -294,19 +298,18 @@ describe('issue_close: review evidence for closed tasks', () => {
     db.close();
   });
 
-  it('a pass at an escalated commit A never covers a close at commit B', async () => {
+  it('a pass at commit A never covers a close at commit B', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'aaaaaaa', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'aaaaaaa', completedAt: iso(-3 * HOUR) });
     recordVerificationPass(db, issue, t, 'aaaaaaa', iso(-3 * HOUR));
     recordVerdict(db, t, 'pass', iso(-2 * HOUR));
-    const tasks = taskTools(db).handlers;
-    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'escalated' });
-    const r = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed', commit_sha: 'bbbbbbb' });
+    const r = await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', { agent: 'bro', task_id: String(t), commit_sha: 'bbbbbbb' });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(taskStatus(db, t), 'closed');
     assert.equal(taskHasPassingReview(db, t), false);
     assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((a) => a.content), [
-      { task_id: t, commit_sha: 'bbbbbbb', closed_by: 'task_update_status' },
+      { task_id: t, commit_sha: 'bbbbbbb', closed_by: 'task_recover' },
     ]);
 
     const unrecorded = seedTask(db, issue, 'closed', { commit: 'bbbbbbb' });
@@ -321,13 +324,13 @@ describe('issue_close: review evidence for closed tasks', () => {
   it('a pass at B after the B anchor closes with no bypass', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'escalated', { commit: 'aaaaaaa' });
+    const t = seedTask(db, issue, 'submitted', { commit: 'aaaaaaa' });
     recordVerificationPass(db, issue, t, 'aaaaaaa', iso(-4 * HOUR));
     recordVerdict(db, t, 'pass', iso(-3 * HOUR));
     recordVerificationPass(db, issue, t, 'bbbbbbb', iso(-2 * HOUR));
     recordVerdict(db, t, 'pass', iso(-HOUR));
-    const r = await call(taskTools(db).handlers, 'task_update_status', {
-      agent: 'bro', task_id: String(t), status: 'closed', commit_sha: 'bbbbbbb',
+    const r = await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', {
+      agent: 'bro', task_id: String(t), commit_sha: 'bbbbbbb',
     });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
@@ -456,10 +459,10 @@ describe('issue_close: review evidence for closed tasks', () => {
   it('a task whose bypass is already recorded does not block the close', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
-    const tasks = taskTools(db);
-    const r = await call(tasks.handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
+    const r = await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', { agent: 'bro', task_id: String(t), commit_sha: 'abc1234' });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(auditRows(db, 'review_gate_bypassed').length, 1);
     const close = await call(issueTools(db, DB_PATH).handlers, 'issue_close', { agent: 'bro', issue_id: String(issue) });
     assert.ok(!close.isError, JSON.stringify(parse(close)));
     db.close();
@@ -483,28 +486,16 @@ describe('issue_close: review evidence for closed tasks', () => {
 });
 
 describe('review_gate_bypassed on non-atomic closes', () => {
-  it('task_update_status → closed without a pass writes review_gate_bypassed', async () => {
+  it('task_update_status closes nothing: closed is not a status it sets, so it writes no bypass (GH 3224)', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
-    const r = await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
-    assert.ok(!r.isError, JSON.stringify(parse(r)));
-    assert.equal(taskStatus(db, t), 'closed');
-    const rows = auditRows(db, 'review_gate_bypassed');
-    assert.equal(rows.length, 1);
-    assert.deepEqual(rows[0]!.content, { task_id: t, commit_sha: 'abc1234', closed_by: 'task_update_status' });
-    assert.equal(rows[0]!.from_node, 'bro');
-    db.close();
-  });
-
-  it('task_update_status → closed with a pass writes no bypass row', async () => {
-    const db = tempDB();
-    const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
-    recordVerificationPass(db, issue, t, 'abc1234', iso(-2 * HOUR));
-    recordVerdict(db, t, 'pass', iso(-HOUR));
-    await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
-    assert.equal(taskStatus(db, t), 'closed');
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
+    const r = await call(taskTools(db).handlers, 'task_update_status', {
+      agent: 'bro', task_id: String(t), status: 'closed', note: 'test: a by-hand close',
+    });
+    assert.equal(r.isError, true);
+    assert.match(String(parse(r)['error']), /Invalid status: closed/);
+    assert.equal(taskStatus(db, t), 'submitted');
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
     db.close();
   });
@@ -512,20 +503,30 @@ describe('review_gate_bypassed on non-atomic closes', () => {
   it('task_recover closing at a commit without a pass writes review_gate_bypassed', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-HOUR) });
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', {
       agent: 'bro', task_id: String(t), commit_sha: 'abc1234',
     }));
     assert.equal(out['action'], 'closed');
     assert.equal(out['review_gate_bypassed'], true);
-    assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((r) => r.content), [
+    const rows = auditRows(db, 'review_gate_bypassed');
+    assert.deepEqual(rows.map((r) => r.content), [
       { task_id: t, commit_sha: 'abc1234', closed_by: 'task_recover' },
     ]);
+    assert.equal(rows[0]!.from_node, 'bro');
     db.close();
   });
 });
 
-describe('GH 2225 T5: task_update_status under workflow_mode agile queues the close', () => {
+// recoverAt closes a pending or submitted task at `sha` through task_recover,
+// the non-atomic close left once task_update_status stopped setting closed (GH 3224).
+async function recoverAt(db: TrajectoryDB, taskId: number, sha: string): Promise<Record<string, unknown>> {
+  const r = await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', { agent: 'bro', task_id: String(taskId), commit_sha: sha });
+  assert.ok(!r.isError, JSON.stringify(parse(r)));
+  return parse(r);
+}
+
+describe('GH 2225 T5: a non-atomic close under workflow_mode agile queues the close', () => {
   const setMode = (db: TrajectoryDB, mode: string): void => {
     db.run(
       `INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
@@ -539,18 +540,16 @@ describe('GH 2225 T5: task_update_status under workflow_mode agile queues the cl
     const db = tempDB();
     setMode(db, 'agile');
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
-    const tasks = taskTools(db).handlers;
-    const r = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
-    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
+    await recoverAt(db, t, 'abc1234');
     assert.equal(taskStatus(db, t), 'closed');
     assert.deepEqual(auditRows(db, 'review_queued'), [{ content: { task_id: t, commit_sha: 'abc1234' }, from_node: 'bro' }]);
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
     assert.equal(modeOf(db, t), 'agile');
     assert.equal(db.get<{ ok: number }>(`SELECT ${AGILE_QUEUED_SQL} AS ok FROM tasks t WHERE t.id = ?`, [t])!.ok, 1);
 
-    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'escalated' });
-    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+    setTaskStatus(db, t, 'submitted', 'test: reopened and resubmitted at the same commit');
+    await recoverAt(db, t, 'abc1234');
     assert.equal(auditRows(db, 'review_queued').length, 1, 'one row per (task, commit)');
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
     db.close();
@@ -560,14 +559,18 @@ describe('GH 2225 T5: task_update_status under workflow_mode agile queues the cl
     const db = tempDB();
     setMode(db, 'agile');
     const issue = seedIssue(db);
-    const reviewed = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
+    const reviewed = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
     recordVerificationPass(db, issue, reviewed, 'abc1234', iso(-2 * HOUR));
     recordVerdict(db, reviewed, 'pass', iso(-HOUR));
-    await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(reviewed), status: 'closed' });
+    await recoverAt(db, reviewed, 'abc1234');
     assert.equal(auditRows(db, 'review_queued').length, 0);
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
-    const moving = seedTask(db, issue, 'escalated', { commit: 'def5678' });
-    await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(moving), status: 'pending' });
+    const moving = seedTask(db, issue, 'running', { commit: 'def5678' });
+    const r = await call(taskTools(db).handlers, 'task_update_status', {
+      agent: 'bro', task_id: String(moving), status: 'pending', note: 'test: the spawn never started',
+    });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(taskStatus(db, moving), 'pending');
     assert.equal(modeOf(db, moving), null);
     db.close();
   });
@@ -577,9 +580,9 @@ describe('GH 2225 T5: task_update_status under workflow_mode agile queues the cl
       const db = tempDB();
       if (mode !== null) setMode(db, mode);
       const issue = seedIssue(db);
-      const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
-      await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
-      assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((r) => r.content), [{ task_id: t, commit_sha: 'abc1234', closed_by: 'task_update_status' }]);
+      const t = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
+      await recoverAt(db, t, 'abc1234');
+      assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((r) => r.content), [{ task_id: t, commit_sha: 'abc1234', closed_by: 'task_recover' }]);
       assert.equal(auditRows(db, 'review_queued').length, 0);
       assert.equal(modeOf(db, t), 'truest', 'the close stamps the mode it resolved (GH 3281)');
       db.close();
@@ -588,20 +591,13 @@ describe('GH 2225 T5: task_update_status under workflow_mode agile queues the cl
 });
 
 describe('a bypass is recorded once per (task, commit)', () => {
-  it('closed → escalated → closed twice writes exactly one row; task_recover after a reopen adds none', async () => {
+  it('closing at the same commit twice, with a reopen between, writes exactly one row', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
-    const tasks = taskTools(db).handlers;
-    for (let i = 0; i < 2; i++) {
-      const close = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
-      assert.ok(!close.isError, JSON.stringify(parse(close)));
-      await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'escalated' });
-    }
-    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'pending' });
-    const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', {
-      agent: 'bro', task_id: String(t), commit_sha: 'abc1234',
-    }));
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234' });
+    assert.equal((await recoverAt(db, t, 'abc1234'))['review_gate_bypassed'], true);
+    setTaskStatus(db, t, 'pending', 'test: reopened, then the spawn rolled back');
+    const out = await recoverAt(db, t, 'abc1234');
     assert.equal(out['action'], 'closed');
     assert.equal(out['review_gate_bypassed'], false);
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 1);
@@ -615,9 +611,8 @@ describe('a bypass is recorded once per (task, commit)', () => {
     await call(issueTools(db, DB_PATH).handlers, 'issue_close', {
       agent: 'bro', issue_id: String(issue), waive_review: true, waive_review_reason: 'reviewed by Human out of band',
     });
-    const tasks = taskTools(db).handlers;
-    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'escalated' });
-    await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+    setTaskStatus(db, t, 'submitted', 'test: reopened and resubmitted at the same commit');
+    await recoverAt(db, t, 'abc1234');
     assert.equal(auditRows(db, 'review_gate_waived').length, 1);
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
     db.close();
@@ -628,7 +623,7 @@ describe('task_recover anchors its own bro_verification_pass before judging bypa
   it('a pass at the recovered commit → no bypass, and issue_close accepts', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     recordVerificationPass(db, issue, t, 'abc1234', iso(-2 * HOUR));
     recordVerdict(db, t, 'pass', iso(-HOUR));
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', {
@@ -647,7 +642,7 @@ describe('task_recover anchors its own bro_verification_pass before judging bypa
   it('a pass older than any anchor of the commit → bypass recorded, and issue_close accepts on that record', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     recordVerdict(db, t, 'pass', iso(-HOUR));
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', {
       agent: 'bro', task_id: String(t), commit_sha: 'abc1234',
@@ -668,12 +663,12 @@ describe('bro_atomic_close', () => {
   it('refuses review_pass_missing until code-reviewer passes the handed-off commit, then closes with no review_gate_bypassed', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     const handlers = compositeTools(db, DB_PATH, null).handlers;
     const early = await call(handlers, 'bro_atomic_close', closeArgs(t));
     assert.equal(early.isError, true);
     assert.match(String(parse(early)['error']), /^review_pass_missing: /);
-    assert.equal(taskStatus(db, t), 'completed');
+    assert.equal(taskStatus(db, t), 'submitted');
 
     recordHandoff(db, issue, t, 'abc1234', iso(-2 * HOUR));
     recordVerdict(db, t, 'fail', iso(-1.5 * HOUR));
@@ -693,20 +688,20 @@ describe('bro_atomic_close', () => {
   it('refuses a commit_sha other than the task commit code-reviewer passed', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     recordHandoff(db, issue, t, 'abc1234', iso(-2 * HOUR));
     recordVerdict(db, t, 'pass', iso(-HOUR));
     const r = await call(compositeTools(db, DB_PATH, null).handlers, 'bro_atomic_close', closeArgs(t, { commit_sha: 'def5678' }));
     assert.equal(r.isError, true);
     assert.match(String(parse(r)['error']), /^commit_sha_mismatch: /);
-    assert.equal(taskStatus(db, t), 'completed');
+    assert.equal(taskStatus(db, t), 'submitted');
     db.close();
   });
 
   it('close_issue_if_last_task with a live sibling leaves the issue open and names the sibling', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     recordHandoff(db, issue, t, 'abc1234', iso(-2 * HOUR));
     recordVerdict(db, t, 'pass', iso(-HOUR));
     const sibling = seedTask(db, issue, 'running');
@@ -729,7 +724,7 @@ describe('bro_atomic_close', () => {
     const issue = seedIssue(db);
     const legacy = seedTask(db, issue, 'closed', { commit: 'aaaaaaa' });
     recordVerificationPass(db, issue, legacy, 'aaaaaaa', iso(-2 * HOUR));
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     recordHandoff(db, issue, t, 'abc1234', iso(-2 * HOUR));
     recordVerdict(db, t, 'pass', iso(-HOUR));
     const auditBefore = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit')!.n;
@@ -758,7 +753,7 @@ describe('bro_atomic_close', () => {
   it('close_issue_if_last_task defers the issue close to merge when every closed task of it carries a pass (GH 3234)', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
+    const t = seedTask(db, issue, 'submitted', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     recordHandoff(db, issue, t, 'abc1234', iso(-2 * HOUR));
     recordVerdict(db, t, 'pass', iso(-HOUR));
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'bro_atomic_close', {
@@ -844,38 +839,38 @@ describe('task_recover stale sweep', () => {
 });
 
 describe('progress counters count closed only', () => {
-  it('issue_get_phase reports completed as awaiting close', async () => {
+  it('issue_get_phase reports submitted as awaiting close', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
     seedTask(db, issue, 'closed');
-    seedTask(db, issue, 'completed');
+    seedTask(db, issue, 'submitted');
     const out = parse(await call(issueTools(db, DB_PATH).handlers, 'issue_get_phase', { agent: 'bro', issue_id: String(issue) }));
     assert.equal(out['phase'], 'tasks');
     assert.deepEqual(out['counts'], { tasks_total: 2, tasks_completed: 1, tasks_awaiting_close: 1, tasks_failed: 0 });
     db.close();
   });
 
-  it('issue_report_md summary counts closed as done and completed as awaiting close', async () => {
+  it('issue_report_md summary counts closed as done and submitted as awaiting close', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
     seedTask(db, issue, 'closed');
-    seedTask(db, issue, 'completed');
+    seedTask(db, issue, 'submitted');
     seedTask(db, issue, 'failed');
     const out = parse(await call(reportTools(db).handlers, 'issue_report_md', { agent: 'bro', issue_id: String(issue) }));
     assert.match(String(out['markdown']), /3 total, 1 done \(closed\), 1 awaiting close, 1 failed/);
     db.close();
   });
 
-  it('branch_report_md labels completed tasks as awaiting review and close', async () => {
+  it('branch_report_md labels submitted tasks as awaiting review and close', async () => {
     const db = tempDB();
     const issue = seedIssue(db);
-    seedTask(db, issue, 'completed', { branch: 'fix/one', completedAt: iso(-HOUR) });
+    seedTask(db, issue, 'submitted', { branch: 'fix/one', completedAt: iso(-HOUR) });
     const out = parse(await call(branchReportMdTools(db).handlers, 'branch_report_md', {
       agent: 'bro', issue_id: String(issue), branch_id: 'fix/one',
     }));
     const md = String(out['markdown']);
     assert.match(md, /\*\*Done:\*\* 0 of 1 closed, 1 awaiting close/);
-    assert.match(md, /completed \(awaiting review and close\)/);
+    assert.match(md, /submitted \(awaiting review and close\)/);
     db.close();
   });
 });
@@ -929,7 +924,7 @@ describe('AGILE_QUEUED_SQL: a closed agile task queued by bro for its current co
       assert.equal(isQueued(db, t), false, `mode ${mode}`);
     }
 
-    const open = agileTask(db, issue, 'completed');
+    const open = agileTask(db, issue, 'submitted');
     queuedRow(db, issue, open, 'abc1234');
     assert.equal(isQueued(db, open), false);
     db.close();

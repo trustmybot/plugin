@@ -32,10 +32,10 @@ function seedBase(path) {
 
 function seed(path) {
   const { db, now, task } = seedBase(path);
-  const reviewed = task('feat/reviewed', 'Reviewed task', 'needs_validation');
+  const reviewed = task('feat/reviewed', 'Reviewed task', 'submitted');
   const bare = task('feat/bare', 'Bare task', 'pending');
-  const mixed = task('feat/mixed', 'Mixed findings task', 'needs_validation');
-  const minor = task('feat/minor', 'Minor findings task', 'needs_validation');
+  const mixed = task('feat/mixed', 'Mixed findings task', 'submitted');
+  const minor = task('feat/minor', 'Minor findings task', 'submitted');
   const attempt = db.prepare(
     'INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
   );
@@ -65,7 +65,7 @@ function seed(path) {
 function seedWithoutSeverity(path) {
   const { db, now, task } = seedBase(path);
   db.exec('ALTER TABLE review_findings DROP COLUMN severity');
-  const legacy = task('feat/legacy', 'Legacy findings task', 'needs_validation');
+  const legacy = task('feat/legacy', 'Legacy findings task', 'submitted');
   const finding = db.prepare(
     `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
      VALUES (?, ?, 1, 'SC1', 'true', '0', '1', ?, ?)`,

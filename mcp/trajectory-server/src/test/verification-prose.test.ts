@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { compositeTools } from '../tools/composites.js';
 import { checkVerificationPaths, checkVerificationProse } from '../tools/verification-paths.js';
-import { pinScanEnv, tempDB } from './helpers.js';
+import { pinScanEnv, setTaskStatus, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
@@ -156,7 +156,7 @@ describe('prose verification guard in the task tools (GH 2955)', () => {
       assert.deepEqual(row(), before);
       assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_spec_amended'`)!.c, 0);
 
-      db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+      setTaskStatus(db, taskId, 'failed', 'the work failed');
       const failed = row();
       assertProseRefusal(await call('task_reopen', { task_id: taskId, reason: 'rework', verification_add: [PROSE] }));
       assert.deepEqual(row(), failed);

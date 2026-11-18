@@ -17,7 +17,7 @@ import { validationTools } from '../tools/validation.js';
 import { reviewQueueTools } from '../tools/review-queue.js';
 import { AGILE_PENDING_REVIEW_SQL } from '../review-sql.js';
 import { makeSandbox, runGate, type Sandbox } from './hook-sandbox.js';
-import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation, setTaskStatus, tempDB } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, ((args: Record<string, unknown>) => Promise<unknown>) | undefined>;
@@ -104,8 +104,9 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     git(worktree, 'commit', '-q', '-m', 'discount');
     const sha = git(worktree, 'rev-parse', 'HEAD');
     await ok('task_brief', { agent: 'swe', task_id: taskId });
+    if (status(taskId) === 'pending') await ok('task_update_status', { agent: 'swe', task_id: String(taskId), status: 'running' });
     const complete = {
-      agent: 'swe', task_id: String(taskId), status: 'completed', commit_sha: shaArg(sha),
+      agent: 'swe', task_id: String(taskId), status: 'submitted', commit_sha: shaArg(sha),
       report: { criteria: [{ id: 'SC1', status: 'met', evidence_cmd: 'true' }] },
     };
     const gate = runGate('swe-verification-gate', {
@@ -118,7 +119,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     assert.equal(gate.status, 0);
     assert.doesNotMatch(gate.stdout, /"permissionDecision":"deny"/, gate.stdout);
     await ok('task_update_status', complete);
-    assert.equal(status(taskId), 'completed');
+    assert.equal(status(taskId), 'submitted');
     return sha;
   };
 
@@ -158,7 +159,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     const handoff = await ok('review_handoff', { agent: 'bro', task_id: String(taskId), session_id: SESSION });
     assert.equal(handoff['review_pending'], true);
     assert.equal(typeof handoff['reviewer_effort'], 'string');
-    assert.equal(status(taskId), 'completed', 'the handoff leaves the status alone');
+    assert.equal(status(taskId), 'submitted', 'the handoff leaves the status alone');
     const anchor = db.get<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'review_handoff'`)!;
     const recorded = JSON.parse(anchor.content_json) as Record<string, unknown>;
     assert.equal(recorded['task_id'], taskId);
@@ -236,7 +237,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     assert.ok(!reReview.isError, JSON.stringify(reReview.body));
     assert.equal(reReview.body['re_review_of'], failId);
     assert.equal(reReview.body['commit_sha'], sha);
-    assert.equal(status(taskId), 'completed', 'the re-review restores the completion the FAIL cleared');
+    assert.equal(status(taskId), 'submitted', 'the re-review restores the submission the FAIL cleared');
     assert.equal(db.get<{ completion_report: string }>('SELECT completion_report FROM tasks WHERE id = ?', [taskId])!.completion_report, report);
 
     const spawn = reReview.body['reviewer_spawn'] as { prompt: string };
@@ -256,6 +257,8 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     assert.equal(storedSha(taskId), sha);
 
     const unresolvable = 'deadbee0deadbee0';
+    await ok('task_reopen', { agent: 'bro', task_id: taskId, reason: 'rework on a new commit' });
+    await ok('task_brief', { agent: 'swe', task_id: taskId });
     await ok('task_update_status', { agent: 'swe', task_id: String(taskId), status: 'failed', commit_sha: unresolvable });
     assert.equal(storedSha(taskId), unresolvable);
   });
@@ -329,7 +332,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
 
       const again = await call('review_handoff', { agent: 'bro', task_id: String(taskId) });
       assert.ok(again.isError, 'a closed agile task no longer queued is refused');
-      assert.match(String(again.body['error']), /status is "closed", expected "completed" or "needs_validation"/);
+      assert.match(String(again.body['error']), /status is "closed", expected "submitted"/);
       assert.equal(handoffs(taskId), 1, 'the refusal writes no handoff');
     });
 
@@ -354,13 +357,13 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
       assert.equal(handoffs(taskId), 1);
     });
 
-    it('GH 2225 SC1: a FAIL on a folded task reworked to needs_validation reopens it, though it is pending review', async () => {
+    it('GH 2225 SC1: a FAIL on a folded task reworked to submitted reopens it, though it is pending review', async () => {
       const { taskId, sha } = await closeQueued('feat/discount-agile-reworked');
       db.run(
         `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES ((SELECT issue_id FROM tasks WHERE id = ?), 'bro', 'feature_branch_merged', 'm', ?, ?)`,
         [taskId, JSON.stringify({ task_id: taskId, feature_branch: 'feat/epic', commit_sha: sha, rebased: false }), new Date().toISOString()],
       );
-      db.run(`UPDATE tasks SET status = 'needs_validation' WHERE id = ?`, [taskId]);
+      setTaskStatus(db, taskId, 'submitted', 'the fold reworked');
       assert.ok(pending(taskId), 'the reopened fold is pending review');
       seedReviewerObservation(db, taskId, 1, { agentId: `reviewer1agent${taskId}y` });
       const failed = await ok('validation_record', {
@@ -368,7 +371,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
         findings: [{ criterion_id: 'SC1', probe_cmd: 'grep -q "Math.round" lib/discount.js', expected: 'rounded', observed: 'not rounded' }],
       });
       assert.equal(failed['reopen_skipped'], undefined, JSON.stringify(failed));
-      assert.notEqual(status(taskId), 'needs_validation', 'the FAIL sends the rework back to swe');
+      assert.notEqual(status(taskId), 'submitted', 'the FAIL sends the rework back to swe');
     });
 
     it('SC1: a closed truest task is refused', async () => {

@@ -1491,7 +1491,7 @@
   },
   "mcp/trajectory-server/src/test/lifecycle.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 7
+      "count": 6
     },
     "@typescript-eslint/require-await": {
       "count": 2
@@ -1914,7 +1914,7 @@
       "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 94
+      "count": 92
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 5

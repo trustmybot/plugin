@@ -533,7 +533,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
     {
       id: 'issues_closed_no_live_tasks',
       severity: 'error',
-      description: 'no closed issue still has a pending/running/needs_validation/completed task',
+      description: 'no closed issue still has a pending/running/submitted task',
       sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN tasks t ON t.issue_id = i.id
              WHERE i.status = '${ISSUE_STATE.closed}' AND t.status IN (${sqlList(LIVE)})`,
       expect: { op: '=', value: 0 },

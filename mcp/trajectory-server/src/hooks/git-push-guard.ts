@@ -68,7 +68,7 @@ const GIT_WORD = /\bgit\b/;
 const XARGS = /\bxargs\b/;
 
 export const SWE_PUSH_REASON = 'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree.';
-export const SWE_PUSH_FIX: DenyFix = { allowed: `task_update_status(status='${TASK_STATE.completed}', commit_sha, report)` };
+export const SWE_PUSH_FIX: DenyFix = { allowed: `task_update_status(status='${TASK_STATE.submitted}', commit_sha, report)` };
 const CODE_REVIEWER_REASON = `BLOCKED: ${CODE_REVIEWER_ROLE} must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed.`;
 const WORKTREE_REASON = 'BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaping the detached-HEAD commits.';
 const WORKTREE_FIX: DenyFix = { allowed: 'git fetch ./.claude/worktrees/<slug> HEAD:<feature>, then git push from the main checkout' };

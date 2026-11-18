@@ -469,7 +469,7 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
     TMPDIR: base,
   });
   const completion = (taskId: number): string =>
-    JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent: 'swe', task_id: taskId, status: 'completed' } });
+    JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent: 'swe', task_id: taskId, status: 'submitted' } });
   const read = <T>(sql: string, ...params: number[]): T[] => {
     const db = new DatabaseSync(dbFile, { readOnly: true });
     try {

@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, startSwe, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
 
 const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 
@@ -106,7 +106,8 @@ test('Flow 12 — task_update_spec amends a live task and audits it; refused onc
   assert.equal(payload.task_id, taskId);
   assert.equal(payload.reason, 'the edge case surfaced after provisioning');
 
-  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }, { id: 'SC2', status: 'met' }] } });
+  await startSwe(client, taskId);
+  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }, { id: 'SC2', status: 'met' }] } });
   assert.equal(swe.ok, true, `swe completes: ${JSON.stringify(swe)}`);
   seedPassingVerificationRun(dbPath, taskId, project.sha);
   await reviewHandoffAndPass(client, dbPath, taskId);

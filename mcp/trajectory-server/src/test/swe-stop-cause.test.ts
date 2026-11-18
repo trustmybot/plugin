@@ -2,7 +2,7 @@
  * The swe-stop-cause recorder (GH 1905) on a temp trajectory DB and fixture
  * transcripts: a checkpoint written in the run records budget, a trailing
  * PreToolUse deny records hook_block with its text unless the run made a
- * successful completed task_update_status call (GH 1914), and anything else leaves
+ * successful submitted task_update_status call (GH 1914), and anything else leaves
  * both columns NULL. It always exits 0 with empty stdout.
  */
 import { describe, it, before, after } from 'node:test';
@@ -205,27 +205,27 @@ describe('swe-stop-cause (GH 1905)', () => {
       assert.equal(hookBlockDetail(jsonl(deny), since), DENY);
     });
 
-    it('deny and a successful completed report: null', () => {
-      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T10:01:00.000Z', STATUS_TOOL, 'completed', false), ...deny]), since), null);
-      assert.equal(hookBlockDetail(jsonl([...deny, ...report('2026-10-25T10:06:00.000Z', 'task_update_status', 'completed', false)]), since), null);
+    it('deny and a successful submitted report: null', () => {
+      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T10:01:00.000Z', STATUS_TOOL, 'submitted', false), ...deny]), since), null);
+      assert.equal(hookBlockDetail(jsonl([...deny, ...report('2026-10-25T10:06:00.000Z', 'task_update_status', 'submitted', false)]), since), null);
     });
 
-    it('deny and an errored completed report: hook_block', () => {
-      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T10:01:00.000Z', STATUS_TOOL, 'completed', true), ...deny]), since), DENY);
+    it('deny and an errored submitted report: hook_block', () => {
+      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T10:01:00.000Z', STATUS_TOOL, 'submitted', true), ...deny]), since), DENY);
     });
 
     it('deny and a failed report: hook_block', () => {
       assert.equal(hookBlockDetail(jsonl([...deny, ...report('2026-10-25T10:06:00.000Z', STATUS_TOOL, 'failed', false)]), since), DENY);
     });
 
-    it('a completed report before TMB_STOP_SINCE does not count', () => {
-      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T09:50:00.000Z', STATUS_TOOL, 'completed', false), ...deny]), since), DENY);
+    it('a submitted report before TMB_STOP_SINCE does not count', () => {
+      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T09:50:00.000Z', STATUS_TOOL, 'submitted', false), ...deny]), since), DENY);
     });
 
     it('records NULL on the row when the run reported completion', () => {
       const f = fixture();
       f.exec("UPDATE agent_runs SET stop_cause = 'hook_block', stop_detail = 'stale' WHERE spawn_id = ?", SWE);
-      const t = f.transcript([...deny, ...report('2026-10-25T10:06:00.000Z', STATUS_TOOL, 'completed', false)]);
+      const t = f.transcript([...deny, ...report('2026-10-25T10:06:00.000Z', STATUS_TOOL, 'submitted', false)]);
       assert.deepEqual(sweStopCause(payload(t), f.env), ALLOWED);
       assert.deepEqual(f.row(), { stop_cause: null, stop_detail: null });
     });

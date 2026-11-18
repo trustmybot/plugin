@@ -291,7 +291,7 @@ describe('cli.js feature-merge', () => {
   });
 
   for (const [label, task] of [
-    ['a completed task', { status: 'completed' }],
+    ['a submitted task', { status: 'submitted' }],
     ['a closed truest task', { workflowMode: 'truest' }],
     ['a closed exempt task', { workflowMode: 'exempt' }],
     ['a closed task with no workflow_mode', { workflowMode: null }],

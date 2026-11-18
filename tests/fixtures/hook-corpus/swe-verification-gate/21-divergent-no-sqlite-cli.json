@@ -3,7 +3,7 @@
   "tool_input": {
     "agent": "swe",
     "task_id": 31,
-    "status": "completed"
+    "status": "submitted"
   },
   "corpus_env": {
     "PATH": "@NOSQLITE_PATH@"

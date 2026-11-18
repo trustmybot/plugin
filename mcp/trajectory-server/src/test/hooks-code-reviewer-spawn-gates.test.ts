@@ -205,8 +205,8 @@ describe('code-reviewer-after-atomic-close', () => {
   it('denies a task not handed off at its current commit through node:sqlite, where the .sh lets the spawn through without jq or sqlite3', () => {
     const notHandedOff = (id: string, status: string): string => fixedReason(notHandedOffReason(id, status), notHandedOffFix(id));
     assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(13)), env()).stdout), notHandedOff('13', 'running'));
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notHandedOff('12', 'completed'));
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notHandedOff('14', 'needs_validation'));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notHandedOff('12', 'submitted'));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notHandedOff('14', 'submitted'));
   });
   it('names tmb_planning section 6 and the verify, hand off, review, close order (GH 2866)', () => {
     const reason = notHandedOffReason('13', 'running');

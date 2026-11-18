@@ -23,7 +23,7 @@
  * and lists the conflicting paths.
  *
  * drop cancels the branch: in one transaction every task of the repo merged
- * onto <name> and still pending the grouped review moves to escalated, and
+ * onto <name> and still pending the grouped review moves to cancelled, and
  * one bro feature_branch_dropped audit row names them. It is refused while a
  * task of the branch (merged onto it, or whose parent_branch_id names it) is
  * live, and for a <name> that is neither a local branch nor carries a task.
@@ -48,13 +48,14 @@ import { dbPath, GATE_READ_ERROR, gateRead, sqlQuote } from '../hooks/lib/db.js'
 import { commandSubstitution, shellPwd } from '../hooks/lib/project-env.js';
 import { repoGitRoot, repoNameForRoot } from '../hooks/lib/repo.js';
 import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
-import { taskStatusUpdateSql } from '../task-status.js';
+import { sqlText, taskStatusMoveSql } from '../task-status.js';
+import { LIVE, sqlList } from '../task-states.js';
 import type { CliIo } from './fallback-db.js';
 import { runTaskRebase, TaskRebase } from './integrate.js';
 
 const USAGE = 'usage: cli.js feature-branch <cut|sync|drop|cleanup> <name> [--repo <repo>] [--delete-branch (drop only)]';
 const ACTIONS: readonly string[] = ['cut', 'sync', 'drop', 'cleanup'];
-const LIVE_STATUSES = "('pending', 'running', 'needs_validation', 'completed')";
+const LIVE_STATUSES = `(${sqlList(LIVE)})`;
 const DROPPED_EVENT: AuditEventType = 'feature_branch_dropped';
 const FETCH_TIMEOUT_MS = 60_000;
 
@@ -186,7 +187,7 @@ class FeatureBranch extends TaskRebase {
 
   /**
    * One transaction: the feature_branch_dropped row naming the queued tasks,
-   * then those tasks moved to escalated, each guarded on no live task being on
+   * then those tasks moved to cancelled, each guarded on no live task being on
    * the branch. Prints whether the row was written, then its content_json.
    */
   private dropSql(name: string): string {
@@ -197,19 +198,27 @@ class FeatureBranch extends TaskRebase {
     const issue = `COALESCE((SELECT t.issue_id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id LIMIT 1),
     (SELECT l.issue_id FROM tasks l WHERE ${this.onBranchSql('l', name)} ORDER BY l.id LIMIT 1), -1)`;
     const taskIds = `(SELECT json_group_array(id) FROM (SELECT t.id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id))`;
-    const escalateQueued = taskStatusUpdateSql({
-      status: 'escalated',
+    // The row this drop writes, found again after the event inserts move last_insert_rowid().
+    const droppedRow = `(SELECT MAX(a.id) FROM audit a WHERE a.event_type = 'feature_branch_dropped' AND a.branch_id = '${branch}' AND a.created_at = '${now}')`;
+    const cancelQueued = taskStatusMoveSql({
+      status: 'cancelled',
+      event: 'branch_dropped',
+      cause: 'feature_branch_dropped',
+      role: 'bro',
+      record: { kind: 'audit', id: sqlText(droppedRow) },
+      key: `feature-branch-drop:${name}:${now}`,
+      at: now,
       alias: 't',
-      set: { completed_at: null, updated_at: now },
+      set: { updated_at: now },
       where: `${this.queuedSql(name)} AND ${this.noLiveTaskSql(name)}`,
     });
     return `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
-  SELECT ${issue}, '${branch}', 'bro', '${DROPPED_EVENT}', '${sqlQuote(`feature branch ${name} dropped; its queued tasks escalated`)}',
+  SELECT ${issue}, '${branch}', 'bro', '${DROPPED_EVENT}', '${sqlQuote(`feature branch ${name} dropped; its queued tasks cancelled`)}',
     json_object('feature_branch', '${branch}', 'repo', '${repo}', 'task_ids', json(${taskIds})), '${repo}', '${now}'
   WHERE ${this.noLiveTaskSql(name)};
 SELECT changes();
-${escalateQueued};
-SELECT content_json FROM audit WHERE id = last_insert_rowid() AND event_type = 'feature_branch_dropped';`;
+${cancelQueued};
+SELECT content_json FROM audit WHERE id = ${droppedRow};`;
   }
 
   private drop(name: string, deleteBranch: boolean): number {
@@ -236,7 +245,7 @@ SELECT content_json FROM audit WHERE id = last_insert_rowid() AND event_type = '
       this.die(4, `recording the drop of '${name}' failed${r.ok ? ' (a task of the branch went live)' : ''}; ${branchState}, the DB is unchanged`);
     }
     const ids = (JSON.parse(content) as { task_ids: number[] }).task_ids;
-    this.say(`dropped ${name}; escalated ${ids.length === 0 ? 'no task' : `task(s) ${ids.join(', ')}`}; ${deleting ? `deleted ${name}` : `${name} kept`}`);
+    this.say(`dropped ${name}; cancelled ${ids.length === 0 ? 'no task' : `task(s) ${ids.join(', ')}`}; ${deleting ? `deleted ${name}` : `${name} kept`}`);
     if (tip !== '') this.io.out(`${tip}\n`);
     return 0;
   }

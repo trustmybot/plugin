@@ -1,7 +1,7 @@
 /**
  * swe's checkpoint handback (GH 1905): task_update_status stores a checkpoint
  * only with status='running', stamps it with `at`, clears it on a move to
- * completed and keeps it on every other move; task_brief's core returns it
+ * submitted and keeps it on every other move; task_brief's core returns it
  * with last_stop, read from the task's newest stopped swe agent_runs row.
  */
 import { describe, it } from 'node:test';
@@ -10,7 +10,7 @@ import type { TrajectoryDB } from '../db.js';
 import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseStoredCheckpoint } from '../checkpoint.js';
 import { compositeTools } from '../tools/composites.js';
 import { taskTools } from '../tools/tasks.js';
-import { tempDB } from './helpers.js';
+import { openSweRun, tempDB } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -45,6 +45,7 @@ function fixture(): { db: TrajectoryDB; tasks: Handlers; composites: Handlers; i
     [SPEC],
   );
   const id = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+  openSweRun(db, id);
   return {
     db,
     tasks: taskTools(db).handlers as Handlers,
@@ -79,8 +80,8 @@ describe('task_update_status checkpoint (GH 1905)', () => {
 
   it('refuses a checkpoint with any status other than running', async () => {
     const { db, tasks, id } = fixture();
-    for (const status of ['completed', 'failed']) {
-      const args = { ...checkpointCall(id, status, CHECKPOINT), report: status === 'completed' ? { criteria: [{ id: 'SC1', status: 'met' }] } : undefined };
+    for (const status of ['submitted', 'failed']) {
+      const args = { ...checkpointCall(id, status, CHECKPOINT), report: status === 'submitted' ? { criteria: [{ id: 'SC1', status: 'met' }] } : undefined };
       assert.match(errorOf(await call(tasks, 'task_update_status', args)), /checkpoint is accepted only with status='running'/);
     }
     assert.equal(storedCheckpoint(db, id), null);
@@ -109,14 +110,14 @@ describe('task_update_status checkpoint (GH 1905)', () => {
     db.close();
   });
 
-  it('a move to completed clears the checkpoint', async () => {
+  it('a move to submitted clears the checkpoint', async () => {
     const { db, tasks, id } = fixture();
     await call(tasks, 'task_update_status', checkpointCall(id, 'running', CHECKPOINT));
     assert.notEqual(storedCheckpoint(db, id), null);
     const r = await call(tasks, 'task_update_status', {
       agent: 'swe',
       task_id: String(id),
-      status: 'completed',
+      status: 'submitted',
       commit_sha: 'abc1234',
       report: { criteria: [{ id: 'SC1', status: 'met', evidence_cmd: 'bun test' }] },
     });

@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { CLOSE_LINTS_PATH } from '../hooks/lib/lint-fingerprint.js';
 import { VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
-import { tempDB } from './helpers.js';
+import { setTaskStatus, tempDB } from './helpers.js';
 import { DATA_CONTRACTS, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { groupQueuedTasks, pathsOverlap, reviewQueueTools } from '../tools/review-queue.js';
@@ -112,7 +112,7 @@ describe('SC1: membership is the agile tasks pending review', () => {
       seedTask(db, issue, { mode: 'truest' });
       seedTask(db, issue, { mode: 'exempt' });
       seedTask(db, issue, { mode: null });
-      seedTask(db, issue, { status: 'completed' });
+      seedTask(db, issue, { status: 'submitted' });
       seedTask(db, issue, { queued: false });
       const q = await queueOk(db);
       assert.deepEqual(ids(q), [queued]);
@@ -252,21 +252,21 @@ describe('GH 2225 one pending-review set: review_queue selects AGILE_PENDING_REV
     try {
       const issue = seedIssue(db);
       const reopened: number[] = [];
-      for (const status of ['pending', 'running', 'needs_validation', 'completed']) {
+      for (const status of ['pending', 'running', 'submitted'] as const) {
         const id = seedTask(db, issue);
         foldOnto(db, issue, id, 'feat/agile');
         auditRow(db, issue, 'code-reviewer', 'review_batch_recorded', { task_ids: [id], commit_shas: ['c0ffee1'], verdict: 'pass' });
         auditRow(db, issue, 'bro', 'review_waived', { feature_branch: 'feat/agile', task_ids: [id], commit_shas: ['c0ffee1'], human_answer: 'Yes' });
         seedTaskPass(db, issue, id);
         assert.deepEqual(ids(await queueOk(db)), reopened, `task ${id} is settled while closed`);
-        db.run('UPDATE tasks SET status = ? WHERE id = ?', [status, id]);
+        setTaskStatus(db, id, status, 'reopened for rework');
         reopened.push(id);
       }
       const unfolded = seedTask(db, issue);
-      db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [unfolded]);
+      setTaskStatus(db, unfolded, 'running', 'reopened for rework');
       const truest = seedTask(db, issue, { mode: 'truest' });
       foldOnto(db, issue, truest, 'feat/agile');
-      db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [truest]);
+      setTaskStatus(db, truest, 'running', 'reopened for rework');
       assert.deepEqual(ids(await queueOk(db)), reopened);
       assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile' })), reopened);
     } finally {
@@ -676,7 +676,7 @@ describe('GH 2225 T4: review_batch_record', () => {
       const { db, issue } = batchDb();
       try {
         const good = seedQueued(db, issue, repo.base);
-        const open = seedQueued(db, issue, repo.base, { status: 'completed' });
+        const open = seedQueued(db, issue, repo.base, { status: 'submitted' });
         const truest = seedQueued(db, issue, repo.base, { mode: 'truest' });
         const exempt = seedQueued(db, issue, repo.base, { mode: 'exempt' });
         const unqueued = seedTask(db, issue, { repo: 'app', commit: repo.base, queued: false });
@@ -859,7 +859,7 @@ describe('GH 2225 T4: review_batch_record', () => {
       try {
         const a = seedQueued(db, issue, repo.base);
         foldOnto(db, issue, a, 'feat/agile');
-        db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [a]);
+        setTaskStatus(db, a, 'running', 'reopened for rework');
         observe(db, [a], repo.head);
         const body = refusedWith(await batch(db, { task_ids: [a], head_sha: repo.head, verdict: 'pass' }), 'task_not_batchable');
         assert.deepEqual(reasonsOf(body), [[a, 'not_closed']]);
@@ -1016,7 +1016,7 @@ describe('GH 2225 T4: review_batch_record', () => {
         const { db, issue } = batchDb();
         try {
           const reopened = seedMerged(db, issue, repo.base);
-          db.run(`UPDATE tasks SET status = 'needs_validation' WHERE id = ?`, [reopened]);
+          setTaskStatus(db, reopened, 'submitted', 'reopened for rework');
           const before = auditCount(db);
           refusedWith(await waive(db), 'no_queued_task');
           assert.equal(auditCount(db), before, 'only a reopened task: nothing is written');
@@ -1355,7 +1355,7 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
       const { db, issue } = handoffDb();
       try {
         const [t1, t2] = seedBranch(db, issue);
-        db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [t1]);
+        setTaskStatus(db, t1, 'running', 'reopened for rework');
         seedTaskPass(db, issue, t2);
         const before = auditCount(db);
         const body = refused(await handoff(db, { task_ids: [t1, t2] }), 'task_not_queued');

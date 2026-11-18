@@ -18,7 +18,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -41,7 +41,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -64,7 +64,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -87,7 +87,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -110,7 +110,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -133,7 +133,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -156,7 +156,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -179,7 +179,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -202,7 +202,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -225,7 +225,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -248,7 +248,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -271,7 +271,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     },
     "en_US.UTF-8": {
@@ -292,7 +292,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -315,7 +315,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     },
     "en_US.UTF-8": {
@@ -336,7 +336,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -359,7 +359,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -382,7 +382,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -405,7 +405,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -428,7 +428,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -451,7 +451,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   }

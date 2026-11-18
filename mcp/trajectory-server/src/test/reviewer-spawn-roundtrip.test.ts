@@ -81,7 +81,7 @@ describe('review_handoff reviewer_spawn round trip (GH 2582, GH 2866)', () => {
     const sha = git('rev-parse', 'HEAD');
     db.run(
       `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, commit_sha, worktree_path, created_at, updated_at)
-       VALUES (?, 1, ?, 'dev', 'd', 'completed', 's', 'app', ?, ?, ?, ?, ?)`,
+       VALUES (?, 1, ?, 'dev', 'd', 'submitted', 's', 'app', ?, ?, ?, ?, ?)`,
       [id, branch, JSON.stringify([`t${id}.ts`]), sha, worktreePath, NOW, NOW],
     );
     priorValidators.forEach((agent, i) => {

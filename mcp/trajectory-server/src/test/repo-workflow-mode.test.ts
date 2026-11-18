@@ -1,7 +1,7 @@
 // The repo's mode decides every pre-close step (GH 3281): resolveWorkflowMode
 // reads exempt first, then the repo's truest|agile, then the project mode
 // (unset reads as truest); the hooks' gateResolveWorkflowMode agrees with it;
-// bro_atomic_close and task_update_status stamp the mode they resolved, an
+// bro_atomic_close and task_recover stamp the mode they resolved, an
 // exempt task closing with no review row; and src/stored-mode.ts reads a
 // stored task mode as the sites it replaced did, exempt owing no review.
 import { after, before, describe, it } from 'node:test';
@@ -17,7 +17,6 @@ import { AGILE_QUEUED_SQL } from '../review-sql.js';
 import { isStoredAgile, isStoredExempt, storedAgileSql, storedExemptSql, storedReviewOwed, storedReviewOwedSql } from '../stored-mode.js';
 import { compositeTools } from '../tools/composites.js';
 import { resolveWorkflowMode } from '../tools/config.js';
-import { taskTools } from '../tools/tasks.js';
 import { seedReviewedCommit, setProjectWorkflowMode, tempDB } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -129,7 +128,6 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
   let repoRoot: string;
   let db: TrajectoryDB;
   let composites: ReturnType<typeof compositeTools>;
-  let tasks: ReturnType<typeof taskTools>;
   let baseSha: string;
   let nextId = 1;
   const git = (...a: string[]) => execFileSync('git', ['-C', repoRoot, ...a], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 }).toString().trim();
@@ -150,7 +148,6 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
     db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'dev')`, [repoRoot]);
     db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', ?, ?)`, [NOW, NOW]);
     composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
-    tasks = taskTools(db);
   });
 
   after(() => {
@@ -190,13 +187,16 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
   };
   const atomicClose = async (id: number, sha: string): Promise<RawResult> =>
     await call(composites.handlers, 'bro_atomic_close', { agent: 'bro', task_id: String(id), commit_sha: sha, verification_summary: 'ok' });
-  const updateClose = async (id: number): Promise<RawResult> =>
-    await call(tasks.handlers, 'task_update_status', { agent: 'bro', task_id: String(id), status: 'closed' });
+  // The non-atomic close: task_update_status sets no closed since v77 (GH 3224).
+  const updateClose = async (id: number): Promise<RawResult> => {
+    const sha = db.get<{ sha: string }>('SELECT commit_sha AS sha FROM tasks WHERE id = ?', [id])!.sha;
+    return await call(composites.handlers, 'task_recover', { agent: 'bro', task_id: String(id), commit_sha: sha });
+  };
 
   for (const project of ['truest', 'agile']) {
     it(`an exempt repo under project ${project}: bro_atomic_close closes with no pass and no handoff, stamps exempt, writes no review row`, async () => {
       setModes('exempt', project);
-      const { id, sha } = seedTask('completed');
+      const { id, sha } = seedTask('submitted');
       const r = await atomicClose(id, sha);
       assert.ok(!r.isError, JSON.stringify(parse(r)));
       assert.equal(statusOf(id), 'closed');
@@ -204,9 +204,9 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
       assert.deepEqual(reviewRows(id), []);
     });
 
-    it(`an exempt repo under project ${project}: task_update_status closes, stamps exempt, writes no review row`, async () => {
+    it(`an exempt repo under project ${project}: task_recover closes, stamps exempt, writes no review row`, async () => {
       setModes('exempt', project);
-      const { id } = seedTask('escalated');
+      const { id } = seedTask('submitted');
       const r = await updateClose(id);
       assert.ok(!r.isError, JSON.stringify(parse(r)));
       assert.equal(statusOf(id), 'closed');
@@ -217,24 +217,24 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
 
   it('an agile repo under project truest: both closes queue the task and stamp agile', async () => {
     setModes('agile', 'truest');
-    const atomic = seedTask('completed');
+    const atomic = seedTask('submitted');
     assert.ok(!(await atomicClose(atomic.id, atomic.sha)).isError);
     assert.equal(modeOf(atomic.id), 'agile');
     assert.deepEqual(reviewRows(atomic.id), ['review_queued']);
-    const updated = seedTask('escalated');
+    const updated = seedTask('submitted');
     assert.ok(!(await updateClose(updated.id)).isError);
     assert.equal(modeOf(updated.id), 'agile');
     assert.deepEqual(reviewRows(updated.id), ['review_queued']);
   });
 
-  it('a truest repo under project agile: bro_atomic_close refuses review_pass_missing, task_update_status records a bypass and stamps truest', async () => {
+  it('a truest repo under project agile: bro_atomic_close refuses review_pass_missing, task_recover records a bypass and stamps truest', async () => {
     setModes('truest', 'agile');
-    const atomic = seedTask('completed');
+    const atomic = seedTask('submitted');
     const refused = await atomicClose(atomic.id, atomic.sha);
     assert.ok(refused.isError);
     assert.match(String(parse(refused)['error']), /^review_pass_missing: /);
-    assert.equal(statusOf(atomic.id), 'completed');
-    const updated = seedTask('escalated');
+    assert.equal(statusOf(atomic.id), 'submitted');
+    const updated = seedTask('submitted');
     assert.ok(!(await updateClose(updated.id)).isError);
     assert.equal(modeOf(updated.id), 'truest');
     assert.deepEqual(reviewRows(updated.id), ['review_gate_bypassed']);
@@ -244,7 +244,7 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
     it(`SC5: a NULL-mode repo under ${project === null ? 'an unset' : 'an explicit'} project truest needs the pass and stamps truest`, async () => {
       db.run(`UPDATE repos SET mode = NULL WHERE name = 'app'`);
       storeProject(db, project === null ? null : JSON.stringify(project));
-      const { id, sha } = seedTask('completed');
+      const { id, sha } = seedTask('submitted');
       assert.match(String(parse(await atomicClose(id, sha))['error']), /^review_pass_missing: /);
       seedReviewedCommit(db, 1, id, sha);
       assert.ok(!(await atomicClose(id, sha)).isError);
@@ -255,7 +255,7 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
 
   it('SC5: a NULL-mode repo under an explicit project agile closes unreviewed, queued and stamped agile', async () => {
     setModes(null, 'agile');
-    const { id, sha } = seedTask('completed');
+    const { id, sha } = seedTask('submitted');
     assert.ok(!(await atomicClose(id, sha)).isError);
     assert.equal(modeOf(id), 'agile');
     assert.deepEqual(reviewRows(id), ['review_queued']);
@@ -263,11 +263,11 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
 
   it('a closed task keeps the mode it closed under when the repo mode changes and a status call repeats the close', async () => {
     setModes('exempt', 'agile');
-    const { id } = seedTask('escalated');
+    const { id } = seedTask('submitted');
     assert.ok(!(await updateClose(id)).isError);
     setModes('truest', 'truest');
     await updateClose(id);
-    const later = seedTask('escalated');
+    const later = seedTask('submitted');
     assert.ok(!(await updateClose(later.id)).isError);
     assert.equal(modeOf(later.id), 'truest');
     assert.equal(modeOf(id), 'exempt');

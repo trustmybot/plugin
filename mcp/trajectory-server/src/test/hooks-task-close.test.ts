@@ -123,7 +123,7 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     const d = db();
     try {
       const task = d.prepare('SELECT status, commit_sha FROM tasks WHERE id = 30').get() as { status: string; commit_sha: string };
-      assert.equal(task.status, 'completed');
+      assert.equal(task.status, 'submitted');
       assert.match(task.commit_sha, /^[0-9a-f]{40}$/);
       const audit = d.prepare("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_atomic_close_auto_completed'").get() as { n: number };
       assert.equal(audit.n, 1);
@@ -172,7 +172,7 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     assert.deepEqual(await sweAtomicClose(stop('44'), { ...env }), ALLOWED);
     const d = db();
     try {
-      assert.deepEqual({ ...d.prepare('SELECT status, commit_sha FROM tasks WHERE id = 44').get() }, { status: 'completed', commit_sha: head });
+      assert.deepEqual({ ...d.prepare('SELECT status, commit_sha FROM tasks WHERE id = 44').get() }, { status: 'submitted', commit_sha: head });
       assert.deepEqual({ ...d.prepare("SELECT root_dir FROM agent_runs WHERE spawn_id = 'agent-44'").get() }, { root_dir: session });
       assert.equal((d.prepare("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_atomic_close_auto_completed'").get() as { n: number }).n, 1);
     } finally {
@@ -202,7 +202,7 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     try {
       const run = d.prepare("SELECT effort, tokens_in, usage_source, completed_at IS NOT NULL AS closed FROM agent_runs WHERE spawn_id = 'agent-43'").get();
       assert.deepEqual({ ...run }, { effort: 'low', tokens_in: 110, usage_source: 'subagent_stop', closed: 1 });
-      assert.deepEqual({ ...d.prepare('SELECT status FROM tasks WHERE id = 43').get() }, { status: 'completed' });
+      assert.deepEqual({ ...d.prepare('SELECT status FROM tasks WHERE id = 43').get() }, { status: 'submitted' });
     } finally {
       d.close();
     }
@@ -238,7 +238,7 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     assert.deepEqual(oversizeRows(), [{ issue_id: taskIssue(30), task_id: 30, agent_type: 'swe', chars: 601 }]);
     const d = db();
     try {
-      assert.deepEqual({ ...d.prepare('SELECT status FROM tasks WHERE id = 30').get() }, { status: 'completed' });
+      assert.deepEqual({ ...d.prepare('SELECT status FROM tasks WHERE id = 30').get() }, { status: 'submitted' });
     } finally {
       d.close();
     }

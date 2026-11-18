@@ -319,7 +319,7 @@ describe('cli.js feature-branch drop', () => {
     return rev(`refs/heads/${FEATURE}`);
   }
 
-  it('SC1: escalates the queued tasks of the branch in this repo, writes one row and keeps the branch', () => {
+  it('SC1: cancels the queued tasks of the branch in this repo, writes one row and keeps the branch', () => {
     const tip = setupDrop();
     const queued = [seedTask(), seedTask()];
     const otherBranch = seedTask({ merged: 'feat/other' });
@@ -328,9 +328,14 @@ describe('cli.js feature-branch drop', () => {
     const r = featureBranch('drop', FEATURE);
     assert.equal(r.code, 0, r.err);
     assert.equal(r.out, tip, 'stdout is only the branch SHA');
-    for (const id of queued) assert.equal(status(id), 'escalated');
+    for (const id of queued) assert.equal(status(id), 'cancelled');
     for (const id of [otherBranch, otherRepo, notQueued]) assert.equal(status(id), 'closed', `task ${id} is not a queued task of the branch`);
     assert.equal(droppedRows(), '1');
+    assert.equal(
+      q(`SELECT group_concat(from_state || '>' || to_state || ':' || event_type || ':' || cause || ':' || record_kind, ',') FROM task_events WHERE to_state = 'cancelled'`),
+      queued.map(() => 'closed>cancelled:branch_dropped:feature_branch_dropped:audit').join(','),
+      'each cancel is a branch_dropped event caused by the dropped branch',
+    );
     assert.deepEqual(JSON.parse(q("SELECT content_json FROM audit WHERE event_type = 'feature_branch_dropped'")), {
       feature_branch: FEATURE,
       repo: 'work',
@@ -346,7 +351,7 @@ describe('cli.js feature-branch drop', () => {
     const r = featureBranch('drop', FEATURE, '--delete-branch');
     assert.equal(r.code, 0, r.err);
     assert.equal(r.out, tip);
-    assert.equal(status(id), 'escalated');
+    assert.equal(status(id), 'cancelled');
     assert.equal(droppedRows(), '1');
     assert.equal(rev(`refs/heads/${FEATURE}`), '', 'branch deleted');
   });
@@ -361,8 +366,7 @@ describe('cli.js feature-branch drop', () => {
   const liveCases: ReadonlyArray<readonly [string, SeedTask]> = [
     ['a pending task whose parent_branch_id names the branch', { status: 'pending', merged: null, parent: FEATURE, queued: false }],
     ['a merged task reopened to running', { status: 'running' }],
-    ['a needs_validation task', { status: 'needs_validation', merged: null, parent: FEATURE, queued: false }],
-    ['a completed task', { status: 'completed', merged: null, parent: FEATURE, queued: false }],
+    ['a submitted task', { status: 'submitted', merged: null, parent: FEATURE, queued: false }],
   ];
   for (const [what, live] of liveCases) {
     it(`SC2: exits 4 and writes nothing while ${what} sits on the branch`, () => {
@@ -385,7 +389,7 @@ describe('cli.js feature-branch drop', () => {
     seedTask({ status: 'pending', repo: 'other', merged: null, parent: FEATURE, queued: false });
     const r = featureBranch('drop', FEATURE);
     assert.equal(r.code, 0, r.err);
-    assert.equal(status(queued), 'escalated');
+    assert.equal(status(queued), 'cancelled');
   });
 
   it('SC2: an unknown branch exits 4 and writes nothing', () => {
@@ -402,7 +406,7 @@ describe('cli.js feature-branch drop', () => {
     const r = featureBranch('drop', FEATURE, '--delete-branch');
     assert.equal(r.code, 0, r.err);
     assert.equal(r.out, '');
-    assert.equal(status(id), 'escalated');
+    assert.equal(status(id), 'cancelled');
   });
 
   it('--delete-branch of a branch checked out in a worktree exits 4 and writes nothing', () => {

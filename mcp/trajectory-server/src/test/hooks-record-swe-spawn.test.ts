@@ -162,11 +162,11 @@ describe('record-swe-spawn', () => {
   });
 
   it('moves a pending task to running and leaves other statuses alone', () => {
-    const f = fixture([], [{ id: 5, status: 'pending' }, { id: 6, status: 'needs_validation' }]);
+    const f = fixture([], [{ id: 5, status: 'pending' }, { id: 6, status: 'submitted' }]);
     record(f, spawn('task_id=5'));
     record(f, spawn('task_id=6', { tool_use_id: 'toolu_2' }));
     assert.equal(f.status(5), 'running');
-    assert.equal(f.status(6), 'needs_validation');
+    assert.equal(f.status(6), 'submitted');
   });
 
   describe('root_dir', () => {

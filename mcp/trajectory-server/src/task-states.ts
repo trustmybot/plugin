@@ -9,9 +9,6 @@
  *
  * An agile task closed into the review queue is `closed` with its queue audit
  * row, so DONE covers it and no group names it apart.
- *
- * needs_validation is a legacy state kept until the schema drops it; until
- * then it reads as a work state that may also await close.
  */
 import { TASK_STATUSES, type TaskStatus } from './task-status.js';
 
@@ -23,33 +20,36 @@ export type TaskStateGroup = readonly TaskStatus[];
 export const TASK_STATE: { readonly [S in TaskStatus]: S } = {
   pending: 'pending',
   running: 'running',
-  needs_validation: 'needs_validation',
-  completed: 'completed',
-  closed: 'closed',
+  submitted: 'submitted',
   failed: 'failed',
-  escalated: 'escalated',
+  closed: 'closed',
+  superseded: 'superseded',
+  cancelled: 'cancelled',
 };
 
 /** Work not yet finished: provisioned or with its author. */
-export const IN_PROGRESS: TaskStateGroup = ['pending', 'running', 'needs_validation'];
+export const IN_PROGRESS: TaskStateGroup = ['pending', 'running'];
 
-/** Provisioned or with its author now; unlike IN_PROGRESS it leaves out legacy needs_validation. */
+/** Provisioned or with its author now. */
 export const ACTIVE: TaskStateGroup = ['pending', 'running'];
 
 /** What bro dispatches next: a provisioned task, or a failed one to retry. */
 export const ACTIONABLE: TaskStateGroup = ['pending', 'failed'];
 
-/** The author's work is done and the task waits on review or bro's close. */
-export const AWAITING_CLOSE: TaskStateGroup = ['needs_validation', 'completed'];
+/** The author submitted the work and the task waits on review or bro's close. */
+export const AWAITING_CLOSE: TaskStateGroup = ['submitted'];
 
 /** Still on its way to a close: in progress or awaiting close. */
-export const LIVE: TaskStateGroup = ['pending', 'running', 'needs_validation', 'completed'];
+export const LIVE: TaskStateGroup = ['pending', 'running', 'submitted'];
 
 /** Closed by bro, agile-queued closes included. */
 export const DONE: TaskStateGroup = ['closed'];
 
-/** Stopped short of a close: failed or retried as a new task. */
-export const TERMINAL_FAILED: TaskStateGroup = ['failed', 'escalated'];
+/** Final: retried as a new task, or its work stopped with no task picking it up. No move leaves either. */
+export const FINAL: TaskStateGroup = ['superseded', 'cancelled'];
+
+/** Stopped short of a close: failed, retried as a new task, or cancelled. */
+export const TERMINAL_FAILED: TaskStateGroup = ['failed', ...FINAL];
 
 /** No more work is expected on the task as it stands: done or stopped. */
 export const TERMINAL: TaskStateGroup = [...DONE, ...TERMINAL_FAILED];

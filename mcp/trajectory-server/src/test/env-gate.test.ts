@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
+import { pinScanEnv, setTaskStatus, tempDB, type ScanEnvPin } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
@@ -186,7 +186,7 @@ describe('environment gate (GH 2866)', () => {
       const passed = parse(await provision(fx, 'feat/first'));
       const taskId = passed['task_id'] as number;
       assert.equal(typeof taskId, 'number', JSON.stringify(passed));
-      fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+      setTaskStatus(fx.db, taskId, 'failed');
 
       fx.git('remote', 'set-url', 'origin', join(dirname(fx.origin), 'missing.git'));
       const before = fx.counts();
@@ -264,7 +264,7 @@ describe('environment gate (GH 2866)', () => {
       const out = parse(await provision(fx, 'feat/reopen-me'));
       const taskId = out['task_id'] as number;
       assert.equal(typeof taskId, 'number', JSON.stringify(out));
-      fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+      setTaskStatus(fx.db, taskId, 'failed');
       fx.git('worktree', 'remove', '--force', worktreeOf(fx, 'feat/reopen-me'));
       fx.git('branch', '-D', 'feat/reopen-me');
       fx.pushFromElsewhere(setupFile(['exit 3']));
@@ -321,7 +321,7 @@ describe('environment gate worktree stage with a leftover folder (GH 3055)', () 
     const out = parse(await provision(fx, branchId));
     const taskId = out['task_id'] as number;
     assert.equal(typeof taskId, 'number', JSON.stringify(out));
-    fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+    setTaskStatus(fx.db, taskId, 'failed');
     fx.git('worktree', 'remove', '--force', worktreeOf(fx, branchId));
     fx.git('branch', '-D', branchId);
     return taskId;

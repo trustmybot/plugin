@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
+import { pinScanEnv, setTaskStatus, tempDB, type ScanEnvPin } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
@@ -130,7 +130,7 @@ function openRun(fx: Fx, agent: string, taskId: number): void {
 }
 
 async function close(fx: Fx, taskId: number, sha: string): Promise<Payload> {
-  const r = (await fx.tasks['task_update_status']({ agent: 'swe', task_id: String(taskId), status: 'completed', commit_sha: sha })) as Raw;
+  const r = (await fx.tasks['task_update_status']({ agent: 'swe', task_id: String(taskId), status: 'submitted', commit_sha: sha })) as Raw;
   assert.ok(!r.isError, r.content[0].text);
   return parse(r);
 }
@@ -276,7 +276,7 @@ describe('world model overlay: replace and rebuild (SC2)', () => {
       assert.ok(overlayRows(fx.db, task).symbols > 0);
 
       const second = fx.branchCommit({ 'a.ts': A, 'd.ts': 'export function delta(): number {\n  return 4;\n}\n' });
-      await fx.tasks['task_update_status']({ agent: 'swe', task_id: String(task), status: 'running' });
+      setTaskStatus(fx.db, task, 'running', 'rework on a second commit');
       await close(fx, task, second);
       assert.equal(fx.db.get<{ c: string }>(`SELECT commit_sha AS c FROM wm_overlays WHERE task_id = ?`, [task])!.c, second);
       const names = fx.db.all<{ qualified_name: string }>('SELECT s.qualified_name FROM wm_overlay_symbols s JOIN wm_overlays v ON v.id = s.overlay_id WHERE v.task_id = ? ORDER BY s.qualified_name', [task]);
@@ -317,7 +317,7 @@ describe('world model overlay: drops (SC3)', () => {
       const task = seedTask(fx, 'feat/overlay');
       await close(fx, task, sha);
       assert.equal(overlayRows(fx.db, task).overlays, 1);
-      fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [task]);
+      setTaskStatus(fx.db, task, 'failed', 'the work failed');
       const r = (await fx.composites['task_retry']({
         agent: 'bro',
         failed_task_id: String(task),
@@ -333,27 +333,35 @@ describe('world model overlay: drops (SC3)', () => {
     }
   });
 
-  it('a move to escalated drops the overlay', async () => {
+  it('task_retry of a submitted task supersedes it and drops its overlay', async () => {
     const fx = await fixture();
     try {
       const sha = fx.branchCommit({ 'a.ts': A_BRANCH });
       const task = seedTask(fx, 'feat/overlay');
       await close(fx, task, sha);
-      const r = (await fx.tasks['task_update_status']({ agent: 'bro', task_id: String(task), status: 'escalated' })) as Raw;
+      const r = (await fx.composites['task_retry']({
+        agent: 'bro',
+        failed_task_id: String(task),
+        new_branch_id: 'feat/overlay-v2',
+        corrected_spec_body: 'retry',
+        retry_rationale: 'superseded by a corrected approach',
+        description: 'retry',
+      })) as Raw;
       assert.ok(!r.isError, r.content[0].text);
+      assert.equal(fx.db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [task])!.status, 'superseded');
       assert.deepEqual(overlayRows(fx.db, task), { overlays: 0, files: 0, symbols: 0, edges: 0 });
     } finally {
       fx.cleanup();
     }
   });
 
-  it('the issue_close cascade drops each escalated task overlay', async () => {
+  it('the issue_close cascade drops each cancelled task overlay', async () => {
     const fx = await fixture();
     try {
       const sha = fx.branchCommit({ 'a.ts': A_BRANCH });
       const task = seedTask(fx, 'feat/overlay');
       await close(fx, task, sha);
-      escalateLiveTasksForIssueClose(fx.db, [{ id: task, issue_id: 1, branch_id: 'feat/overlay', status: 'completed', commit_sha: sha }], 'test', new Date().toISOString());
+      escalateLiveTasksForIssueClose(fx.db, [{ id: task, issue_id: 1, branch_id: 'feat/overlay', status: 'submitted', commit_sha: sha }], 'test', new Date().toISOString());
       assert.equal(overlayRows(fx.db, task).overlays, 0);
     } finally {
       fx.cleanup();

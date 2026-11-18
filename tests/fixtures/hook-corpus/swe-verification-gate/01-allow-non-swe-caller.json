@@ -3,7 +3,7 @@
   "tool_input": {
     "agent": "bro",
     "task_id": 31,
-    "status": "completed"
+    "status": "submitted"
   },
   "corpus_expect": "empty"
 }

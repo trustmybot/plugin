@@ -163,7 +163,7 @@ describe('SC3: the shared close path stamps tasks.workflow_mode', () => {
     const sha = git('rev-parse', 'HEAD');
     db.run(
       `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, commit_sha, created_at, updated_at)
-       VALUES (?, 1, ?, 'dev', 'd', 'completed', 's', 'app', ?, ?, ?, ?)`,
+       VALUES (?, 1, ?, 'dev', 'd', 'submitted', 's', 'app', ?, ?, ?, ?)`,
       [id, branch, JSON.stringify([`t${id}.txt`]), sha, NOW, NOW],
     );
     return sha;
@@ -237,12 +237,12 @@ describe('SC4: the v65 -> v66 migration', () => {
     const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
     const fresh = new TrajectoryDB(join(dir, 'fresh.db'));
     try {
-      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 76);
+      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 77);
       const cols = (d: TrajectoryDB) =>
         d.all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(tasks)')
           .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }));
       assert.deepEqual(cols(migrated), cols(fresh), 'the migrated tasks table matches a fresh one');
-      assert.deepEqual(cols(migrated).slice(-4, -3), [{ name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null }]);
+      assert.deepEqual(cols(migrated).slice(-5, -4), [{ name: 'workflow_mode', type: 'TEXT', notnull: 0, dflt_value: null }]);
       const after = migrated.all<Record<string, unknown>>('SELECT * FROM tasks ORDER BY id').map((r) => ({ ...r }));
       assert.deepEqual(
         after,
@@ -255,11 +255,11 @@ describe('SC4: the v65 -> v66 migration', () => {
       fresh.close();
     }
 
-    const backups = () => readdirSync(dir).filter((f) => f.startsWith('trajectory.db.pre-v76.') && f.endsWith('.bak')).length;
+    const backups = () => readdirSync(dir).filter((f) => f.startsWith('trajectory.db.pre-v77.') && f.endsWith('.bak')).length;
     assert.equal(backups(), 1);
     const again = new TrajectoryDB(dbFile, undefined, { migrate: true });
     try {
-      assert.equal(again.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 76);
+      assert.equal(again.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 77);
       assert.equal(
         again.all<{ name: string }>('PRAGMA table_info(tasks)').filter((c) => c.name === 'workflow_mode').length,
         1,

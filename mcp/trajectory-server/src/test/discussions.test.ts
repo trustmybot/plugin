@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { TrajectoryDB } from '../db.js';
-import { tempDB } from './helpers.js';
+import { openSweRun, tempDB } from './helpers.js';
 import { discussionTools, HUMAN_AUTHOR_REFUSED } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -252,16 +252,18 @@ describe('discussions + snapshot integration', () => {
     const tasks = taskTools(db);
     const taskId = (globalThis as Record<string, unknown>)['testTaskId'] as string;
     const sha = 'deadbeefcafe1234567890abcdef0123456789ab';
+    openSweRun(db, taskId);
+    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
 
     const result = await call(tasks.handlers, 'task_update_status', {
       agent: 'swe',
       task_id: taskId,
-      status: 'completed',
+      status: 'submitted',
       commit_sha: sha,
     });
     const updated = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(updated)}`);
-    assert.equal(updated.status, 'completed');
+    assert.equal(updated.status, 'submitted');
     assert.equal(updated.commit_sha, sha, 'commit_sha must round-trip byte-for-byte');
     assert.ok(updated.completed_at !== null, 'completed_at must be set');
 
@@ -290,7 +292,7 @@ describe('discussions + snapshot integration', () => {
       task_id: taskId,
     });
     const row = parseResult(getResult);
-    assert.equal(row.status, 'completed', 'Status must NOT have changed to pending');
+    assert.equal(row.status, 'submitted', 'Status must NOT have changed to pending');
   });
 
   it('step 6b: task_update_status rejects too-short commit_sha (less than 7 chars)', async () => {
@@ -310,7 +312,7 @@ describe('discussions + snapshot integration', () => {
       task_id: taskId,
     });
     const row = parseResult(getResult);
-    assert.equal(row.status, 'completed', 'Status must NOT have changed');
+    assert.equal(row.status, 'submitted', 'Status must NOT have changed');
   });
 
   it('step 6c: task_update_status leaves commit_sha null when the caller omits it', async () => {
@@ -331,15 +333,17 @@ describe('discussions + snapshot integration', () => {
     });
     const batchData = parseBatch(batchResult);
     const taskId2 = String(batchData[0]!.id);
+    openSweRun(db, taskId2);
+    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: taskId2, status: 'running' });
 
     const result = await call(tasks.handlers, 'task_update_status', {
       agent: 'swe',
       task_id: taskId2,
-      status: 'completed',
+      status: 'submitted',
     });
     const updated = parseResult(result);
     assert.ok(!result.isError, 'Call without commit_sha should succeed');
-    assert.equal(updated.status, 'completed');
+    assert.equal(updated.status, 'submitted');
     assert.equal(updated.commit_sha, null, 'commit_sha should remain null when not provided');
   });
 

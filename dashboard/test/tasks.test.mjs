@@ -47,7 +47,7 @@ function seed(path) {
   const insertTask = db.prepare(
     `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, files, verification,
                         completion_report, effort, created_at, updated_at)
-     VALUES (?, ?, ?, 'd', 'completed', ?, ?, ?, ?, ?, 'high', ?, ?)`,
+     VALUES (?, ?, ?, 'd', 'submitted', ?, ?, ?, ?, ?, 'high', ?, ?)`,
   );
   const task = Number(
     insertTask.run(

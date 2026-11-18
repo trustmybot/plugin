@@ -106,6 +106,7 @@ import {
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, resolveWorkflowMode, type Effort } from './config.js';
 import {
   applyReopenInTx,
+  REOPEN_SOURCES,
   hasFailSinceLastPass,
   insertEffortRaised,
   RE_REVIEW_CHANGE,
@@ -120,7 +121,8 @@ import { recordEffortInputs } from '../effort-inputs.js';
 import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { AWAITING_CLOSE, DONE, IN_PROGRESS, inGroup, LIVE, TASK_STATE } from '../task-states.js';
 import { checkoutLag } from './world_model.js';
-import { sqlText, TASK_STATUSES, taskStatusUpdate } from '../task-status.js';
+import { sourcesInto } from '../task-events.js';
+import { runTaskStatusMove, sqlText, taskProvisionedEvent } from '../task-status.js';
 
 const STDOUT_KEEP = 4096;
 const STDERR_KEEP = 2048;
@@ -499,6 +501,8 @@ function closeTaskInTx(
   closeIssueIfLast: boolean,
   bypassClosedBy: string | null = null,
   scope: CloseScope | null = null,
+  // task_recover's close rests on its task_recovered row; bro's on this close's bro_verification_pass row.
+  recoveredAuditId: number | null = null,
 ): {
   issue_closed: false;
   issue_left_open: IssueLeftOpen | null;
@@ -509,7 +513,7 @@ function closeTaskInTx(
   const workflowMode = resolveWorkflowMode(db, task.repo);
   // 1. bro_verification_pass audit row — the review anchor of this commit;
   // bro_atomic_close adds the close-time scope record task_brief reads.
-  insertAudit(db, {
+  const passAuditId = insertAudit(db, {
     issue_id: task.issue_id,
     branch_id: task.branch_id,
     from_node: 'bro',
@@ -536,8 +540,16 @@ function closeTaskInTx(
   }
 
   // 3. flip task to closed, stamping the workflow mode it closed under.
-  const closeWrite = taskStatusUpdate({
+  const recovering = recoveredAuditId !== null;
+  const recordAuditId = recoveredAuditId ?? passAuditId;
+  runTaskStatusMove(db, {
     status: 'closed',
+    event: recovering ? 'recovered' : 'bro_closed',
+    cause: recovering ? 'recovery' : 'bro_close',
+    role: 'bro',
+    record: { kind: 'audit', id: recordAuditId },
+    key: `bro-close:${recordAuditId}`,
+    at: now,
     set: {
       commit_sha: commitSha,
       completed_at: sqlText('COALESCE(completed_at, ?)', now),
@@ -546,7 +558,6 @@ function closeTaskInTx(
     },
     where: sqlText('id = ?', task.id),
   });
-  db.run(closeWrite.sql, closeWrite.params);
 
   // 4. close every open agent_runs row of the task (bro and swe).
   closeOpenRunsForTask(db, task.id, now, 'completed');
@@ -658,7 +669,7 @@ function handoffGateError(
     return (
       `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ` +
       `${task.completion_report ? 'does not cover' : 'is missing for'}: ${unreported.join(', ')}. Resume the swe on ` +
-      `task_id=${task.id} to call task_update_status(status='${TASK_STATE.completed}', commit_sha='${commitSha}', report={criteria: ` +
+      `task_id=${task.id} to call task_update_status(status='${TASK_STATE.submitted}', commit_sha='${commitSha}', report={criteria: ` +
       `[{id, status}, ...]}) with one entry per id, then retry review_handoff.`
     );
   }
@@ -679,7 +690,7 @@ function handoffGateError(
       `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no ` +
       `passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before ` +
       `verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: ` +
-      `resume the swe on task_id=${task.id} to call task_update_status(status='${TASK_STATE.completed}', commit_sha='${commitSha}') — ` +
+      `resume the swe on task_id=${task.id} to call task_update_status(status='${TASK_STATE.submitted}', commit_sha='${commitSha}') — ` +
       `swe-verification-gate runs verification[] in the task worktree and records the run — then retry review_handoff. ` +
       `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
     );
@@ -1439,10 +1450,13 @@ function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): Wontfix
   });
 }
 
-const REOPENABLE_STATUSES = new Set<string>(TASK_STATUSES.filter((s) => s !== TASK_STATE.needs_validation));
+// A pending or running task is amended in place; the rest move to running by the reopened edge.
+const REOPENABLE_STATUSES = new Set<string>([TASK_STATE.pending, TASK_STATE.running, ...REOPEN_SOURCES]);
 const SPEC_AMENDABLE_STATUSES = LIVE;
 // A running task also hands off, through reReviewAdmission, to re-review a FAILed commit.
 const HANDOFF_STATUSES = AWAITING_CLOSE;
+// The states task_retry supersedes: every source of the superseded edge.
+const SUPERSEDABLE_STATUSES: ReadonlySet<string> = new Set(sourcesInto(TASK_STATE.superseded));
 
 // A closed task also hands off for a per-task review when it closed under
 // agile and is still queued for review at its current commit; it stays closed.
@@ -1482,7 +1496,7 @@ export function compositeTools(
     {
       name: 'task_retry',
       description:
-        "Retry a failed task in one transaction: appends the rationale, creates a new task inheriting issue_id, parent_branch_id and repo, " +
+        "Retry a task in one transaction: supersedes it, appends the rationale, creates a new task (retry_of) inheriting issue_id, parent_branch_id and repo, " +
         "its branch and worktree cut by task_provision's environment gate. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
         'Reopens a closed issue. ' +
         `${verificationPathsDoc('the base')} ` +
@@ -1612,7 +1626,7 @@ export function compositeTools(
     {
       name: 'review_handoff',
       description:
-        "Hands a completed, needs_validation or queued closed agile task's commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed. " +
+        "Hands a submitted or queued closed agile task's commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as submitted. " +
         "Writes review_handoff (review anchor; extras with reasons, base_moved, merge_base), reviewer_effort_assigned, spawn_note. " +
         'Returns review_pending=true and reviewer_effort, plus reviewer_spawn given session_id. ' +
         "Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, given verification[] or a non-wontfix finding, without the commit's passing run of those commands plus one `[probe <id>]` per finding or a verification_gate_waived row (verification_run_missing).",
@@ -1657,7 +1671,7 @@ export function compositeTools(
             type: 'boolean',
             description:
               'When true, report whether the issue is ready to close; the issue itself stays open and closes at merge. ' +
-              "issue_close_deferred: 'merge' when no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, " +
+              "issue_close_deferred: 'merge' when no task of the issue is live (pending/running/submitted) or closed without a passing review, " +
               'otherwise issue_left_open says why.',
           },
           waive_scope_gate: {
@@ -1680,7 +1694,7 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed without a passing code-reviewer verdict, review_queued under agile), else it returns a re-dispatch directive; other statuses are a no-op. ' +
+        'Recover a swe task stuck pending/submitted after its executor died: with commit_sha it closes the task (review_gate_bypassed without a passing code-reviewer verdict, review_queued under agile), else it returns a re-dispatch directive; other statuses are a no-op. ' +
         'Every call also sweeps: running tasks with no open swe run and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) fail (task_stale_swept, runs closed swept_stale); pending ones over 7 days old are reported; runs open on terminal tasks close; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
         'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} plus the recovery result.',
       inputSchema: {
@@ -1804,7 +1818,7 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task: moves a pending, completed, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Reopens a closed issue. " +
+        "Rework a task: moves a submitted, failed or closed task to running (a pending or running task keeps its status), appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Reopens a closed issue. " +
         `${verificationPathsDoc('the branch tip')} ` +
         'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, base_sha, wm_commit, env_gate, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
@@ -1851,7 +1865,7 @@ export function compositeTools(
     {
       name: 'task_update_spec',
       description:
-        "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (at least one), writes a kind='decision' discussion + task_spec_amended audit row (old→new summary); the scope and verification gates read the new values next run. " +
+        "Amend a pending, running or submitted task: replaces files[], verification[] and/or spec_body (at least one), writes a kind='decision' discussion + task_spec_amended audit row (old→new summary); the scope and verification gates read the new values next run. " +
         `${verificationPathsDoc('the branch tip')} ` +
         'Returns {task_id, changed, files, verification}.',
       inputSchema: {
@@ -2249,6 +2263,8 @@ export function compositeTools(
             'SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()',
           );
           if (!row) throw new Error('task_provision: task insert succeeded but row lookup failed');
+          const provisioned = taskProvisionedEvent(row.id, agent, 'planned', now);
+          db.run(provisioned.sql, provisioned.params);
           if (adoptedWorktree !== null) {
             const refused = recordAdoptedWorktree(db, row.id, gitRepoPath, adoptedWorktree);
             if (refused) throw new AdoptRefusedError(refused);
@@ -2400,8 +2416,8 @@ export function compositeTools(
         if (!task) return err(`task_reopen: task ${taskId} not found`);
         if (!REOPENABLE_STATUSES.has(task.status)) {
           return err(
-            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, completed, closed, failed, escalated or running tasks. ` +
-              `Amend a live task's spec with task_update_spec.`,
+            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves submitted, closed or failed tasks to running and amends pending or running ones. ` +
+              `A superseded or cancelled task is final; provision new work with task_provision.`,
           );
         }
         if (isEffort(effortArg) && effortRank(effortArg) < effortRank(REWORK_FLOOR_EFFORT) && hasFailSinceLastPass(db, taskId)) {
@@ -2496,6 +2512,7 @@ export function compositeTools(
             task,
             agent,
             reason,
+            cause: 'rework',
             effort,
             spawnNote,
             now,
@@ -2568,7 +2585,8 @@ export function compositeTools(
         return ok({
           task_id: taskId,
           from_status: task.status,
-          status: 'running',
+          // A pending task is amended in place: only its spawn starts it.
+          status: REOPEN_SOURCES.has(task.status) ? TASK_STATE.running : task.status,
           files,
           verification,
           effort,
@@ -2643,8 +2661,8 @@ export function compositeTools(
         if (!task) return err(`task_update_spec: task ${taskId} not found`);
         if (!inGroup(SPEC_AMENDABLE_STATUSES, task.status)) {
           return err(
-            `task_update_spec: task ${taskId} is '${task.status}'; only pending, running, needs_validation or completed tasks ` +
-              `are amended. Reopen a closed, failed or escalated task with task_reopen (files_add / verification_add).`,
+            `task_update_spec: task ${taskId} is '${task.status}'; only pending, running or submitted tasks ` +
+              `are amended. Reopen a closed or failed task with task_reopen (files_add / verification_add); a superseded or cancelled task is final.`,
           );
         }
 
@@ -3109,10 +3127,10 @@ export function compositeTools(
           [failedTaskId],
         );
         if (!failed) return err(`No task with id=${failedTaskId}`);
-        if (failed.status !== 'failed' && failed.status !== 'escalated') {
+        if (!SUPERSEDABLE_STATUSES.has(failed.status)) {
           return err(
-            `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". ` +
-              `task_retry only operates on terminally-failed tasks.`,
+            `Task ${failedTaskId} status is "${failed.status}", expected one of ${[...SUPERSEDABLE_STATUSES].join(', ')}. ` +
+              `task_retry supersedes a task that is not already superseded or cancelled.`,
           );
         }
         if (failed.branch_id === newBranchId) {
@@ -3225,8 +3243,8 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, no_code_class, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, no_code_class, created_at, updated_at, retry_of)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -3244,6 +3262,7 @@ export function compositeTools(
               failed.no_code_class,
               now,
               now,
+              failed.id,
             ],
           );
 
@@ -3251,6 +3270,21 @@ export function compositeTools(
             'SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()',
           );
           if (!newTask) throw new Error('insert succeeded but row lookup failed');
+          const provisioned = taskProvisionedEvent(newTask.id, agent, 'retry', now);
+          db.run(provisioned.sql, provisioned.params);
+          const superseded = runTaskStatusMove(db, {
+            status: 'superseded',
+            event: 'superseded',
+            cause: 'retry',
+            role: agent,
+            record: { kind: 'task', id: newTask.id },
+            key: `retry:${newTask.id}`,
+            at: now,
+            set: { updated_at: now },
+            where: sqlText('id = ? AND status = ?', failed.id, failed.status),
+          });
+          // Another writer moved the task since it was read: the retry no longer supersedes what bro saw.
+          if (superseded !== 1) throw new Error(`task ${failed.id} left "${failed.status}" while task_retry ran; nothing was written`);
 
           insertDiscussion(db, {
             issue_id: failed.issue_id,
@@ -3718,9 +3752,9 @@ export function compositeTools(
         const agileQueued = inGroup(DONE, task.status) && agileReviewPending(db, task.id);
         if (reReview === null && !inGroup(HANDOFF_STATUSES, task.status) && !agileQueued) {
           return err(
-            `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation", ` +
+            `Task ${taskId} status is "${task.status}", expected "submitted", ` +
               `or "closed" under workflow_mode agile and still queued for review at its commit_sha. ` +
-              `review_handoff runs after SWE flips status to completed.`,
+              `review_handoff runs after SWE flips status to submitted.`,
           );
         }
         const handedOff = reReview === null ? task : { ...task, completion_report: reReview.completionReport };
@@ -3730,7 +3764,7 @@ export function compositeTools(
         if (!commitSha) {
           return err(
             `commit_sha_missing: task ${task.id} records no commit_sha. Resume the swe on task_id=${task.id} to call ` +
-              `task_update_status(status='${TASK_STATE.completed}', commit_sha=<sha>), then retry review_handoff.`,
+              `task_update_status(status='${TASK_STATE.submitted}', commit_sha=<sha>), then retry review_handoff.`,
           );
         }
         const gateError = handoffGateError(db, handedOff, commitSha);
@@ -3741,7 +3775,7 @@ export function compositeTools(
         const reReviewOf = reReview === null ? {} : { re_review_of: reReview.failValidationId };
         const now = nowISO();
         const result = db.transaction(() => {
-          if (reReview !== null) restoreForReReviewInTx(db, task.id, reReview, now);
+          if (reReview !== null) restoreForReReviewInTx(db, task.id, reReview, now, 'bro');
           // The review anchor and scope lookups match tasks.commit_sha exactly
           // against this audit row's full SHA, so a legacy short SHA is upgraded.
           if (commitSha !== task.commit_sha) db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', [commitSha, task.id]);
@@ -3813,8 +3847,8 @@ export function compositeTools(
         if (!task) return err(`No task with id=${taskId}`);
         if (!inGroup(AWAITING_CLOSE, task.status)) {
           return err(
-            `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
-              `bro_atomic_close runs after SWE flips status to completed and code-reviewer passes the commit.`,
+            `Task ${taskId} status is "${task.status}", expected "submitted". ` +
+              `bro_atomic_close runs after SWE flips status to submitted and code-reviewer passes the commit.`,
           );
         }
         // The pass is judged on tasks.commit_sha, so the close keeps that
@@ -3986,13 +4020,13 @@ export function compositeTools(
 
         // Idempotent: already-closed (or any non-recoverable status) → no-op
         // naming the status. Never throws on an already-recovered task.
-        if (current.status !== TASK_STATE.pending && current.status !== TASK_STATE.completed) {
+        if (current.status !== TASK_STATE.pending && current.status !== TASK_STATE.submitted) {
           return ok({
             recovered: false,
             action: 'noop',
             task_id: task.id,
             status: current.status,
-            reason: `task is "${current.status}" — not in a recoverable (pending/completed) state`,
+            reason: `task is "${current.status}" — not in a recoverable (pending/submitted) state`,
             ...sweepResult,
           });
         }
@@ -4011,7 +4045,7 @@ export function compositeTools(
         const now = nowISO();
         const result = db.transaction(() => {
           // task_recovered audit row — records the deterministic recovery.
-          insertAudit(db, {
+          const recoveredAuditId = insertAudit(db, {
             issue_id: task.issue_id,
             branch_id: task.branch_id,
             from_node: 'bro',
@@ -4020,7 +4054,7 @@ export function compositeTools(
             content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: current.status }),
             created_at: now,
           });
-          return closeTaskInTx(db, task, commitSha!, verificationSummary, now, closeIssueIfLast, 'task_recover');
+          return closeTaskInTx(db, task, commitSha!, verificationSummary, now, closeIssueIfLast, 'task_recover', null, recoveredAuditId);
         });
 
         return ok({

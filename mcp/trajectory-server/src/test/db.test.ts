@@ -12,12 +12,17 @@ import {
 } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=76 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=77 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
     const db = tempDB();
 
     const expectedTables = [
       'issues',
       'tasks',
+      // GH 3224 — the task lifecycle as events
+      'task_events',
+      'task_event_types',
+      'task_event_causes',
+      'task_status_edges',
       'audit',
       'validation_attempts',
       'agents',
@@ -97,7 +102,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 76);
+    assert.equal(meta.schema_version, 77);
 
     db.close();
   });

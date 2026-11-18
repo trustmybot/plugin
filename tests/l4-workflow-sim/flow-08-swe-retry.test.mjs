@@ -4,24 +4,23 @@
 // commit, which reopens the task for rework (same branch, same worktree) →
 // SWE commits again and completes → review_handoff → code-reviewer signs off
 // (then bro_atomic_close) OR fails again → repeat up to 3 →
-// at 3 fails, bro flips status to 'escalated' and surfaces to Human.
+// at 3 fails, bro moves the task to 'failed' with a note and surfaces to Human.
 //
 // Asserts: a FAIL moves the task to running in its existing worktree and
 // writes a task_reopened audit row, validation_attempts is append-only with the
-// newest verdict winning, each attempt is a separate row, and 'escalated' is a
-// valid terminal status.
+// newest verdict winning, each attempt is a separate row, and bro's manual
+// 'failed' move stops the task.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, startSwe, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from '../l3-integration/mcp/harness.mjs';
 
 async function completeAndHandOff(client, dbPath, project, taskId, worktreePath, file) {
-  const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
-  assert.equal(brief.ok, true, `task_brief: ${JSON.stringify(brief)}`);
+  await startSwe(client, taskId);
   const sha = project.commitIn(worktreePath, file, `${file}\n`, `work ${file}`);
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
+    agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);
@@ -66,7 +65,7 @@ async function recordFail(client, dbPath, taskId, attemptN, feedback, sessionId)
 
 async function reworkAfterFail(client, dbPath, project, { taskId, issueId, worktreePath }, fail, attemptN) {
   assert.equal(fail.data.reopened?.status, 'running', `the FAIL reopens the task: ${JSON.stringify(fail.data)}`);
-  assert.equal(fail.data.reopened.from_status, 'completed');
+  assert.equal(fail.data.reopened.from_status, 'submitted');
 
   const running = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
   assert.equal(running.data.status, 'running');
@@ -175,14 +174,14 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
     body: 'Escalating: 3 attempts failed; surfacing to Human.',
   });
 
-  // Bro flips status — 'escalated' is a valid terminal state per VALID_STATUSES
+  // Bro stops the task by hand: a manual move to 'failed' carries its note.
   const escalate = await call(client, 'task_update_status', {
-    agent: 'bro', task_id: taskId, status: 'escalated',
+    agent: 'bro', task_id: taskId, status: 'failed', note: '3 attempts failed; surfacing to Human',
   });
   assert.equal(escalate.ok, true, `escalate: ${JSON.stringify(escalate)}`);
 
   const finalTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
-  assert.equal(finalTask.data.status, 'escalated');
+  assert.equal(finalTask.data.status, 'failed');
 
   const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });
   assert.equal(history.data.length, 3, 'all three failed attempts are preserved');

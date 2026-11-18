@@ -599,7 +599,7 @@ describe('issueTools — remote sync', () => {
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', '', NULL, datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'submitted', '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -631,7 +631,7 @@ describe('issueTools — remote sync', () => {
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', '', NULL, datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'submitted', '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
     db.run(

@@ -15,7 +15,7 @@ import {
   testPathTokens,
 } from '../tools/verification-paths.js';
 import { __setGitRunnerForTests } from '../utils/git-run.js';
-import { pinScanEnv, tempDB } from './helpers.js';
+import { pinScanEnv, setTaskStatus, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
@@ -378,7 +378,7 @@ describe('verification path guard in the task tools (GH 2581)', () => {
     const { ws, db, call, provision } = setup();
     try {
       const taskId = Number(parse(await provision('feat/reopen', {}))['task_id']);
-      db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+      setTaskStatus(db, taskId, 'failed', 'the work failed');
       const refused = await call('task_reopen', { task_id: taskId, reason: 'rework', verification_add: ['node --test tests/gone.test.mjs'] });
       assert.equal(refused.isError, true);
       assert.equal(parse(refused)['error'], 'verification_path_missing');

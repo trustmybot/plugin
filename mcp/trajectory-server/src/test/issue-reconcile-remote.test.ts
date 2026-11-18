@@ -3,7 +3,7 @@
 // stubbed spawn: no real CLI runs and nothing is written to a remote.
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { tempDB } from './helpers.js';
+import { setTaskStatus, tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { GH_RECONCILE_BATCH, reconcileRemoteCloses } from '../sync/issue-reconcile.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
@@ -318,7 +318,7 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
       'a changed blocking set writes a new row',
     );
 
-    db.run(`UPDATE tasks SET status = 'closed' WHERE issue_id = ?`, [issue]);
+    for (const t of db.all<{ id: number }>('SELECT id FROM tasks WHERE issue_id = ?', [issue])) setTaskStatus(db, t.id, 'closed');
     const last = await reconcileRemoteCloses(db, { _spawnFn: spawnFn });
     assert.deepEqual(last.closed, [{ issue_id: issue, remote_kind: 'github', remote_iid: 30 }]);
     assert.equal(issueRow(db, issue).status, 'closed');
@@ -367,7 +367,7 @@ describe('issue_reconcile_remote tool (GH 2228)', () => {
     registerRepo(db);
     const closable = seedIssue(db, { gh: 40 });
     const blocked = seedIssue(db, { gh: 41 });
-    const live = seedTask(db, blocked, 'needs_validation');
+    const live = seedTask(db, blocked, 'submitted');
     const { spawned, spawnFn } = stub({ gh: new Map([[40, 'CLOSED'], [41, 'CLOSED']]), gl: new Map() });
     const before = snapshot(db);
 

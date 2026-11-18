@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, startSwe, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
 
 const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 
@@ -85,7 +85,8 @@ test('Flow 14 — repo_rename: rename_in_progress while a worktree is live, appl
   assert.equal(count(`SELECT COUNT(*) AS c FROM repos WHERE name = 'app'`), 1, 'refused rename leaves the repo');
   assert.equal(count(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'repo_renamed'`), 0);
 
-  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }] } });
+  await startSwe(client, taskId);
+  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }] } });
   assert.equal(swe.ok, true, `swe completes: ${JSON.stringify(swe)}`);
   seedPassingVerificationRun(dbPath, taskId, project.sha);
   await reviewHandoffAndPass(client, dbPath, taskId);

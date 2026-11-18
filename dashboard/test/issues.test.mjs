@@ -86,7 +86,7 @@ function seed(path, config = {}) {
   const task = db.prepare(
     "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, ?, ?, 'd', ?, ?, ?)",
   );
-  task.run(issue, 'feat/issues-github', 'Done task', 'completed', now, now);
+  task.run(issue, 'feat/issues-github', 'Done task', 'submitted', now, now);
   task.run(issue, 'feat/issues-sidebar', 'Running task', 'running', now, now);
   const disc = db.prepare('INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, ?, ?, ?, ?)');
   for (const [author, kind, body] of DISCUSSIONS) disc.run(issue, author, kind, body, now);

@@ -5,7 +5,7 @@
  * id, `- SC<n>: ...`, unique within the spec; nested sub-bullets (Writer: /
  * Populated: lines) carry none. task_provision, task_update_spec and
  * task_create_batch refuse a spec_body without them (specCriteriaProblem);
- * a task_update_status move to completed needs a report covering each id
+ * a task_update_status move to submitted needs a report covering each id
  * exactly once (parseCompletionReport), and review_handoff refuses a handoff
  * whose stored report misses one (reportMissingIds). A spec written before
  * the ids (no SC-prefixed bullet) is legacy: specCriterionIds returns [] and
@@ -241,7 +241,7 @@ function shapeError(ids: readonly string[], detail: string): Error {
 }
 
 /**
- * The report task_update_status stores with a move to completed, validated
+ * The report task_update_status stores with a move to submitted, validated
  * against the spec's ids; null when none is given and none is needed. Throws
  * naming the missing / unknown / repeated ids and a minimal valid payload.
  */
@@ -250,7 +250,7 @@ export function parseCompletionReport(raw: unknown, ids: readonly string[]): Com
     if (ids.length === 0) return null;
     throw new Error(
       `completion_report_missing: the spec's Success Criteria carry ids ${ids.join(', ')}; ` +
-        `task_update_status(status='${TASK_STATE.completed}') needs a report with one criteria entry per id ` +
+        `task_update_status(status='${TASK_STATE.submitted}') needs a report with one criteria entry per id ` +
         `(status met | not_met | not_applicable). A minimal valid report: report=${examplePayload(ids)}`,
     );
   }

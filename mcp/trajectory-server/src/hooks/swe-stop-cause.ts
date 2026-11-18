@@ -10,7 +10,7 @@
  *     task_update_status and task_brief skipped) is an error whose text starts
  *     `PreToolUse:<tool> hook error:`; stop_detail is that text, capped at 500
  *     characters, unless the run window holds a completion report: a
- *     task_update_status call with status 'completed' whose tool_result is not
+ *     task_update_status call with status 'submitted' whose tool_result is not
  *     an error (a 'failed' call is no report);
  *   - else both NULL.
  *
@@ -68,7 +68,7 @@ function resultText(content: unknown): string {
 }
 
 function isCompletedReport(name: string, input: unknown): boolean {
-  return STATUS_TOOL_RE.test(name) && typeof input === 'object' && input !== null && (input as { status?: unknown }).status === TASK_STATE.completed;
+  return STATUS_TOOL_RE.test(name) && typeof input === 'object' && input !== null && (input as { status?: unknown }).status === TASK_STATE.submitted;
 }
 
 /** The deny text of the run's last counted tool_result when it is a PreToolUse hook block and the run made no completion report, else null. */

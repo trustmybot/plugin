@@ -120,7 +120,7 @@ export function issues(db: DatabaseSync): { issues: Row[]; label_taxonomy: Label
             i.created_at, i.updated_at, i.closed_at, i.labels,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id) AS task_count,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id
-               AND ${statusIn('t', [TASK_STATE.completed, ...DONE])}) AS tasks_done,
+               AND ${statusIn('t', [TASK_STATE.submitted, ...DONE])}) AS tasks_done,
             (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = i.id) AS discussion_count,
             ${prs} AS prs
        FROM issues i

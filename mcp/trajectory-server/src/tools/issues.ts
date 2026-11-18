@@ -771,7 +771,7 @@ export function issueTools(
           issue_id: { type: 'string' },
           cascade: {
             type: 'boolean',
-            description: 'When true, escalate every live task of the issue (pending/running/needs_validation/completed) and close their open agent_runs before closing the issue. Default false: refuse while tasks are live.',
+            description: 'When true, cancel every live task of the issue (pending/running/submitted) and close their open agent_runs before closing the issue. Default false: refuse while tasks are live.',
           },
           reason: {
             type: 'string',
@@ -791,7 +791,7 @@ export function issueTools(
     },
     {
       name: 'issue_get_phase',
-      description: "An issue's workflow phase and task counts: tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks swe completed that bro has not closed. phase is ready_to_close once every task is closed.",
+      description: "An issue's workflow phase and task counts: tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks swe submitted that bro has not closed. phase is ready_to_close once every task is closed.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1404,8 +1404,8 @@ export function issueTools(
       if (live.length > 0 && !cascade) {
         return refusal('issue_has_open_tasks', {
           message:
-            `Issue ${issueId} has tasks not in closed|failed|escalated. Finish them, or pass cascade=true ` +
-            `to escalate them and close the issue.`,
+            `Issue ${issueId} has tasks not in closed|failed|superseded|cancelled. Finish them, or pass cascade=true ` +
+            `to cancel them and close the issue.`,
           tasks: live.map((t) => ({ task_id: t.id, status: t.status })),
         });
       }
@@ -1473,7 +1473,7 @@ export function issueTools(
         `SELECT
            COUNT(*) as tasks_total,
            SUM(CASE WHEN ${statusIn('', DONE)} THEN 1 ELSE 0 END) as tasks_completed,
-           SUM(CASE WHEN status = '${TASK_STATE.completed}' THEN 1 ELSE 0 END) as tasks_awaiting_close,
+           SUM(CASE WHEN status = '${TASK_STATE.submitted}' THEN 1 ELSE 0 END) as tasks_awaiting_close,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`,
         [issueId],

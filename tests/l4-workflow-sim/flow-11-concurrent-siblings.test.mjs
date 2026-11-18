@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, startSwe, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
 
 const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 
@@ -90,8 +90,9 @@ test('Flow 11 — sibling tasks: distinct branches and worktrees; closing one le
     assert.equal(brief.data.status, 'pending');
   }
 
+  await startSwe(client, a.data.task_id);
   const swe = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: a.data.task_id, status: 'completed', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
+    agent: 'swe', task_id: a.data.task_id, status: 'submitted', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(swe.ok, true, `swe completes a: ${JSON.stringify(swe)}`);
   seedPassingVerificationRun(dbPath, a.data.task_id, project.sha);

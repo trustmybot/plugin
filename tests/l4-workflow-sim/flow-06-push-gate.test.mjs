@@ -16,12 +16,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun, sqliteRun, REVIEW_PROBES } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, startSwe, seedReviewerObservation, seedPassingVerificationRun, sqliteRun, REVIEW_PROBES } from '../l3-integration/mcp/harness.mjs';
 
 async function completeAndHandOff(client, project, dbPath, taskId, worktreePath, branchId, content) {
   const sha = project.commitIn(worktreePath, 'change.txt', content, `change ${branchId}`);
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
+    agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `swe→completed ${branchId}: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);
@@ -47,8 +47,7 @@ async function provisionHandedOffTask(client, project, dbPath, issueId, branchId
   const taskId = provisioned.data.task_id;
   const worktreePath = provisioned.data.worktree_path;
 
-  const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
-  assert.equal(brief.ok, true, `task_brief ${branchId}: ${JSON.stringify(brief)}`);
+  await startSwe(client, taskId);
   sqliteRun(dbPath, `UPDATE agent_runs SET spawn_id = '${sweAgentId}' WHERE task_id = ${taskId} AND agent_type = 'swe'`);
 
   const sha = await completeAndHandOff(client, project, dbPath, taskId, worktreePath, branchId, `${branchId}\n`);

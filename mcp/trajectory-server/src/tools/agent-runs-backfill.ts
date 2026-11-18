@@ -7,7 +7,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { projectRootFromDbPath } from './containment.js';
 import { resolveRepoPath, taskWorktreeDir } from './composites.js';
-import { AWAITING_CLOSE, DONE, inGroup, TASK_STATE, unionOf } from '../task-states.js';
+import { AWAITING_CLOSE, DONE, FINAL, inGroup, unionOf } from '../task-states.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 type Rec = Record<string, unknown>;
@@ -287,7 +287,7 @@ function isMeasured(r: RunRow): boolean {
 
 function exitReasonFor(status: string): string {
   if (inGroup(unionOf(AWAITING_CLOSE, DONE), status)) return 'completed';
-  if (status === TASK_STATE.escalated) return 'escalated';
+  if (inGroup(FINAL, status)) return 'escalated';
   return 'failed';
 }
 

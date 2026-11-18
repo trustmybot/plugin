@@ -69,12 +69,12 @@ function seedLinkedIssue(db: TrajectoryDB, links: { gh?: number; gl?: number } =
   return db.get<{ id: number }>('SELECT MAX(id) AS id FROM issues')!.id;
 }
 
-function seedClosableTask(db: TrajectoryDB, issueId: number, status: 'completed' | 'pending'): number {
+function seedClosableTask(db: TrajectoryDB, issueId: number, status: 'submitted' | 'pending'): number {
   const now = new Date().toISOString();
   db.run(
     `INSERT INTO tasks (issue_id, branch_id, description, status, commit_sha, created_at, updated_at)
      VALUES (?, 'fix/gate', 'd', ?, ?, ?, ?)`,
-    [issueId, status, status === 'completed' ? 'abc1234' : null, now, now],
+    [issueId, status, status === 'submitted' ? 'abc1234' : null, now, now],
   );
   const taskId = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
   const earlier = new Date(Date.now() - 60_000).toISOString();
@@ -268,7 +268,7 @@ describe('bro_atomic_close and task_recover close neither the issue nor its remo
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
     const issueId = seedLinkedIssue(db, { gh: 42 });
-    const taskId = seedClosableTask(db, issueId, 'completed');
+    const taskId = seedClosableTask(db, issueId, 'submitted');
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);
@@ -287,7 +287,7 @@ describe('bro_atomic_close and task_recover close neither the issue nor its remo
     registerRepo(db);
     setIssueSync(db, 'off');
     const issueId = seedLinkedIssue(db, { gh: 42 });
-    const taskId = seedClosableTask(db, issueId, 'completed');
+    const taskId = seedClosableTask(db, issueId, 'submitted');
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);
@@ -304,7 +304,7 @@ describe('bro_atomic_close and task_recover close neither the issue nor its remo
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
     const issueId = seedLinkedIssue(db, {});
-    const taskId = seedClosableTask(db, issueId, 'completed');
+    const taskId = seedClosableTask(db, issueId, 'submitted');
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);
@@ -320,7 +320,7 @@ describe('bro_atomic_close and task_recover close neither the issue nor its remo
     registerRepo(db, ['github']);
     setIssueSync(db, 'auto');
     const issueId = seedLinkedIssue(db, { gh: 42 });
-    const taskId = seedClosableTask(db, issueId, 'completed');
+    const taskId = seedClosableTask(db, issueId, 'submitted');
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn, false);
@@ -412,7 +412,7 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
     registerRepo(db, ['github', 'gitlab'], ['github']);
     setIssueSync(db, 'auto');
     const issueId = seedLinkedIssue(db, { gh: 42, gl: 7 });
-    const taskId = seedClosableTask(db, issueId, 'completed');
+    const taskId = seedClosableTask(db, issueId, 'submitted');
     const { spawned, _spawnFn } = makeSpawnFn();
 
     const out = await atomicClose(db, taskId, _spawnFn);

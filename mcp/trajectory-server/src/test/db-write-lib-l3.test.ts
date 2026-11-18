@@ -363,7 +363,7 @@ INSERT INTO issues (id, objective, description, status, repo, created_at, update
     writeFileSync(corrupt, 'this is not a sqlite database, only text');
     const input = JSON.stringify({
       tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status',
-      tool_input: { agent: 'swe', task_id: '5', status: 'completed', waive_verification_gate_reason: 'verification impossible offline' },
+      tool_input: { agent: 'swe', task_id: '5', status: 'submitted', waive_verification_gate_reason: 'verification impossible offline' },
     });
     const r = runGate('swe-verification-gate', { cwd: sb.dir, input, env: { ...sb.env, TRAJECTORY_DB_PATH: corrupt } });
     assert.ok(r.stdout.includes('"permissionDecision":"deny"'), `waiver denied: ${r.stdout}`);

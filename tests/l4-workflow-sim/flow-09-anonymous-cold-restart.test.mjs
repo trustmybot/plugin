@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call, reviewHandoffAndPass, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, startSwe, reviewHandoffAndPass, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 09 — Cold-restart: onboard_apply marks first_run=false; marker persists', async (t) => {
   const { client, close } = await startClient();
@@ -119,10 +119,11 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
   const createdTask = Array.isArray(task.data) ? task.data[0] : task.data.tasks?.[0];
   const taskId = createdTask.id;
 
-  // SWE finishes the work first — bro can only close verified ('completed')
+  // SWE finishes the work first — bro can only close a submitted task
   // work, never jump a pending task straight to closed (#278).
+  await startSwe(client, taskId);
   await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234', report: { criteria: [{ id: 'SC1', status: 'met' }] },
+    agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: 'abc1234', report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
 
   // The close needs code-reviewer's pass after bro's review_handoff (GH 2939).

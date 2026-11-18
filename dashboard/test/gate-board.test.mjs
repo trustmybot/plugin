@@ -62,18 +62,18 @@ function seed(path) {
 
   ids.pending = task('chore/pending', 'Pending task', 'running', null, ago(4000));
 
-  ids.finding = task('fix/finding', 'Finding task', 'completed', SHA('c'), ago(3000));
+  ids.finding = task('fix/finding', 'Finding task', 'submitted', SHA('c'), ago(3000));
   verify(ids.finding, SHA('c'), 0);
   verdict(ids.finding, 1, 'pass');
   finding(`F${ids.finding}-1`, ids.finding, 'open', 'blocking');
 
-  ids.failed = task('fix/failed-verify', 'Failed verify task', 'completed', SHA('b'), ago(2000));
+  ids.failed = task('fix/failed-verify', 'Failed verify task', 'submitted', SHA('b'), ago(2000));
   verify(ids.failed, SHA('b'), 0);
   verify(ids.failed, SHA('b'), 1);
   verdict(ids.failed, 1, 'pass');
 
   ids.readyClosed = task('feat/ready', 'Ready closed task', 'closed', null, ago(1500));
-  ids.ready = task('feat/ready', 'Ready task', 'completed', SHA('a'), ago(1000));
+  ids.ready = task('feat/ready', 'Ready task', 'submitted', SHA('a'), ago(1000));
   verify(ids.ready, SHA('9'), 1);
   verify(ids.ready, SHA('a'), 0);
   verdict(ids.ready, 1, 'fail');
@@ -170,7 +170,7 @@ describe('dashboard push-gate board', () => {
     const tasks = Object.fromEntries(board.flatMap((b) => b.tasks).map((t) => [t.id, t]));
     const ready = tasks[ids.ready];
     assert.equal(ready.title, 'Ready task');
-    assert.equal(ready.status, 'completed');
+    assert.equal(ready.status, 'submitted');
     assert.equal(ready.commit_sha, SHA('a'));
     assert.ok(ready.verification.id > 0);
     assert.deepEqual({ ...ready.verification, id: 0 }, { id: 0, exit_code: 0, timed_out: false, commit_sha: SHA('a'), matches_commit: true });

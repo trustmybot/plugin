@@ -22,6 +22,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
+import type { TaskStatus } from '../task-status.js';
+import { taskStatusPathSql } from './helpers.js';
 import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
 
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -56,6 +58,11 @@ describe('swe run identity: spawn, bind, live, resume and refused spawn', () => 
     } finally {
       d.close();
     }
+  }
+
+  /** Moves <task> to <to> through task_events, the one way its status changes. */
+  function move(task: number, to: TaskStatus): void {
+    for (const sql of taskStatusPathSql(task, q(`SELECT status FROM tasks WHERE id=${task}`) as TaskStatus, to)) q(sql);
   }
 
   /** An Agent tool payload for <task>; an empty <toolUseId> leaves the key out, and the spawn note ends the prompt so two otherwise identical spawns are two events. */
@@ -126,7 +133,8 @@ describe('swe run identity: spawn, bind, live, resume and refused spawn', () => 
 
   /** Task 7 pending with no runs; each fixture's payloads carry their own spawn note, so the dispatcher never dedupes them against the previous fixture's. */
   function reset7(): void {
-    q("DELETE FROM agent_runs WHERE task_id=7; UPDATE tasks SET status='pending' WHERE id=7;");
+    q('DELETE FROM agent_runs WHERE task_id=7;');
+    move(7, 'pending');
     resets += 1;
     spawnNote = ` fixture ${resets}`;
   }
@@ -214,7 +222,7 @@ describe('swe run identity: spawn, bind, live, resume and refused spawn', () => 
       w.close();
     }
     stop(8, 'agent-8');
-    assert.equal(q('SELECT status FROM tasks WHERE id=8'), 'completed', 'the committed stop completes the task');
+    assert.equal(q('SELECT status FROM tasks WHERE id=8'), 'submitted', 'the committed stop submits the task');
     assert.equal(q('SELECT COUNT(*) FROM agent_runs WHERE task_id=8'), '2', 'two rows');
     assert.equal(
       q('SELECT spawn_id, exit_reason, resumed_from FROM agent_runs WHERE task_id=8 ORDER BY id DESC LIMIT 1'),
@@ -230,7 +238,7 @@ describe('swe run identity: spawn, bind, live, resume and refused spawn', () => 
   });
 
   it("(f) no closed task's latest bound swe row reads failed (GH 1500)", () => {
-    q("UPDATE tasks SET status='closed' WHERE id=8;");
+    move(8, 'closed');
     assert.equal(
       q(
         "SELECT COUNT(*) FROM agent_runs a JOIN tasks t ON t.id=a.task_id WHERE a.agent_type='swe' AND t.status='closed' AND a.exit_reason='failed' AND a.id=(SELECT MAX(id) FROM agent_runs WHERE task_id=a.task_id AND agent_type='swe' AND spawn_id IS NOT NULL)",
@@ -295,8 +303,8 @@ describe('swe run identity: spawn, bind, live, resume and refused spawn', () => 
 
   it('(k) a bound row an hour old is never closed by the sweep, PermissionDenied or SubagentStop', () => {
     reset7();
-    q(`UPDATE tasks SET status='running' WHERE id=7;
-       INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id, host)
+    move(7, 'running');
+    q(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id, host)
        VALUES (7, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hours'), 'ag-1', 'claude');`);
     const bound = "SELECT COALESCE(completed_at, '') || '|' || COALESCE(exit_reason, '') FROM agent_runs WHERE spawn_id='ag-1'";
     assert.ok(spawn(7, 'tu-9').includes('live swe run'), 'require-task-spec still treats the bound row as live');

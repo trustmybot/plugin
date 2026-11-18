@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
-import { pinScanEnv, tempDB } from './helpers.js';
+import { pinScanEnv, setTaskStatus, tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
 import { filesArePromptBearing, resolvePromptBearing, taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
@@ -145,7 +145,8 @@ describe('task_update_spec derives prompt_bearing (SC3, SC7)', () => {
 describe('task_reopen derives prompt_bearing (SC4, SC7)', () => {
   it('files_add of a prompt-surface path stores 1 and raises effort by prompt_bearing', withRepo(async (db, handlers) => {
     const id = (await provision(handlers, 'fix/reopen-add', ['src/x.ts']))['task_id'] as number;
-    db.run(`UPDATE tasks SET status = 'closed', effort = 'low' WHERE id = ?`, [id]);
+    setTaskStatus(db, id, 'closed');
+    db.run(`UPDATE tasks SET effort = 'low' WHERE id = ?`, [id]);
     const out = await call(handlers, 'task_reopen', {
       agent: 'bro', task_id: id, reason: 'needs a skill edit', files_add: ['skills/foo/SKILL.md'],
     });
@@ -156,7 +157,8 @@ describe('task_reopen derives prompt_bearing (SC4, SC7)', () => {
 
   it('stored prompt-surface files with prompt_bearing=0 store 1', withRepo(async (db, handlers) => {
     const id = (await provision(handlers, 'fix/reopen-stored', ['src/x.ts']))['task_id'] as number;
-    db.run(`UPDATE tasks SET status = 'closed', prompt_bearing = 0, files = ? WHERE id = ?`, [
+    setTaskStatus(db, id, 'closed');
+    db.run(`UPDATE tasks SET prompt_bearing = 0, files = ? WHERE id = ?`, [
       JSON.stringify(['.claude/skills/']), id,
     ]);
     const out = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'rework' });
@@ -166,7 +168,7 @@ describe('task_reopen derives prompt_bearing (SC4, SC7)', () => {
 
   it('a stored 1 is kept and not reported as derived', withRepo(async (db, handlers) => {
     const id = (await provision(handlers, 'fix/reopen-kept', ['src/x.ts'], { prompt_bearing: 1 }))['task_id'] as number;
-    db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+    setTaskStatus(db, id, 'closed');
     const out = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'rework' });
     assert.equal(promptBearingOf(db, id), 1);
     assert.equal(out['prompt_bearing_derived'], undefined);
@@ -176,7 +178,8 @@ describe('task_reopen derives prompt_bearing (SC4, SC7)', () => {
 describe('task_retry derives prompt_bearing (SC5, SC7)', () => {
   it('derives from the retried files[]', withRepo(async (db, handlers) => {
     const id = (await provision(handlers, 'fix/retry-src', ['src/x.ts']))['task_id'] as number;
-    db.run(`UPDATE tasks SET status = 'failed', prompt_bearing = 0, files = ? WHERE id = ?`, [
+    setTaskStatus(db, id, 'failed');
+    db.run(`UPDATE tasks SET prompt_bearing = 0, files = ? WHERE id = ?`, [
       JSON.stringify(['commands/run.md']), id,
     ]);
     const out = await call(handlers, 'task_retry', {
@@ -189,7 +192,7 @@ describe('task_retry derives prompt_bearing (SC5, SC7)', () => {
 
   it('non-prompt files[] with prompt_bearing=0 stay 0', withRepo(async (db, handlers) => {
     const id = (await provision(handlers, 'fix/retry-plain', ['src/x.ts']))['task_id'] as number;
-    db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
+    setTaskStatus(db, id, 'failed');
     const out = await call(handlers, 'task_retry', {
       agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-plain-v2',
       corrected_spec_body: SPEC, retry_rationale: 'retry on the same source', description: 'retry',

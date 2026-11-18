@@ -1,6 +1,6 @@
 /**
  * A code-reviewer FAIL reopens its task at high (GH 2866): validation_record
- * moves a completed, needs_validation or closed task back to running at effort
+ * moves a submitted or closed task back to running at effort
  * high in the FAIL's own transaction, reopening a closed issue of it with the
  * task (GH 3234), raises a running one
  * to high, and leaves every other task as it is; require-spawn-effort and
@@ -26,7 +26,7 @@ import { reReviewAdmission } from '../tools/reopen.js';
 import { scanTools } from '../tools/scan.js';
 import { REVIEWER_SPAWN_FROM_NODE, validationTools } from '../tools/validation.js';
 import { reindexIdle } from '../world-model/freshness.js';
-import { TEST_PROBES, pinScanEnv, seedPassingRun, seedReviewerObservation, tempDB, type ScanEnvPin } from './helpers.js';
+import { TEST_PROBES, pinScanEnv, seedPassingRun, seedReviewerObservation, setTaskStatus, tempDB, type ScanEnvPin } from './helpers.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -110,7 +110,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
     );
 
   it('SC1/SC2: a FAIL on a completed medium task reopens it at high with one reopen and one raise row', async () => {
-    const id = task('completed', 'medium');
+    const id = task('submitted', 'medium');
     const out = parse(await record(id, 'fail', [blocking('stale-cache'), blocking(null), nit]));
     const findingIds = (out['findings'] as Array<{ id: string; severity: string }>).filter((f) => f.severity === 'blocking').map((f) => f.id);
     assert.equal(findingIds.length, 2);
@@ -129,7 +129,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
     assert.notEqual(content['validation_id'], null);
     assert.deepEqual(content['finding_ids'], findingIds);
     assert.equal(content['auto'], true);
-    assert.equal(content['from_status'], 'completed');
+    assert.equal(content['from_status'], 'submitted');
 
     const raised = auditRows(id, 'task_effort_raised');
     assert.equal(raised.length, 1);
@@ -139,7 +139,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
 
     assert.deepEqual(out['reopened'], {
       task_id: id,
-      from_status: 'completed',
+      from_status: 'submitted',
       status: 'running',
       effort: 'high',
       effort_raised: true,
@@ -152,8 +152,8 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
     assert.match(String(out['return_line']), /fail/i, 'return_line is still the reviewer line');
   });
 
-  it('SC1: needs_validation and closed tasks reopen too; a task already at high writes no raise row', async () => {
-    for (const status of ['needs_validation', 'closed']) {
+  it('SC1: closed tasks reopen too; a task already at high writes no raise row', async () => {
+    for (const status of ['closed']) {
       const id = task(status, 'high');
       const out = parse(await record(id, 'fail', [blocking('x')]));
       assert.equal(row(id).status, 'running', status);
@@ -164,7 +164,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
   });
 
   it('SC1: a failed write rolls back the FAIL row, its findings and the reopen', async () => {
-    const id = task('completed', 'low');
+    const id = task('submitted', 'low');
     db.run(`CREATE TRIGGER boom BEFORE INSERT ON audit WHEN NEW.event_type = 'task_effort_raised'
              BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
     try {
@@ -173,7 +173,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
     } finally {
       db.run('DROP TRIGGER boom');
     }
-    assert.equal(row(id).status, 'completed');
+    assert.equal(row(id).status, 'submitted');
     assert.equal(row(id).effort, 'low');
     assert.notEqual(row(id).completion_report, null);
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ?', [id])!.n, 0);
@@ -183,7 +183,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
   });
 
   it(`SC2: the spawn_note is capped at ${SPAWN_NOTE_MAX_CHARS} characters`, async () => {
-    const id = task('completed', 'high');
+    const id = task('submitted', 'high');
     await record(id, 'fail', Array.from({ length: 12 }, (_, i) => blocking(`a-rather-long-bug-class-name-${i}`)));
     const note = row(id).spawn_note;
     assert.ok(note !== null);
@@ -204,7 +204,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
 
   it('GH 3234: a FAIL on a task of a closed issue reopens the task and the issue in one transaction', async () => {
     db.run(`UPDATE issues SET status = 'closed', closed_at = '2026-01-01T00:00:00.000Z' WHERE id = 2`);
-    const ofClosedIssue = task('completed', 'medium', 2);
+    const ofClosedIssue = task('submitted', 'medium', 2);
     const out = parse(await record(ofClosedIssue, 'fail', [blocking('x')]));
     assert.equal(out['reopen_skipped'], undefined);
     assert.equal((out['reopened'] as { issue_reopened?: boolean }).issue_reopened, true);
@@ -220,14 +220,14 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
       from_closed_at: '2026-01-01T00:00:00.000Z',
     });
 
-    const ofOpenIssue = task('completed', 'high');
+    const ofOpenIssue = task('submitted', 'high');
     const again = parse(await record(ofOpenIssue, 'fail', [blocking('x')]));
     assert.equal((again['reopened'] as { issue_reopened?: boolean }).issue_reopened, undefined, 'an open issue is left as it is');
     assert.equal(auditRows(ofOpenIssue, 'issue_reopened').length, 0);
   });
 
-  it('SC3: a FAIL on a failed or escalated task changes nothing', async () => {
-    for (const status of ['failed', 'escalated']) {
+  it('SC3: a FAIL on a failed, superseded or cancelled task changes nothing', async () => {
+    for (const status of ['failed', 'superseded', 'cancelled']) {
       const id = task(status, 'low');
       const out = parse(await record(id, 'fail', [blocking('x')]));
       assert.deepEqual(out['reopen_skipped'], { reason: `status_${status}` });
@@ -238,13 +238,13 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
   });
 
   it('SC3: pass and escalate never reopen', async () => {
-    const id = task('completed', 'medium');
+    const id = task('submitted', 'medium');
     let out = parse(await record(id, 'pass'));
     assert.equal(out['reopened'], undefined);
     assert.equal(out['reopen_skipped'], undefined);
     out = parse(await record(id, 'escalate', [blocking('x')]));
     assert.equal(out['reopened'], undefined);
-    assert.equal(row(id).status, 'completed');
+    assert.equal(row(id).status, 'submitted');
     assert.equal(row(id).effort, 'medium');
     assert.equal(auditRows(id, 'task_reopened').length + auditRows(id, 'task_effort_raised').length, 0);
   });
@@ -304,7 +304,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
   });
 
   it('F857-1: a running task re-reviews its FAILed commit only with that commit unchanged and verified, no live swe and a re_review analysis after the FAIL', async () => {
-    const id = task('completed', 'high');
+    const id = task('submitted', 'high');
     const sha = 'abc1234def5678';
     db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', [sha, id]);
     const { completion_report: report, completed_at: completedAt } = row(id);
@@ -358,7 +358,8 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
 
     const admitted = admission();
     assert.ok(!('refusal' in admitted), JSON.stringify(admitted));
-    assert.deepEqual(admitted, { failValidationId: fail['id'], completionReport: report, completedAt });
+    const latestAnalysis = db.get<{ id: number }>(`SELECT MAX(id) AS id FROM audit WHERE event_type = 'task_rework_analysis'`)!.id;
+    assert.deepEqual(admitted, { failValidationId: fail['id'], analysisAuditId: latestAnalysis, completionReport: report, completedAt });
 
     db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', ['fff0000', id]);
     refused(/not the task's current commit fff0000/);
@@ -446,7 +447,8 @@ describe('a reopened task whose worktree is gone (GH 2866)', () => {
       assert.ok(existsSync(worktree));
 
       gitIn(root, 'worktree', 'remove', '--force', worktree);
-      db.run(`UPDATE tasks SET status = 'closed', completed_at = datetime('now') WHERE id = ?`, [taskId]);
+      setTaskStatus(db, taskId, 'closed', 'closed before the FAIL');
+      db.run(`UPDATE tasks SET completed_at = datetime('now') WHERE id = ?`, [taskId]);
 
       seedReviewerObservation(db, taskId, 1, { agentId: 'reviewer-sc5-0001' });
       const fail = parse(

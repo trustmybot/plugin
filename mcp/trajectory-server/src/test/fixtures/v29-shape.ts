@@ -13,7 +13,9 @@ export const V29_INDEXES = [
 ];
 
 const V29_CHECKS: Array<[string, string]> = [
-  ['tasks', "status IN ('pending','running','needs_validation','completed','closed','failed','escalated')"],
+  // v77 (GH 3224) renames the states: completed is submitted, needs_validation
+  // is gone and escalated splits into superseded and failed.
+  ['tasks', "status IN ('pending','running','submitted','failed','closed','superseded','cancelled')"],
   ['issues', "status IN ('open','closed')"],
   ['validation_attempts', "verdict IN ('pass','fail','escalate')"],
   ['discussions', "kind IN ('intent','question','answer','decision','note','analysis')"],

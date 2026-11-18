@@ -12,7 +12,7 @@
  *                                         to resume swe from task_brief.checkpoint
  *   pending|running + live background   → status stays, swe_atomic_close_background_wait
  *     command in the transcript           audit + additionalContext: swe's resumed turn closes it
- *   pending|running + commits + a       → status completed + commit_sha, checkpoint
+ *   pending|running + commits + a       → status submitted + commit_sha, checkpoint
  *     passing verification run at HEAD    cleared + swe_atomic_close_auto_completed audit
  *   pending|running + commits, no       → status stays, swe_atomic_close_gate_pending
  *     passing verification run at HEAD    audit + additionalContext: bro resumes swe
@@ -54,8 +54,8 @@ import { repoDefaultBranch, repoResolve } from './lib/repo.js';
 import { normalizeRole } from './lib/role.js';
 import { sweStopCause } from './swe-stop-cause.js';
 import { toolOutputSize } from './tool-output-size.js';
-import { taskStatusUpdateSql } from '../task-status.js';
-import { AWAITING_CLOSE, DONE, inGroup, TASK_STATE, unionOf } from '../task-states.js';
+import { sqlText, taskStatusMoveSql } from '../task-status.js';
+import { AWAITING_CLOSE, DONE, FINAL, inGroup, TASK_STATE, unionOf } from '../task-states.js';
 
 export const GATE_NAME = 'swe-atomic-close';
 
@@ -651,7 +651,7 @@ SELECT 1 FROM tasks
       );
       out.stdout += r.stdout;
       if (!r.ok) process.stderr.write(`${r.error}\n`);
-      context = `SWE for task #${taskId} stopped with commits at ${wtHead} but no passing verification run for that commit, so the task stays ${taskStatus}. Resume the swe so it closes through task_update_status(status='${TASK_STATE.completed}'), whose gate runs the changelog and doc checks and verification[] on HEAD.`;
+      context = `SWE for task #${taskId} stopped with commits at ${wtHead} but no passing verification run for that commit, so the task stays ${taskStatus}. Resume the swe so it closes through task_update_status(status='${TASK_STATE.submitted}'), whose gate runs the changelog and doc checks and verification[] on HEAD.`;
     } else if (hasCommits) {
       decision = 'auto-completed';
       const closedAt = nowIso();
@@ -676,10 +676,46 @@ SELECT 1 FROM tasks
       );
       if (audit.code !== 0) process.stderr.write(`${audit.error}\n`);
       const closeAuditSql = audit.code === 0 ? audit.sql : '';
+      const spawnRun = sqlText(
+        `(SELECT MAX(r.id) FROM agent_runs r WHERE r.task_id = tasks.id AND r.agent_type = 'swe' AND r.spawn_id = '${safeSpawnId}')`,
+      );
+      // A task still pending here missed record-swe-spawn's pending→running move; there is no
+      // pending→submitted edge, so open this spawn's run and take the spawned edge first.
+      const spawnedSql =
+        taskStatus === 'pending'
+          ? `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, spawn_id, plugin_version)
+SELECT id, issue_id, 'swe', '${safeFirstTs}', repo, '${safeSpawnId}', ${versionSql} FROM tasks
+ WHERE id = ${safeTaskId}
+   AND NOT EXISTS (SELECT 1 FROM agent_runs WHERE task_id = ${safeTaskId} AND agent_type = 'swe' AND spawn_id = '${safeSpawnId}');
+${taskStatusMoveSql({
+  status: 'running',
+  event: 'spawned',
+  cause: 'author_spawned',
+  role: 'hook',
+  agentRunId: spawnRun,
+  record: { kind: 'agent_run', id: spawnRun },
+  key: `swe-atomic-close:${spawnId}:spawned`,
+  at: closedAt,
+  where: `id = ${safeTaskId} AND status = 'pending'`,
+})};
+`
+          : '';
       const closed = write(
         db,
-        `${taskStatusUpdateSql({
-          status: 'completed',
+        `${spawnedSql}${taskStatusMoveSql({
+          status: 'submitted',
+          event: 'submitted',
+          cause: 'checks_passed',
+          role: 'hook',
+          agentRunId: spawnRun,
+          record: {
+            kind: 'verification_run',
+            id: sqlText(
+              `(SELECT MAX(v.id) FROM verification_runs v WHERE v.task_id = tasks.id AND v.commit_sha = '${sqlQuote(wtHead)}' AND v.exit_code = 0 AND v.timed_out = 0)`,
+            ),
+          },
+          key: `swe-atomic-close:${spawnId}:${wtHead}`,
+          at: closedAt,
           set: { commit_sha: wtHead, updated_at: closedAt, completed_at: closedAt, checkpoint: null },
           where: `id=${safeTaskId}`,
         })};
@@ -699,7 +735,7 @@ ${closeAuditSql}`,
   const exitReason =
     decision === 'auto-completed' || inGroup(unionOf(AWAITING_CLOSE, DONE), taskStatus)
       ? 'completed'
-      : taskStatus === 'escalated'
+      : inGroup(FINAL, taskStatus)
         ? 'escalated'
         : 'failed';
 

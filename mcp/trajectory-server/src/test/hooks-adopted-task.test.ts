@@ -354,7 +354,7 @@ describe('gates that resolve the task worktree act on the recorded worktree_path
         );
         await sweAtomicClose(stop(c), c.env);
         const task = query<{ status: string; commit_sha: string | null }>(c, 'SELECT status, commit_sha FROM tasks WHERE id = ?', TASK);
-        assert.deepEqual({ ...task }, { status: 'completed', commit_sha: sha });
+        assert.deepEqual({ ...task }, { status: 'submitted', commit_sha: sha });
       });
 
       it(`${label}: names the task worktree when the swe stopped without committing`, async () => {

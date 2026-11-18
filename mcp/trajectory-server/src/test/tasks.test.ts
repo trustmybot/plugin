@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { tempDB } from './helpers.js';
+import { openSweRun as openRunFixture, setTaskStatus, tempDB } from './helpers.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
 import { auditTools } from '../tools/audit.js';
@@ -155,17 +155,9 @@ describe('taskTools', () => {
       [issueId],
     );
 
-    // SWE completes the first (completion is swe's transition, not bro's).
-    await call(tools.handlers, 'task_update_status', {
-      agent: 'swe',
-      task_id: String(allTasks[0].id),
-      status: 'completed',
-    });
-    await call(tools.handlers, 'task_update_status', {
-      agent: 'bro',
-      task_id: String(allTasks[1].id),
-      status: 'failed',
-    });
+    // The first is submitted, the second failed: only the failed one is actionable.
+    setTaskStatus(db, allTasks[0].id, 'submitted');
+    setTaskStatus(db, allTasks[1].id, 'failed');
 
     const result = await call(tools.handlers, 'task_first_actionable', {
       agent: 'bro',
@@ -195,7 +187,7 @@ describe('taskTools', () => {
 
     const step = async (status: string) => {
       const result = await call(tools.handlers, 'task_update_status', {
-        agent: 'bro', task_id: taskId, status,
+        agent: 'bro', task_id: taskId, status, note: `test: by hand to ${status}`,
       });
       const updated = parseResult(result);
       assert.ok(!result.isError, `Expected legal transition to "${status}": ${JSON.stringify(updated)}`);
@@ -203,21 +195,28 @@ describe('taskTools', () => {
       return updated;
     };
 
-    await step('running');           // pending → running
-    await step('needs_validation');  // running → needs_validation
-    await step('completed'); // needs_validation → completed
+    // Every by-hand move bro takes is a chart edge (GH 3224).
+    const walk = ['running', 'pending', 'running', 'failed', 'running', 'submitted'];
+    for (const status of walk) await step(status);
     const completedAt = db.get<{ completed_at: string | null }>('SELECT completed_at FROM tasks WHERE id = ?', [Number(taskId)]);
-    assert.ok(completedAt?.completed_at, 'completed sets completed_at');
+    assert.ok(completedAt?.completed_at, 'submitted sets completed_at');
 
-    // 'closed' is reached only via bro_atomic_close (#1025); set it directly to
-    // exercise the one remaining task_update_status edge out of closed.
-    db.run("UPDATE tasks SET status = 'closed' WHERE id = ?", [Number(taskId)]);
-    await step('escalated');         // closed → escalated (push-gate pushback)
+    const moves = db.all<{ to_state: string; role: string; cause: string; note: string }>(
+      'SELECT to_state, role, cause, note FROM task_events WHERE task_id = ? AND from_state IS NOT NULL ORDER BY seq',
+      [Number(taskId)],
+    );
+    assert.deepEqual(moves.map((m) => m.to_state), walk);
+    assert.ok(moves.every((m) => m.role === 'bro' && m.cause === 'manual' && m.note === `test: by hand to ${m.to_state}`));
+
+    const reopenByHand = await call(tools.handlers, 'task_update_status', {
+      agent: 'bro', task_id: taskId, status: 'running', note: 'test: rework by hand',
+    });
+    assert.ok(reopenByHand.isError, 'submitted → running is task_reopen\'s, never by hand');
 
     db.close();
   });
 
-  it('task_update_status rejects illegal bro transitions and clears completed_at on reopen (#278)', async () => {
+  it('task_update_status rejects illegal bro transitions and a by-hand move without a note (#278, GH 3224)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -234,36 +233,35 @@ describe('taskTools', () => {
       return String(parseBatch(r)[0]!.id);
     };
 
-    // pending → closed is rejected: bro can't skip verification.
+    const note = 'test: by hand';
+    // pending → closed is rejected: closed is bro_atomic_close's.
     const t1 = await mk('feat/illegal-close');
-    const r1 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t1, status: 'closed' });
+    const r1 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t1, status: 'closed', note });
     assert.ok(r1.isError, 'bro must not jump pending → closed');
 
-    // pending → completed is rejected: bro can't fabricate completion.
-    const t2 = await mk('feat/illegal-complete');
-    const r2 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t2, status: 'completed' });
-    assert.ok(r2.isError, 'bro must not jump pending → completed');
+    // pending → submitted is rejected: bro can't fabricate a submission.
+    const t2 = await mk('feat/illegal-submit');
+    const r2 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t2, status: 'submitted', note });
+    assert.ok(r2.isError, 'bro must not jump pending → submitted');
+    assert.match(r2.content[0].text, /Allowed from 'pending': running/);
 
-    // Reopening out of 'completed' clears the stale completion stamp.
-    const t3 = await mk('feat/reopen-clears-stamp');
-    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: t3, status: 'running' });
-    const completedAt = () =>
-      db.get<{ completed_at: string | null }>('SELECT completed_at FROM tasks WHERE id = ?', [Number(t3)])?.completed_at;
-    const comp = await call(tools.handlers, 'task_update_status', {
-      agent: 'swe', task_id: t3, status: 'completed', commit_sha: 'abc1234',
-    });
-    assert.ok(!comp.isError, comp.content[0].text);
-    assert.ok(completedAt(), 'completed sets completed_at');
-    const reopened = await call(tools.handlers, 'task_update_status', {
-      agent: 'bro', task_id: t3, status: 'needs_validation',
-    });
-    assert.ok(!reopened.isError, reopened.content[0].text);
-    assert.equal(completedAt(), null, 'reopening out of completed clears completed_at');
+    // completed is the pre-v77 name, refused with the new one named.
+    const r3 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t2, status: 'completed', note });
+    assert.ok(r3.isError);
+    assert.match(r3.content[0].text, /renamed submitted/);
+
+    // A legal by-hand move still needs its note, and a refused one moves nothing.
+    const r4 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t2, status: 'running' });
+    assert.ok(r4.isError);
+    assert.match(r4.content[0].text, /needs a note/);
+    const events = (id: string) => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM task_events WHERE task_id = ?', [Number(id)])!.n;
+    assert.equal(events(t1), 1, 'only the provisioned event');
+    assert.equal(events(t2), 1, 'only the provisioned event');
 
     db.close();
   });
 
-  it('task_update_status refuses bro completed → running and points to task_reopen (GH 2972)', async () => {
+  it('task_update_status refuses bro submitted → running and points to task_reopen (GH 2972)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -276,19 +274,20 @@ describe('taskTools', () => {
       tasks: [{ branch_id: 'feat/no-silent-rework', description: 'x' }],
     });
     const taskId = String(parseBatch(batch)[0].id);
+    openRunFixture(db, taskId);
     await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
     const comp = await call(tools.handlers, 'task_update_status', {
-      agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+      agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: 'abc1234',
     });
     assert.ok(!comp.isError, comp.content[0].text);
 
     const rowCount = () => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit')!.n;
     const before = rowCount();
-    const r = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'running' });
-    assert.equal(r.isError, true, 'bro must not move completed → running outside task_reopen');
+    const r = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'running', note: 'test: rework' });
+    assert.equal(r.isError, true, 'bro must not move submitted → running outside task_reopen');
     assert.match(r.content[0].text, /task_reopen\(task_id, reason\)/);
     const row = db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [Number(taskId)]);
-    assert.equal(row?.status, 'completed');
+    assert.equal(row?.status, 'submitted');
     assert.equal(rowCount(), before, 'a refused transition writes no audit row');
 
     db.close();
@@ -874,7 +873,7 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_update_status rejects SWE writes of non-terminal status (needs_validation, pending, closed, escalated)', async () => {
+  it('task_update_status rejects SWE moves off its matrix and the statuses it never sets', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -891,23 +890,32 @@ describe('taskTools', () => {
     const tasks = parseBatch(batchResult);
     const taskId = String(tasks[0].id);
 
-    const forbiddenStatuses = ['needs_validation', 'pending', 'closed', 'escalated'];
-    for (const status of forbiddenStatuses) {
-      const result = await call(tools.handlers, 'task_update_status', {
-        agent: 'swe',
-        task_id: taskId,
-        status,
-      });
+    const expectSweRejected = async (status: string) => {
+      const result = await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status });
       const data = parseResult(result);
       assert.ok(result.isError, `Expected isError=true for SWE + status='${status}'`);
       assert.match(data.error, /task_update_status rejected/, `Expected rejection message for status='${status}'`);
       assert.match(data.error, /#114/, `Expected #114 reference for status='${status}'`);
+    };
+    // From pending swe only starts the task.
+    for (const status of ['submitted', 'failed']) await expectSweRejected(status);
+    openRunFixture(db, taskId);
+    const started = await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
+    assert.ok(!started.isError, started.content[0].text);
+    // From running it never rolls back to pending.
+    await expectSweRejected('pending');
+    // closed, superseded and cancelled are other tools' moves; the pre-v77 names are gone.
+    for (const status of ['closed', 'superseded', 'cancelled', 'needs_validation', 'escalated']) {
+      const result = await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status });
+      assert.ok(result.isError, `Expected isError=true for SWE + status='${status}'`);
+      assert.match((parseResult(result) as { error: string }).error, /Invalid status/, status);
     }
+    assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [Number(taskId)])!.status, 'running');
 
     db.close();
   });
 
-  it('task_update_status allows SWE writes of running, completed, and failed', async () => {
+  it('task_update_status allows SWE writes of running, submitted, and failed, each on its agent run', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -919,27 +927,30 @@ describe('taskTools', () => {
       issue_id: String(issueId),
       tasks: [
         { branch_id: 'feat/swe-running-test', description: 'SWE running test' },
-        { branch_id: 'feat/swe-completed-test', description: 'SWE completed test' },
+        { branch_id: 'feat/swe-submitted-test', description: 'SWE submitted test' },
         { branch_id: 'feat/swe-failed-test', description: 'SWE failed test' },
       ],
     });
     const tasks = parseBatch(batchResult);
 
-    const runningResult = await call(tools.handlers, 'task_update_status', {
-      agent: 'swe',
-      task_id: String(tasks[0].id),
-      status: 'running',
-    });
-    assert.ok(!runningResult.isError, `Expected no error for SWE + status='running': ${JSON.stringify(parseResult(runningResult))}`);
-    assert.equal(parseResult(runningResult).status, 'running');
+    const noRun = await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[0].id), status: 'running' });
+    assert.ok(noRun.isError, 'a start with no swe agent run has no record to rest on');
+    assert.match((parseResult(noRun) as { error: string }).error, /has no swe agent run/);
 
-    const completedResult = await call(tools.handlers, 'task_update_status', {
+    const runs = tasks.map((t) => openRunFixture(db, t.id as number));
+    for (const t of tasks) {
+      const runningResult = await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(t.id), status: 'running' });
+      assert.ok(!runningResult.isError, `Expected no error for SWE + status='running': ${JSON.stringify(parseResult(runningResult))}`);
+      assert.equal((parseResult(runningResult) as { status: string }).status, 'running');
+    }
+
+    const submittedResult = await call(tools.handlers, 'task_update_status', {
       agent: 'swe',
       task_id: String(tasks[1].id),
-      status: 'completed',
+      status: 'submitted',
     });
-    assert.ok(!completedResult.isError, `Expected no error for SWE + status='completed': ${JSON.stringify(parseResult(completedResult))}`);
-    assert.equal(parseResult(completedResult).status, 'completed');
+    assert.ok(!submittedResult.isError, `Expected no error for SWE + status='submitted': ${JSON.stringify(parseResult(submittedResult))}`);
+    assert.equal((parseResult(submittedResult) as { status: string }).status, 'submitted');
 
     const failedResult = await call(tools.handlers, 'task_update_status', {
       agent: 'swe',
@@ -949,10 +960,17 @@ describe('taskTools', () => {
     assert.ok(!failedResult.isError, `Expected no error for SWE + status='failed': ${JSON.stringify(parseResult(failedResult))}`);
     assert.equal(parseResult(failedResult).status, 'failed');
 
+    const lastEvent = (id: unknown) => db.get<{ event_type: string; role: string; record_kind: string; record_id: number }>(
+      'SELECT event_type, role, record_kind, record_id FROM task_events WHERE task_id = ? ORDER BY seq DESC LIMIT 1', [Number(id)],
+    )!;
+    assert.deepEqual({ ...lastEvent(tasks[0].id) }, { event_type: 'spawned', role: 'swe', record_kind: 'agent_run', record_id: runs[0] });
+    assert.deepEqual({ ...lastEvent(tasks[1].id) }, { event_type: 'submitted_unverified', role: 'swe', record_kind: 'task', record_id: tasks[1].id });
+    assert.deepEqual({ ...lastEvent(tasks[2].id) }, { event_type: 'failed', role: 'swe', record_kind: 'agent_run', record_id: runs[2] });
+
     db.close();
   });
 
-  it('task_update_status blocks completed → closed (only bro_atomic_close closes) and allows reopen for re-validation (#278 #1025)', async () => {
+  it('task_update_status blocks submitted → closed: only bro_atomic_close closes (#278 #1025)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -964,31 +982,25 @@ describe('taskTools', () => {
       issue_id: String(issueId),
       tasks: [
         { branch_id: 'feat/bro-closed-test', description: 'Bro closed test' },
-        { branch_id: 'feat/bro-needs-validation-test', description: 'Bro needs_validation test' },
       ],
     });
     const tasks = parseBatch(batchResult);
 
-    // SWE completes task 0; bro may NOT close it via task_update_status —
-    // completed → closed is reserved for bro_atomic_close (#1025).
-    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[0].id), status: 'completed', commit_sha: 'abc1234' });
+    // SWE submits task 0; bro may NOT close it via task_update_status —
+    // submitted → closed is reserved for bro_atomic_close (#1025).
+    const taskId = String(tasks[0].id);
+    openRunFixture(db, taskId);
+    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
+    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: 'abc1234' });
     const closedResult = await call(tools.handlers, 'task_update_status', {
       agent: 'bro',
-      task_id: String(tasks[0].id),
+      task_id: taskId,
       status: 'closed',
+      note: 'test: close by hand',
     });
-    assert.ok(closedResult.isError, 'completed → closed via task_update_status must be rejected');
+    assert.ok(closedResult.isError, 'submitted → closed via task_update_status must be rejected');
     assert.equal(parseResult(closedResult).status, undefined, 'no status flip on a rejected close');
-
-    // Task 1: completed → needs_validation (bro reopens for re-validation).
-    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[1].id), status: 'completed', commit_sha: 'def5678' });
-    const nvResult = await call(tools.handlers, 'task_update_status', {
-      agent: 'bro',
-      task_id: String(tasks[1].id),
-      status: 'needs_validation',
-    });
-    assert.ok(!nvResult.isError, `Expected no error for completed → needs_validation: ${JSON.stringify(parseResult(nvResult))}`);
-    assert.equal(parseResult(nvResult).status, 'needs_validation');
+    assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [Number(taskId)])!.status, 'submitted');
 
     db.close();
   });
@@ -1647,13 +1659,16 @@ describe('taskTools', () => {
     });
     const tasks = parseBatch(batchResult);
     const taskId = tasks[0].id as number;
+    openRunFixture(db, taskId);
+    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(taskId), status: 'running' });
 
-    await call(tools.handlers, 'task_update_status', {
+    const r = await call(tools.handlers, 'task_update_status', {
       agent: 'swe',
       task_id: String(taskId),
-      status: 'completed',
+      status: 'submitted',
       commit_sha: 'ABCDEF1234567',
     });
+    assert.ok(!r.isError, r.content[0].text);
 
     const updated = db.get<{ commit_sha: string }>(`SELECT commit_sha FROM tasks WHERE id = ?`, [taskId]);
     assert.equal(updated?.commit_sha, 'abcdef1234567', 'commit_sha must be stored lowercase');
@@ -1676,6 +1691,7 @@ describe('taskTools', () => {
       tasks: [{ branch_id: 'feat/mixed-case-swe', description: 'mixed-case swe test' }],
     });
     const taskId = String(parseBatch(batchResult)[0].id);
+    openRunFixture(db, taskId);
 
     const result = await call(tools.handlers, 'task_update_status', {
       agent: 'Swe',
@@ -1711,12 +1727,12 @@ describe('taskTools', () => {
     });
     const taskId = String(parseBatch(batchResult)[0].id);
 
-    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed' });
-    // 'closed' is reached only via bro_atomic_close (#1025); set it directly to
-    // put the task into the terminal state this test guards against.
-    db.run("UPDATE tasks SET status = 'closed' WHERE id = ?", [Number(taskId)]);
+    // 'closed' is reached only via bro_atomic_close (#1025); the fixture walks
+    // the task there to put it into the state this test guards against.
+    setTaskStatus(db, taskId, 'closed');
+    openRunFixture(db, taskId);
 
-    for (const status of ['completed', 'running', 'failed']) {
+    for (const status of ['submitted', 'running', 'failed']) {
       const result = await call(tools.handlers, 'task_update_status', {
         agent: 'swe',
         task_id: taskId,
@@ -2419,7 +2435,7 @@ describe('effort (GH 1349)', () => {
     const { db, composites, cleanup } = setup();
     try {
       const id = parseResult(await provision(composites.handlers, 'fix/rework-effort')).task_id as number;
-      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      setTaskStatus(db, id, 'closed');
       const r = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review failed', effort: 'high' });
       assert.ok(!r.isError, JSON.stringify(parseResult(r)));
       assert.equal(parseResult(r).effort, 'high');
@@ -2444,14 +2460,14 @@ describe('effort (GH 1349)', () => {
     const { db, composites, cleanup } = setup();
     try {
       const id = parseResult(await provision(composites.handlers, 'fix/rework-computed')).task_id as number;
-      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      setTaskStatus(db, id, 'closed');
       const kept = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'explicit', effort: 'medium' });
       assert.ok(!kept.isError, JSON.stringify(parseResult(kept)));
       assert.equal(effortOf(db, id), 'medium');
       const raised = () => db.all<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'task_effort_raised'`);
       assert.equal(raised().length, 0);
 
-      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      setTaskStatus(db, id, 'closed');
       const r = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'rework' });
       assert.ok(!r.isError, JSON.stringify(parseResult(r)));
       assert.equal(parseResult(r).effort, 'high');
@@ -2543,7 +2559,7 @@ describe('effort (GH 1349)', () => {
     const { db, composites, cleanup } = setup();
     try {
       const id = parseResult(await provision(composites.handlers, 'fix/retry-effort', 'low')).task_id as number;
-      db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
+      setTaskStatus(db, id, 'failed');
       const explicit = parseResult(await call(composites.handlers, 'task_retry', {
         agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v2', corrected_spec_body: SPEC,
         retry_rationale: 'explicit', description: 'd', effort: 'low',
@@ -2551,14 +2567,17 @@ describe('effort (GH 1349)', () => {
       assert.equal(effortOf(db, explicit.task_id), 'low');
       assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_effort_raised'`)!.c, 0);
 
+      // The retry superseded the task, so the next retry starts from its replacement (GH 3224).
+      const explicitId = explicit.task_id as number;
+      setTaskStatus(db, explicitId, 'failed');
       const raised = parseResult(await call(composites.handlers, 'task_retry', {
-        agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v3', corrected_spec_body: SPEC,
+        agent: 'bro', failed_task_id: String(explicitId), new_branch_id: 'fix/retry-effort-v3', corrected_spec_body: SPEC,
         retry_rationale: 'rework', description: 'd',
       }));
       assert.equal(raised.effort, 'high');
       assert.equal(effortOf(db, raised.task_id), 'high');
       const rows = db.all<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'task_effort_raised'`);
-      assert.deepEqual(rows.map((r) => JSON.parse(r.content_json)), [{ task_id: raised.task_id, from: 'low', to: 'high', failed_task_id: id }]);
+      assert.deepEqual(rows.map((r) => JSON.parse(r.content_json)), [{ task_id: raised.task_id, from: 'low', to: 'high', failed_task_id: explicitId }]);
 
       const brief = parseResult(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: raised.task_id }));
       assert.equal(brief.effort, 'high');
@@ -2615,7 +2634,9 @@ describe('agent_runs finalize: a run closed without usage is unmeasured (GH 1673
   it('task_update_status failed closes a bound swe run with no usage as unmeasured', async () => {
     const { db, taskId } = seed('running');
     const run = openRun(db, taskId);
-    const r = await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(taskId), status: 'failed' });
+    const r = await call(taskTools(db).handlers, 'task_update_status', {
+      agent: 'bro', task_id: String(taskId), status: 'failed', note: 'test: the work blocked',
+    });
     assert.ok(!r.isError, r.content[0].text);
     assert.deepEqual({ ...runRow(db, run) }, { exit_reason: 'failed', usage_source: 'unmeasured', completed: 1, tokens_in: null });
     db.close();
@@ -2630,7 +2651,7 @@ describe('agent_runs finalize: a run closed without usage is unmeasured (GH 1673
   });
 
   it('the close path (task_recover with a commit, as bro_atomic_close) keeps measured runs and marks the rest unmeasured', async () => {
-    const { db, taskId } = seed('completed');
+    const { db, taskId } = seed('submitted');
     const metered = openRun(db, taskId, { tokens: 70, usageSource: 'subagent_stop' });
     const unmetered = openRun(db, taskId, { agentType: 'code-reviewer', spawnId: 'rev-1' });
     const r = await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_recover', {
@@ -2648,11 +2669,11 @@ describe('agent_runs finalize: a run closed without usage is unmeasured (GH 1673
     const orphan = openRun(db, failed.taskId);
     const now = new Date().toISOString();
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (1, 'fix/esc', 'd', 'escalated', ?, ?)`,
+      `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (1, 'fix/cancelled', 'd', 'cancelled', ?, ?)`,
       [now, now],
     );
-    const escalated = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
-    const stale = openRun(db, escalated, { tokens: 9, usageSource: 'transcript' });
+    const cancelled = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+    const stale = openRun(db, cancelled, { tokens: 9, usageSource: 'transcript' });
     const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (1, 'fix/stale', 'd', 'running', ?, ?)`,
@@ -2706,7 +2727,7 @@ describe('task_update_status report.concepts (GH 1680)', () => {
     const id = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
     const handlers = taskTools(db).handlers;
     const complete = (report: unknown) =>
-      call(handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report });
+      call(handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'submitted', commit_sha: 'abc1234', report });
     return { db, id, complete };
   }
 
@@ -2718,7 +2739,7 @@ describe('task_update_status report.concepts (GH 1680)', () => {
     const r = await complete({ criteria: CRITERIA, concepts: [CONCEPT, { ...CONCEPT, name: 'other repo', repo: 'site' }] });
     assert.ok(!r.isError, r.content[0].text);
     const row = storedReport(db, id);
-    assert.equal(row.status, 'completed');
+    assert.equal(row.status, 'submitted');
     assert.deepEqual(JSON.parse(row.completion_report!), {
       criteria: CRITERIA,
       concepts: [
@@ -2767,11 +2788,13 @@ describe('task_update_status return_line (GH 1959)', () => {
        VALUES (1, 'feat/1959-return', 't', 'd', 'running', '[]', '[]', ?, datetime('now'), datetime('now'))`,
       [commitSha],
     );
-    return { db, id: db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id };
+    const id = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    openRunFixture(db, id);
+    return { db, id };
   }
 
   for (const [status, extra, sha] of [
-    ['completed', { commit_sha: '0123456789abcdef0123456789abcdef01234567' }, '01234567'],
+    ['submitted', { commit_sha: '0123456789abcdef0123456789abcdef01234567' }, '01234567'],
     ['failed', {}, '-'],
     ['running', { checkpoint: { done: 'half', left: 'rest', files: ['a.ts'] } }, '-'],
   ] as const) {
@@ -2800,16 +2823,16 @@ describe('task_update_status return_line (GH 1959)', () => {
     db.run('UPDATE tasks SET spec_body = ? WHERE id = ?', [longSpec, id]);
     const sha = '0123456789abcdef0123456789abcdef01234567';
     const r = await call(taskTools(db).handlers, 'task_update_status', {
-      agent: 'swe', task_id: String(id), status: 'completed', commit_sha: sha,
+      agent: 'swe', task_id: String(id), status: 'submitted', commit_sha: sha,
     });
     assert.ok(!r.isError, r.content[0].text);
     const data = JSON.parse(r.content[0].text) as Record<string, unknown>;
     assert.deepEqual(Object.keys(data).sort(), ['commit_sha', 'return_line', 'status', 'task_id']);
     assert.deepEqual(data, {
       task_id: id,
-      status: 'completed',
+      status: 'submitted',
       commit_sha: sha,
-      return_line: `status=completed task=${id} sha=01234567`,
+      return_line: `status=submitted task=${id} sha=01234567`,
     });
     assert.ok(Buffer.byteLength(r.content[0].text) < 300, `result is ${Buffer.byteLength(r.content[0].text)} bytes`);
     db.close();

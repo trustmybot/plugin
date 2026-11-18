@@ -18,7 +18,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -26,7 +26,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -41,7 +41,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -49,7 +49,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 12 (status=completed) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=12, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 12 (status=submitted) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=12, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -64,7 +64,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -72,7 +72,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 14 (status=needs_validation) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=14, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 14 (status=submitted) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=14, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -87,7 +87,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -110,7 +110,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -133,7 +133,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -141,7 +141,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -156,7 +156,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -164,7 +164,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 12 (status=completed) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=12, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 12 (status=submitted) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=12, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -179,7 +179,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -187,7 +187,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 013 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=013, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 013 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=013, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -202,7 +202,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -225,7 +225,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -248,13 +248,13 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     },
     "en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -269,7 +269,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -292,7 +292,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -315,7 +315,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -338,7 +338,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -361,7 +361,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -369,7 +369,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -384,7 +384,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -407,7 +407,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -415,7 +415,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn for task 13 (status=running) has no review_handoff for the task's current commit.\\n\\nPer tmb_planning section 6 (Verify on SWE return + review handoff):\\n  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).\\n  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.\\n  3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.\\n\\ncode-reviewer reviews a submitted task handed off at its current commit, or a closed task. Allowed form: review_handoff(agent='bro', task_id=13, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -430,7 +430,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -453,7 +453,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -476,7 +476,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -499,7 +499,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   },
@@ -522,7 +522,7 @@
         "project/": null,
         "project/.claude/": null,
         "project/.claude/tmb/": null,
-        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"},{\"id\":15,\"status\":\"completed\"}]"
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"submitted\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"submitted\"},{\"id\":15,\"status\":\"submitted\"}]"
       }
     }
   }

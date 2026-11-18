@@ -244,14 +244,14 @@ function buildDb(s: string): void {
     const task = db.prepare(
       "INSERT INTO tasks (id, issue_id, branch_id, description, status, commit_sha, repo, created_at, updated_at) VALUES (?, ?, ?, 'd', ?, ?, 'plugin', ?, ?)",
     );
-    task.run(30, 1, 'feat/close', 'completed', 'abc1234', T1, T1);
+    task.run(30, 1, 'feat/close', 'submitted', 'abc1234', T1, T1);
     task.run(31, 8, 'feat/close', 'closed', 'def5678', T1, T1);
     task.run(32, 9, 'feat/close', 'running', null, T1, T1);
-    task.run(33, 10, 'feat/close', 'needs_validation', 'abc9999', T1, T1);
+    task.run(33, 10, 'feat/close', 'submitted', 'abc9999', T1, T1);
     task.run(34, 2, 'feat/other', 'pending', null, T1, T1);
-    task.run(35, 2, 'feat/close', 'completed', 'XYZ', T1, T1);
-    task.run(36, 5, 'feat/waived', 'completed', 'aaa1111', T1, T1);
-    task.run(37, 11, 'feat/waived', 'completed', 'bbb2222', T1, T1);
+    task.run(35, 2, 'feat/close', 'submitted', 'XYZ', T1, T1);
+    task.run(36, 5, 'feat/waived', 'submitted', 'aaa1111', T1, T1);
+    task.run(37, 11, 'feat/waived', 'submitted', 'bbb2222', T1, T1);
     db.prepare("INSERT INTO agent_runs (task_id, issue_id, agent_type, spawn_id, started_at, duration_ms) VALUES (32, 9, 'swe', 'agent-32', ?, 0)").run(T1);
     db.prepare("INSERT INTO agent_runs (task_id, issue_id, agent_type, spawn_id, started_at, duration_ms) VALUES (34, 2, 'swe', 'agent-34', ?, 0)").run(T1);
     const audit = db.prepare('INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');

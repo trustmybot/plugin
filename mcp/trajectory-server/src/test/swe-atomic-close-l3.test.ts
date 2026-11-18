@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { makeSandbox, type Sandbox } from './hook-sandbox.js';
 import { git, has, hasNot } from './git-push-guard-l3.js';
-import { commitIn, execDb, gatePendingCount, hook, newMinDb, NO_COMMITS, q, recordRun, skippedCount, spawnInput, spawnTranscript, writeTranscript } from './swe-atomic-close-l3.js';
+import { commitIn, execDb, gatePendingCount, hook, moveTask, newMinDb, NO_COMMITS, q, recordRun, skippedCount, spawnInput, spawnTranscript, writeTranscript } from './swe-atomic-close-l3.js';
 
 describe('swe-atomic-close l3: one repo', () => {
   let sb: Sandbox;
@@ -30,8 +30,10 @@ describe('swe-atomic-close l3: one repo', () => {
   const nonSweInput = { subagent_type: 'architect' };
   const status = (task: number) => q(db, 'SELECT status FROM tasks WHERE id=?', task);
   const runs = (task: number) => Number(q(db, 'SELECT COUNT(*) FROM agent_runs WHERE task_id=?', task));
-  const resetPending = () =>
-    execDb(db, "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;");
+  const resetPending = () => {
+    moveTask(db, 42, 'pending');
+    execDb(db, "UPDATE tasks SET commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;");
+  };
 
   before(() => {
     sb = makeSandbox('swe-atomic-close');
@@ -51,8 +53,8 @@ describe('swe-atomic-close l3: one repo', () => {
     execDb(
       db,
       `INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (42, 'fix/test-branch', 'dev', 'pending', datetime('now', '+10 seconds'));
-       INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (43, 'fix/other-branch', 'dev', 'completed', datetime('now'));
-       INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (44, 'fix/nv-branch', 'dev', 'needs_validation', datetime('now'));`,
+       INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (43, 'fix/other-branch', 'dev', 'submitted', datetime('now'));
+       INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (44, 'fix/nv-branch', 'dev', 'closed', datetime('now'));`,
     );
 
     wt = join(repo, '.claude/worktrees/test-branch');
@@ -132,57 +134,57 @@ describe('swe-atomic-close l3: one repo', () => {
     const pendingBefore = gatePendingCount(db, 42);
     assert.equal(run(sweInput()), '', 'no additionalContext on auto-close');
     assert.equal(gatePendingCount(db, 42), pendingBefore, 'no gate_pending row on auto-close');
-    assert.equal(status(42), 'completed', 'task auto-closed to completed');
+    assert.equal(status(42), 'submitted', 'task auto-submitted');
     assert.equal(q(db, 'SELECT commit_sha FROM tasks WHERE id=42'), head, 'commit_sha written from worktree HEAD');
   });
 
-  it('swe + completed task → metrics-only, no additionalContext', () => {
+  it('swe + submitted task → metrics-only, no additionalContext', () => {
     execDb(db, "UPDATE tasks SET updated_at=datetime('now', '+20 seconds') WHERE id=42;");
     arBefore = runs(42);
     assert.equal(run(sweInput()), '', 'no additionalContext on metrics-only');
   });
 
-  it('swe + completed task → agent_runs row written', () => {
-    assert.equal(runs(42), arBefore + 1, 'agent_runs row written for completed task');
+  it('swe + submitted task → agent_runs row written', () => {
+    assert.equal(runs(42), arBefore + 1, 'agent_runs row written for submitted task');
   });
 
-  describe('needs_validation + worktree commit → metrics-only', () => {
+  describe('closed + worktree commit → metrics-only', () => {
     before(() => {
       execDb(db, "UPDATE tasks SET updated_at=datetime('now', '+30 seconds') WHERE id=44;");
       commitIn(sb.env, wtNv, 'nv-work.txt', 'feat: nv work');
     });
 
-    it('needs_validation + worktree commit → no additionalContext', () => {
+    it('closed + worktree commit → no additionalContext', () => {
       arBefore = runs(44);
       assert.equal(run(sweInput(44)), '', 'no additionalContext for metrics-only');
     });
 
-    it('needs_validation + worktree commit → status stays needs_validation', () => {
-      assert.equal(status(44), 'needs_validation', 'status not flipped by hook');
+    it('closed + worktree commit → status stays closed', () => {
+      assert.equal(status(44), 'closed', 'status not flipped by hook');
     });
 
-    it('needs_validation + worktree commit → agent_runs row written', () => {
+    it('closed + worktree commit → agent_runs row written', () => {
       assert.equal(runs(44), arBefore + 1, 'agent_runs row inserted');
     });
   });
 
-  describe('needs_validation + no worktree commit → metrics-only', () => {
+  describe('closed + no worktree commit → metrics-only', () => {
     before(() => {
       git(sb.env, wtNv, 'reset', '--hard', '-q', git(sb.env, repo, 'rev-parse', 'dev'));
       execDb(db, "UPDATE tasks SET updated_at=datetime('now', '+35 seconds') WHERE id=44;");
     });
 
-    it('needs_validation + no commit → no additionalContext', () => {
+    it('closed + no commit → no additionalContext', () => {
       arBefore = runs(44);
       assert.equal(run(sweInput(44)), '', 'no additionalContext even with no commits');
     });
 
-    it('needs_validation + no commit → status stays needs_validation', () => {
-      assert.equal(status(44), 'needs_validation', 'status unchanged');
+    it('closed + no commit → status stays closed', () => {
+      assert.equal(status(44), 'closed', 'status unchanged');
     });
 
-    it('needs_validation + no commit → agent_runs row written', () => {
-      assert.equal(runs(44), arBefore + 1, 'agent_runs written for no-commit needs_validation spawn');
+    it('closed + no commit → agent_runs row written', () => {
+      assert.equal(runs(44), arBefore + 1, 'agent_runs written for no-commit closed spawn');
     });
   });
 
@@ -211,14 +213,14 @@ describe('swe-atomic-close l3: one repo', () => {
       session_id: 'test-session',
       transcript_path: '/tmp/t',
     });
-    assert.equal(status(42), 'completed', 'hook should auto-complete pending task with real CC payload (.agent_type=tmb:swe)');
+    assert.equal(status(42), 'submitted', 'hook should auto-submit pending task with real CC payload (.agent_type=tmb:swe)');
   });
 
   it("hook also accepts the bare 'swe' agent_type value", () => {
     resetPending();
     recordRun(db, 42, commitIn(sb.env, wt, 'work-bare.txt', 'feat: bare swe work'));
     run(spawnInput(sb.dir, 42, 'swe'));
-    assert.equal(status(42), 'completed', "hook should also accept bare 'swe' agent_type value");
+    assert.equal(status(42), 'submitted', "hook should also accept bare 'swe' agent_type value");
   });
 
   describe('transcript parsed → agent_runs has real token/duration values', () => {
@@ -330,7 +332,7 @@ describe('swe-atomic-close l3: one repo', () => {
 
     it('live background id: task stays running, commit_sha unchanged, one background_wait row, no auto_completed row', () => {
       resetPending();
-      execDb(db, "UPDATE tasks SET status='running' WHERE id=42;");
+      moveTask(db, 42, 'running');
       const head = commitIn(sb.env, wt, 'work-bg.txt', 'feat: bg work');
       const closeBefore = closeRows();
       const out = run(bgInput(false));
@@ -351,7 +353,7 @@ describe('swe-atomic-close l3: one repo', () => {
       recordRun(db, 42, head);
       const closeBefore = closeRows();
       assert.equal(run(bgInput(true)), '', 'no additionalContext on auto-close');
-      assert.equal(status(42), 'completed', 'task auto-completed');
+      assert.equal(status(42), 'submitted', 'task auto-submitted');
       assert.equal(q(db, 'SELECT commit_sha FROM tasks WHERE id=42'), head, 'commit_sha written');
       assert.equal(closeRows(), closeBefore + 1, 'one auto_completed row');
       assert.equal(waitRows(), 1, 'no new background_wait row');

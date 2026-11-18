@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
-import { tempDB } from './helpers.js';
+import { setTaskStatus, tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
 import { configTools, REVIEWER_TIER_SETTINGS_KEY } from '../tools/config.js';
 import { isDocsOrTestPath, reviewerEffortAbArm, reviewerEffortTier } from '../reviewer-effort.js';
@@ -120,11 +120,12 @@ describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)'
     const sha = commitOn(branch, paths);
     const exists = db.get<{ id: number }>('SELECT id FROM tasks WHERE id = ?', [id]);
     if (exists) {
-      db.run(`UPDATE tasks SET status = 'completed', commit_sha = ?, files = ? WHERE id = ?`, [sha, JSON.stringify(paths), id]);
+      setTaskStatus(db, id, 'submitted', 'a fresh submission to hand off');
+      db.run(`UPDATE tasks SET commit_sha = ?, files = ? WHERE id = ?`, [sha, JSON.stringify(paths), id]);
     } else {
       db.run(
         `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, prompt_bearing, commit_sha, created_at, updated_at)
-         VALUES (?, 1, ?, 'dev', 'd', 'completed', 's', 'app', ?, ?, ?, ?, ?)`,
+         VALUES (?, 1, ?, 'dev', 'd', 'submitted', 's', 'app', ?, ?, ?, ?, ?)`,
         [id, `feat/t${id}`, JSON.stringify(paths), opts.prompt_bearing ?? 0, sha, NOW, NOW],
       );
     }
@@ -275,7 +276,7 @@ describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)'
     db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('nowhere', ?, 'dev')`, [join(ws, 'missing')]);
     db.run(
       `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, commit_sha, created_at, updated_at)
-       VALUES (31, 1, 'feat/t31', 'dev', 'd', 'completed', 's', 'nowhere', '["docs/a.md"]', 'abcdef1', ?, ?)`,
+       VALUES (31, 1, 'feat/t31', 'dev', 'd', 'submitted', 's', 'nowhere', '["docs/a.md"]', 'abcdef1', ?, ?)`,
       [NOW, NOW],
     );
     const r = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: '31' });
@@ -290,7 +291,7 @@ describe('review_handoff assigns the reviewer effort (reviewer_effort_assigned)'
     await setConfig('reviewer_tier_settings', { docs_tests: { model: 'sonnet', effort: 'high' }, default: { model: 'haiku' } });
     db.run(
       `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, commit_sha, created_at, updated_at)
-       VALUES (33, 1, 'feat/t33', 'dev', 'd', 'completed', 's', 'nowhere', '["docs/a.md"]', 'abcdef2', ?, ?)`,
+       VALUES (33, 1, 'feat/t33', 'dev', 'd', 'submitted', 's', 'nowhere', '["docs/a.md"]', 'abcdef2', ?, ?)`,
       [NOW, NOW],
     );
     const r = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: '33' });
@@ -348,7 +349,7 @@ describe('SC4: reviewer_tier_settings on a project that is not the plugin repo',
     const sha = git('rev-parse', 'HEAD');
     db.run(
       `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, repo, files, commit_sha, worktree_path, created_at, updated_at)
-       VALUES (?, 1, ?, 'main', 'd', 'completed', 's', 'parser', ?, ?, ?, ?, ?)`,
+       VALUES (?, 1, ?, 'main', 'd', 'submitted', 's', 'parser', ?, ?, ?, ?, ?)`,
       [id, branch, JSON.stringify(Object.keys(files)), sha, repoRoot, NOW, NOW],
     );
     const r = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: String(id), session_id: 'sess-2932' });

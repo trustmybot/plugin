@@ -89,7 +89,7 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
   });
   assert.equal(closed.ok, true, `issue_close: ${JSON.stringify(closed)}`);
   const afterTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
-  assert.equal(afterTask.data.status, 'escalated');
+  assert.equal(afterTask.data.status, 'cancelled');
 });
 
 test('bro (planner) — difficult-task flow: issue + ADR-style discussion thread', async (t) => {

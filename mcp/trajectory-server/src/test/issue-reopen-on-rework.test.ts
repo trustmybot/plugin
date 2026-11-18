@@ -17,7 +17,7 @@ import { AUDIT_EVENT_TYPES } from '../audit-events.js';
 import type { TrajectoryDB } from '../db.js';
 import { compositeTools } from '../tools/composites.js';
 import { validationTools } from '../tools/validation.js';
-import { TEST_PROBES, pinScanEnv, seedReviewerObservation, tempDB, type ScanEnvPin } from './helpers.js';
+import { TEST_PROBES, pinScanEnv, seedReviewerObservation, setTaskStatus, tempDB, type ScanEnvPin } from './helpers.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -89,7 +89,8 @@ describe('rework after an exit-5 integrate keeps the issue open (GH 3234)', () =
   // swe finishes a commit and code-reviewer passes it: a review_handoff for the
   // sha, then a pass recorded at or after it.
   function completeAndPass(taskId: number, sha: string): void {
-    db.run(`UPDATE tasks SET status = 'completed', commit_sha = ? WHERE id = ?`, [sha, taskId]);
+    setTaskStatus(db, taskId, 'submitted');
+    db.run(`UPDATE tasks SET commit_sha = ? WHERE id = ?`, [sha, taskId]);
     db.run(
       `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_handoff', 'handoff', ?, ?)`,
       [issueId, JSON.stringify({ task_id: taskId, commit_sha: sha }), new Date().toISOString()],
@@ -159,12 +160,12 @@ describe('rework after an exit-5 integrate keeps the issue open (GH 3234)', () =
     assert.equal(second['issue_close_deferred'], 'merge');
     assertIssueOpen('after A closes again');
 
-    // 4. A meets exit 5 again, is reopened, escalates and is retried as B.
+    // 4. A meets exit 5 again, is reopened and is retried as B, which supersedes it.
     integrateExit5(a, 'aaaa0003', 'aaaa0004');
     await reopen(a, 'integrate exit 5 again');
-    db.run(`UPDATE tasks SET status = 'escalated' WHERE id = ?`, [a]);
     const b = Number((await retry(a, 'fix/rework-b'))['task_id']);
     assert.equal(statusOf(db, b), 'pending');
+    assert.equal(statusOf(db, a), 'superseded');
     assertIssueOpen('after the retry to B');
 
     // 5. B closes, meets exit 5, and can be reopened.
@@ -177,8 +178,7 @@ describe('rework after an exit-5 integrate keeps the issue open (GH 3234)', () =
     assert.equal(statusOf(db, b), 'running');
     assertIssueOpen('after B is reopened');
 
-    // 6. B escalates and is retried as C.
-    db.run(`UPDATE tasks SET status = 'escalated' WHERE id = ?`, [b]);
+    // 6. B is retried as C.
     const c = Number((await retry(b, 'fix/rework-c'))['task_id']);
     assert.equal(statusOf(db, c), 'pending');
     assertIssueOpen('after the retry to C');
@@ -215,7 +215,7 @@ describe('the revert guard reopens a closed issue once per cause (GH 3234)', () 
 
   it('task_retry reopens the closed issue its new task joins', async () => {
     const issueId = seedIssue(db, 'closed', CLOSED_AT);
-    const failedId = seedTask(db, issueId, 'fix/guard-retry', 'escalated');
+    const failedId = seedTask(db, issueId, 'fix/guard-retry', 'failed');
     const out = await call(handlers, 'task_retry', {
       agent: 'bro', failed_task_id: String(failedId), new_branch_id: 'fix/guard-retry-v2',
       corrected_spec_body: 'corrected spec', retry_rationale: 'retry under a closed issue', description: 'retry',

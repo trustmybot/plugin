@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     title             TEXT    NOT NULL DEFAULT '',
     description       TEXT    NOT NULL,
     status            TEXT    NOT NULL DEFAULT 'pending'
-                        CHECK (status IN ('pending','running','needs_validation','completed','closed','failed','escalated')),
+                        CHECK (status IN ('pending','running','submitted','failed','closed','superseded','cancelled')),
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     -- repo (#155): formalized as an FK to repos(name). Nullable for single-repo
@@ -230,12 +230,187 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- itself in its worktree; NULL for a code task swe runs. task_provision
     -- is its only writer. Keep this comment comma-free for the same DROP
     -- COLUMN reason.
-    no_code_class     TEXT CHECK (no_code_class IS NULL OR no_code_class IN ('docs','prompts'))
+    no_code_class     TEXT CHECK (no_code_class IS NULL OR no_code_class IN ('docs','prompts')),
+    -- retry_of (v77 GH 3224): the task this one retries. task_retry is its
+    -- only writer and NULL means the task is not a retry. Keep this comment
+    -- comma-free for the same DROP COLUMN reason.
+    retry_of          INTEGER REFERENCES tasks(id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_commit_sha ON tasks(commit_sha);
+
+-- Task lifecycle events (v77 GH 3224): every status move is one append-only
+-- task_events row and tasks.status caches the newest to_state, which no other
+-- write may change. The legal moves are the task_status_edges rows.
+-- task-events.ts holds the text between the two markers as
+-- TASK_EVENTS_SCHEMA_SQL, and a test keeps the two equal.
+-- task-events:begin
+CREATE TABLE IF NOT EXISTS task_event_types (
+    code         TEXT PRIMARY KEY,
+    description  TEXT NOT NULL,
+    retired_at   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS task_event_causes (
+    code         TEXT PRIMARY KEY,
+    description  TEXT NOT NULL,
+    retired_at   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS task_status_edges (
+    from_state      TEXT,
+    to_state        TEXT NOT NULL,
+    event_type      TEXT NOT NULL REFERENCES task_event_types(code),
+    record_kind     TEXT NOT NULL CHECK (record_kind IN ('task','agent_run','verification_run','audit','issue')),
+    required_cause  TEXT REFERENCES task_event_causes(code)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_status_edges_move
+    ON task_status_edges(IFNULL(from_state, ''), to_state, event_type);
+
+CREATE TABLE IF NOT EXISTS task_events (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id          INTEGER NOT NULL REFERENCES tasks(id),
+    seq              INTEGER NOT NULL,
+    event_type       TEXT    NOT NULL REFERENCES task_event_types(code),
+    from_state       TEXT,
+    to_state         TEXT    NOT NULL,
+    role             TEXT    NOT NULL,
+    agent_run_id     INTEGER REFERENCES agent_runs(id),
+    cause            TEXT    NOT NULL REFERENCES task_event_causes(code),
+    note             TEXT,
+    record_kind      TEXT    CHECK (record_kind IS NULL OR record_kind IN ('task','agent_run','verification_run','audit','issue')),
+    record_id        INTEGER,
+    idempotency_key  TEXT    UNIQUE,
+    backfilled       INTEGER NOT NULL DEFAULT 0 CHECK (backfilled IN (0,1)),
+    occurred_at      TEXT    NOT NULL,
+    recorded_at      TEXT    NOT NULL,
+    UNIQUE (task_id, seq)
+);
+
+CREATE TRIGGER IF NOT EXISTS task_events_guard BEFORE INSERT ON task_events
+BEGIN
+    SELECT RAISE(ABORT, 'task_events: no such task')
+     WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE id = NEW.task_id);
+    SELECT RAISE(ABORT, 'task_events: seq must be the next seq of the task')
+     WHERE NEW.seq IS NOT (SELECT COALESCE(MAX(seq), 0) + 1 FROM task_events WHERE task_id = NEW.task_id);
+    SELECT RAISE(ABORT, 'task_events: from_state must be the task status, or NULL on its first event')
+     WHERE NEW.from_state IS NOT (SELECT status FROM tasks WHERE id = NEW.task_id)
+       AND (NEW.from_state IS NOT NULL OR NEW.seq > 1);
+    SELECT RAISE(ABORT, 'task_events: cause must be a task_event_causes code in use')
+     WHERE NOT EXISTS (SELECT 1 FROM task_event_causes c WHERE c.code = NEW.cause AND c.retired_at IS NULL);
+    SELECT RAISE(ABORT, 'task_events: a backfilled event is the first event of its task and states its status')
+     WHERE NEW.backfilled = 1
+       AND (NEW.seq <> 1 OR NEW.from_state IS NOT NULL OR NEW.event_type IS NOT 'backfilled'
+            OR NEW.to_state IS NOT (SELECT status FROM tasks WHERE id = NEW.task_id));
+    SELECT RAISE(ABORT, 'task_events: the move is not a task_status_edges edge')
+     WHERE NEW.backfilled = 0
+       AND NOT EXISTS (SELECT 1 FROM task_status_edges s WHERE s.from_state IS NEW.from_state AND s.to_state = NEW.to_state AND s.event_type = NEW.event_type AND (SELECT y.retired_at FROM task_event_types y WHERE y.code = s.event_type) IS NULL);
+    SELECT RAISE(ABORT, 'task_events: the move admits only the cause its edge names')
+     WHERE NEW.backfilled = 0
+       AND EXISTS (SELECT 1 FROM task_status_edges s WHERE s.from_state IS NEW.from_state AND s.to_state = NEW.to_state AND s.event_type = NEW.event_type AND (SELECT y.retired_at FROM task_event_types y WHERE y.code = s.event_type) IS NULL
+                      AND s.required_cause IS NOT NULL AND s.required_cause IS NOT NEW.cause);
+    SELECT RAISE(ABORT, 'task_events: a manual move carries a note')
+     WHERE NEW.cause = 'manual' AND length(trim(COALESCE(NEW.note, ''))) = 0;
+    SELECT RAISE(ABORT, 'task_events: the move rests on its edge record kind, or on the manual cause with a note')
+     WHERE NEW.backfilled = 0 AND NEW.cause IS NOT 'manual'
+       AND (NEW.record_id IS NULL
+            OR NOT EXISTS (SELECT 1 FROM task_status_edges s WHERE s.from_state IS NEW.from_state AND s.to_state = NEW.to_state AND s.event_type = NEW.event_type AND (SELECT y.retired_at FROM task_event_types y WHERE y.code = s.event_type) IS NULL
+                              AND s.record_kind = NEW.record_kind));
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_events_no_update BEFORE UPDATE ON task_events
+BEGIN
+    SELECT RAISE(ABORT, 'task_events is append-only: an event is never updated');
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_events_no_delete BEFORE DELETE ON task_events
+BEGIN
+    SELECT RAISE(ABORT, 'task_events is append-only: an event is never deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_events_status_cache AFTER INSERT ON task_events
+BEGIN
+    UPDATE tasks SET status = NEW.to_state WHERE id = NEW.task_id AND status IS NOT NEW.to_state;
+END;
+
+CREATE TRIGGER IF NOT EXISTS tasks_status_follows_events BEFORE UPDATE OF status ON tasks
+WHEN NEW.status IS NOT OLD.status
+BEGIN
+    SELECT RAISE(ABORT, 'tasks.status follows task_events: insert a task_events row to move a task')
+     WHERE NEW.status IS NOT (SELECT e.to_state FROM task_events e WHERE e.task_id = NEW.id ORDER BY e.seq DESC LIMIT 1);
+END;
+
+INSERT INTO task_event_types (code, description, retired_at) VALUES
+    ('provisioned', 'bro provisioned the task; the record is the task row and its spec.', NULL),
+    ('spawned', 'Its author was spawned, or bro began a task it writes itself.', NULL),
+    ('spawn_rolled_back', 'The spawn was rolled back before its author ran.', NULL),
+    ('submitted', 'The author closed the task and its checks passed.', NULL),
+    ('submitted_unverified', 'The author closed the task with no passing verification run for the commit: an empty verification[] or a waived gate.', NULL),
+    ('resubmitted', 'bro handed an unchanged commit back for a re-review.', NULL),
+    ('failed', 'The author stopped: a policy deny, a spec contradiction or a broken environment.', NULL),
+    ('run_stale', 'The stale sweep failed a running task whose author''s process is gone.', NULL),
+    ('bro_closed', 'bro closed the task on its close record. Interim: retires when the review states land.', NULL),
+    ('merged_outside_flow', 'The task''s branch merged outside the flow; the record is the task and its landed commit.', NULL),
+    ('recovered', 'The recovery step closed a stuck task at its landed commit.', NULL),
+    ('reopened', 'bro reopened the task.', NULL),
+    ('superseded', 'The task was retried as a new task; the record is the new task.', NULL),
+    ('issue_cancelled', 'Its issue closed over it.', NULL),
+    ('branch_dropped', 'Its feature branch was dropped. Interim: retires when review_deferred lands.', NULL),
+    ('backfilled', 'The state the task held when the event table arrived (schema v77).', NULL)
+ON CONFLICT(code) DO UPDATE SET description = excluded.description, retired_at = excluded.retired_at;
+
+INSERT INTO task_event_causes (code, description, retired_at) VALUES
+    ('planned', 'bro provisioned the task from its plan.', NULL),
+    ('retry', 'A retry: the new task, or the task it replaces.', NULL),
+    ('author_spawned', 'The author agent started.', NULL),
+    ('spawn_refused', 'The spawn was refused or rolled back.', NULL),
+    ('checks_passed', 'The author''s verification run passed for the commit.', NULL),
+    ('unverified', 'No verification run passed for the commit: verification[] was empty or the gate was waived.', NULL),
+    ('re_review', 'An unchanged commit goes back to review.', NULL),
+    ('author_stopped', 'The author ended its run failed.', NULL),
+    ('author_gone', 'The author''s process is gone past the stale window.', NULL),
+    ('bro_close', 'bro''s close after the review step.', NULL),
+    ('merged_outside_flow', 'The branch merged outside the flow.', NULL),
+    ('recovery', 'The recovery step closed a stuck task.', NULL),
+    ('rework', 'bro reopened the task for more work.', NULL),
+    ('review_failed', 'code-reviewer''s verdict failed the commit.', NULL),
+    ('issue_closed', 'The issue closed over the task.', NULL),
+    ('feature_branch_dropped', 'The Human dropped the feature branch.', NULL),
+    ('manual', 'bro moved the task by hand; the event''s note says why.', NULL),
+    ('backfill', 'The v77 migration recorded the state the task held.', NULL)
+ON CONFLICT(code) DO UPDATE SET description = excluded.description, retired_at = excluded.retired_at;
+
+INSERT OR IGNORE INTO task_status_edges (from_state, to_state, event_type, record_kind, required_cause) VALUES
+    (NULL, 'pending', 'provisioned', 'task', NULL),
+    ('pending', 'running', 'spawned', 'agent_run', NULL),
+    ('running', 'pending', 'spawn_rolled_back', 'agent_run', NULL),
+    ('running', 'submitted', 'submitted', 'verification_run', NULL),
+    ('running', 'submitted', 'submitted_unverified', 'task', 'unverified'),
+    ('running', 'submitted', 'resubmitted', 'audit', NULL),
+    ('running', 'failed', 'failed', 'agent_run', NULL),
+    ('running', 'failed', 'run_stale', 'audit', NULL),
+    ('submitted', 'closed', 'bro_closed', 'audit', NULL),
+    ('pending', 'closed', 'merged_outside_flow', 'task', NULL),
+    ('running', 'closed', 'merged_outside_flow', 'task', NULL),
+    ('submitted', 'closed', 'merged_outside_flow', 'task', NULL),
+    ('pending', 'closed', 'recovered', 'audit', NULL),
+    ('submitted', 'closed', 'recovered', 'audit', NULL),
+    ('submitted', 'running', 'reopened', 'audit', NULL),
+    ('failed', 'running', 'reopened', 'audit', NULL),
+    ('closed', 'running', 'reopened', 'audit', NULL),
+    ('pending', 'superseded', 'superseded', 'task', NULL),
+    ('running', 'superseded', 'superseded', 'task', NULL),
+    ('submitted', 'superseded', 'superseded', 'task', NULL),
+    ('failed', 'superseded', 'superseded', 'task', NULL),
+    ('closed', 'superseded', 'superseded', 'task', NULL),
+    ('pending', 'cancelled', 'issue_cancelled', 'issue', NULL),
+    ('running', 'cancelled', 'issue_cancelled', 'issue', NULL),
+    ('submitted', 'cancelled', 'issue_cancelled', 'issue', NULL),
+    ('closed', 'cancelled', 'branch_dropped', 'audit', 'feature_branch_dropped');
+-- task-events:end
 
 CREATE TABLE IF NOT EXISTS audit (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -473,7 +648,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 76, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 77, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

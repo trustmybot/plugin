@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
+import { TASK_STATUS_EDGES, type TaskStatusEdge } from '../task-events.js';
+import type { TaskStatus } from '../task-status.js';
 
 // tempDB returns an in-memory DB. By default it pre-seeds a
 // `deep_scan_completed` audit row so the world-model-cold gate on
@@ -172,4 +174,55 @@ export function bagOfWordsLoader(): () => Promise<(text: string) => Promise<{ da
     for (let i = 0; i < v.length; i++) v[i]! /= norm;
     return { data: v };
   };
+}
+
+/**
+ * The event inserts that walk a task from `from` to `to` along the shortest
+ * chain of chart edges (GH 3224), each a manual move by bro with `note`. The
+ * guard admits each one as it admits bro's by-hand move: a fixture puts a task
+ * in a state this way, since the DB refuses an UPDATE of tasks.status. Plain
+ * SQL, so a sqlite3 CLI fixture can run it too.
+ */
+export function taskStatusPathSql(taskId: number, from: TaskStatus, to: TaskStatus, note = 'test fixture'): string[] {
+  if (from === to) return [];
+  const previous = new Map<TaskStatus, TaskStatusEdge>();
+  const queue: TaskStatus[] = [from];
+  while (queue.length > 0 && !previous.has(to)) {
+    const at = queue.shift()!;
+    for (const edge of TASK_STATUS_EDGES) {
+      if (edge.from !== at || edge.requiredCause !== null || edge.to === from || previous.has(edge.to)) continue;
+      previous.set(edge.to, edge);
+      queue.push(edge.to);
+    }
+  }
+  if (!previous.has(to)) throw new Error(`taskStatusPathSql: no chain of edges from ${from} to ${to}`);
+  const path: TaskStatusEdge[] = [];
+  for (let at = to; at !== from; at = previous.get(at)!.from as TaskStatus) path.unshift(previous.get(at)!);
+  const quotedNote = note.replace(/'/g, "''");
+  return path.map(
+    (edge) => `INSERT INTO task_events (task_id, seq, event_type, from_state, to_state, role, cause, note, occurred_at, recorded_at)
+SELECT ${taskId}, (SELECT COALESCE(MAX(seq), 0) + 1 FROM task_events WHERE task_id = ${taskId}), '${edge.eventType}', '${edge.from}', '${edge.to}', 'bro', 'manual', '${quotedNote}',
+       strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+  );
+}
+
+/** Puts task `taskId` in `status` through task events (taskStatusPathSql), where a fixture once updated tasks.status. */
+export function setTaskStatus(db: TrajectoryDB, taskId: number | string, status: TaskStatus, note?: string): void {
+  const row = db.get<{ status: TaskStatus }>('SELECT status FROM tasks WHERE id = ?', [Number(taskId)]);
+  if (!row) throw new Error(`setTaskStatus: no task ${taskId}`);
+  for (const sql of taskStatusPathSql(Number(taskId), row.status, status, note)) db.run(sql);
+}
+
+/**
+ * Opens the swe agent run a spawn opens, so swe's task_update_status moves
+ * have the run they rest on (GH 3224). Returns the run id.
+ */
+export function openSweRun(db: TrajectoryDB, taskId: number | string): number {
+  const res = db.run(
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
+     SELECT id, issue_id, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM tasks WHERE id = ?`,
+    [Number(taskId)],
+  );
+  if (Number(res.changes) !== 1) throw new Error(`openSweRun: no task ${taskId}`);
+  return Number(res.lastInsertRowid);
 }

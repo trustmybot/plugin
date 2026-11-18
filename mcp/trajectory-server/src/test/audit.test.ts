@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
-import { TEST_PROBES, pinScanEnv, seedPassingRun, seedReviewedCommit, seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, pinScanEnv, seedPassingRun, seedReviewedCommit, seedReviewerObservation, setTaskStatus, tempDB } from './helpers.js';
 import { auditTools, insertAudit } from '../tools/audit.js';
 import { discussionTools, insertDiscussion } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
@@ -295,8 +295,9 @@ describe('composite audit writers populate audit.repo', () => {
       });
       assert.ok(!fail.isError, JSON.stringify(parse(fail)));
 
+      setTaskStatus(db, taskId, 'running');
       await call(taskTools(db).handlers, 'task_update_status', {
-        agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+        agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: 'abc1234',
       });
       seedReviewedCommit(db, issueId, taskId, 'abc1234');
       const r = await call(composites.handlers, 'bro_atomic_close', {
@@ -427,7 +428,7 @@ describe('validation_record — validation_attempts.repo', () => {
     const issueId = seedRepoIssue(db);
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, created_at, updated_at)
-       VALUES (?, 'fix/no-task-repo', 'main', 't', 'd', 'completed', datetime('now'), datetime('now'))`,
+       VALUES (?, 'fix/no-task-repo', 'main', 't', 'd', 'submitted', datetime('now'), datetime('now'))`,
       [issueId],
     );
     const taskId = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'fix/no-task-repo'`)!.id;

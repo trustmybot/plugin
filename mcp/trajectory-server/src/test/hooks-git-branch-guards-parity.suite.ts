@@ -134,7 +134,7 @@ export function buildSandbox(s: string): void {
     task.run(30, 'feat/open', 'running', 'base');
     task.run(31, 'feat/closed', 'closed', 'base');
     task.run(32, 'feat/multi-open', 'pending', 'multi');
-    task.run(33, 'feat/norepo', 'needs_validation', null);
+    task.run(33, 'feat/norepo', 'running', null);
   } finally {
     db.close();
   }

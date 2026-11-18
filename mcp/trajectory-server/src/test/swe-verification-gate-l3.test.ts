@@ -2,7 +2,7 @@
  * The swe-verification-gate l3 bash suite in node:test (GH 1692), part 1: the
  * caller and status filters, waivers, budget fallback, worktree resolution,
  * the minimal-PATH toolchain and the unreadable or WAL DB. The PreToolUse gate
- * on task_update_status(agent=swe, status=completed) runs the typed
+ * on task_update_status(agent=swe, status=submitted) runs the typed
  * verification[] in the task worktree, records the run, and denies on a
  * non-zero exit or a spent budget (Typed Rails #673).
  */
@@ -54,7 +54,7 @@ const MINIMAL_DEPS = 'bash sh jq sqlite3 git timeout gtimeout perl date dirname 
 describe('swe-verification-gate l3', () => {
   let w: Ws;
   const waive = (task: string, reason: string) =>
-    JSON.stringify({ tool_name: TOOL_NAME, tool_input: { agent: 'swe', status: 'completed', task_id: task, waive_verification_gate_reason: reason } });
+    JSON.stringify({ tool_name: TOOL_NAME, tool_input: { agent: 'swe', status: 'submitted', task_id: task, waive_verification_gate_reason: reason } });
 
   before(() => {
     w = makeWs('swe-verification-gate');
@@ -62,7 +62,7 @@ describe('swe-verification-gate l3', () => {
   after(() => w.sb.remove());
 
   it('non-SWE caller (bro) completing task: allowed', () => {
-    hasNot(hook(w, makeInput('bro', 'completed', 1), { cwd: w.ws }), DENY, 'bro completing should not be gated');
+    hasNot(hook(w, makeInput('bro', 'submitted', 1), { cwd: w.ws }), DENY, 'bro completing should not be gated');
   });
 
   it('SWE setting status=running: allowed (not completing)', () => {
@@ -74,24 +74,24 @@ describe('swe-verification-gate l3', () => {
   });
 
   it('SWE completing task with empty typed verification[]: allowed with advisory', () => {
-    const out = hook(w, makeInput('swe', 'completed', 2), { cwd: w.ws });
+    const out = hook(w, makeInput('swe', 'submitted', 2), { cwd: w.ws });
     hasNot(out, DENY, 'empty verification[] should allow');
     has(out, 'additionalContext', 'should emit advisory additionalContext');
     has(out, 'no typed verification', 'advisory should mention missing typed field');
   });
 
   it('SWE completing task with passing verification: allowed', () => {
-    hasNot(hook(w, makeInput('swe', 'completed', 1)), DENY, 'passing verification should allow');
+    hasNot(hook(w, makeInput('swe', 'submitted', 1)), DENY, 'passing verification should allow');
   });
 
   it('SWE completing task with failing verification command: DENIED', () => {
-    const out = hook(w, makeInput('swe', 'completed', 3));
+    const out = hook(w, makeInput('swe', 'submitted', 3));
     has(out, DENY, 'failing verification should deny');
     has(out, 'verification failed', 'deny reason should say verification failed');
   });
 
   it('failing verification: deny uses permissionDecisionReason with a non-empty value, no denyReason', () => {
-    const r = runHook(w, makeInput('swe', 'completed', 3));
+    const r = runHook(w, makeInput('swe', 'submitted', 3));
     has(reasonOf(r.stdout), 'verification failed', 'deny must carry a non-empty permissionDecisionReason');
     assert.equal(hasDenyReasonKey(r.stdout), false, 'deny must not carry a denyReason key');
   });
@@ -99,14 +99,14 @@ describe('swe-verification-gate l3', () => {
   it('failing verification: deny reason names the failing file from FAIL lines beyond the tail', () => {
     mkdirSync(join(w.wtRoot, 'l3-fail'), { recursive: true });
     addTask(w.db, 5, 'l3-fail', ['echo FAIL x.test.sh; for i in $(seq 1 40); do echo filler $i; done; exit 1']);
-    const reason = reasonOf(runHook(w, makeInput('swe', 'completed', 5)).stdout);
+    const reason = reasonOf(runHook(w, makeInput('swe', 'submitted', 5)).stdout);
     has(reason, 'FAIL x.test.sh', 'deny reason should forward the FAIL line');
     has(reason, 'Failure lines', 'deny reason should label the forwarded failure lines');
     has(reason, 'filler 40', 'deny reason should still carry the output tail');
   });
 
   it('SWE completing task with multi-command verification (all pass): allowed', () => {
-    hasNot(hook(w, makeInput('swe', 'completed', 4)), DENY, 'multi-command all-pass should allow');
+    hasNot(hook(w, makeInput('swe', 'submitted', 4)), DENY, 'multi-command all-pass should allow');
   });
 
   it('SWE completing with valid waiver (>=10 chars): allowed', () => {
@@ -119,7 +119,7 @@ describe('swe-verification-gate l3', () => {
   });
 
   it('No DB: gate allows silently', () => {
-    const out = hook(w, '{"tool_input":{"agent":"swe","status":"completed","task_id":"1"}}', {
+    const out = hook(w, '{"tool_input":{"agent":"swe","status":"submitted","task_id":"1"}}', {
       cwd: w.ws,
       env: { TRAJECTORY_DB_PATH: join(w.sb.dir, 'nonexistent.db') },
     });
@@ -134,7 +134,7 @@ describe('swe-verification-gate l3', () => {
     const lastBudget = () => q(w.db, "SELECT budget_s || '|' || timed_out FROM verification_runs WHERE task_id = 99 ORDER BY id DESC LIMIT 1;");
 
     it('budget 0: falls back to the default 900 s with a warning naming the value', () => {
-      const r = runHook(w, makeInput('swe', 'completed', 99), { env: { TMB_VERIFICATION_TIMEOUT_S: '0' } });
+      const r = runHook(w, makeInput('swe', 'submitted', 99), { env: { TMB_VERIFICATION_TIMEOUT_S: '0' } });
       hasNot(r.stdout, DENY, 'a 0 budget does not time the command out');
       has(r.stderr, "verification_timeout_s '0' is not an integer from 1 to 1800; using the default 900s", 'stderr warns naming the bad value');
       assert.equal(lastBudget(), '900|0', 'run records the default budget');
@@ -142,7 +142,7 @@ describe('swe-verification-gate l3', () => {
 
     it('budget non-integer: falls back to the default with a warning naming the value', () => {
       gitCommit(w, 'zero-budget', 'abc');
-      const r = runHook(w, makeInput('swe', 'completed', 99), { env: { TMB_VERIFICATION_TIMEOUT_S: 'abc' } });
+      const r = runHook(w, makeInput('swe', 'submitted', 99), { env: { TMB_VERIFICATION_TIMEOUT_S: 'abc' } });
       hasNot(r.stdout, DENY, 'a non-integer budget does not deny');
       has(r.stderr, "verification_timeout_s 'abc'", 'stderr warns naming the bad value');
       assert.equal(lastBudget(), '900|0', 'run records the default budget');
@@ -152,7 +152,7 @@ describe('swe-verification-gate l3', () => {
   it('timeout path: deny uses permissionDecisionReason mentioning the timeout, no denyReason', () => {
     addTask(w.db, 98, 'slow-mid', ['sleep 5']);
     mkdirSync(join(w.wtRoot, 'slow-mid'), { recursive: true });
-    const r = runHook(w, makeInput('swe', 'completed', 98), { env: { TMB_VERIFICATION_TIMEOUT_S: '1' } });
+    const r = runHook(w, makeInput('swe', 'submitted', 98), { env: { TMB_VERIFICATION_TIMEOUT_S: '1' } });
     has(r.stdout + r.stderr, DENY, 'mid-command timeout should deny');
     has(reasonOf(r.stdout), 'timed out', 'timeout deny must carry permissionDecisionReason mentioning the timeout');
     assert.equal(hasDenyReasonKey(r.stdout), false, 'timeout deny must not carry a denyReason key');
@@ -179,7 +179,7 @@ describe('swe-verification-gate l3', () => {
     addTask(w.db, 50, 'waive-twice', ['exit 1'], { status: 'running', commitSha: 'aaa1111' });
     mkdirSync(join(w.wtRoot, 'waive-twice'), { recursive: true });
     const waiveInput = (sha: string) =>
-      makeInput('swe', 'completed', 50, sha, { waive_verification_gate_reason: 'doc-only change, nothing to run' });
+      makeInput('swe', 'submitted', 50, sha, { waive_verification_gate_reason: 'doc-only change, nothing to run' });
     const waivedRows = (sha: string) =>
       q(
         w.db,
@@ -207,13 +207,13 @@ describe('swe-verification-gate l3', () => {
   it('multi-command typed verification[]: all pass → allowed', () => {
     addTask(w.db, 10, 'typed-pass', ['echo typed-ok', 'exit 0']);
     mkdirSync(join(w.wtRoot, 'typed-pass'), { recursive: true });
-    hasNot(hook(w, makeInput('swe', 'completed', 10)), DENY, 'typed multi-command all-pass should allow');
+    hasNot(hook(w, makeInput('swe', 'submitted', 10)), DENY, 'typed multi-command all-pass should allow');
   });
 
   it('typed verification[]: failing command → DENIED', () => {
     addTask(w.db, 11, 'typed-fail', ['exit 1']);
     mkdirSync(join(w.wtRoot, 'typed-fail'), { recursive: true });
-    const out = hook(w, makeInput('swe', 'completed', 11));
+    const out = hook(w, makeInput('swe', 'submitted', 11));
     has(out, DENY, 'typed failing cmd should deny');
     has(out, 'verification failed', 'deny reason should say verification failed');
   });
@@ -221,7 +221,7 @@ describe('swe-verification-gate l3', () => {
   it('typed verification[]: command with pipes/redirects runs verbatim → allowed', () => {
     addTask(w.db, 12, 'typed-shell', ['echo a | grep a']);
     mkdirSync(join(w.wtRoot, 'typed-shell'), { recursive: true });
-    hasNot(hook(w, makeInput('swe', 'completed', 12)), DENY, 'shell-metachar command should run and pass');
+    hasNot(hook(w, makeInput('swe', 'submitted', 12)), DENY, 'shell-metachar command should run and pass');
   });
 
   it('repo-subdir layout: gate resolves worktree under the repo root and runs', () => {
@@ -229,7 +229,7 @@ describe('swe-verification-gate l3', () => {
     mkdirSync(join(w.wtRoot, 'repo-subdir'), { recursive: true });
     // A decoy at the workspace root: a workspace-rooted resolver would pick it up.
     mkdirSync(join(w.ws, '.claude/worktrees/repo-subdir'), { recursive: true });
-    const out = hook(w, makeInput('swe', 'completed', 20));
+    const out = hook(w, makeInput('swe', 'submitted', 20));
     hasNot(out, 'verification gate skipped', 'repo-subdir gate must not skip');
     hasNot(out, DENY, 'repo-subdir passing cmd should allow');
   });
@@ -255,13 +255,13 @@ describe('swe-verification-gate l3', () => {
     it('minimal PATH: passing verification using mise/homebrew tool resolves and ALLOWS (#673)', () => {
       addTask(w.db, 30, 'toolchain-pass', [`${TOOL} --version`]);
       mkdirSync(join(w.wtRoot, 'toolchain-pass'), { recursive: true });
-      hasNot(minPathHook(makeInput('swe', 'completed', 30)), DENY, 'toolchain tool should resolve and pass (no false 127 DENY)');
+      hasNot(minPathHook(makeInput('swe', 'submitted', 30)), DENY, 'toolchain tool should resolve and pass (no false 127 DENY)');
     });
 
     it('minimal PATH: failing verification using mise/homebrew tool resolves and DENIES (#673)', () => {
       addTask(w.db, 31, 'toolchain-fail', [`${TOOL} --no-such-flag-xyz; exit 1`]);
       mkdirSync(join(w.wtRoot, 'toolchain-fail'), { recursive: true });
-      const out = minPathHook(makeInput('swe', 'completed', 31));
+      const out = minPathHook(makeInput('swe', 'submitted', 31));
       has(out, DENY, 'genuinely failing toolchain command should still DENY');
       has(out, 'verification failed', 'deny reason should say verification failed');
     });
@@ -270,7 +270,7 @@ describe('swe-verification-gate l3', () => {
   it('no worktree + non-empty verification[]: fail CLOSED with a named reason (deny)', () => {
     addTask(w.db, 40, 'no-worktree', ['echo should-not-run']);
     const active = git(w.sb.env, PLUGIN_ROOT, 'rev-parse', '--show-toplevel');
-    const out = hook(w, makeInput('swe', 'completed', 40), { cwd: active });
+    const out = hook(w, makeInput('swe', 'submitted', 40), { cwd: active });
     hasNot(out, 'verification gate skipped', 'no-worktree gate must not emit the silent-skip note');
     has(out, DENY, 'unlocatable worktree must DENY (fail closed)');
     has(out, 'could not locate the task worktree', 'deny reason should name the missing-worktree remediation');
@@ -280,7 +280,7 @@ describe('swe-verification-gate l3', () => {
   it('unreadable trajectory DB: verification gate fails closed (tmb_gate_read __ERR__)', () => {
     const bad = join(w.sb.dir, 'corrupt-trajectory.db');
     writeFileSync(bad, 'not a sqlite database '.repeat(8));
-    const out = hook(w, makeInput('swe', 'completed', 1), { env: { TRAJECTORY_DB_PATH: bad } });
+    const out = hook(w, makeInput('swe', 'submitted', 1), { env: { TRAJECTORY_DB_PATH: bad } });
     has(out, DENY, 'DB read error must deny, not skip the gate');
     has(out, 'trajectory DB unavailable', 'deny names the unavailable DB');
   });
@@ -311,7 +311,7 @@ describe('swe-verification-gate l3', () => {
       get proj() {
         return walWs;
       },
-      input: makeInput('swe', 'completed', 3),
+      input: makeInput('swe', 'submitted', 3),
       expect: 'verification failed',
       forbid: 'no typed verification',
       get cwd() {

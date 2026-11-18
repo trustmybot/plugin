@@ -44,9 +44,9 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-// A completed task still waits on code-reviewer and then bro_atomic_close; only closed counts as done.
+// A submitted task still waits on code-reviewer and then bro_atomic_close; only closed counts as done.
 function statusLabel(status: string): string {
-  return status === TASK_STATE.completed ? 'completed (awaiting review and close)' : status;
+  return status === TASK_STATE.submitted ? 'submitted (awaiting review and close)' : status;
 }
 
 export function branchReportMdTools(db: TrajectoryDB): {
@@ -118,7 +118,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
         lines.push('');
 
         const doneCount = tasks.filter((t) => inGroup(DONE, t.status)).length;
-        const awaitingClose = tasks.filter((t) => t.status === TASK_STATE.completed).length;
+        const awaitingClose = tasks.filter((t) => t.status === TASK_STATE.submitted).length;
         lines.push(`**Done:** ${doneCount} of ${tasks.length} closed, ${awaitingClose} awaiting close`);
         lines.push('');
 

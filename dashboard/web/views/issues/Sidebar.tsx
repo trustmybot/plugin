@@ -6,7 +6,7 @@ import { ENTITY_LINK, hrefFor } from '../../shared/columns.tsx';
 import { RemoteIssueLink, remoteIssue } from '../../shared/remote.tsx';
 import { IssueLabel } from './labels.tsx';
 
-const DONE = new Set(['completed', 'closed']);
+const DONE = new Set(['submitted', 'closed']);
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (

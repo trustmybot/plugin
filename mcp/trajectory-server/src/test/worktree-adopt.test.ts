@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { ADOPT_WORKTREE_ENABLED, adoptTaskWorktree, compositeTools, taskWorktreePath } from '../tools/composites.js';
-import { tempDB } from './helpers.js';
+import { setTaskStatus, tempDB } from './helpers.js';
 
 const NOW = '2026-10-27T10:00:00.000Z';
 const ENABLED = { enabled: true } as const;
@@ -199,12 +199,12 @@ describe('adoptTaskWorktree (GH 2032)', () => {
     assert.deepEqual(state(), before);
   });
 
-  for (const holding of ['pending', 'running', 'needs_validation'] as const) {
+  for (const holding of ['pending', 'running'] as const) {
     it(`a second adoption of W while the first task is ${holding} returns worktree_in_use naming it, then succeeds once it is closed`, () => {
       seedTask(7, 'fix/first');
       seedTask(8, 'fix/second');
       assert.equal(adoptTaskWorktree(db, { taskId: 7, repoPath: repo, worktreePath: session }, ENABLED).ok, true);
-      db.run('UPDATE tasks SET status = ? WHERE id = 7', [holding]);
+      setTaskStatus(db, 7, holding, 'the first task holds W');
 
       const before = state();
       const r = adoptTaskWorktree(db, { taskId: 8, repoPath: repo, worktreePath: session }, ENABLED);
@@ -213,7 +213,7 @@ describe('adoptTaskWorktree (GH 2032)', () => {
       assert.match(!r.ok ? r.message : '', /task 7/);
       assert.deepEqual(state(), before);
 
-      db.run(`UPDATE tasks SET status = 'closed' WHERE id = 7`);
+      setTaskStatus(db, 7, 'closed', 'the first task closed');
       const again = adoptTaskWorktree(db, { taskId: 8, repoPath: repo, worktreePath: session }, ENABLED);
       assert.equal(again.ok, true);
       assert.equal(git(session, 'rev-parse', '--abbrev-ref', 'HEAD'), 'fix/second');
@@ -285,7 +285,7 @@ describe('task_provision, task_reopen and task_retry adopt_worktree (GH 2032)', 
     });
   const closedTask = (branch: string): number => {
     const id = failedTask(branch);
-    db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+    setTaskStatus(db, id, 'closed', 'closed before the reopen');
     git(repo, 'branch', branch, 'main');
     return id;
   };

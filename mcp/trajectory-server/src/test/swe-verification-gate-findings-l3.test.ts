@@ -28,7 +28,7 @@ import {
 
 describe('swe-verification-gate findings l3', () => {
   let w: Ws;
-  const done = (task: number) => makeInput('swe', 'completed', task);
+  const done = (task: number) => makeInput('swe', 'submitted', task);
   const addFinding = (id: string, task: number, attempt: number, probe: string, observed: string, status: string, createdAt: string, resolvedAt: string | null) =>
     sql(w.db, "INSERT INTO review_findings VALUES (?, ?, ?, NULL, ?, 'exit 0', ?, ?, ?, ?)", id, task, attempt, probe, observed, status, createdAt, resolvedAt);
 
@@ -281,7 +281,7 @@ describe('swe-verification-gate findings l3', () => {
 
 describe('swe-verification-gate findings by severity l3 (GH 1955)', () => {
   let w: Ws;
-  const done = (task: number) => makeInput('swe', 'completed', task);
+  const done = (task: number) => makeInput('swe', 'submitted', task);
   const addFinding = (id: string, task: number, probe: string, severity: string) =>
     sql(
       w.db,

@@ -329,7 +329,7 @@ describe('close-issue-on-merge l3', () => {
   it('(k) another live task on the issue → deferred, issue stays open', () => {
     seedDb();
     addIssue(5, 122);
-    addTask(1, 5, 'feat/x', 'completed');
+    addTask(1, 5, 'feat/x', 'submitted');
     addTask(2, 5, 'feat/other', 'running');
     addPass(1);
     resetLog();
@@ -350,7 +350,7 @@ describe('close-issue-on-merge l3', () => {
   it("(l) merged task closes, its open runs close 'completed', issue closes", () => {
     seedDb();
     addIssue(5, 122);
-    addTask(1, 5, 'feat/x', 'completed');
+    addTask(1, 5, 'feat/x', 'submitted');
     addRun(1);
     sql(
       "INSERT INTO agent_runs (task_id, agent_type, started_at, tokens_in, tokens_out, usage_source) VALUES (1, 'code-reviewer', ?, 30, 3, 'subagent_stop')",
@@ -377,7 +377,7 @@ describe('close-issue-on-merge l3', () => {
   it('(m) merged task without a pass → closed + one review_gate_bypassed row', () => {
     seedDb();
     addIssue(5, 122);
-    addTask(1, 5, 'feat/x', 'completed');
+    addTask(1, 5, 'feat/x', 'submitted');
     runHook(input(MERGE), REF_122);
     assert.equal(taskStatus(1), 'closed', 'merged task closed anyway');
     assert.equal(auditCount('review_gate_bypassed', 5), '1', 'bypass row written');
@@ -394,7 +394,7 @@ describe('close-issue-on-merge l3', () => {
   it('(n) a pass with no bro_verification_pass for the commit is no pass', () => {
     seedDb();
     addIssue(5, 122);
-    addTask(1, 5, 'feat/x', 'completed');
+    addTask(1, 5, 'feat/x', 'submitted');
     addVerdict(1, NOW_MINUS_1H);
     runHook(input(MERGE), REF_122);
     assert.equal(auditCount('review_gate_bypassed', 5), '1', 'completed_at anchors nothing');
@@ -403,7 +403,7 @@ describe('close-issue-on-merge l3', () => {
   it('(o) a pass of an older commit never covers the merged commit', () => {
     seedDb();
     addIssue(5, 122);
-    addTask(1, 5, 'feat/x', 'completed', 'def5678');
+    addTask(1, 5, 'feat/x', 'submitted', 'def5678');
     addVerification(1, 'abc1234', '2026-01-01T09:00:00.000Z');
     addVerdict(1, '2026-01-01T09:30:00.000Z');
     addVerification(1, 'def5678', NOW_MINUS_2H);
@@ -424,7 +424,7 @@ describe('close-issue-on-merge l3', () => {
     ]) {
       seedDb();
       addIssue(5, 122);
-      addTask(1, 5, 'feat/x', 'completed');
+      addTask(1, 5, 'feat/x', 'submitted');
       addSkip(event, from, 1);
       runHook(input(MERGE), REF_122);
       assert.equal(
@@ -438,7 +438,7 @@ describe('close-issue-on-merge l3', () => {
   it('(q) a bro-authored waiver for the merged commit is the recorded skip', () => {
     seedDb();
     addIssue(5, 122);
-    addTask(1, 5, 'feat/x', 'completed');
+    addTask(1, 5, 'feat/x', 'submitted');
     addSkip('review_gate_waived', 'bro', 1);
     runHook(input(MERGE), REF_122);
     assert.equal(auditCount('review_gate_bypassed'), '0', 'no bypass over a bro waiver');
@@ -451,7 +451,7 @@ describe('close-issue-on-merge l3', () => {
     sql("UPDATE tasks SET workflow_mode = 'agile' WHERE id = 1");
     addSkip('review_queued', 'bro', 1);
     addIssue(6, 123);
-    addTask(2, 6, 'feat/x', 'completed', 'def5678');
+    addTask(2, 6, 'feat/x', 'submitted', 'def5678');
     runHook(input(MERGE), REF_122);
     assert.equal(taskStatus(1), 'closed');
     assert.equal(taskStatus(2), 'closed', 'the live task is closed by the merge');

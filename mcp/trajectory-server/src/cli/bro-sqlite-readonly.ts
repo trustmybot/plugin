@@ -227,7 +227,7 @@ function runTool(tool: ReadTool, args: string, s: ReadSession): { out: string; c
       const issueRows = s.rows('SELECT id, status FROM issues WHERE id = ?;', [id]);
       if (issueRows.length === 0) throw new ToolError(`Not found: ${id}`);
       const countRows = s.rows(
-        `SELECT COUNT(*) as tasks_total, SUM(CASE WHEN status='${TASK_STATE.completed}' THEN 1 ELSE 0 END) as tasks_completed, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as tasks_failed FROM tasks WHERE issue_id = ?;`,
+        `SELECT COUNT(*) as tasks_total, SUM(CASE WHEN status='${TASK_STATE.submitted}' THEN 1 ELSE 0 END) as tasks_completed, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as tasks_failed FROM tasks WHERE issue_id = ?;`,
         [id],
       );
       const counts = countRows[0] ?? new Map<string, PyValue>();

@@ -171,7 +171,7 @@ function designDriftDeny(taskId: string, drift: ReworkAnalysisRow): ReworkDeny {
       'or split it into new tasks with `task_create_batch`, each with its own spec and swe runs.',
     fix: {
       allowed:
-        `task_update_status(agent='bro', task_id=${taskId}, status='escalated'), then task_retry(agent='bro', failed_task_id=${taskId}, new_branch_id, corrected_spec_body, retry_rationale, description), ` +
+        `task_retry(agent='bro', failed_task_id=${taskId}, new_branch_id, corrected_spec_body, retry_rationale, description), ` +
         'or the split tasks through task_create_batch',
     },
   };

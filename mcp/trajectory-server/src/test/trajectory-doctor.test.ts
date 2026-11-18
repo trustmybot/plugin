@@ -463,11 +463,11 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
   },
   issues_closed_no_live_tasks: {
     violate: (db) => {
-      seedTask(db, seedIssue(db, 'closed'), 'completed');
+      seedTask(db, seedIssue(db, 'closed'), 'submitted');
     },
     pass: (db) => {
       seedTask(db, seedIssue(db, 'closed'), 'closed');
-      seedTask(db, seedIssue(db, 'closed'), 'escalated');
+      seedTask(db, seedIssue(db, 'closed'), 'cancelled');
       seedTask(db, seedIssue(db, 'open'), 'running');
     },
   },
@@ -890,7 +890,7 @@ describe('data contracts', () => {
     const db = tempDB();
     const task = seedTask(db, seedIssue(db), 'running');
     seedRun(db, { taskId: task, tokens: null, usageSource: null, completedAt: null, startedAt: iso(-16 * HOUR) });
-    const r = (await taskTools(db).handlers['task_update_status']!({ agent: 'bro', task_id: String(task), status: 'failed' })) as RawResult;
+    const r = (await taskTools(db).handlers['task_update_status']!({ agent: 'bro', task_id: String(task), status: 'failed', note: 'the run stalled' })) as RawResult;
     assert.ok(!r.isError, r.content[0]!.text);
     const row = db.get<{ exit_reason: string; usage_source: string | null }>('SELECT exit_reason, usage_source FROM agent_runs WHERE task_id = ?', [task])!;
     assert.deepEqual({ ...row }, { exit_reason: 'failed', usage_source: 'unmeasured' });

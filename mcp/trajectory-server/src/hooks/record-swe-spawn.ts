@@ -20,7 +20,7 @@ import { branchSlug, dbPath, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js'
 import { JqUnindexable, jqAlt, jqGet, jqInput, jqTostring, type JqInput } from './lib/jq-raw.js';
 import { commandSubstitution } from './lib/project-env.js';
 import { RUN_UNMEASURED_SQL } from './swe-spawn-rollback.js';
-import { taskStatusUpdateSql } from '../task-status.js';
+import { sqlText, taskStatusMoveSql } from '../task-status.js';
 
 export const GATE_NAME = 'record-swe-spawn';
 
@@ -103,16 +103,31 @@ UPDATE agent_runs
  WHERE task_id = ${taskId} AND agent_type = 'swe' AND completed_at IS NULL
    AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
    AND started_at IS NOT NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 seconds');
-${taskStatusUpdateSql({
-  status: 'running',
-  set: { updated_at: now, completed_at: null },
-  where: `id = ${taskId} AND status = 'pending'`,
-})};
 INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host,
                         session_id, effort, model, spawn_id, plugin_version)
 SELECT id, issue_id, 'swe', '${now}', repo, ${rootDirSql}, 'claude',
        ${quoted(row.fields.sessionId)}, ${effortSql}, ${quoted(row.fields.model)}, '${sqlQuote(row.spawnId)}', ${quoted(row.pluginVersion)}
-  FROM tasks WHERE id = ${taskId};`;
+  FROM tasks WHERE id = ${taskId};
+${spawnedMoveSql(taskId, row.spawnId, now)};`;
+}
+
+/** pending→running, resting on the agent_runs row the spawn just opened. */
+function spawnedMoveSql(taskId: string, spawnId: string, now: string): string {
+  const run = sqlText(
+    `(SELECT MAX(r.id) FROM agent_runs r WHERE r.task_id = tasks.id AND r.agent_type = 'swe' AND r.spawn_id = '${sqlQuote(spawnId)}')`,
+  );
+  return taskStatusMoveSql({
+    status: 'running',
+    event: 'spawned',
+    cause: 'author_spawned',
+    role: 'hook',
+    agentRunId: run,
+    record: { kind: 'agent_run', id: run },
+    key: `record-swe-spawn:${spawnId}`,
+    at: now,
+    set: { updated_at: now, completed_at: null },
+    where: `id = ${taskId} AND status = 'pending'`,
+  });
 }
 
 export const recordSweSpawn: SyncGate = (payload, env): GateResult => {

@@ -4,7 +4,7 @@ import { closeOpenRunsForTask } from './agent-runs.js';
 import { dropTaskOverlay } from '../world-model/overlay.js';
 import { batchReviewedSql, GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL, waivedSql } from '../review-sql.js';
 import { storedExemptSql } from '../stored-mode.js';
-import { sqlText, taskStatusUpdate } from '../task-status.js';
+import { runTaskStatusMove, sqlText } from '../task-status.js';
 import { DONE, ISSUE_STATE, LIVE, statusIn } from '../task-states.js';
 
 export const WAIVE_REVIEW_REASON_MIN = 10;
@@ -107,7 +107,7 @@ export function recordReviewQueuedIfUnreviewed(db: TrajectoryDB, task: Lifecycle
   return true;
 }
 
-// Escalates every live task of an issue (cascade of issue_close), one
+// Cancels every live task of an issue (cascade of issue_close), one
 // task_escalated_by_issue_close audit row each, open runs closed issue_closed.
 export function escalateLiveTasksForIssueClose(
   db: TrajectoryDB,
@@ -116,18 +116,23 @@ export function escalateLiveTasksForIssueClose(
   now: string,
 ): void {
   for (const task of tasks) {
-    const escalate = taskStatusUpdate({
-      status: 'escalated',
+    runTaskStatusMove(db, {
+      status: 'cancelled',
+      event: 'issue_cancelled',
+      cause: 'issue_closed',
+      role: 'bro',
+      record: { kind: 'issue', id: task.issue_id },
+      key: `issue-close:${task.issue_id}:${now}`,
+      at: now,
       set: { completed_at: null, updated_at: now },
       where: sqlText('id = ?', task.id),
     });
-    db.run(escalate.sql, escalate.params);
     insertAudit(db, {
       issue_id: task.issue_id,
       branch_id: task.branch_id,
       from_node: 'bro',
       event_type: 'task_escalated_by_issue_close',
-      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
+      summary: `Task ${task.id} cancelled from ${task.status} by issue_close cascade`,
       content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
       created_at: now,
     });
@@ -180,13 +185,7 @@ export function sweepStaleTasks(db: TrajectoryDB, now: string): StaleSweepResult
   if (stale.length > 0) {
     db.transaction(() => {
       for (const task of stale) {
-        const sweep = taskStatusUpdate({
-          status: 'failed',
-          set: { completed_at: null, updated_at: now },
-          where: sqlText('id = ?', task.id),
-        });
-        db.run(sweep.sql, sweep.params);
-        insertAudit(db, {
+        const sweptAuditId = insertAudit(db, {
           issue_id: task.issue_id,
           branch_id: task.branch_id,
           from_node: 'bro',
@@ -199,6 +198,17 @@ export function sweepStaleTasks(db: TrajectoryDB, now: string): StaleSweepResult
             stale_after_hours: hours,
           }),
           created_at: now,
+        });
+        runTaskStatusMove(db, {
+          status: 'failed',
+          event: 'run_stale',
+          cause: 'author_gone',
+          role: 'system',
+          record: { kind: 'audit', id: sweptAuditId },
+          key: `stale-sweep:${sweptAuditId}`,
+          at: now,
+          set: { completed_at: null, updated_at: now },
+          where: sqlText('id = ?', task.id),
         });
         runsSwept += closeOpenRunsForTask(db, task.id, now, 'swept_stale');
       }

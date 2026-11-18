@@ -216,6 +216,20 @@ export async function call(client, name, args) {
   }
 }
 
+/**
+ * Starts a swe on a task the way a spawn does: task_brief opens its swe agent
+ * run, and a pending task moves to running on it, since a pending task has no
+ * edge straight to submitted. A task already running stays as it is.
+ */
+export async function startSwe(client, taskId) {
+  const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
+  if (!brief.ok) throw new Error(`task_brief ${taskId}: ${JSON.stringify(brief)}`);
+  if ((brief.data.status ?? brief.data.task?.status) !== 'pending') return brief;
+  const running = await call(client, 'task_update_status', { agent: 'swe', task_id: String(taskId), status: 'running' });
+  if (!running.ok) throw new Error(`swe→running ${taskId}: ${JSON.stringify(running)}`);
+  return brief;
+}
+
 function parseTextContent(res) {
   const text = res.content?.[0]?.text;
   if (typeof text !== 'string') return res;

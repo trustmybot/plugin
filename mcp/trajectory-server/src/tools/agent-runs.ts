@@ -1,5 +1,5 @@
 import type { TrajectoryDB } from '../db.js';
-import { TERMINAL } from '../task-states.js';
+import { FINAL, inGroup, TERMINAL } from '../task-states.js';
 import { projectRootFromDbPath } from './containment.js';
 
 // Task statuses after which no agent_runs row of the task stays open.
@@ -29,7 +29,8 @@ export function claudeRunContext(db: TrajectoryDB, dbPath: string = db.dbPath): 
 // The exit_reason a terminal task status closes its open rows with.
 export function exitReasonForStatus(status: string): RunExitReason {
   if (status === 'failed') return 'failed';
-  if (status === 'escalated') return 'escalated';
+  // A superseded or cancelled task's run ended the way an escalated one did.
+  if (inGroup(FINAL, status)) return 'escalated';
   return 'completed';
 }
 

@@ -16,9 +16,16 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { ISSUE_STATE } from './task-states.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
-import { sqlText, taskStatusUpdateSql } from './task-status.js';
+import { preEventStatusRewriteSql, TASK_STATUSES } from './task-status.js';
+import {
+  TASK_EVENTS_BACKFILL_SQL,
+  TASK_EVENTS_SCHEMA_SQL,
+  taskStatusCheckSql,
+  V77_RETRY_OF_SQL,
+  v77StatusSql,
+} from './task-events.js';
 
-export const TARGET_SCHEMA_VERSION = 76;
+export const TARGET_SCHEMA_VERSION = 77;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -860,6 +867,8 @@ function runMigrations(
   if (fromVersion < 75 && toVersion >= 75) migrateV74toV75(db);
   // v75→v76: repos.mode, a repo's truest, agile or exempt rules (GH 3279)
   if (fromVersion < 76 && toVersion >= 76) migrateV75toV76(db);
+  // v76→v77: task_events, the append-only task lifecycle, and the renamed task states (GH 3224)
+  if (fromVersion < 77 && toVersion >= 77) migrateV76toV77(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -905,10 +914,14 @@ function rebuildTable(
   table: string,
   createBody: string,
   columns: Array<[string, string]>,
+  // A column whose copied value is rewritten: the expression, read over the old table.
+  rewrite: Readonly<Record<string, string>> = {},
 ): void {
   const scratch = `${table}_new`;
   const select = columns
-    .map(([name, fallback]) => (hasColumn(db, table, name) ? name : `${fallback} AS ${name}`))
+    .map(([name, fallback]) =>
+      rewrite[name] !== undefined ? `${rewrite[name]} AS ${name}` : hasColumn(db, table, name) ? name : `${fallback} AS ${name}`,
+    )
     .join(', ');
   const seqRow = tableExists(db, 'sqlite_sequence')
     ? (db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(table) as
@@ -923,7 +936,16 @@ function rebuildTable(
   );
   // LINT-ALLOW: table-rebuild swap — rows already copied into the scratch table.
   db.exec(`DROP TABLE ${table}`);
-  db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
+  // A trigger on another table that names this one (task_events_guard names
+  // tasks) fails the modern RENAME's schema re-check while the table is gone;
+  // the legacy rename skips that check, and the references resolve again once
+  // the scratch table takes the name.
+  db.exec('PRAGMA legacy_alter_table = ON');
+  try {
+    db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
+  } finally {
+    db.exec('PRAGMA legacy_alter_table = OFF');
+  }
   if (seqRow !== undefined) {
     db.prepare('UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?').run(seqRow.seq, table);
   }
@@ -2313,11 +2335,7 @@ function migrateV32toV33(db: DatabaseSync): void {
           )
         : null;
       const escalate = db.prepare(
-        taskStatusUpdateSql({
-          status: 'escalated',
-          set: { completed_at: null, updated_at: sqlText(ISO_NOW_SQL) },
-          where: 'id = ?',
-        }),
+        preEventStatusRewriteSql('escalated', `completed_at = NULL, updated_at = ${ISO_NOW_SQL}`, 'id = ?'),
       );
       const closeRuns = db.prepare(
         `UPDATE agent_runs
@@ -3917,6 +3935,86 @@ function migrateV75toV76(db: DatabaseSync): void {
   try {
     addRepoMode(db);
     widenTaskWorkflowMode(db);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v76→v77: the task lifecycle as events (GH 3224). tasks is rebuilt, ids and
+// rows kept, so its status CHECK admits the seven v77 states and it gains
+// retry_of; the copy renames each state (v77StatusSql) and sets retry_of from
+// the task_retry_attempted rows. Then the event, cause and edge tables arrive
+// with their guard, cache and status-lock triggers, created after the rebuild
+// because a tasks rebuild must not run under triggers that name tasks, and
+// the backfill writes one event per task stating its state. The tasks indexes
+// come back in the schema.sql reapply. A re-run over a v77 shape skips the
+// rebuild and the backfill writes only the events still missing.
+function migrateV76toV77(db: DatabaseSync): void {
+  if (!tableExists(db, 'tasks')) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, 'tasks', 'retry_of')) {
+      const withAudit = tableExists(db, 'audit');
+      rebuildTable(
+        db,
+        'tasks',
+        `
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id          INTEGER NOT NULL REFERENCES issues(id),
+          branch_id         TEXT    NOT NULL,
+          parent_branch_id  TEXT,
+          title             TEXT    NOT NULL DEFAULT '',
+          description       TEXT    NOT NULL,
+          status            TEXT    NOT NULL DEFAULT 'pending'
+                              ${taskStatusCheckSql(TASK_STATUSES)},
+          spec_body         TEXT    NOT NULL DEFAULT '',
+          commit_sha        TEXT,
+          repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+          files             TEXT    NOT NULL DEFAULT '[]',
+          verification      TEXT    NOT NULL DEFAULT '[]',
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT    NOT NULL,
+          completed_at      TEXT,
+          effort            TEXT    NOT NULL DEFAULT 'medium'
+                              CHECK (effort IN ('low','medium','high')),
+          completion_report TEXT,
+          spawn_note        TEXT,
+          checkpoint        TEXT,
+          worktree_path     TEXT,
+          worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1)),
+          workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')),
+          base_sha          TEXT,
+          wm_commit         TEXT,
+          no_code_class     TEXT CHECK (no_code_class IS NULL OR no_code_class IN ('docs','prompts')),
+          retry_of          INTEGER REFERENCES tasks(id)
+        `,
+        [
+          ['id', 'NULL'], ['issue_id', '0'], ['branch_id', "''"], ['parent_branch_id', 'NULL'], ['title', "''"],
+          ['description', "''"], ['status', "'pending'"], ['spec_body', "''"], ['commit_sha', 'NULL'], ['repo', 'NULL'],
+          ['prompt_bearing', '0'], ['files', "'[]'"], ['verification', "'[]'"], ['created_at', "''"],
+          ['updated_at', "''"], ['completed_at', 'NULL'], ['effort', "'medium'"], ['completion_report', 'NULL'],
+          ['spawn_note', 'NULL'], ['checkpoint', 'NULL'], ['worktree_path', 'NULL'], ['worktree_adopted', '0'],
+          ['workflow_mode', 'NULL'], ['base_sha', 'NULL'], ['wm_commit', 'NULL'], ['no_code_class', 'NULL'],
+          ['retry_of', 'NULL'],
+        ],
+        { status: v77StatusSql(withAudit), ...(withAudit ? { retry_of: V77_RETRY_OF_SQL } : {}) },
+      );
+    }
+    db.exec(TASK_EVENTS_SCHEMA_SQL);
+    db.exec(TASK_EVENTS_BACKFILL_SQL);
+    // Scoped to the table this migration fills, so an older dangling row
+    // elsewhere (a tasks.issue_id the v76 rebuild carried) does not block it.
+    const fkViolations = db.prepare('PRAGMA foreign_key_check(task_events)').all() as unknown[];
+    if (fkViolations.length > 0) {
+      throw new Error(`migrateV76toV77: foreign_key_check found ${fkViolations.length} dangling reference(s) in task_events`);
+    }
     commitTransaction(db);
   } catch (err) {
     try {

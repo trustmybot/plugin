@@ -1,6 +1,6 @@
 /**
  * PreToolUse(Agent) gate (GH 1692), run by agent-spawn-dispatch: a code-reviewer spawn naming task_id=<N> is
- * allowed only for a completed or needs_validation task with a review_handoff
+ * allowed only for a submitted task with a review_handoff
  * audit row for its current tasks.commit_sha (bro handed that commit to
  * review), or for a closed task (a task closed under the old close-then-review
  * order, the integrate head review, or the per-task review of a closed agile
@@ -27,15 +27,15 @@ export function notHandedOffReason(taskId: string, status: string): string {
   return `BLOCKED: code-reviewer spawn for task ${taskId} (status=${status}) has no review_handoff for the task's current commit.
 
 Per tmb_planning section 6 (Verify on SWE return + review handoff):
-  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
+  1. SWE returns status=submitted (lifecycle answer, NOT a DB closure).
   2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls review_handoff.
   3. ONLY THEN: spawn code-reviewer with the reviewer_spawn review_handoff returned; bro_atomic_close follows its pass.
 
-code-reviewer reviews a completed or needs_validation task handed off at its current commit, or a closed task.`;
+code-reviewer reviews a submitted task handed off at its current commit, or a closed task.`;
 }
 
 export function notHandedOffFix(taskId: string): DenyFix {
-  return { allowed: `review_handoff(agent='bro', task_id=${taskId}, session_id=<your session id>) once the task is completed, then the reviewer_spawn it returns` };
+  return { allowed: `review_handoff(agent='bro', task_id=${taskId}, session_id=<your session id>) once the task is submitted, then the reviewer_spawn it returns` };
 }
 
 /** `printf '%s' "$PROMPT" | grep -Eo 'task_id[[:space:]]*=[[:space:]]*[0-9]+' | head -1 | grep -Eo '[0-9]+' | head -1`. */

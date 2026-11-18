@@ -2,7 +2,7 @@
   "tool_name": "mcp__plugin_tmb_trajectory-server__task_update_status",
   "tool_input": {
     "agent": "swe",
-    "status": "completed"
+    "status": "submitted"
   },
   "corpus_expect": "empty"
 }

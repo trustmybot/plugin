@@ -109,8 +109,8 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
 
     db = newDb(repo);
     sql(db, "UPDATE issues SET objective='metering', created_at=?, updated_at=? WHERE id=1", NOW, NOW);
-    insertTask(137, 'completed');
-    sql(db, "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (138, 1, 'fix/task-138', 'dev', 'd', 'completed', ?, '2026-06-16T19:59:00.000Z')", NOW);
+    insertTask(137, 'submitted');
+    sql(db, "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (138, 1, 'fix/task-138', 'dev', 'd', 'submitted', ?, '2026-06-16T19:59:00.000Z')", NOW);
     insertTask(140, 'running');
     insertTask(141, 'failed');
     insertTask(142, 'pending');
@@ -226,7 +226,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
 
   it('a running task with commits is auto-completed', () => {
     assert.equal(hook(stopInput(transcript(140, 't140.jsonl'), 'agent-140')), '', 'no additionalContext');
-    assert.equal(q(db, "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=140"), `completed|${wtHead(140)}`, 'completed at the worktree HEAD');
+    assert.equal(q(db, "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=140"), `submitted|${wtHead(140)}`, 'submitted at the worktree HEAD');
     assert.equal(runs(140), '1', 'metrics row written for the running task');
   });
 
@@ -287,7 +287,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
   });
 
   it('the spawn row carries the dominant model, host, worktree root_dir and exit_reason', () => {
-    insertTask(143, 'completed');
+    insertTask(143, 'submitted');
     const t143 = writeTranscript(join(sb.dir, 't143.jsonl'), [
       '{"type":"user","timestamp":"2026-06-16T19:40:00.000Z","message":{"role":"user","content":"task_id=143 You are swe."}}',
       '{"type":"assistant","timestamp":"2026-06-16T19:40:01.000Z","message":{"id":"x1","model":"claude-small-1","usage":{"input_tokens":10,"output_tokens":1},"content":[]}}',
@@ -312,7 +312,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
 
     it("a swe row carries its task's effort", () => {
       assert.equal(q(db, 'SELECT effort FROM agent_runs WHERE task_id=137'), 'medium', 'task 137 defaults to medium');
-      insertTask(144, 'completed', 'high');
+      insertTask(144, 'submitted', 'high');
       t144 = transcript(144, 't144.jsonl');
       hook(stopInput(t144, 'agent-144'));
       assert.equal(q(db, 'SELECT agent_type, effort FROM agent_runs WHERE task_id=144'), 'swe|high', 'the swe row copies tasks.effort high');
@@ -333,7 +333,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
         `agent-rev-1|70|7|subagent_stop|claude-opus-9|claude|${repo}|completed|medium|2026-06-16T19:50:00.000Z`,
         'metered, root_dir = the project root, effort = reviewer_effort default medium',
       );
-      assert.equal(q(db, "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=144"), 'completed|', 'no task status side effect');
+      assert.equal(q(db, "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=144"), 'submitted|', 'no task status side effect');
     });
 
     it('a code-reviewer re-fire updates its row in place', () => {
@@ -392,7 +392,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
       });
 
       it('with CLAUDE_PLUGIN_ROOT unset the insert still succeeds and writes NULL', () => {
-        insertTask(148, 'completed');
+        insertTask(148, 'submitted');
         hook(stopInput(transcript(148, 't148.jsonl'), 'agent-148'), null);
         assert.equal(
           q(db, 'SELECT COUNT(*), MAX(tokens_in), MAX(plugin_version IS NULL) FROM agent_runs WHERE task_id=148'),
@@ -420,8 +420,8 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
       assert.equal(hook(stopInput(transcript(161, 't161.jsonl'), 'agent-161')), '', 'no additionalContext');
       assert.equal(
         q(db, "SELECT status, COALESCE(commit_sha, ''), checkpoint IS NULL FROM tasks WHERE id=161"),
-        `completed|${wtHead(161)}|1`,
-        'completed at the worktree HEAD, checkpoint NULL',
+        `submitted|${wtHead(161)}|1`,
+        'submitted at the worktree HEAD, checkpoint NULL',
       );
       assert.equal(q(db, "SELECT COALESCE(stop_cause, ''), exit_reason FROM agent_runs WHERE task_id=161"), '|completed', 'no stop_cause');
     });
@@ -437,7 +437,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
       ];
       if (report)
         lines.push(
-          `{"type":"assistant","timestamp":"2026-06-16T19:30:06.000Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":2},"content":[{"type":"tool_use","id":"tr1","name":"mcp__plugin_tmb_trajectory-server__task_update_status","input":{"agent":"swe","task_id":"${task}","status":"completed"}}]}}`,
+          `{"type":"assistant","timestamp":"2026-06-16T19:30:06.000Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":2},"content":[{"type":"tool_use","id":"tr1","name":"mcp__plugin_tmb_trajectory-server__task_update_status","input":{"agent":"swe","task_id":"${task}","status":"submitted"}}]}}`,
           '{"type":"user","timestamp":"2026-06-16T19:30:07.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tr1","content":"{\\"ok\\":true}"}]}}',
         );
       return writeTranscript(join(sb.dir, name), lines);
@@ -462,12 +462,12 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
     it('a deny with no report and commits auto-completes and still names the block', () => {
       committedTask(171);
       const r = runHook(stopInput(denyTranscript(171, 't171.jsonl'), 'agent-171'));
-      assert.equal(q(db, 'SELECT status FROM tasks WHERE id=171'), 'completed', 'the task auto-completes');
+      assert.equal(q(db, 'SELECT status FROM tasks WHERE id=171'), 'submitted', 'the task auto-submits');
       assert.equal(q(db, 'SELECT stop_cause FROM agent_runs WHERE task_id=171'), 'hook_block', 'stop_cause hook_block');
       has(contextOf(r.stdout), `SWE for task #171 ${BLOCK_SENTENCE}`, 'the context names the block');
     });
 
-    it('a deny followed by a successful completed report records no stop_cause and no hook-block sentence', () => {
+    it('a deny followed by a successful submitted report records no stop_cause and no hook-block sentence', () => {
       committedTask(172);
       const out = hook(stopInput(denyTranscript(172, 't172.jsonl', true), 'agent-172'));
       assert.equal(q(db, "SELECT COALESCE(stop_cause, '') FROM agent_runs WHERE task_id=172"), '', 'stop_cause NULL');
@@ -480,7 +480,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
     const t162 = transcript(162, 't162.jsonl');
     assert.ok(!readFileSync(t162, 'utf8').includes('"tool_use"'), 'the transcript calls no tool');
     assert.equal(runHook(stopInput(t162, 'agent-162')).status, 0, 'the hook exits 0');
-    assert.equal(q(db, 'SELECT status FROM tasks WHERE id=162'), 'completed', 'the task auto-completes');
+    assert.equal(q(db, 'SELECT status FROM tasks WHERE id=162'), 'submitted', 'the task auto-submits');
     assert.equal(
       q(db, "SELECT COUNT(*), MAX(tokens_in), COALESCE(MAX(stop_cause), '') FROM agent_runs WHERE task_id=162"),
       '1|40|',

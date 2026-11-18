@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from './harness.mjs';
+import { startClient, call, startSwe, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from './harness.mjs';
 
 // Role matrix coverage for tools that wrap handlers with `requireRoles`. Every
 // registered tool, gated or not, rejects a missing or invalid `agent`.
@@ -221,10 +221,11 @@ test('task_update_status — bro and swe allowed; architect/code-reviewer forbid
     assert.equal(res.error?.error, 'forbidden');
   }
 
+  await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
   const sweRun = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
   assert.equal(sweRun.ok, true, `swe should drive running; got ${JSON.stringify(sweRun)}`);
 
-  const sweDone = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234' });
+  const sweDone = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: 'abc1234' });
   assert.equal(sweDone.ok, true, `swe should complete; got ${JSON.stringify(sweDone)}`);
   seedPassingVerificationRun(dbPath, taskId, 'abc1234');
 
@@ -273,8 +274,8 @@ test('validation_record — code-reviewer only; architect/bro/swe all forbidden'
     tasks: [{ branch_id: 'feat/vr-test', title: 't', description: 'd', spec_body: '# spec' }],
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
-  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
-  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234' });
+  await startSwe(client, taskId);
+  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: 'abc1234' });
   seedPassingVerificationRun(dbPath, taskId, 'abc1234');
 
   for (const wrongRole of ['architect', 'bro', 'swe']) {

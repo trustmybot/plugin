@@ -40,7 +40,7 @@ function seed(path) {
   const glIssue = Number(issue.run('GitLab issue', 'alpha', null, 7, now, now).lastInsertRowid);
   const bareIssue = Number(issue.run('Beta issue', 'beta', 5, null, now, now).lastInsertRowid);
   const task = db.prepare(
-    "INSERT INTO tasks (issue_id, branch_id, title, description, status, repo, commit_sha, created_at, updated_at) VALUES (?, ?, ?, 'd', 'completed', ?, ?, ?, ?)",
+    "INSERT INTO tasks (issue_id, branch_id, title, description, status, repo, commit_sha, created_at, updated_at) VALUES (?, ?, ?, 'd', 'submitted', ?, ?, ?, ?)",
   );
   const linked = Number(task.run(ghIssue, 'feat/alpha work', 'Alpha task', 'alpha', SHA, now, now).lastInsertRowid);
   const plain = Number(task.run(bareIssue, 'feat/gamma', 'Gamma task', 'gamma', SHA, now, now).lastInsertRowid);
@@ -238,7 +238,7 @@ describe('cross-links against a seeded DB', () => {
     const html = views.sidebar(detail);
     assert.match(external(html, `${GH}/issues/42`), />GH 42</);
     assert.ok(internal(html, `#/tasks/${ids.linked}`).includes(views.ENTITY_LINK));
-    assert.match(html, new RegExp(`<a href="#/tasks/${ids.linked}"[^>]*>[\\s\\S]*?Alpha task[\\s\\S]*?<span[^>]*>completed</span>[\\s\\S]*?</a>`));
+    assert.match(html, new RegExp(`<a href="#/tasks/${ids.linked}"[^>]*>[\\s\\S]*?Alpha task[\\s\\S]*?<span[^>]*>submitted</span>[\\s\\S]*?</a>`));
     assert.ok(internal(html, '#/tasks?branch=feat%2Falpha%20work').includes(views.ENTITY_LINK));
     const bare = await get(`issues/${ids.bareIssue}`);
     const plain = views.sidebar(bare);

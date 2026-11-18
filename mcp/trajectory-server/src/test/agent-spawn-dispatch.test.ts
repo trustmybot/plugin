@@ -177,7 +177,7 @@ describe('agent-spawn-dispatch end to end', () => {
        INSERT INTO issues (id) VALUES (1);`,
     );
     exec(db, "INSERT INTO repos (name, path, target_branch) VALUES ('plugin', ?, 'dev')", r);
-    exec(db, "INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'completed', 'plugin', 'dev', ?)", sha);
+    exec(db, "INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'submitted', 'plugin', 'dev', ?)", sha);
     exec(db, 'INSERT INTO verification_runs (task_id, commit_sha, exit_code) VALUES (5, ?, 0)', sha);
     // The close's passing lint run, as swe-verification-gate records it: the commit's close-lints fingerprint against merge-base(dev, commit).
     const plan = await closeLintsPlan(r, sha, sb.env);

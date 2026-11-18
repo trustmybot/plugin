@@ -49,7 +49,9 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   assert.equal(getSpec.ok, true, `task_get: ${JSON.stringify(getSpec)}`);
   assert.equal(getSpec.data.spec_body, SPEC_BODY);
 
-  // 2. Transition to running
+  // 2. Transition to running, on the swe run task_brief opens
+  const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
+  assert.equal(brief.ok, true, `task_brief: ${JSON.stringify(brief)}`);
   const running = await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'running',
   });
@@ -69,13 +71,13 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
 
   // 4. Atomic close — status → completed
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', report: { criteria: [{ id: 'SC1', status: 'met' }] },
+    agent: 'swe', task_id: taskId, status: 'submitted', report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `status completed: ${JSON.stringify(completed)}`);
 
   // 5. Verify final state
   const finalTask = await call(client, 'task_get', { agent: 'swe', task_id: taskId });
-  assert.equal(finalTask.data.status, 'completed');
+  assert.equal(finalTask.data.status, 'submitted');
 });
 
 test('swe — validation_history read-access to own task', async (t) => {

@@ -215,15 +215,15 @@ export function buildCloseSandbox(s: string): void {
     add(32, 'feat/no-commit', 'dev', 'running');
     add(33, 'feat/checkpoint', 'dev', 'running', 'plugin', 'low', JSON.stringify({ done: 'half', left: 'half', files: [], at: at(30) }));
     add(34, 'feat/failed', 'dev', 'failed');
-    add(35, 'feat/done', 'dev', 'completed');
-    add(36, 'feat/escalated', 'dev', 'escalated');
+    add(35, 'feat/done', 'dev', 'submitted');
+    add(36, 'feat/escalated', 'dev', 'superseded');
     add(37, 'feat/blocked', 'dev', 'running');
     add(38, 'feat/empty-parent', null, 'running');
     add(39, 'feat/stale', 'release', 'running');
     add(40, 'feat/nowt', 'dev', 'running', 'other');
     add(41, 'feat/resumed', 'dev', 'running');
     add(42, 'feat/unmeasured', 'dev', 'running');
-    add(43, 'feat/reviewed', 'dev', 'completed');
+    add(43, 'feat/reviewed', 'dev', 'submitted');
     const run = db.prepare(
       'INSERT INTO agent_runs (id, task_id, issue_id, agent_type, spawn_id, started_at, completed_at, exit_reason, resumed_from, tokens_in) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)',
     );

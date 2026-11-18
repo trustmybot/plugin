@@ -269,7 +269,7 @@ export function buildSessionScansSandbox(s: string, runner: number): void {
     const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, 1, ?, 'd', ?, ?, ?)");
     task.run(10, 'feat/pending', 'pending', T1, T1);
     task.run(11, 'feat/running', 'running', T1, T1);
-    task.run(12, 'feat/completed', 'completed', T1, T1);
+    task.run(12, 'feat/completed', 'submitted', T1, T1);
     repo(db, 'plugin', project, 7, warmAt);
     warmDirectory(db, 'plugin');
   });

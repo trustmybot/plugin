@@ -5,7 +5,7 @@
   "tool_input": {
     "agent": "bro",
     "task_id": 1,
-    "status": "completed"
+    "status": "submitted"
   },
   "tool_response": {
     "ok": true

@@ -3,7 +3,7 @@
 // Trajectory: bro triages simple → issue_create → discussion (intent + triage) →
 // task_provision (decision + task + branch + worktree + planning_complete) →
 // SWE starts with task_brief, commits in the worktree, returns
-// (task_update_status='completed') → bro verifies → review_handoff →
+// (task_update_status='submitted') → bro verifies → review_handoff →
 // code-reviewer pass → bro_atomic_close, which closes the task and leaves the
 // issue open until its commits merge.
 //
@@ -14,7 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { startProjectClient, call, seedHumanRow, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, startSwe, seedHumanRow, seedPassingVerificationRun, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → code-reviewer passes → bro closes', async (t) => {
   const { client, close, dbPath, project } = await startProjectClient();
@@ -64,14 +64,13 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   assert.match(project.git('worktree', 'list', '--porcelain'), /branch refs\/heads\/feat\/hello/);
 
   // 4. SWE picks up the task: task_brief returns the spec
-  const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
-  assert.equal(brief.ok, true, `task_brief: ${JSON.stringify(brief)}`);
+  const brief = await startSwe(client, taskId);
   assert.match(JSON.stringify(brief.data), /Success Criteria/);
 
   // 5. SWE commits in the worktree and completes with that commit_sha
   const sha = project.commitIn(worktreePath, 'hello.txt', 'hello\n', 'feat: add /hello');
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
+    agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);

@@ -88,8 +88,16 @@ function seedQuality(db) {
     verification.run(i + 1, v.task, ago(v.at), ago(v.at), v.exit);
     command.run(i + 1, v.command, v.exit, v.elapsed);
   });
-  const close = db.prepare("UPDATE tasks SET status = 'closed', completed_at = ? WHERE id = ?");
-  for (const [id, at] of CLOSED) close.run(ago(at), id);
+  // tasks.status follows task_events (schema v77): close each task by a manual merged_outside_flow event.
+  const closeEvent = db.prepare(
+    `INSERT INTO task_events (task_id, seq, event_type, from_state, to_state, role, cause, note, occurred_at, recorded_at)
+     SELECT ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM task_events WHERE task_id = ?), 'merged_outside_flow', 'running', 'closed', 'bro', 'manual', 'test fixture', ?, ?`,
+  );
+  const completedAt = db.prepare('UPDATE tasks SET completed_at = ? WHERE id = ?');
+  for (const [id, at] of CLOSED) {
+    closeEvent.run(id, id, ago(at), ago(at));
+    completedAt.run(ago(at), id);
+  }
   return db;
 }
 

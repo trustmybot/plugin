@@ -14,6 +14,7 @@ import {
   ACTIVE,
   AWAITING_CLOSE,
   DONE,
+  FINAL,
   IN_PROGRESS,
   LIVE,
   TASK_STATE,
@@ -33,14 +34,15 @@ const exportedGroups = (): [string, TaskStateGroup][] =>
 
 describe('task state groups', () => {
   it('each named group holds exactly its states', () => {
-    assert.deepEqual(IN_PROGRESS, ['pending', 'running', 'needs_validation']);
+    assert.deepEqual(IN_PROGRESS, ['pending', 'running']);
     assert.deepEqual(ACTIVE, ['pending', 'running']);
     assert.deepEqual(ACTIONABLE, ['pending', 'failed']);
-    assert.deepEqual(AWAITING_CLOSE, ['needs_validation', 'completed']);
-    assert.deepEqual(LIVE, ['pending', 'running', 'needs_validation', 'completed']);
+    assert.deepEqual(AWAITING_CLOSE, ['submitted']);
+    assert.deepEqual(LIVE, ['pending', 'running', 'submitted']);
     assert.deepEqual(DONE, ['closed']);
-    assert.deepEqual(TERMINAL_FAILED, ['failed', 'escalated']);
-    assert.deepEqual(TERMINAL, ['closed', 'failed', 'escalated']);
+    assert.deepEqual(FINAL, ['superseded', 'cancelled']);
+    assert.deepEqual(TERMINAL_FAILED, ['failed', 'superseded', 'cancelled']);
+    assert.deepEqual(TERMINAL, ['closed', 'failed', 'superseded', 'cancelled']);
   });
 
   it('re-exports the one TASK_STATUSES list rather than a copy', () => {
@@ -83,7 +85,7 @@ describe('task state groups', () => {
 describe('inGroup', () => {
   it('admits members and refuses non-members', () => {
     assert.equal(inGroup(DONE, 'closed'), true);
-    assert.equal(inGroup(DONE, 'completed'), false);
+    assert.equal(inGroup(DONE, 'submitted'), false);
   });
 
   it('puts an unknown, null or missing status in no group', () => {
@@ -98,7 +100,7 @@ describe('inGroup', () => {
 
 describe('unionOf', () => {
   it('returns each member once, in TASK_STATUSES order', () => {
-    assert.deepEqual(unionOf(DONE, AWAITING_CLOSE, DONE), ['needs_validation', 'completed', 'closed']);
+    assert.deepEqual(unionOf(DONE, AWAITING_CLOSE, DONE), ['submitted', 'closed']);
   });
 
   it('of no groups is empty', () => {
@@ -108,9 +110,9 @@ describe('unionOf', () => {
 
 describe('statusIn and sqlList', () => {
   it('render the group as quoted SQL literals, with and without an alias', () => {
-    assert.equal(sqlList(TERMINAL_FAILED), "'failed', 'escalated'");
-    assert.equal(statusIn('t', TERMINAL_FAILED), "t.status IN ('failed', 'escalated')");
-    assert.equal(statusIn('', TERMINAL_FAILED), "status IN ('failed', 'escalated')");
+    assert.equal(sqlList(FINAL), "'superseded', 'cancelled'");
+    assert.equal(statusIn('t', FINAL), "t.status IN ('superseded', 'cancelled')");
+    assert.equal(statusIn('', FINAL), "status IN ('superseded', 'cancelled')");
   });
 
   it('select in SQLite exactly the statuses inGroup admits', () => {

@@ -18,7 +18,7 @@ import { noSourceEditFromMain } from '../hooks/no-source-edit-from-main.js';
 import { sweVerificationGate } from '../hooks/swe-verification-gate.js';
 import { PATH_CLASSES_FILE } from '../path-classes.js';
 import { compositeTools } from '../tools/composites.js';
-import { tempDB } from './helpers.js';
+import { setTaskStatus, tempDB } from './helpers.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -171,7 +171,7 @@ function edit(f: Fixture, filePath: string, agentType?: string) {
 
 function close(f: Fixture, agent: string, extra: Record<string, unknown> = {}) {
   return sweVerificationGate(
-    JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent, task_id: String(TASK_ID), status: 'completed', ...extra } }),
+    JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent, task_id: String(TASK_ID), status: 'submitted', ...extra } }),
     f.env,
   );
 }
@@ -227,8 +227,8 @@ describe('SC1: tasks.no_code_class through task_provision', () => {
         },
       })) as RawResult;
     const retry = async (failedBranchId: string, newBranchId: string): Promise<RawResult> => {
-      db.run(`UPDATE tasks SET status = 'failed' WHERE branch_id = ?`, [failedBranchId]);
-      const failedId = db.get<{ id: number }>('SELECT id FROM tasks WHERE branch_id = ?', [failedBranchId])?.id;
+      const failedId = db.get<{ id: number }>('SELECT id FROM tasks WHERE branch_id = ?', [failedBranchId])!.id;
+      setTaskStatus(db, failedId, 'failed', 'the work failed');
       return (await composites.handlers['task_retry']({
         agent: 'bro',
         failed_task_id: String(failedId),
@@ -343,7 +343,7 @@ describe('SC2: bro edits only no-code paths of a running classed task', () => {
     assert.match(reason, /swe/);
   });
 
-  for (const status of ['pending', 'completed', 'closed']) {
+  for (const status of ['pending', 'submitted', 'closed']) {
     it(`denies bro the worktree of a ${status} task`, async () => {
       const f = fixture({ status });
       assert.match(denyReason(await edit(f, join(f.worktree, 'docs/guide.md'))), new RegExp(`is ${status}, not running`));

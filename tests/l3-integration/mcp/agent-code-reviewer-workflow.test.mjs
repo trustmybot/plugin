@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from './harness.mjs';
+import { startClient, call, startSwe, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from './harness.mjs';
 
 async function seedCompletedTask(client, dbPath) {
   const issue = await call(client, 'issue_create', {
@@ -32,8 +32,8 @@ async function seedCompletedTask(client, dbPath) {
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
 
   // SWE completes it.
-  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
-  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234', report: { criteria: [{ id: 'SC1', status: 'met' }] } });
+  await startSwe(client, taskId);
+  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'submitted', commit_sha: 'abc1234', report: { criteria: [{ id: 'SC1', status: 'met' }] } });
   seedPassingVerificationRun(dbPath, taskId, 'abc1234');
 
   return taskId;
@@ -48,7 +48,7 @@ test('code-reviewer — happy path: read task → record pass → history reflec
   // Reviewer reads the task spec.
   const task = await call(client, 'task_get', { agent: 'code-reviewer', task_id: taskId });
   assert.equal(task.ok, true, `task_get: ${JSON.stringify(task)}`);
-  assert.equal(task.data.status, 'completed', 'task must be completed before review');
+  assert.equal(task.data.status, 'submitted', 'task must be submitted before review');
 
   seedReviewerObservation(dbPath, taskId, 1);
   // Record pass.

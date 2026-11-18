@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
+import { pinScanEnv, setTaskStatus, tempDB, type ScanEnvPin } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { reindexHooks, scanTools } from '../tools/scan.js';
@@ -636,11 +636,11 @@ describe('spawns (SC6)', () => {
 
       const second = moveAlpha(7);
       const reopened = parse(await composites['task_reopen']({ agent: 'bro', task_id: taskId, reason: 'rework after the base moved' }));
-      assert.equal(reopened['status'], 'running', JSON.stringify(reopened));
+      assert.equal(reopened['status'], 'pending', `a pending task is amended in place: ${JSON.stringify(reopened)}`);
       assert.deepEqual(await alphaRange(taskId), [8, 10]);
       assert.deepEqual(spawnRows().map((r) => r.to_commit), [first, second]);
 
-      fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+      setTaskStatus(fx.db, taskId, 'failed', 'the work failed');
       const third = moveAlpha(12);
       const retried = parse(
         await composites['task_retry']({

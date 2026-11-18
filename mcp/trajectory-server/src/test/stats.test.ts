@@ -199,7 +199,7 @@ describe('statsTools — task_stats', () => {
     );
     const issueId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
     db.run(
-      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/one-spawn', 'title', 'desc', 'completed', ?, ?)",
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/one-spawn', 'title', 'desc', 'submitted', ?, ?)",
       [issueId, now, now],
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;

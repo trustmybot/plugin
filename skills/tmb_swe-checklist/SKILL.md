@@ -5,7 +5,7 @@ description: SWE's self-review before close. Mechanical patterns (bare except, m
 
 # SWE Self-Review
 
-Before `task_update_status(completed, commit_sha, report)`, confirm these by reading the diff. Mechanical patterns (bare except, mutable defaults, etc.) are caught by the plugin's `code-quality-lint` hook on every Edit/Write. You check the things only a human reader would see.
+Before `task_update_status(submitted, commit_sha, report)`, confirm these by reading the diff. Mechanical patterns (bare except, mutable defaults, etc.) are caught by the plugin's `code-quality-lint` hook on every Edit/Write. You check the things only a human reader would see.
 
 - **Spec fidelity.** Every `SC<n>` criterion and every error/edge case named in `## Description` has a concrete change in the diff.
 - **Scope discipline.** No "while I was there" cleanups and no new TODOs: name an out-of-scope defect in your final message for bro to file instead.

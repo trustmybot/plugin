@@ -54,7 +54,7 @@ function decision(stdout: string): { permissionDecision?: string; permissionDeci
   return out.hookSpecificOutput;
 }
 
-function completion(taskId: unknown, agent = 'swe', status = 'completed'): string {
+function completion(taskId: unknown, agent = 'swe', status = 'submitted'): string {
   return JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent, task_id: taskId, status } });
 }
 
@@ -149,7 +149,7 @@ describe('swe-verification-gate without jq or the sqlite3 CLI (decision 703)', (
     assert.equal(commandOnPath('jq', env()), false);
     assert.equal(commandOnPath('sqlite3', env()), false);
   });
-  it('lets a non-swe caller, a status other than completed and a missing task id through', async () => {
+  it('lets a non-swe caller, a status other than submitted and a missing task id through', async () => {
     assert.deepEqual(await sweVerificationGate(completion(31, 'bro'), env()), ALLOWED);
     assert.deepEqual(await sweVerificationGate(completion(31, 'swe', 'running'), env()), ALLOWED);
     assert.deepEqual(await sweVerificationGate(completion(undefined), env()), ALLOWED);
@@ -358,7 +358,7 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
       const out = decision(r.stdout);
       assert.equal(out.permissionDecision, 'deny');
       assert.match(out.permissionDecisionReason ?? '', new RegExp(`^BLOCKED: suite slot busy — every suite slot is held by pid ${process.pid} \\(worktree /w/other\\) for \\d+s; waited \\d+s, the cap of 3s \\(set by TMB_SUITE_WAIT_CAP_S\\)`));
-      assert.match(out.permissionDecisionReason ?? '', /Allowed form: task_update_status\(status='completed', commit_sha, report\) again once that suite finishes$/);
+      assert.match(out.permissionDecisionReason ?? '', /Allowed form: task_update_status\(status='submitted', commit_sha, report\) again once that suite finishes$/);
       assert.deepEqual(runs(52), []);
     } finally {
       if (held.kind === 'held') held.release();
@@ -631,7 +631,7 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
 
   const close = (f: Fixture, extra: Record<string, unknown> = {}, env: NodeJS.ProcessEnv = f.env) =>
     sweVerificationGate(
-      JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'completed', ...extra } }),
+      JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status', tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'submitted', ...extra } }),
       env,
     );
 
@@ -642,7 +642,7 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
     const out = decision(r.stdout);
     assert.equal(out.permissionDecision, 'deny');
     const { fix, ...failure } = JSON.parse(out.permissionDecisionReason ?? '') as { check: string; expected: string | null; actual: string | null; fix: { allowed?: string } };
-    assert.match(fix.allowed ?? '', /task_update_status\(status='completed'/);
+    assert.match(fix.allowed ?? '', /task_update_status\(status='submitted'/);
     return failure;
   }
 
@@ -1122,7 +1122,7 @@ describe('swe-verification-gate changelog and doc checks (GH 2866)', () => {
       const f = leaky();
       const payload = JSON.stringify({
         tool_name: 'mcp__plugin_tmb_trajectory-server__task_update_status',
-        tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'completed' },
+        tool_input: { agent: 'swe', task_id: String(TASK_ID), status: 'submitted' },
       });
       const r = spawnSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'swe-verification-gate'], {
         input: payload,

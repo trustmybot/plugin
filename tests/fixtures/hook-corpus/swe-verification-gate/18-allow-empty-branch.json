@@ -3,7 +3,7 @@
   "tool_input": {
     "agent": "swe",
     "task_id": 38,
-    "status": "completed"
+    "status": "submitted"
   },
   "corpus_expect": "empty"
 }

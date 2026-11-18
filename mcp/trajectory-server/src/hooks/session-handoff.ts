@@ -27,8 +27,8 @@ export const GATE_NAME = 'session-handoff';
 const LIVE_TASK_LIMIT = 20;
 const LANE_ISSUE_LIMIT = 30;
 const LANE_OBJECTIVE_CHARS = 160;
-// Escalated tasks still wait on bro, so the handoff carries them with the live ones.
-const LIVE_TASK_STATUSES = sqlList([...LIVE, TASK_STATE.escalated]);
+// Failed tasks still wait on bro (retry or reopen), so the handoff carries them with the live ones.
+const LIVE_TASK_STATUSES = sqlList([...LIVE, TASK_STATE.failed]);
 const CONSUME_SOURCE = 'compact';
 const HOOK_CONTEXT_CAP = 10_000;
 const CONTEXT_SEPARATOR = '\n\n';

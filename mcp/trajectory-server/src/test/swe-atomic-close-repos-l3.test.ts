@@ -50,7 +50,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
     const head = git(sb.env, repo, 'rev-parse', 'HEAD');
     recordRun(db, 100, head);
     assert.equal(hook(sb, repo, db, spawnInput(sb.dir, 100, 'tmb:swe')), '', 'no additionalContext on auto-close');
-    assert.equal(status(db, 100), 'completed', 'task auto-closed');
+    assert.equal(status(db, 100), 'submitted', 'task auto-closed');
     assert.equal(sha(db, 100), head, 'commit_sha written from REPO_ROOT HEAD');
   });
 
@@ -100,7 +100,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
           '{"timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":50},"content":[]}}\n',
       );
       assert.equal(hook(sb, repo, db, { agent_type: 'tmb:swe', hook_event_name: 'SubagentStop', agent_transcript_path: tp }), '', 'no additionalContext on auto-close');
-      assert.equal(status(db, 200), 'completed', 'task 200 (SWE-A) auto-closed via transcript extraction');
+      assert.equal(status(db, 200), 'submitted', 'task 200 (SWE-A) auto-closed via transcript extraction');
       assert.equal(sha(db, 200), headA, 'commit_sha from SWE-A worktree written to task 200');
     });
 
@@ -175,7 +175,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
       );
       const payload = { agent_type: 'tmb:swe', hook_event_name: 'SubagentStop', agent_transcript_path: tp, cwd: join(repo, '.claude/worktrees/slug-other-task') };
       assert.equal(hook(sb, repo, db, payload), '', 'no additionalContext on auto-close');
-      assert.equal(status(db, 600), 'completed', 'task 600 auto-closed via transcript');
+      assert.equal(status(db, 600), 'submitted', 'task 600 auto-closed via transcript');
       assert.equal(sha(db, 600), head, 'commit_sha from task 600 worktree HEAD');
     });
 
@@ -210,7 +210,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
 
     it('nested-repo: repo-rooted worktree → pending task auto-completed (#169 repo-rooted resolver)', () => {
       assert.equal(hook(sb, inner, wsDb, spawnInput(sb.dir, 700, 'tmb:swe')), '', 'no additionalContext on auto-close');
-      assert.equal(status(wsDb, 700), 'completed', 'task 700 auto-closed via repo-rooted worktree path');
+      assert.equal(status(wsDb, 700), 'submitted', 'task 700 auto-closed via repo-rooted worktree path');
       assert.equal(sha(wsDb, 700), head, 'commit_sha written from repo-rooted worktree HEAD');
     });
   });
@@ -223,7 +223,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
     const head = commitIn(sb.env, addWorktree(repo, 'fix/ep-task', 'ep-task'), 'ep-work.txt', 'feat: ep work');
     recordRun(db, 800, head);
     assert.equal(hook(sb, repo, db, spawnInput(sb.dir, 800, 'tmb:swe')), '', 'no additionalContext on auto-close');
-    assert.equal(status(db, 800), 'completed', 'task 800 auto-closed despite empty parent_branch_id');
+    assert.equal(status(db, 800), 'submitted', 'task 800 auto-closed despite empty parent_branch_id');
     assert.equal(sha(db, 800), head, 'commit_sha written from attached-worktree HEAD');
   });
 
@@ -290,7 +290,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
         const head = commitIn(sb.env, wt, 'stale-work.txt', 'feat: stale work');
         recordRun(db, 900, head);
         assert.equal(hook(sb, repo, db, spawnInput(sb.dir, 900, 'tmb:swe')), '', 'no additionalContext on auto-close');
-        assert.equal(status(db, 900), 'completed', 'task auto-completed');
+        assert.equal(status(db, 900), 'submitted', 'task auto-completed');
         assert.equal(sha(db, 900), head, 'commit_sha is the swe commit');
         assert.equal(autoCompletedRows(db, 900), '1', 'one swe_atomic_close_auto_completed row');
         assert.equal(

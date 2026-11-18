@@ -3,7 +3,7 @@
   "tool_input": {
     "agent": "swe",
     "task_id": 31,
-    "status": "completed",
+    "status": "submitted",
     "waive_verification_gate_reason": "the CI runner is down for maintenance"
   },
   "corpus_divergent": "decision 703: GH 2866 added the doc-checks note; the worktree HEAD has no .config/tmb/doc-checks.json, so the port adds a note that missing_changelog and stale_doc_ref were skipped, which the .sh predates",

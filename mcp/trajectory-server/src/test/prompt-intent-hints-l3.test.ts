@@ -37,7 +37,7 @@ describe('prompt-intent-hints l3', () => {
       `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
          VALUES (1, 'auth work', 'd', 'open', datetime('now'), datetime('now'));
        INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, commit_sha, created_at, updated_at)
-         VALUES (1, 1, 'feat/done', 'done task', 'd', 'completed', '', 'abc123', datetime('now'), datetime('now'));
+         VALUES (1, 1, 'feat/done', 'done task', 'd', 'submitted', '', 'abc123', datetime('now'), datetime('now'));
        INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
          VALUES (2, 1, 'feat/next', 'next task', 'd', 'pending', '', datetime('now'), datetime('now'));
        INSERT INTO audit (issue_id, event_type, summary, created_at)

@@ -54,7 +54,7 @@ function reviewFailSpawnNote(validationId: number, findings: readonly BlockingFi
 
 /**
  * What a code-reviewer FAIL does to its task, inside validation_record's
- * transaction (GH 2866): a completed, needs_validation or closed task is
+ * transaction (GH 2866): a submitted or closed task is
  * reopened, except a closed agile task still queued for review, to running at the rework floor effort, reopening its issue too when
  * that issue is closed (the revert guard, GH 3234); a running one only has its
  * effort raised to the floor; any other status is left as it is. The reopen's
@@ -100,6 +100,7 @@ function reopenAfterReviewFail(
     task,
     agent,
     reason: `code-reviewer FAIL (validation ${fail.validationId}): ${findingIds.join(', ')}`,
+    cause: 'review_failed',
     effort,
     spawnNote: reviewFailSpawnNote(fail.validationId, fail.findings),
     now: fail.now,
@@ -425,7 +426,7 @@ export function validationTools(db: TrajectoryDB): {
             description:
               'One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). ' +
               'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; findings attach to the stored attempt and are never deleted. ' +
-              'On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding\'s probe_cmd after verification[]: ' +
+              'On every later task_update_status(submitted) the swe verification gate runs each non-wontfix blocking finding\'s probe_cmd after verification[]: ' +
               'a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. ' +
               'task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.',
             items: {

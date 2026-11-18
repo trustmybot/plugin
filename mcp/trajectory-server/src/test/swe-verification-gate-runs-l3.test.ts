@@ -32,7 +32,7 @@ import {
 
 describe('swe-verification-gate runs l3', () => {
   let w: Ws;
-  const done = (task: number, sha = '') => makeInput('swe', 'completed', task, sha);
+  const done = (task: number, sha = '') => makeInput('swe', 'submitted', task, sha);
 
   before(() => {
     w = makeWs('swe-verification-gate-runs');
@@ -296,7 +296,7 @@ describe('swe-verification-gate runs l3', () => {
     });
 
     it('HEAD unresolvable: a waiver does not skip the doc checks', () => {
-      const waived = makeInput('swe', 'completed', 90, '', { waive_verification_gate_reason: 'slow environment, waived for this close' });
+      const waived = makeInput('swe', 'submitted', 90, '', { waive_verification_gate_reason: 'slow environment, waived for this close' });
       const reason = reasonOf(runHook(w, waived).stdout);
       has(reason, '"check":"stale_doc_ref"', 'the waiver still denies on the doc checks');
       assert.equal(lineCount(nohead), 0, 'verification[] did not run');

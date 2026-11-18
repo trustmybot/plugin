@@ -201,7 +201,7 @@ function assertDesignDrift(reason: string, taskId: number): void {
   assert.match(reason, /no further swe run of this task goes on/);
   assert.match(reason, /Redesign the work as a new task: `task_retry` this task with a spec redesigned/);
   assert.match(reason, /split it into new tasks with `task_create_batch`/);
-  assert.ok(reason.includes(`Allowed form: task_update_status(agent='bro', task_id=${taskId}, status='escalated'), then task_retry(agent='bro', failed_task_id=${taskId}, `), reason);
+  assert.ok(reason.includes(`Allowed form: task_retry(agent='bro', failed_task_id=${taskId}, `), reason);
   assert.doesNotMatch(reason, /policy/);
   assert.doesNotMatch(reason, /[Ww]aive|Human/);
   assert.doesNotMatch(reason, /discussion_append/);

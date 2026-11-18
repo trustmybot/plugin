@@ -34,7 +34,7 @@ import { mergeFailed, readMergePayload } from './lib/merge.js';
 import { commandSubstitution, jqRawText } from './lib/project-env.js';
 import { forgeCommandDir, forgeRepoDir } from './lib/repo.js';
 import { RUN_UNMEASURED_SQL } from './swe-spawn-rollback.js';
-import { sqlText, taskStatusUpdateSql } from '../task-status.js';
+import { sqlText, taskStatusMoveSql } from '../task-status.js';
 import { DONE, ISSUE_STATE, LIVE, sqlList, unionOf } from '../task-states.js';
 
 export const GATE_NAME = 'close-issue-on-merge';
@@ -236,8 +236,14 @@ class Merge {
            ${RUN_UNMEASURED_SQL}
      WHERE completed_at IS NULL
        AND task_id IN (SELECT id FROM tasks WHERE branch_id = '${branch}' AND status IN (${LIVE_OR_DONE_SQL}));
-    ${taskStatusUpdateSql({
+    ${taskStatusMoveSql({
       status: 'closed',
+      event: 'merged_outside_flow',
+      cause: 'merged_outside_flow',
+      role: 'hook',
+      record: { kind: 'task', id: sqlText('tasks.id') },
+      key: `close-issue-on-merge:${this.head}:${stamp}`,
+      at: stamp,
       set: { completed_at: sqlText(`COALESCE(completed_at, '${now}')`), updated_at: stamp },
       where: `branch_id = '${branch}' AND status IN (${LIVE_SQL})`,
     })};`);

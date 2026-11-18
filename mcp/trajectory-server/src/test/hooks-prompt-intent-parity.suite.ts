@@ -95,7 +95,7 @@ export function buildSandbox(s: string): void {
     config(db, 'headless_enforcement', '"no"');
     db.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'auth | work', 'open', ?, ?)").run(T1, T1);
     const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, title, description, status, commit_sha, created_at, updated_at) VALUES (?, 1, ?, ?, 'd', ?, ?, ?, ?)");
-    task.run(1, 'feat/done', 'done task', 'completed', 'abc1234', T1, T1);
+    task.run(1, 'feat/done', 'done task', 'submitted', 'abc1234', T1, T1);
     task.run(2, 'feat/next', 'next | task', 'pending', null, T1, T1);
     db.prepare(
       "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES (1, 'feat/next', 'bro', 'planning_complete', 'planned', '{}', ?)",

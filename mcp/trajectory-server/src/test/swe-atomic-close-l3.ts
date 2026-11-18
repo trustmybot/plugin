@@ -10,6 +10,9 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { runGate, type HookRun, type Sandbox } from './hook-sandbox.js';
 import { gateEnv, git } from './git-push-guard-l3.js';
+import { TASK_EVENTS_SCHEMA_SQL } from '../task-events.js';
+import type { TaskStatus } from '../task-status.js';
+import { taskStatusPathSql } from './helpers.js';
 
 export const GATE = 'swe-atomic-close';
 export const NO_COMMITS = 'stopped without committing';
@@ -41,6 +44,7 @@ CREATE UNIQUE INDEX idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE 
 CREATE TABLE verification_runs (id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL, commit_sha TEXT NOT NULL, source TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, exit_code INTEGER, budget_s INTEGER NOT NULL, timed_out INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
 CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '""');
 INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '"dev"');
+${TASK_EVENTS_SCHEMA_SQL}
 `;
 
 /** Runs <statements> on <db> with foreign keys off, as the sqlite3 CLI does. */
@@ -51,6 +55,12 @@ export function execDb(db: string, statements: string): void {
   } finally {
     d.close();
   }
+}
+
+/** Moves <task> on <db> to <to> through task_events, the one way its status changes. */
+export function moveTask(db: string, task: number, to: TaskStatus): void {
+  const from = q(db, 'SELECT status FROM tasks WHERE id=?', task) as TaskStatus;
+  for (const sql of taskStatusPathSql(task, from, to)) execDb(db, sql);
 }
 
 /** The rows of <statement> as `$(sqlite3 …)` reads them: one line per row, columns joined by `|`, NULL as '', trailing newlines cut. */

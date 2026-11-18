@@ -111,7 +111,7 @@ function resolveMonitorTaskId(db: TrajectoryDB, branch: string | undefined, repo
 // else the task on the head branch → its issue. When the slug maps to a
 // registered repo only that repo's tasks (or legacy rows with no repo) qualify;
 // otherwise any repo's task does. A task is closed at bro_atomic_close after code-reviewer's pass and before
-// its PR opens, so closed tasks carry comments; failed and escalated tasks do
+// its PR opens, so closed tasks carry comments; failed and superseded tasks do
 // not. The most recently updated match wins. Null when no task carries the PR.
 function resolveCarrierIssueId(
   db: TrajectoryDB,

@@ -6,7 +6,8 @@
  */
 import type { TrajectoryDB } from '../db.js';
 import { REWORK_FLOOR_EFFORT, failsSinceLastPassSql, type ReworkChange } from '../task-rework.js';
-import { sqlText, taskStatusUpdate } from '../task-status.js';
+import { TASK_STATUS_EDGES, type TaskEventType } from '../task-events.js';
+import { runTaskStatusMove, sqlText } from '../task-status.js';
 import { insertAudit } from './audit.js';
 import { effortRank, type Effort } from './config.js';
 import { insertDiscussion } from './discussions.js';
@@ -23,6 +24,8 @@ export interface ReopenWrite {
   task: ReopenTask;
   agent: string;
   reason: string;
+  // Why the task reopens: bro's rework, or a code-reviewer FAIL.
+  cause: 'rework' | 'review_failed';
   effort: Effort;
   spawnNote: string | null;
   now: string;
@@ -62,23 +65,53 @@ export function insertEffortRaised(
   });
 }
 
+// A task_events event type, not an audit one.
+const REOPENED_EVENT: TaskEventType = 'reopened';
+
+/** The states a reopen moves to running by the reopened edge. */
+export const REOPEN_SOURCES: ReadonlySet<string> = new Set(
+  TASK_STATUS_EDGES.flatMap((e) => (e.eventType === REOPENED_EVENT && e.from !== null ? [e.from] : [])),
+);
+
 /** Sets the task running at w.effort and writes its decision, task_reopened and (on a raise) task_effort_raised rows; true when the effort was raised. */
 export function applyReopenInTx(db: TrajectoryDB, w: ReopenWrite): boolean {
   const { task } = w;
-  const reopen = taskStatusUpdate({
-    status: 'running',
-    set: {
-      ...(w.fence ? { files: JSON.stringify(w.fence.files), verification: JSON.stringify(w.fence.verification) } : {}),
-      effort: w.effort,
-      completed_at: null,
-      completion_report: null,
-      spawn_note: w.spawnNote,
-      updated_at: w.now,
-      ...(w.envGate ? { base_sha: w.envGate.base_sha, wm_commit: w.envGate.wm_commit } : {}),
-    },
-    where: sqlText('id = ?', task.id),
+  const reopenedAuditId = insertAudit(db, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: w.agent,
+    event_type: 'task_reopened',
+    summary: `Task ${task.id} reopened from ${task.status}: ${w.reason}`.slice(0, 200),
+    content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason: w.reason, ...w.auditContent }),
+    created_at: w.now,
   });
-  db.run(reopen.sql, reopen.params);
+  const set: Record<string, string | null> = {
+    ...(w.fence ? { files: JSON.stringify(w.fence.files), verification: JSON.stringify(w.fence.verification) } : {}),
+    effort: w.effort,
+    completed_at: null,
+    completion_report: null,
+    spawn_note: w.spawnNote,
+    updated_at: w.now,
+    ...(w.envGate ? { base_sha: w.envGate.base_sha, wm_commit: w.envGate.wm_commit } : {}),
+  };
+  if (REOPEN_SOURCES.has(task.status)) {
+    runTaskStatusMove(db, {
+      status: 'running',
+      event: 'reopened',
+      cause: w.cause,
+      role: w.agent,
+      record: { kind: 'audit', id: reopenedAuditId },
+      key: `reopen:${reopenedAuditId}`,
+      at: w.now,
+      set,
+      where: sqlText('id = ?', task.id),
+    });
+  } else {
+    // A pending or running task has no reopened edge: its spec and fence
+    // change in place and the swe spawn moves a pending one to running.
+    const columns = Object.keys(set);
+    db.run(`UPDATE tasks SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`, [...columns.map((c) => set[c] ?? null), task.id]);
+  }
   const bodyLines = [
     `Task ${task.id} reopened from ${task.status}: ${w.reason}`,
     ...(w.decisionLines ?? []),
@@ -92,15 +125,6 @@ export function applyReopenInTx(db: TrajectoryDB, w: ReopenWrite): boolean {
     body: bodyLines.join('\n'),
     created_at: w.now,
     task_id: task.id,
-  });
-  insertAudit(db, {
-    issue_id: task.issue_id,
-    branch_id: task.branch_id,
-    from_node: w.agent,
-    event_type: 'task_reopened',
-    summary: `Task ${task.id} reopened from ${task.status}: ${w.reason}`.slice(0, 200),
-    content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason: w.reason, ...w.auditContent }),
-    created_at: w.now,
   });
   const raised = effortRank(w.effort) > effortRank(task.effort);
   if (raised) {
@@ -159,6 +183,8 @@ export interface ClearedCompletion {
 /** A re-review review_handoff admits: the FAIL it answers and the completion it restores. */
 export interface ReReview {
   failValidationId: number;
+  // The re-review task_rework_analysis row the restore rests on.
+  analysisAuditId: number;
   completionReport: string | null;
   completedAt: string | null;
 }
@@ -243,17 +269,23 @@ export function reReviewAdmission(
   const cleared = reopened ? (JSON.parse(reopened.content_json) as Partial<ClearedCompletion>) : {};
   return {
     failValidationId: fail.id,
+    analysisAuditId: analysis.id,
     completionReport: cleared.completion_report ?? task.completion_report,
     completedAt: cleared.completed_at ?? null,
   };
 }
 
-/** Moves a re-reviewed task back to completed with the completion its FAIL's reopen cleared. */
-export function restoreForReReviewInTx(db: TrajectoryDB, taskId: number, reReview: ReReview, now: string): void {
-  const restore = taskStatusUpdate({
-    status: 'completed',
+/** Moves a re-reviewed task back to submitted with the completion its FAIL's reopen cleared. */
+export function restoreForReReviewInTx(db: TrajectoryDB, taskId: number, reReview: ReReview, now: string, agent: string): void {
+  runTaskStatusMove(db, {
+    status: 'submitted',
+    event: 'resubmitted',
+    cause: 're_review',
+    role: agent,
+    record: { kind: 'audit', id: reReview.analysisAuditId },
+    key: `re-review:${reReview.failValidationId}`,
+    at: now,
     set: { completion_report: reReview.completionReport, completed_at: reReview.completedAt ?? now, updated_at: now },
     where: sqlText('id = ?', taskId),
   });
-  db.run(restore.sql, restore.params);
 }
