@@ -1,6 +1,6 @@
 # Labels
 
-The issue labels on the trustmybot/plugin GitHub board. This page lists the labels of TMB's own board. Planned (GH 3314): the board moves to six groups written in lower case with a slash, adding status, decision and theme groups, and the same scheme ships to TMB users as a default each project can change; [ISSUES.md](../architecture/ISSUES.md) holds that design. Until it ships, the list below is the one in force, and no shipped default, prompt, skill or tool description names these labels.
+This page lists the issue labels on the trustmybot/plugin GitHub board, which is TMB's own board. Planned (GH 3314): the board moves to six groups written in lower case with a slash, adding status, decision and theme groups, and the same scheme ships to TMB users as a default each project can change; [ISSUES.md](../architecture/ISSUES.md) holds that design. Until it ships, the list below applies, and no default, prompt, skill or tool description that TMB ships names these labels.
 
 Every label lives in [`.github/labels.json`](../../.github/labels.json) as `{name, color, description, group}`. The tables below are generated from it.
 
@@ -74,16 +74,16 @@ To add, rename or remove a label, edit `labels.json` in a PR, regenerate this fi
 | `scripts/maintenance/labels.mjs --doc` | Regenerates the canonical list above. `--check` fails when it is stale. |
 | `scripts/maintenance/labels.mjs --check-live` | Diffs the GH labels against `labels.json`. Skips without `gh` or with `TMB_L1_OFFLINE=1`. |
 | `.github/workflows/label-sync.yml` | Runs `--sync` on a push to `dev` that changes `labels.json`, and on demand. |
-| `.github/ISSUE_TEMPLATE/` | Bug, Improvement, Feature and Research forms set the type and require an Area. Blank issues are disabled. |
-| `.github/workflows/issue-triage.yml` | Runs `--triage` on every issue open, edit, label and unlabel. It turns the form's Area answer into its label when the issue has no area. A report filed from the CLI carries a `<!-- tmb-report v1 sig=… -->` marker but no labels, so on a marked body it also adds `Bug` when the issue has no type, and the priority for the Impact answer when it has no priority (Blocks all TMB work → `Priority: High`, Blocks one task, has a workaround → `Priority: Medium`, Annoying or cosmetic → `Priority: Low`); an existing type or priority is never replaced. It then adds `needs-triage` unless the issue has exactly one type, one priority and one area, and removes it once it does. |
+| `.github/ISSUE_TEMPLATE/` | Bug, Improvement, Feature and Research forms set the type. The Improvement, Feature and Research forms require an Area; the Bug form requires only what went wrong, what happened, the Impact and the no-secrets check. Blank issues are disabled. |
+| `.github/workflows/issue-triage.yml` | Runs `--triage` on every issue open, edit, label and unlabel. It turns the form's Area answer into its label when the issue has no area, and the Impact answer into its priority when the issue has no priority (Blocks all TMB work → `Priority: High`, Blocks one task, has a workaround → `Priority: Medium`, Annoying or cosmetic → `Priority: Low`). A report filed from the CLI carries a `<!-- tmb-report v1 sig=… -->` marker but no labels, so on a marked body it also adds `Bug` when the issue has no type. An existing type or priority is never replaced. It then adds `needs-triage` unless the issue has exactly one type, one priority and one area, and removes it once it does. |
 | `tests/l1-lint/labels.test.mjs` | Unit tests for the triage rule plus the doc-sync check. |
 | `tests/l1-lint/bug-form.test.mjs` | Checks that `bug.yml` lists the same fields, labels, types and options as `FORM_FIELDS` in the bug-report module. |
 
 ## Filing with labels
 
-Whoever files an issue, a contributor or an agent working on TMB, applies one type, one priority and one area from the list above. When none fits, the answer is a `labels.json` change, never an ad-hoc label.
+Whoever files an issue, a contributor or an agent working on TMB, applies one type, one priority and one area from the list above. When no label fits, change `labels.json`; never make up a label on the spot.
 
-No label tracks staleness: a label for time-based state duplicates the issue's update time, so search by it instead (`gh issue list --state open --search 'updated:<YYYY-MM-DD>'`).
+No label marks an issue as stale. Such a label would only repeat the issue's last-update time, so search by that time instead (`gh issue list --state open --search 'updated:<YYYY-MM-DD>'`).
 
 
 ## Related

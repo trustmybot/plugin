@@ -19,6 +19,7 @@ import { ensureMcpDepsInstalled } from './ensure-mcp-deps-installed.js';
 import { GATE_NAME as GIT_GUARDS_GATE, gitGuards } from './git-guards.js';
 import { GATE_NAME as FEATURE_MERGE_GATE, featureBranchMergeGate } from './feature-branch-merge-gate.js';
 import { GATE_NAME as PUSH_GUARD_GATE, gitPushGuard } from './git-push-guard.js';
+import { GATE_NAME as PREPUSH_HOOK_GUARD_GATE, prepushHookGuard } from './prepush-hook-guard.js';
 import { GATE_NAME as MCP_HEALTH_GATE, mcpHealthCheck } from './mcp-health-check.js';
 import { GATE_NAME as PREFLIGHT_GATE, codeReviewerPreflight } from './code-reviewer-preflight.js';
 import { GATE_NAME as SPAWN_NOTE_GATE, codeReviewerSpawnNote } from './code-reviewer-spawn-note.js';
@@ -71,6 +72,7 @@ import { GATE_NAME as SESSION_START_PRESCAN_GATE, sessionStartPrescan } from './
 import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
 import { GATE_NAME as CLOSE_ISSUE_GATE, closeIssueOnMerge } from './close-issue-on-merge.js';
 import { GATE_NAME as CLOSE_FORGE_MERGED_GATE, closeForgeMerged } from './close-forge-merged.js';
+import { GATE_NAME as PREPUSH_INSTALL_GATE, prepushInstall } from './prepush-install.js';
 import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
 import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
@@ -102,6 +104,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['ensure-mcp-deps-installed', ensureMcpDepsInstalled],
   [GIT_GUARDS_GATE, gitGuards],
   [PUSH_GUARD_GATE, gitPushGuard],
+  [PREPUSH_HOOK_GUARD_GATE, prepushHookGuard],
   [MCP_HEALTH_GATE, mcpHealthCheck],
   [PREFLIGHT_GATE, codeReviewerPreflight],
   [SPAWN_NOTE_GATE, codeReviewerSpawnNote],
@@ -154,6 +157,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [CLEAN_MERGED_GATE, cleanMergedBranch],
   [CLOSE_ISSUE_GATE, closeIssueOnMerge],
   [CLOSE_FORGE_MERGED_GATE, closeForgeMerged],
+  [PREPUSH_INSTALL_GATE, prepushInstall],
   [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
   [README_STALENESS_GATE, postAtomicCloseReadme],
   [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
@@ -265,6 +269,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(GIT_GUARDS_GATE, 'enforcement'),
     routerGate(FEATURE_MERGE_GATE, 'enforcement'),
     routerGate(PUSH_GUARD_GATE, 'enforcement'),
+    routerGate(PREPUSH_HOOK_GUARD_GATE, 'enforcement'),
     routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
     routerGate(NO_WORKTREE_BRANCH_CREATE_GATE, 'enforcement'),
     routerGate(STAY_ON_BASE_GATE, 'enforcement'),
@@ -328,6 +333,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(SUBSTRATE_GATE, 'advisory'),
     routerGate(ORPHAN_SCAN_GATE, 'advisory'),
     routerGate(CLOSE_FORGE_MERGED_GATE, 'advisory'),
+    routerGate(PREPUSH_INSTALL_GATE, 'advisory'),
   ], { concurrent: true }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PERSONA_GATE, 'advisory')], { part: 'persona' }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PRESCAN_GATE, 'advisory')], { part: 'prescan' }),

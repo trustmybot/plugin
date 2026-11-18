@@ -307,6 +307,25 @@ export function parseWorkflowMode(valueJson: string | null | undefined): Workflo
   return 'truest';
 }
 
+/** Whether session start installs TMB's pre-push hook (GH 3281): only the Human sets it, through /onboard. */
+export const PREPUSH_HOOK_KEY = 'prepush_hook';
+export const PREPUSH_HOOK_SETTINGS = ['on', 'off'] as const;
+export type PrepushHookSetting = (typeof PREPUSH_HOOK_SETTINGS)[number];
+
+export function isPrepushHookSetting(value: unknown): value is PrepushHookSetting {
+  return typeof value === 'string' && (PREPUSH_HOOK_SETTINGS as readonly string[]).includes(value);
+}
+
+/** A stored prepush_hook value_json: only a stored 'off' is off, so unset or unreadable keeps the hook on. */
+export function parsePrepushHook(valueJson: string | null | undefined): PrepushHookSetting {
+  if (!valueJson) return 'on';
+  try {
+    return JSON.parse(valueJson) === 'off' ? 'off' : 'on';
+  } catch {
+    return 'on';
+  }
+}
+
 /** A repo's rules (GH 3279): the workflow modes, plus exempt, under which the git guards stand down. */
 export const REPO_MODES = [...WORKFLOW_MODES, 'exempt'] as const;
 export type RepoMode = (typeof REPO_MODES)[number];
@@ -374,7 +393,7 @@ export function parseBroCompactNudgeTokens(valueJson: string | undefined): numbe
 }
 
 /** Keys config_set refuses: only the Human sets them, through /onboard. */
-const HUMAN_ONLY_CONFIG_KEYS: ReadonlySet<string> = new Set([WORKFLOW_MODE_KEY]);
+const HUMAN_ONLY_CONFIG_KEYS: ReadonlySet<string> = new Set([WORKFLOW_MODE_KEY, PREPUSH_HOOK_KEY]);
 
 export const ISSUE_AREA_LABELS_KEY = 'issue_area_labels';
 export const ISSUE_AREA_PATHS_KEY = 'issue_area_paths';
@@ -446,6 +465,11 @@ function validateKnownConfigValue(key: string, value: unknown): void {
   if (key === WORKFLOW_MODE_KEY && !isWorkflowMode(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${WORKFLOW_MODES.join(', ')}, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === PREPUSH_HOOK_KEY && !isPrepushHookSetting(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${PREPUSH_HOOK_SETTINGS.join(', ')}, got ${JSON.stringify(value)}.`,
     );
   }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {

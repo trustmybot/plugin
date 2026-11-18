@@ -92,13 +92,15 @@ const snapshots = new WeakMap<NodeJS.ProcessEnv, Promise<ProcTable>>();
  * caller with time left takes its own.
  */
 export function processTable(env: NodeJS.ProcessEnv): Promise<ProcTable> {
-  const kept = snapshots.get(env);
-  if (kept !== undefined) return kept;
-  const taken = captureStdout('ps', PS_ARGS, env).then((text) => {
+  if (!snapshots.has(env)) snapshots.set(env, takeSnapshot(env));
+  return snapshots.get(env)!;
+}
+
+/** Only takeSnapshot drops an entry, so while its snapshot is pending the entry for <env> is that snapshot. */
+function takeSnapshot(env: NodeJS.ProcessEnv): Promise<ProcTable> {
+  return captureStdout('ps', PS_ARGS, env).then((text) => {
     const table = parseProcessTable(text);
-    if (table.size === 0 && snapshots.get(env) === taken) snapshots.delete(env);
+    if (table.size === 0) snapshots.delete(env);
     return table;
   });
-  snapshots.set(env, taken);
-  return taken;
 }

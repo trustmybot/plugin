@@ -6,29 +6,40 @@
  *
  * stdin carries one `<local-ref> <local-sha> <remote-ref> <remote-sha>` line
  * per ref the push sends. A push from outside an agent session exits 0 with
- * stdin unread and the DB untouched; an agent's push is judged by
- * hooks/pre-push/judge.ts. Exit 0 admits the push; exit 1 denies it, with the
- * reason on stderr. Nothing installs the hook yet (GH 3281 S2).
+ * stdin unread and the DB untouched. Slice 2 is observe mode: an agent's push
+ * is judged by hooks/pre-push/judge.ts and the verdict recorded as one
+ * prepush_observed row, legacy verdict admit (the command-text judge let the
+ * push reach git); it exits 0 whatever the verdict, a judge throw or a stdin
+ * read error recorded as hook verdict error.
  */
 import { readFileSync } from 'node:fs';
-import { isAgentSession, judgePrePush } from '../hooks/pre-push/judge.js';
+import { isAgentSession } from '../hooks/pre-push/judge.js';
+import { observePush } from '../hooks/pre-push/observe.js';
 import { shellPwd } from '../hooks/lib/project-env.js';
 import type { CliIo } from './fallback-db.js';
 
-const DENY = 1;
+const CALLER = 'pre-push';
+
+function readRefLines(): { refLines: string | null; readError?: string } {
+  try {
+    return { refLines: readFileSync(0, 'utf8') };
+  } catch (error) {
+    return { refLines: null, readError: (error as Error).message };
+  }
+}
 
 export async function prePush(argv: readonly string[], env: NodeJS.ProcessEnv, io: CliIo): Promise<number> {
   if (!isAgentSession(env)) return 0;
-  let stdin: string;
-  try {
-    stdin = readFileSync(0, 'utf8');
-  } catch (error) {
-    io.err(`BLOCKED: pre-push gate: could not read git's ref lines on stdin (${(error as Error).message})\n`);
-    return DENY;
-  }
   // git runs the hook at the top of the checkout being pushed, so the cwd names the repo.
-  const verdict = await judgePrePush(argv[0] ?? '', stdin, shellPwd(env), env);
-  if (verdict.admit) return 0;
-  io.err(`${verdict.reason}\n`);
-  return DENY;
+  const dir = shellPwd(env);
+  try {
+    const r = await observePush(
+      { dir, remote: argv[0] ?? '', ...readRefLines(), legacyVerdict: 'admit', sessionId: env.CLAUDE_CODE_SESSION_ID ?? '', caller: CALLER },
+      env,
+    );
+    if (!r.ok) io.err(`tmb: pre-push observe row not written: ${r.error}\n`);
+  } catch (error) {
+    io.err(`tmb: pre-push observe row not written: ${(error as Error).message}\n`);
+  }
+  return 0;
 }

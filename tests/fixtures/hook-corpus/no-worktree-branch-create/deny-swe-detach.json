@@ -1,0 +1,9 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git worktree add --detach ../timing HEAD"
+  },
+  "agent_type": "tmb:swe",
+  "corpus_cwd": "project",
+  "corpus_expect": "only bro may add a detached worktree"
+}

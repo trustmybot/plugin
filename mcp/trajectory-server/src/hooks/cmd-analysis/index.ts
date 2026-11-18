@@ -28,6 +28,7 @@ export {
   prefilterPasses,
   stmtRepoRoot,
   unquotedCommand,
+  unquotedExpansions,
   withSource,
   type GitStatements,
   type Statement,

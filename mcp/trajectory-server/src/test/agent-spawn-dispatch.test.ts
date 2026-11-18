@@ -164,7 +164,7 @@ describe('agent-spawn-dispatch end to end', () => {
          status TEXT NOT NULL, spec_body TEXT NOT NULL DEFAULT '', repo TEXT, parent_branch_id TEXT, files TEXT,
          commit_sha TEXT, effort TEXT NOT NULL DEFAULT 'medium');
        CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT NOT NULL DEFAULT 'test');
-       CREATE TABLE repos (name TEXT, path TEXT, target_branch TEXT);
+       CREATE TABLE repos (name TEXT, path TEXT, target_branch TEXT, mode TEXT);
        CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
        CREATE TABLE verification_runs (id INTEGER PRIMARY KEY, task_id INTEGER, commit_sha TEXT, exit_code INTEGER, timed_out INTEGER NOT NULL DEFAULT 0);
        CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);

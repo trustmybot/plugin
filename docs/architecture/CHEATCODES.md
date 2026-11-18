@@ -53,12 +53,12 @@ flowchart TD
 
 ## Registries
 
-Discovery queries real, reputable registries, never a self-built index. Each source carries a tier that doubles as its reputation signal, and official sources always outrank curated ones:
+Discovery queries real, reputable registries, never a self-built index. Each source has a tier, which also shows how far to trust it, and official sources always rank above curated ones:
 
 - **Tier 1, official:** the MCP registry and the Anthropic plugin marketplace.
 - **Tier 2, curated:** PulseMCP.
 
-Every registry is best-effort: a failing one contributes no candidates and the search goes on, so an environment without web access gets an empty result, never a crash.
+A registry that fails does not stop the search: it adds no candidates and the search goes on. So an environment without web access gets an empty result, never a crash.
 
 A passive path keeps the registry honest too: each scan records capabilities already present in the project (local skills, enabled plugins, configured MCP servers) that TMB does not track yet.
 
@@ -66,7 +66,7 @@ A passive path keeps the registry honest too: each scan records capabilities alr
 
 - **Human-approved, never silent.** Approval is per candidate, and the install gate fails closed without it. An approval is for one source at one version and is used up by one install, so a reinstall or a new version asks again, and a decline is audited with the candidate (planned, GH 3260; today an approval for a source stands for good).
 - **Marketplace path only.** Plugins install through the marketplace, never by copying files or loading a plugin directory.
-- **Web posture respected.** Discovery honours any web deny, and sources are shown to the Human before install.
+- **Web posture respected.** Discovery obeys any rule that denies web access, and the Human sees the sources before install.
 - **The user project only.** Materialization writes the user project's `.claude/`, never the plugin repo, and never bypasses the Human review of prompt files.
 
 ## Attachment
@@ -84,10 +84,10 @@ Plugin and MCP kinds are preferred. Every attachment is recorded so an uninstall
 
 ## Hot-load
 
-Whether a cheatcode works in the current session is decided by its kind, not guessed: a standalone skill is usable at once, while plugins and MCP servers register at the next cold start, so their install reports that a restart is needed.
+A cheatcode's kind decides whether it works in the current session; nothing is guessed. A standalone skill is usable at once. Plugins and MCP servers load at the next restart, so their install reports that a restart is needed.
 
 ## Teardown
 
 Acquisition must be reversible. An uninstall reverses each recorded attachment, removes the artifact through the marketplace or MCP uninstall path, and audits the removal, in one transaction. It is idempotent, and honest: when teardown fails, the entry stays, marked broken, and the result says so instead of claiming a clean removal.
 
-Removal is safer than addition, so an uninstall is proposed by bro and confirmed by the Human rather than gated by a hook. When an open task depends on the cheatcode, bro says so before removing it. Uninstalling a standalone skill removes its file and its name from every agent it was attached to (planned, GH 3260).
+Removing is safer than adding, so bro proposes an uninstall and the Human confirms it; no hook gates it. When an open task depends on the cheatcode, bro says so before removing it. Uninstalling a standalone skill removes its file and its name from every agent it was attached to (planned, GH 3260).

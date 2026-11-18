@@ -26,7 +26,7 @@ flowchart TD
 
 ## Recommended scope: project or local
 
-TMB keeps its state inside the project, so it installs per project: **project** scope for a team (`.claude/settings.json`), **local** scope for one person and for the dev and rc channels (`.claude/settings.local.json`). User scope loads TMB's hooks into every project, and session start recommends `--scope project` once per session when it sees one.
+TMB keeps its state inside the project, so it installs per project: **project** scope for a team (`.claude/settings.json`), **local** scope for one person and for the dev and rc channels (`.claude/settings.local.json`). User scope loads TMB's hooks into every project. When session start sees a user-scope install, it recommends `--scope project`, once per session.
 
 `claude plugin install` defaults to user scope, so always pass `--scope`. From the project root, with `<scope>` set to `project` or `local`:
 
@@ -54,7 +54,7 @@ Other channels: `trustmybot/marketplace-rc` with `tmb@trustmybot-rc`, or `trustm
 
 ## Upgrade
 
-An upgrade moves the plugin files, which Claude Code fetches when the plugin's version changes, and the trajectory DB, which the server migrates on its first boot after a full restart. Nothing short of a full restart applies either.
+An upgrade changes two things: the plugin files, which Claude Code fetches when the plugin's version changes, and the trajectory DB, which the server migrates the first time it starts after a full restart. Neither change applies until Claude Code is fully restarted.
 
 - **Version.** Session start prints `Plugin version:`; `claude plugin list` shows each install's version and scope. A newer cached version than the running one adds a "fully quit and relaunch" line.
 - **Check now.** `claude plugin marketplace update <marketplace>` (`trustmybot`, `trustmybot-rc` or `trustmybot-dev`) skips the poll.
@@ -62,7 +62,7 @@ An upgrade moves the plugin files, which Claude Code fetches when the plugin's v
 - **Prune or reset the cache.** `node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js heal-mcp-cache [--dry-run] [--channel stable|rc|dev]` clears a per-project MCP disable flag, prunes old cached versions, and can wipe the channel's cache for a clean reinstall. It asks before each change.
 - **DB migration.** When the DB's schema is behind the server's, the server takes the write lock, writes `<dbpath>.pre-v<TARGET>.<timestamp>.bak`, and runs every pending migration in one transaction that rolls back whole on failure. Rows are preserved. Migrations only go forward: to roll back, restore that backup and install a plugin version that targets the older schema; work since the upgrade is lost.
   - **Restore.** Close every session on the project, replace the DB with the backup, delete the two sidecar files beside it, and install a plugin version for that schema.
-  - **Backups kept.** Planned (GH 3260): every migration attempt takes a fresh backup, adopting a DB older than schema versioning takes one too, and TMB keeps the newest three and says so, so a Human who needs every backup copies them out. Today a retry reuses the backup of the first attempt, adoption takes none, and nothing is pruned.
+  - **Backups kept.** Planned (GH 3260): every migration attempt takes a fresh backup, and so does adopting a DB that is older than schema versioning. TMB keeps the newest three backups and says so, so a Human who needs every backup copies them out. Today a retry reuses the backup of the first attempt, adoption takes none, and nothing is pruned.
 - **Uninstall.** Removing the plugin runs no code, so TMB cleans nothing up on its own. Planned (GH 3260, GH 3281): one cleanup command, run before the plugin is removed, takes out what TMB added to the project's local settings and to each repo's git folder. It then asks whether to delete the trajectory DB too, warns that this cannot be undone, and deletes it only on a yes. What stays until the Human deletes it: the state folder with its logs and backups, task worktrees and their branches, the ignore line, the policy files committed to each repo, and the agent, skill and cheatcode files the Human approved.
 
 ### Upgrading into v1.1.0 — remove leftover user-wide hooks
@@ -81,6 +81,10 @@ To remove them:
 
 - **Advisory, never blocking.** Session start checks health, required tools, leftovers from older versions and the project inventory. When something is broken, a degraded banner names it and the session goes on. The gates still fail closed while the trajectory DB is unhealthy or unmigrated ([MEMORY.md](MEMORY.md)), so the work waits until the health check is green. The required tools are Node with its built-in SQLite, and git. A project whose repos have no remote gets one line saying TMB is operating locally and skips remote and push steps; that is not degraded.
 - **One compact nudge.** Once per session, when bro's context passes a configurable token threshold (off when set to zero), bro gets one line suggesting /compact at the next natural break. The compaction restore brings back the session's open issues, newest first up to a fixed limit with the counts of the rest, the current issue, its tasks and the newest decision.
+- **The pre-push hook.** On git 2.54 or newer, session start installs TMB's pre-push hook from the repo's own git config in the project's repo and every registered repo, beside any hook already there, and marks the agent's shell so the hook acts only on an agent's push; `cli.js prepush-uninstall [--repo <path>]` removes it from one repo.
+- **The pre-push switch.** The pre-push hook can be switched off for a project. Only the Human does it, through /onboard; no agent tool can change it.
+  - *Never silent.* Each session start with the setting off prints one notice that names the setting, /onboard and `prepush-uninstall`.
+  - *Fails safe.* With the setting off, session start removes any installed TMB hook from every repo it would install in, so no live hook remains, and the guard that reads the push command before it runs stays on. Each observed push records whether the setting was off. A setting the DB cannot read counts as on.
 - **Which DB.** The session uses the project's trajectory DB; [MEMORY.md](MEMORY.md#where-the-trajectory-db-lives) gives the rule that finds it.
 
 ## Debugging

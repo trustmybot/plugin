@@ -4,7 +4,7 @@ TMB writes nothing outside the project it runs in, whatever scope it is installe
 
 ## The invariant
 
-- **Writes stay in the project.** Nothing is created, changed or deleted under the user's home directory: no Claude Code config, no marker, no log, no lock. Installing TMB is the agreement to its writes: in any folder where the plugin is enabled, the server creates the project's state folder and trajectory DB at session start, and each repo gets one ignore line. So TMB installs per project; a user-scope install writes that state into every folder a session opens ([INSTALL.md](INSTALL.md)).
+- **Writes stay in the project.** Nothing is created, changed or deleted under the user's home directory: no Claude Code config, no marker, no log, no lock. By installing TMB, the user agrees to its writes: in any folder where the plugin is enabled, the server creates the project's state folder and trajectory DB at session start, and each repo gets one ignore line. So TMB installs per project; a user-scope install writes that state into every folder a session opens ([INSTALL.md](INSTALL.md)).
 - **Reads outside the project are read-only and named.** Hooks read Claude Code's plugin install registry, to find which install serves the project, and its user settings, to warn about duplicate copies and leftover hooks. They never write either.
 - **A user project's `CLAUDE.md` is never written**, with one exception: a cheatcode the Human approved and attached to bro adds one reference line to the project's `CLAUDE.md`, and its uninstall removes that line. bro's persona reaches a session as injected context.
 - **No context or effort settings.** TMB never changes Claude Code's context, model or effort settings. Token savings come from TMB's own design, not from changing how the user's Claude Code runs.
@@ -19,7 +19,7 @@ Three exceptions, each declared once:
 
 ## What TMB writes in the project
 
-Everything sits in the project's state directory: the trajectory DB, logs, short-lived session markers and the locks that dedupe hook calls. Markers and locks are pruned on a timer. Outside that directory TMB writes only these:
+Everything sits in the project's state directory: the trajectory DB, logs, short-lived session markers and the locks that stop one hook call from running twice. Markers and locks are pruned on a timer. Outside that directory TMB writes only these:
 
 - task worktrees, under the project;
 - one ignore line per repo, added at session start. Today it ignores the project's whole Claude folder, which also hides a team install's shared settings, agents and skills from commits; planned (GH 3260): it ignores only TMB's own state, the local settings and the task worktrees;
@@ -35,10 +35,10 @@ Every hook finds the DB through one resolver that walks up from the current dire
 A hook can be registered several times for one event: a project install beside a user-scope one, two channels, the headless shim beside the plugin. Three rules keep a gate from running twice or at two versions:
 
 1. **One install per project.** A dev checkout always runs its own gates. Otherwise a project-scope install wins over a user-scope one, and the newest of two project installs wins, with a notice naming both.
-2. **One entry point.** Every hook registration, on every event, runs one router, and the router hands the call to the resolved install's router, so a stale or user-scope invocation executes the project's version.
-3. **One execution per call.** The router keys each invocation on its event, session, tool and input and takes a lock on that key. A concurrent duplicate waits and replays only a denial, so context and banners appear once.
+2. **One entry point.** Every hook registration, on every event, runs the same router. That router hands the call to the router of the install that serves the project, so a call that came in through a stale or user-scope install still runs the project's version.
+3. **One execution per call.** The router builds a key for each call from its event, session, tool and input, and takes a lock on that key. A duplicate call that arrives at the same time waits, then repeats only a denial, so context and banners appear once.
 
-**Gates fail closed.** Every hook that can deny is registered to block when it fails, and the router itself denies when an enforcement gate throws, overruns or answers badly; an advisory gate's failure is logged and dropped. Because the router decides this, the headless shim behaves the same.
+**Gates fail closed.** Every hook that can deny is registered to block when it fails, and the router itself denies when an enforcement gate throws an error, runs past its time limit or answers badly. When an advisory gate fails, the failure is logged and ignored. Because the router decides this, the headless shim behaves the same.
 
 **Gates run in order.** Claude Code runs the hooks of one matcher in parallel, so a gate could act on a call another gate denies. Each event therefore has one router registration per group, and the router runs a group's gates in a fixed order, enforcement first, answering with the first deny.
 
@@ -72,7 +72,7 @@ Every agent run has a root: the project for bro and code-reviewer, the task's wo
 
 ### The guard is an allowlist
 
-The guard is a parser, not a jail, and its rule is simple: a write it cannot prove lands inside the root is denied. File tools are judged by their target path; Bash by every write target a shell parser finds in the command. Paths resolve the way the kernel does, symlinks included. A target with an unknown part is allowed only when the literal directory before the unknown part is inside the root; a command it cannot parse, or an inline program that could hide a write, is denied outright, and the deny names why. Reads are never judged. What the parser cannot follow, such as a variable set in an earlier call, Tier 0 covers for Bash.
+The guard is a parser, not a jail, and its rule is simple: a write it cannot prove lands inside the root is denied. File tools are judged by their target path; Bash by every write target a shell parser finds in the command. Paths resolve the way the kernel does, symlinks included. A target with an unknown part is allowed only when the literal directory before the unknown part is inside the root. A command the guard cannot parse, or an inline program that could hide a write, is denied outright, and the denial says why. Reads are never judged. What the parser cannot follow, such as a variable set in an earlier call, Tier 0 covers for Bash.
 
 Besides the run's root, the guard allows only places that store nothing outside the project or are the host's own scratch space: the device sinks, the model cache, the host's private temp dirs and the project's scratch dir. The main session may also write Claude Code's own state for the project, such as its memory and plans; subagents may not.
 
@@ -103,7 +103,7 @@ flowchart TD
 
 ### The sandbox opt-in
 
-Onboarding merges the sandbox block into the project's local settings only on an explicit yes: sandbox on, writes allowed to the project and the model cache, network allowed to GitHub, the package registries and the project's remote hosts, and package caches moved into the project so the write allowance never widens to the home directory. The merge keeps every existing setting, records what TMB added, and a later no removes exactly that.
+Onboarding merges the sandbox block into the project's local settings only on an explicit yes. The block turns the sandbox on, allows writes to the project and the model cache, and allows network access to GitHub, the package registries and the project's remote hosts. It also moves package caches into the project, so write access never has to widen to the home directory. The merge keeps every existing setting and records what TMB added, and a later no removes exactly what was added.
 
 The default answer comes from evidence: a recorded live probe per platform runs TMB's remote commands with and without the sandbox. A fresh onboard defaults to yes only when the platform has a clean record and no remote uses SSH, which bypasses the sandbox's proxy; otherwise it defaults to no. The release gate reruns the probe.
 
@@ -111,7 +111,7 @@ The guard still judges temp paths because a live probe showed the sandbox leaves
 
 ### Planned: an OS sandbox instead of write prediction
 
-(planned, GH 2098) Predicting what an arbitrary program will write cannot be done in general, so the parser both denies legitimate commands and misses real writes. The planned design stops predicting: the session sandbox becomes the hard boundary, with TMB's own state inside the project write-denied to agents; each swe Bash call runs inside a per-task OS sandbox profile that allows only its worktree; and hooks decide only what the literal input shows, never reading an arbitrary program. Deliberate evasion is out of the threat model, since agents make mistakes but do not attack TMB.
+(planned, GH 2098) Predicting what an arbitrary program will write cannot be done in general, so the parser both denies legitimate commands and misses real writes. The planned design stops predicting. The session sandbox becomes the hard boundary, and agents cannot write to TMB's own state inside the project. Each swe Bash call runs inside an OS sandbox profile for its task that allows only that task's worktree. Hooks decide only from what the literal input shows and never read an arbitrary program. Deliberate evasion is out of the threat model, since agents make mistakes but do not attack TMB.
 
 ## Enforcement
 

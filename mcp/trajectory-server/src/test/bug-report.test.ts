@@ -386,15 +386,15 @@ describe('bug-report form', () => {
   it('lists the twelve fields in order with labels, types and required flags', () => {
     const rows = (FORM_FIELDS as readonly FormField[]).map((f) => [f.id, f.label, f.type, f.required, f.render ?? null]);
     assert.deepEqual(rows, [
-      ['summary', 'What broke', 'input', true, null],
-      ['what-happened', 'Expected vs actual', 'textarea', true, null],
-      ['reproduce', 'Steps to reproduce', 'textarea', true, null],
-      ['repro-script', 'Minimal repro script', 'textarea', false, 'shell'],
-      ['frequency', 'How often', 'dropdown', true, null],
-      ['error', 'Error message', 'textarea', true, 'text'],
-      ['area', 'Area', 'dropdown', true, null],
+      ['summary', 'What went wrong', 'input', true, null],
+      ['what-happened', 'What happened', 'textarea', true, null],
       ['impact', 'Impact', 'dropdown', true, null],
-      ['environment', 'Environment', 'textarea', true, 'text'],
+      ['error', 'Error message', 'textarea', false, 'text'],
+      ['frequency', 'How often', 'dropdown', false, null],
+      ['area', 'Area', 'dropdown', false, null],
+      ['reproduce', 'Steps to reproduce', 'textarea', false, null],
+      ['repro-script', 'Minimal repro script', 'textarea', false, 'shell'],
+      ['environment', 'Environment', 'textarea', false, 'text'],
       ['doctor', 'Doctor output', 'textarea', false, 'text'],
       ['workaround', 'Workaround', 'textarea', false, null],
       ['checks', 'Checks', 'checkboxes', true, null],
@@ -408,7 +408,7 @@ describe('bug-report form', () => {
     assert.equal(AREA_OPTIONS.length, 9);
     assert.deepEqual(byId.impact, [...IMPACT_OPTIONS]);
     assert.deepEqual(byId.checks, [
-      { label: 'I searched existing issues for this error.', required: true },
+      { label: 'I searched existing issues for this error.', required: false },
       { label: 'I read this report and it contains no secrets, private code or personal paths.', required: true },
       { label: 'It still happens on the latest version.', required: false },
     ]);

@@ -4,8 +4,8 @@
 //   --doc             rewrite the canonical tables in docs/contributing/LABELS.md between the generated markers
 //   --check           offline; exits 1 when LABELS.md differs from what --doc would write
 //   --check-live      exits 1 when GH labels differ from labels.json; skips without gh or with TMB_L1_OFFLINE=1
-//   --triage <issue>  add the issue-form Area answer when the issue has no area; on a CLI-filed report (tmb-report marker)
-//                     add Bug when it has no type and the Impact answer's priority when it has no priority; then toggle needs-triage
+//   --triage <issue>  add the issue-form Area answer when the issue has no area and the Impact answer's priority when it has
+//                     no priority; on a CLI-filed report (tmb-report marker) also add Bug when it has no type; then toggle needs-triage
 //   --root <dir>      read labels.json and LABELS.md under <dir> instead of this checkout
 //   --repo <owner/name>  the GH repo for --sync, --check-live and --triage (default: gh's current repo)
 
@@ -74,7 +74,7 @@ export function triage({ labels, body, catalog }) {
   const cliReport = REPORT_MARKER_RE.test(body ?? '');
 
   if (cliReport && count('type') === 0) addLabel('Bug', 'type');
-  if (cliReport && count('priority') === 0) addLabel(IMPACT_PRIORITY[formAnswer(body, 'Impact')], 'priority');
+  if (count('priority') === 0) addLabel(IMPACT_PRIORITY[formAnswer(body, 'Impact')], 'priority');
   if (count('area') === 0) {
     const answer = formArea(body);
     addLabel(answer && `${AREA_PREFIX}${answer}`, 'area');

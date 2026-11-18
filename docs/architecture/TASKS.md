@@ -6,7 +6,7 @@ Every record a task leaves (issue, intent, decision, task, runs, verdicts and fi
 
 ## 3.1 Code task
 
-Any change that touches code. bro plans and gates, swe implements, code-reviewer reviews, and the Human merges. An architectural change (a new boundary or module, a schema or public API change, or an external side effect) is a code task with one more record: the decision bro writes at provision names the change and its blast radius, and bro's design judgment at task close weighs the change against it.
+Any change that touches code. bro plans and gates, swe implements, code-reviewer reviews, and the Human merges. An architectural change (a new boundary or module, a schema or public API change, or an external side effect) is a code task with one more record: the decision bro writes when it provisions the task names the change and everything it could affect, and when bro closes the task it judges the change against that decision.
 
 In the charts of 3.1 and 3.2, **DB insert** adds rows to the trajectory DB, **DB update** changes rows already there (a task's change of state becomes a lifecycle event insert once [Task lifecycle](#task-lifecycle) ships), and **WM** marks where the world model is brought forward, indexed or scanned. The world model indexes each repo at origin's copy of its PR target, so a task's own commit enters it only after the PR merges. Every issue, task and discussion write also syncs to the issue tracker when the project turns sync on.
 
@@ -70,25 +70,25 @@ flowchart TD
 
 | Step | Owner | Method | What it guarantees and hands over |
 |---|---|---|---|
-| Ask | Human | judgment | intent: a requirement, pinned down with bro before anything is recorded when it is vague |
-| Ground and intent | bro | judgment | bro starts each turn knowing its role and the open issue, and reads the world model before planning. The goal is saved in the trajectory DB before any branch exists: an issue, the Human's words as its intent, and the reuse-or-build call. bro picks the base itself, the PR target set at first contact or the unmerged branch the task stacks on, and names the branch automatically |
+| Ask | Human | judgment | intent: a requirement. When it is vague, the Human and bro pin it down before anything is recorded |
+| Ground and intent | bro | judgment | bro starts each turn knowing its role and the open issue, and reads the world model before planning. The goal is saved in the trajectory DB before any branch exists: an issue, the Human's words as its intent, and the reuse-or-build call. bro picks the base itself: either the PR target set at first contact, or the unmerged branch the task stacks on. It also names the branch automatically |
 | Spec | bro | judgment | an actionable requirement: numbered success criteria, file list, verification commands and effort. bro's architecture judgment enters here. A spec too large for one swe run is split into linked tasks |
 | Provision | bro | deterministic | a ready-to-work environment: one step records the decision and the task in the trajectory DB, fetches the base, cuts the branch and worktree, runs setup and brings the world model's shared index forward at the task's base; any failure writes nothing. [GIT.md](./GIT.md#keeping-the-base-fresh) covers how the base is kept fresh |
 | Implement | swe | deterministic | swe acts only after reading its brief, writes only in its worktree, and has each edit and commit checked as it lands. It does not rebuild the environment or rewrite the spec |
 | Close | swe | deterministic | functionality-level quality: the task completes only when the changelog, stale-doc and leak checks, the verification commands (the repo's standing checks among them), every open finding's probe and the repo's close lints pass on the commit, with a report against every success criterion. A prompt-bearing task also passes the doc-review checklist of 3.2. A world-model check that no downstream caller breaks is planned (GH 3069) |
 | Hand off | bro | deterministic | the commit goes to review only with a passing run and a report that covers it, plus the list of edits outside the file list |
-| Review | code-reviewer | deterministic, then judgment | diff-level quality through 3.3: a recorded verdict for the commit, never read from reply text |
+| Review | code-reviewer | deterministic, then judgment | diff-level quality through 3.3: a verdict recorded for the commit. It is read from that record, never from the reviewer's reply text |
 | Close task | bro | judgment | architecture-level quality: on a pass, bro judges fit to the design and the spec's intent, accepts or refuses out-of-scope edits, and closes the task. It re-runs no check and re-reviews no diff. The task worktree is removed at task close, before the merge. Closing a task, even the issue's last, leaves the issue open |
 | Integrate and push | bro | deterministic | a moved base is rebased and re-verified before the push. The review pass carries to the rebased commit only when the patch is unchanged, verification passes again and the base changes touch nothing the diff depends on. bro opens the PR |
-| Merge | Human | judgment | the PR merges, unless the project's merge policy delegates it. The tasks are already closed at bro's close step; the issue closes when all its task commits reach the target branch, which git detects for local and remote projects alike. Rework that puts a task of a closed issue back to work (a reopen, a retry or a review fail), or a new task planned under it, reopens the issue |
+| Merge | Human | judgment | the PR merges, unless the project's merge policy delegates it. The tasks are already closed at bro's close step; the issue closes when all its task commits reach the target branch, which git detects for local and remote projects alike. A closed issue reopens when rework puts one of its tasks back to work (a reopen, a retry or a review fail), or when a new task is planned under it |
 
-- **A deny is a fix, not a stop.** It names the allowed form or what failed, and swe fixes it in the same run; a policy deny ends the run failed, quoting the deny.
+- **A deny is a fix, not a stop.** A deny names the allowed form or what failed, and swe fixes it in the same run. The exception is a policy deny, which ends the run as failed and quotes the deny.
 - **Verification never fails open**, and only provisioning creates task branches and worktrees.
 - **Every run is metered** (tokens, duration, why it stopped, what it resumed), and so is every deny and tool output. Overrun and silent-run advisories inform bro and stop nothing.
 
 ## 3.2 Non-code task
 
-A change to docs or prompts only, which bro writes itself instead of sending to swe. bro marks the task docs or prompts when it provisions it; the task then runs 3.1's steps with bro in swe's place, and a doc review on both sides of the push gate.
+A change to docs or prompts only, which bro writes itself instead of sending to swe. bro marks the task docs or prompts when it provisions it; the task then runs 3.1's steps with bro in swe's place, and the doc review runs twice: bro's self-check before review, and code-reviewer's check at the push gate.
 
 ### Non-code task succeeds
 
@@ -128,7 +128,7 @@ The stale-run, recovery, outside-merge and issue-close cases of 3.1 apply to a n
 | Provision | bro | deterministic | as in 3.1, plus the task's kind, docs or prompts, which sets the paths bro may edit. The path kinds are read at the task's base commit, so the task cannot widen its own limits |
 | Author | bro | deterministic | bro writes only inside the running task's worktree and only on paths of its kind; a code path, an edit in the main checkout or an unmarked task is refused, and the refusal names swe |
 | Doc review | bro | judgment | bro self-checks with the doc-review skill that swe and code-reviewer preload, so the change passes it before review: the rubric loaded at the base ref, each rubric criterion the change touches graded, each claim about the code checked against the source (another doc is not evidence), and the other prompt files scanned for contradictions, with one probe per claim and per rule in the report |
-| Close | bro | deterministic | the same checks as swe's close in 3.1, recorded for the commit; every path the task changed since it left its PR target must be docs or prompts, and a code or mixed change is refused |
+| Close | bro | deterministic | the same checks as swe's close in 3.1, recorded for the commit; every path the task changed since it left its PR target must be docs or prompts, and a code or mixed change is refused. Planned (GH 3354): the close keeps only the docs gates, which are the changelog, stale-doc and leak checks, the repo's lint commands and its close lints, and skips the repo's typecheck and test commands; CI on the PR still runs them |
 | Review | code-reviewer | judgment | through 3.3, graded with the same checklist loaded from the same base ref, so a change that passes the author's check passes review for the same reasons. The reviewer spot-checks only a claim the author recorded no probe for, or one it doubts, and fails only on a rubric fail, a false or unverifiable claim, or a contradiction; anything else is a nit |
 | Close task, push, merge | bro, then Human | as in 3.1 | as in 3.1 |
 
@@ -190,19 +190,19 @@ stateDiagram-v2
 - **The lifecycle schema (GH 3224) renames three states**, so each name means what it means in other workflow tools. Sections 3.1 to 3.4 and [AGILE.md](AGILE.md) keep today's names until it ships. It is named by its issue, not by a schema version: version 75 went to the task overlay.
   - Completed becomes submitted. The author has submitted the work and its checks passed, but review is still ahead, and elsewhere completed means finished for good.
   - Queued becomes review-deferred. The task already ran and merged into its feature branch; only its review waits, and elsewhere queued means not started.
-  - Escalated splits into superseded and cancelled. The migration moves each escalated task to superseded when another task retries it. One that nothing retried is not migrated blind: it becomes failed, which bro can still reopen, and bro judges each at its next session, cancelling the ones whose work is over.
+  - Escalated splits into superseded and cancelled. The migration moves each escalated task to superseded when another task retries it. One that nothing retried is not migrated blind. It becomes failed, which bro can still reopen, and at its next session bro judges each one and cancels those whose work is over.
 - **Closed is not final.** A closed task ends its work, but bro can reopen it, send a rebased commit back to review, or retry it.
 - **Closing an issue ends its open work.** Live tasks are cancelled, and no new task picks up their work. Review-deferred, batch-reviewed and waived tasks already live in the feature branch, so they count as finished and close when that branch merges.
 - **One writer.** Every status change goes through one writer, in two steps (GH 3224). First each path that sets a status today is routed through that writer, with no schema change. Then the writer records the event with the status, and the DB rejects a status written any other way. Today about ten paths set it directly, some from other processes.
-- **A move that cannot be recorded does not happen.** When the event cannot be written, the action it records is denied: a spawn whose start cannot be recorded does not start, and bro retries. A repeat of a recorded event, or a move another writer already made, writes nothing and fails nothing.
+- **A move that cannot be recorded does not happen.** When the event cannot be written, the action it records is denied: a spawn whose start cannot be recorded does not start, and bro retries. Repeating a recorded event, or making a move another writer already made, writes nothing and is not an error.
 - **Old tasks get one event.** At the migration each task gets one backfilled event that states its current state. An open task takes the state its records show, not only a renamed one: a task already handed to review becomes in review, and one with a pass for its commit becomes reviewed.
 - **Every move is one event.** The chart lists the only moves the DB accepts. Each event names the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The table below gives the record each move requires, and the DB refuses a move without it.
-- **No bypass is silent.** bro can take one of the chart's moves by hand, for example to free a wedged task, without the record that move usually rests on. Such a move rests on bro's recorded decision instead, carries the manual cause, and must carry a note saying why; the DB refuses it without the note. The same holds for every bypass: it is recorded with its reason, never taken quietly.
+- **No bypass is silent.** bro can take one of the chart's moves by hand, for example to free a stuck task, without the record that move usually rests on. Such a move rests on bro's recorded decision instead, carries the manual cause, and must carry a note saying why; the DB refuses it without the note. The same holds for every bypass: it is recorded with its reason, never taken quietly.
 - **An exempt repo's task closes unreviewed, on the record.** In a repo whose mode is exempt ([GIT.md](GIT.md#multi-repo-workspaces)) a task closes with no review and records exempt as its mode (shipped, GH 3281). Planned with the lifecycle events (GH 3224): the move from submitted to closed carries a cause that names the repo's mode.
 - **Facts that change no state are events too.** An amended spec, a commit changed by a rebase and a checkpoint each write an event that keeps the task's state and names what changed.
 - **Truest and agile share the machine.** A truest task passes through review before it closes. An agile task closes with its review deferred, and its review state is a lifecycle state, as [AGILE.md](AGILE.md#review-state) describes.
 - **A review-deferred task can be reviewed early.** When the Human asks for a review now, it goes to review. A pass leaves it reviewed until its feature branch merges. A fail returns it to review-deferred with its findings open: bro reopens it when it is not yet folded into the feature branch, and otherwise files the findings as a fix task on that branch. When its feature branch is dropped, it is cancelled.
-- **The fold is a fact, not a move.** Folding an agile task into its feature branch keeps the task's state and is recorded as an event. The task is review-deferred from bro's close, so for a short time it is deferred and not yet on the branch; the grouped review takes it only once it is folded.
+- **The fold is a fact, not a move.** Folding an agile task into its feature branch keeps the task's state and is recorded as an event. The task becomes review-deferred when bro closes it, so for a short time it is deferred but not yet on the branch. The grouped review includes it only once it is folded.
 - **A verdict that cannot judge keeps the task in review.** When code-reviewer cannot judge the commit, the task stays in review and the open question is recorded as a fact.
 - **Review is the default, and only the Human waives it.** Every task is reviewed before its push, bro's own no-code tasks included, because an author's check of its own work is no gate. The Human can waive the review of one task or of a named set, such as the docs PRs of one session; bro never waives on its own. A task that merges with neither a review nor a waiver is a bypass. Planned (GH 3275); today such a task closes only through the recovery step, with a bypass record.
 - **What a waiver is.** A waiver is the Human's recorded decision that named work merges without the review its mode requires. It is its own record: the question bro asked, the Human's answer word for word, and its scope. Only a session the Human is talking to can record one.
@@ -213,7 +213,7 @@ stateDiagram-v2
 - **A merge outside the flow closes what is open.** Every task of the branch that is not yet closed, failed, superseded or cancelled closes, and each one with no passing review gets a bypass record.
 - **Reviewed and batch-reviewed stay apart.** Reviewed means code-reviewer passed that one task's commit. Batch-reviewed means it passed the task's group in the feature branch's net diff, and the move points at that review batch.
 - **Retries keep their lineage.** The task that replaces a superseded one names the task it retries, so a chain of retries reads as one line.
-- **Auditing is a join.** A task's story is its events, in sequence order, joined with the runs, verdicts and batches they point at. "Why three re-runs?" is the causes on its moves back to running. "Why did it miss a close?" is the last event before the chain stopped.
+- **Auditing is a join.** A task's story is its events, in sequence order, joined with the runs, verdicts and batches they point at. To answer "Why three re-runs?", read the causes on its moves back to running. To answer "Why did it miss a close?", read the last event before the chain stopped.
 
 | Move | The record it rests on |
 |---|---|
@@ -238,13 +238,13 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 
 | Step | Owner | What it guarantees |
 |---|---|---|
-| Spawn | bro → code-reviewer | the reviewer gets anchors and a short note only, and starts only on a commit machines already vouch for: the right tip, a handoff for that commit, a passing run, a lint record current against the base. A conflict with the base does not refuse it and waits for the merge |
+| Spawn | bro → code-reviewer | the reviewer gets anchors and a short note only, and starts only on a commit that deterministic checks already vouch for: the right tip, a handoff for that commit, a passing run, a lint record current against the base. A conflict with the base does not refuse it and waits for the merge |
 | Probe | code-reviewer | deterministic: reads the brief and the commit in a review worktree. A code task's diff is probed through the world model's dependents, reading the task's own symbols from its [task overlay](WORLD_MODEL.md#task-overlay), and from git when the overlay failed to build (a diff-level reviewer prompt is planned, GH 3059); a non-code task is graded with the doc-review checklist. It re-runs none of the author's checks, since the spawn already proved the lint record |
 | Verdict | code-reviewer | judgment: a fail carries a blocking finding, a pass may carry nits and pre-existing findings; the reviewer's identity is observed, never claimed |
 | Pass | bro | bro reads the verdict from its record and closes the task, integrates it if the base moved, pushes and opens the PR |
 | Fail | bro | the fail has already reopened the task at high effort; bro surfaces it, holds the push and sends the task back to its author (swe, or bro itself on a non-code task) without asking the Human |
 
-- **No push before review.** A push is denied unless each pushed task commit's newest verdict is a pass for that commit; a pass for an earlier commit, or one under a newer fail, does not count.
+- **No push before review.** A push is denied unless each pushed task commit's newest verdict is a pass for that commit. A pass for an earlier commit does not count, and neither does a pass followed by a newer fail.
 - **Planned: the gate moves to git's own hook** (GH 3281). It judges the branch's net diff against the base, not each commit, and a task closes only after integrate succeeds. [GIT.md](GIT.md#the-push-gate-at-gits-own-hook) holds the design.
 - **Append-only record.** Verdicts and findings are never rewritten; a repeated attempt is a new one, and the newest verdict decides.
 
@@ -255,19 +255,19 @@ The code-reviewer step of both task kinds, and the gate on every push. Each comp
 | Review fail | the task is already running at high effort; bro spawns a fresh swe or resumes the one that wrote the commit, or reworks a non-code task itself |
 | Design misfit or other rework | bro amends the spec and reopens the task, recreating its worktree when missing |
 | Wrong approach or integrate conflict | bro escalates the task and retries it as a fresh task, branch and worktree from the current base, carrying its open findings |
-| Base moved while the PR is open (planned, GH 3227) | nothing, when the forge can still merge the PR; a rebase with the patch unchanged and a force-push to the same branch, when the repo requires an up-to-date branch or commits under the task's commit merged into the base; an integrate conflict otherwise ([GIT.md](GIT.md#when-the-base-moves-after-the-pr-is-open)) |
-| Failed check after integrate, or a required CI check failing on the PR | bro reopens the same task naming the check, and its author reworks it; the check leaked, so it also moves into the step that owns it |
+| Base moved while the PR is open (planned, GH 3227) | nothing, when GitHub or GitLab can still merge the PR; a rebase with the patch unchanged and a force-push to the same branch, when the repo requires an up-to-date branch or commits under the task's commit merged into the base; an integrate conflict otherwise ([GIT.md](GIT.md#when-the-base-moves-after-the-pr-is-open)) |
+| Failed check after integrate, or a required CI check failing on the PR | bro reopens the same task naming the check, and its author reworks it; the failure was caught later than the step that owns the check, so the check also moves into that step |
 | Rebased commit whose review pass does not carry | one new code-reviewer pass on the rebased commit; the author reworks only if it fails |
 | Broken environment | swe ends its run failed naming the environment rather than repairing it; bro fixes the environment, reopens the task and spawns swe again |
 | Refused reviewer spawn | bro fixes the cause before any reviewer runs |
 | Stale run: a running task with no live author past the stale window | the task fails and its open runs end as stale; bro reopens it and spawns its author again |
 | Author gone after its commit landed | bro's recovery step closes the task at that commit, recorded as a bypass when no review passed |
-| Branch merged outside the flow | its open tasks close, each one with no passing review recorded as a bypass; nothing is reworked. A merge made on the forge is found at bro's next turn or session start, from the PR's state |
+| Branch merged outside the flow | its open tasks close, each one with no passing review recorded as a bypass; nothing is reworked. bro finds a merge made on GitHub or GitLab at its next turn or session start, from the PR's state |
 | Issue closed over open tasks | each open task escalates and no new task picks up its work |
 | Agile feature branch dropped | its queued tasks end with no retry ([AGILE.md](AGILE.md#merge-gate)) |
 
-- **Rework is bounded.** Two fails since the last pass stop further swe runs until bro records a root-cause analysis and makes the change it names; no run count denies on its own. Design drift ends the task, and bro redesigns it as a new one. Nothing waits on the Human.
-- **Long work hands back.** A swe out of turns commits and hands back a checkpoint instead of failing, and the next run resumes from what is left.
+- **Rework is bounded.** Two fails since the last pass stop further swe runs until bro records a root-cause analysis and makes the change it names; the number of runs alone never blocks a run. Design drift ends the task, and bro redesigns it as a new one. Nothing waits on the Human.
+- **Long work hands back.** A swe that runs out of turns commits a checkpoint and hands it back instead of failing, and the next run resumes from what is left.
 
 ## 3.5 PR comment triage
 
