@@ -17,8 +17,9 @@
  * not parse, or whose code the analysis cannot read, is denied only when its
  * text names one of the forms. A git statement whose subcommand, `-c` key,
  * push option or config key comes from an expansion or the words a $( ) cut
- * off is denied as it stands (fail closed), save a `git config` that a literal
- * read form makes a read and whose expansions are all double-quoted. Outside an agent session nothing is gated, and
+ * off is denied as it stands (fail closed), save a `git config` read whose
+ * literal read form follows only known literal options and whose expansions
+ * after it are double-quoted single words. Outside an agent session nothing is gated, and
  * every deny first asks standsDownFor, which stands down in an exempt repo,
  * for the repo its form lands in.
  */
@@ -249,63 +250,138 @@ const CONFIG_READ_ACTIONS = new Set(['get', 'list']);
 const CONFIG_WRITE_OPTIONS = new Set(['--add', '--replace-all', '--unset', '--unset-all', '--rename-section', '--remove-section', '-e', '--edit']);
 const CONFIG_READ_OPTIONS = new Set(['--get', '--get-all', '--get-regexp', '--get-urlmatch', '--get-color', '--get-colorbool', '-l', '--list']);
 const CONFIG_VALUE_OPTIONS = new Set(['-f', '--file', '--blob', '-t', '--type', '--default', '--comment', '--value', '--url']);
+/** git config's flags, fully spelled (git 2.56 `git config <action> -h`); every value option above also has a `--no-` flag. */
+const CONFIG_FLAGS = new Set([
+  ...['--global', '--system', '--local', '--worktree', '--all', '--regexp', '--fixed-value', '--append', '--includes'],
+  ...['-z', '--null', '--name-only', '--show-origin', '--show-scope', '--show-names'],
+  ...['--bool', '--int', '--bool-or-int', '--bool-or-str', '--path', '--expiry-date'],
+  ...['global', 'system', 'local', 'worktree', 'all', 'regexp', 'fixed-value', 'append', 'includes', 'null', 'name-only', 'show-origin', 'show-scope', 'show-names'].map((f) => `--no-${f}`),
+  ...['file', 'blob', 'type', 'default', 'comment', 'value', 'url'].map((f) => `--no-${f}`),
+]);
 
-/** What the literal words of one `git config …` (<sub>, from `config` on) ask for: its action, the words after it, and whether a write or read form is named. */
-function configMode(sub: readonly string[]): { action: string; positional: string[]; write: boolean; read: boolean } {
+/** The literal words that make a `git config` with expanded words a read (decision #423); the actions only right after `config`. */
+const READ_FORM_OPTIONS = new Set(['--get', '--get-all', '--get-regexp', '-l', '--list']);
+/** The flags a read may carry before its read form. */
+const PRE_READ_FLAGS = new Set([
+  ...['--global', '--system', '--local', '--worktree', '--fixed-value', '--includes', '--no-includes'],
+  ...['-z', '--null', '--name-only', '--show-origin', '--show-scope', '--show-names'],
+  ...['--bool', '--int', '--bool-or-int', '--bool-or-str', '--path', '--expiry-date', '--no-type'],
+]);
+/** The value options a read may carry before its read form, their literal argument attached (`--type=bool`, `-f.git/config`) or the next word. */
+const PRE_READ_VALUE_OPTIONS = new Set(['-f', '--file', '--blob', '-t', '--type', '--default']);
+/** An expansion that may stand for several words even double-quoted: `"$@"`, `"${a[@]}"`, `"$*"` and their `${…}` kin. */
+const MANY_WORDS = /\$[@*]|\$\{[^}]*[@*]/;
+
+/** Whether <word> is one of <options> with its value attached: `--file=<f>`, or `-f<f>` for a short one. */
+const hasAttachedValue = (word: string, options: ReadonlySet<string>): boolean =>
+  [...options].some((o) => (o.startsWith('--') ? word.startsWith(`${o}=`) : word.length > o.length && word.startsWith(o)));
+const isOptionWord = (word: string): boolean => word.length > 1 && word.startsWith('-');
+
+type ConfigMode = { action: string; positional: string[]; write: boolean; read: boolean; unspelled: string | undefined };
+
+/**
+ * What the literal words of one `git config …` (<sub>, from `config` on) ask
+ * for: its action, the words after the options, whether a write or read form
+ * is named, and the first option word git config does not spell that way
+ * (`--com`, `--unset-a`: git takes any unique prefix). As git does, an action
+ * is only the word right after `config`, and options end at `--` or at the
+ * first other word, so `git config <key> --get` sets <key> to `--get`.
+ */
+function configMode(sub: readonly string[]): ConfigMode {
   const positional: string[] = [];
   let write = false;
   let read = false;
-  for (let k = 1; k < sub.length; k++) {
+  let unspelled: string | undefined;
+  const action = CONFIG_WRITE_ACTIONS.has(sub[1] ?? '') || CONFIG_READ_ACTIONS.has(sub[1] ?? '') ? sub[1] : '';
+  for (let k = action === '' ? 1 : 2; k < sub.length; k++) {
     const word = sub[k];
-    if (CONFIG_VALUE_OPTIONS.has(word)) {
-      k++;
-      continue;
+    if (word === '--' || !isOptionWord(word)) {
+      positional.push(...sub.slice(word === '--' ? k + 1 : k));
+      break;
     }
-    if (CONFIG_WRITE_OPTIONS.has(word)) write = true;
+    if (CONFIG_VALUE_OPTIONS.has(word)) k++;
+    else if (CONFIG_WRITE_OPTIONS.has(word)) write = true;
     else if (CONFIG_READ_OPTIONS.has(word)) read = true;
-    else if (!word.startsWith('-')) positional.push(word);
+    else if (!CONFIG_FLAGS.has(word) && !hasAttachedValue(word, CONFIG_VALUE_OPTIONS) && !isUnknownWord(word)) unspelled ??= word;
   }
-  const action = positional.length > 0 && (CONFIG_WRITE_ACTIONS.has(positional[0]) || CONFIG_READ_ACTIONS.has(positional[0])) ? (positional.shift() as string) : '';
   if (CONFIG_WRITE_ACTIONS.has(action)) write = true;
   else if (action !== '') read = true;
-  return { action, positional, write, read };
+  return { action, positional, write, read, unspelled };
+}
+
+const isReadForm = (word: string, k: number, forms: ReadonlySet<string>): boolean => forms.has(word) || (k === 1 && CONFIG_READ_ACTIONS.has(word));
+
+/**
+ * Where the first of <forms> (or a read action right after `config`) sits in
+ * <sub>, or why a word before it may not stand there: each must be a literal,
+ * fully spelled option a read carries, a value option's argument literal too,
+ * so none can take the read form as its value (`--comment --get <key> <value>`
+ * sets <key>).
+ */
+function readFormAt(sub: readonly string[], forms: ReadonlySet<string>): number | string {
+  for (let k = 1; k < sub.length; k++) {
+    const word = sub[k];
+    if (isUnknownWord(word)) return `${word} before a literal read form`;
+    if (isReadForm(word, k, forms)) return k;
+    if (PRE_READ_VALUE_OPTIONS.has(word)) {
+      const value = sub[k + 1];
+      if (value === undefined || isUnknownWord(value)) return `the value of ${word} from ${value ?? 'nothing'}`;
+      k++;
+    } else if (!PRE_READ_FLAGS.has(word) && !hasAttachedValue(word, PRE_READ_VALUE_OPTIONS)) {
+      return `${word}, which is not a fully spelled option a read may carry before its read form`;
+    }
+  }
+  return 'no literal read form';
 }
 
 /**
- * Whether one `git config …` (<sub>) is a read whatever its expanded words
- * hold (decision #420): a literal read action or option names it, no literal
- * write form does, the action slot right after `config` is literal, and every
- * expanded word is double-quoted (<loose>[k] false), so none can split into an
- * option or a second action.
+ * Why one `git config …` (<sub>, from `config` on) with expanded words is not
+ * a read whatever they hold, or null when it is (decision #423): a literal
+ * read form is present, readFormAt admits the words before it, and every
+ * expanded word after it is double-quoted (<loose>[k] false) and stands for
+ * one word.
  */
-function isQuotedRead(sub: readonly string[], loose: readonly boolean[] | null): boolean {
-  if (loose === null || isUnknownWord(sub[1] ?? '')) return false;
-  const mode = configMode(sub);
-  return mode.read && !mode.write && sub.every((word, k) => !isUnknownWord(word) || loose[k] === false);
+function expandedReadBlocker(sub: readonly string[], loose: readonly boolean[] | null, mode: ConfigMode): string | null {
+  const expanded = sub.find(isUnknownWord) ?? 'an expansion';
+  if (!sub.some((word, k) => k > 0 && isReadForm(word, k, READ_FORM_OPTIONS))) return `${expanded} with no literal read form`;
+  const readAt = readFormAt(sub, READ_FORM_OPTIONS);
+  if (typeof readAt === 'string') return readAt;
+  if (loose === null) return `${expanded} in words the guard cannot line up with the command as written`;
+  for (let k = readAt + 1; k < sub.length; k++) {
+    const word = sub[k];
+    if (!isUnknownWord(word)) continue;
+    if (loose[k] !== false) return `${word} unquoted, which bash may split into options`;
+    if (MANY_WORDS.test(word)) return `${word}, which may stand for several words`;
+  }
+  return mode.write ? `${expanded} beside a literal write form` : null;
 }
 
 /**
  * The finding one `git config …` (<sub>, from `config` on) makes; <loose>
- * tells, per word, whether bash may split it (null when unknown). A quoted
- * read passes. Otherwise an unknown word before the key, or an unknown key,
- * could itself be a hook key or an action, so it is unresolved; an unknown
- * word after a literal key is a value.
+ * tells, per word, whether bash may split it (null when unknown). A form its
+ * words name as written is denied as that form. Past that, an option git
+ * would read as an abbreviation is unresolved; with an expanded word it
+ * passes only as a read expandedReadBlocker admits, and a literal read only
+ * when readFormAt admits the words before its read form.
  */
 function configFinding(sub: readonly string[], loose: readonly boolean[] | null): Finding {
-  if (isQuotedRead(sub, loose)) return null;
   const shown = `\`git ${sub.join(' ')}\``;
-  const unknownAt = sub.findIndex(isUnknownWord);
-  if (unknownAt > 0) {
-    const key = sub.slice(1, unknownAt).find((word, k, before) => !word.startsWith('-') && !CONFIG_VALUE_OPTIONS.has(before[k - 1] ?? '') && !CONFIG_WRITE_ACTIONS.has(word) && !CONFIG_READ_ACTIONS.has(word));
-    if (key === undefined) return { unresolved: `${shown} takes its key, an action or an option before the key from ${sub[unknownAt]}` };
+  const mode = configMode(sub);
+  const form = configForm(sub, shown, mode);
+  if (form !== '') return { form };
+  if (mode.unspelled !== undefined) return { unresolved: `${shown} takes ${mode.unspelled}, which is not a git config option spelled out in full, so git may read it as another` };
+  let blocker: string | null = null;
+  if (sub.some(isUnknownWord)) blocker = expandedReadBlocker(sub, loose, mode);
+  else if (mode.read) {
+    const readAt = readFormAt(sub, CONFIG_READ_OPTIONS);
+    blocker = typeof readAt === 'string' ? readAt : null;
   }
-  const form = configForm(sub, shown);
-  return form === '' ? null : { form };
+  return blocker === null ? null : { unresolved: `${shown} takes ${blocker}` };
 }
 
 /** The form one `git config …` (<sub>, from `config` on) makes, its words read as literal. */
-function configForm(sub: readonly string[], shown: string): string {
-  const { action, positional, write, read } = configMode(sub);
+function configForm(sub: readonly string[], shown: string, mode: ConfigMode): string {
+  const { action, positional, write, read } = mode;
   if (action === 'edit' || sub.includes('-e') || sub.includes('--edit')) return `${shown}, which edits a git config file`;
   // `git config <key> <value>` sets; one positional alone reads.
   if (!write && (read || positional.length < 2)) return '';
