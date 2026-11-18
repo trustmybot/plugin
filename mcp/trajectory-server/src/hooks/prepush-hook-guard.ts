@@ -319,14 +319,33 @@ const CONFIG_FLAGS = new Set([
 
 /** The literal words that make a `git config` with expanded words a read (decision #423); the actions only right after `config`. */
 const READ_FORM_OPTIONS = new Set(['--get', '--get-all', '--get-regexp', '-l', '--list']);
-/** The flags a read may carry before its read form. */
+/** The flags a literal read may carry before its read form. */
 const PRE_READ_FLAGS = new Set([
   ...['--global', '--system', '--local', '--worktree', '--fixed-value', '--includes', '--no-includes'],
   ...['-z', '--null', '--name-only', '--show-origin', '--show-scope', '--show-names'],
   ...['--bool', '--int', '--bool-or-int', '--bool-or-str', '--path', '--expiry-date', '--no-type'],
 ]);
-/** The value options a read may carry before its read form, their literal argument attached (`--type=bool`, `-f.git/config`) or the next word. */
+/** The value options a literal read may carry before its read form, their argument attached (`--type=bool`, `-f.git/config`) or the next word. */
 const PRE_READ_VALUE_OPTIONS = new Set(['-f', '--file', '--blob', '-t', '--type', '--default']);
+/** The words a literal read may carry before its read form. */
+const LITERAL_READ_PREFIX: ReadPrefix = {
+  flags: PRE_READ_FLAGS,
+  valueOptions: PRE_READ_VALUE_OPTIONS,
+  attached: PRE_READ_VALUE_OPTIONS,
+  what: 'a fully spelled option a read may carry',
+};
+/**
+ * The narrower words a read with expanded words may carry before its read
+ * form (decision #438): a scope flag, a literal `--type=<t>`, or `-f`/`--file`
+ * with a literal or double-quoted path, so no expansion there can be an
+ * option that swallows the read form (`O=--comment; … "$O" --get k v`).
+ */
+const EXPANDED_READ_PREFIX: ReadPrefix = {
+  flags: new Set(['--global', '--local', '--system', '--worktree']),
+  valueOptions: new Set(['-f', '--file']),
+  attached: new Set(['-f', '--file', '--type']),
+  what: 'a scope flag, a literal --type=<t> or -f/--file, the only options a read with an expansion may carry',
+};
 /** An expansion that may stand for several words even double-quoted: `"$@"`, `"${a[@]}"`, `"$*"` and their `${…}` kin. */
 const MANY_WORDS = /\$[@*]|\$\{[^}]*[@*]/;
 
@@ -334,6 +353,9 @@ const MANY_WORDS = /\$[@*]|\$\{[^}]*[@*]/;
 const hasAttachedValue = (word: string, options: ReadonlySet<string>): boolean =>
   [...options].some((o) => (o.startsWith('--') ? word.startsWith(`${o}=`) : word.length > o.length && word.startsWith(o)));
 const isOptionWord = (word: string): boolean => word.length > 1 && word.startsWith('-');
+
+/** The words a read may carry before its read form: <flags>, <valueOptions> with their argument in the next word, <attached> with it attached; <what> names that read in a deny. */
+type ReadPrefix = { readonly flags: ReadonlySet<string>; readonly valueOptions: ReadonlySet<string>; readonly attached: ReadonlySet<string>; readonly what: string };
 
 type ConfigMode = { action: string; positional: string[]; write: boolean; read: boolean; unspelled: string | undefined };
 
@@ -374,24 +396,24 @@ const isReadForm = (word: string, k: number, forms: ReadonlySet<string>): boolea
 
 /**
  * Where the first of <forms> (or a read action right after `config`) sits in
- * <sub>, or why a word before it may not stand there: each must be a literal,
- * fully spelled option a read carries, so none can take the read form as its
- * value (`--comment --get <key> <value>` sets <key>). A value option's
- * separate-word argument may also be one double-quoted expansion (<loose>[k]
- * false, decision #425): git takes that word as the argument whatever it holds.
+ * <sub>, or why a word before it may not stand there: each must be a literal
+ * word <prefix> allows, so none can take the read form as its value
+ * (`--comment --get <key> <value>` sets <key>). A value option's separate-word
+ * argument may also be one double-quoted expansion (<loose>[k] false, decision
+ * #425): git takes that word as the argument whatever it holds.
  */
-function readFormAt(sub: readonly string[], forms: ReadonlySet<string>, loose: readonly boolean[] | null): number | string {
+function readFormAt(sub: readonly string[], forms: ReadonlySet<string>, loose: readonly boolean[] | null, prefix: ReadPrefix): number | string {
   for (let k = 1; k < sub.length; k++) {
     const word = sub[k];
     if (isUnknownWord(word)) return `${word} before a literal read form`;
     if (isReadForm(word, k, forms)) return k;
-    if (PRE_READ_VALUE_OPTIONS.has(word)) {
+    if (prefix.valueOptions.has(word)) {
       const value = sub[k + 1];
       if (value === undefined) return `the value of ${word} from nothing`;
       if (isUnknownWord(value) && !isOneQuotedWord(value, loose?.[k + 1])) return `the value of ${word} from ${value}`;
       k++;
-    } else if (!PRE_READ_FLAGS.has(word) && !hasAttachedValue(word, PRE_READ_VALUE_OPTIONS)) {
-      return `${word}, which is not a fully spelled option a read may carry before its read form`;
+    } else if (!prefix.flags.has(word) && !hasAttachedValue(word, prefix.attached)) {
+      return `${word}, which is not ${prefix.what} before its read form`;
     }
   }
   return 'no literal read form';
@@ -399,15 +421,16 @@ function readFormAt(sub: readonly string[], forms: ReadonlySet<string>, loose: r
 
 /**
  * Why one `git config …` (<sub>, from `config` on) with expanded words is not
- * a read whatever they hold, or null when it is (decisions #423, #425): a literal
- * read form is present, readFormAt admits the words before it, and every
+ * a read whatever they hold, or null when it is (decisions #423, #425, #438): a
+ * literal read form is present, readFormAt admits the words before it by
+ * EXPANDED_READ_PREFIX, and every
  * expanded word after it is double-quoted (<loose>[k] false) and stands for
  * one word.
  */
 function expandedReadBlocker(sub: readonly string[], loose: readonly boolean[] | null, mode: ConfigMode): string | null {
   const expanded = sub.find(isUnknownWord) ?? 'an expansion';
   if (!sub.some((word, k) => k > 0 && isReadForm(word, k, READ_FORM_OPTIONS))) return `${expanded} with no literal read form`;
-  const readAt = readFormAt(sub, READ_FORM_OPTIONS, loose);
+  const readAt = readFormAt(sub, READ_FORM_OPTIONS, loose, EXPANDED_READ_PREFIX);
   if (typeof readAt === 'string') return readAt;
   if (loose === null) return `${expanded} in words the guard cannot line up with the command as written`;
   for (let k = readAt + 1; k < sub.length; k++) {
@@ -491,7 +514,7 @@ function configFinding(sub: readonly string[], loose: readonly boolean[] | null)
     return { failClosed: 'config_expansion', why: `${shown} takes ${namesRead ? readBlocker : writeBlocker}` };
   }
   if (!mode.read) return null;
-  const readAt = readFormAt(sub, CONFIG_READ_OPTIONS, loose);
+  const readAt = readFormAt(sub, CONFIG_READ_OPTIONS, loose, LITERAL_READ_PREFIX);
   return typeof readAt === 'string' ? unresolved(`${shown} takes ${readAt}`) : null;
 }
 
