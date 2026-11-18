@@ -65,5 +65,7 @@ Each round asks through a card. A person who has never used TMB must be able to 
 - **The card shows the actual values.** Paths, commands and branch names appear on the card, shortened with a count when the list is long.
 - **Human language for what TMB works out.** An option that takes what bro found reads "Let bro detect".
 - **Plain, short sentences.** Setting names and file formats stay off the card. Detail that does not help the choice goes in the lines bro prints above it.
+- **A card only when the Human must choose.** A setting whose usual answer fits almost every project is applied without a card. The closing summary names each one, and a re-run of /onboard changes it. A card is shown only for a choice that is important and depends on the Human, with bro's recommendation as its first option. Two settings are applied without a card: the Bash sandbox is turned on, and bro finds each repo's docs and prompts files.
+- **Repo modes get a card only in a workspace with more than one repo.** A project with one repo takes the project's mode and sees no repo-mode card.
 
-Planned (GH 3327): today's cards ask without the opening sentence, and most options carry no benefit or risk.
+Planned (GH 3327): today's cards ask without the opening sentence, most options carry no benefit or risk, and every round shows a card.
