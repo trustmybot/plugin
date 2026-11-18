@@ -147,7 +147,7 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 
 ### Agile review mode
 
-`config_get(agent='bro', key='workflow_mode')` gives the project's review mode; null reads as `truest`, which runs §5 and §6 as written. Under `agile` the work lands on one long-lived feature branch with no per-task review, and code-reviewer reviews it at the milestone (`tmb_push-gate`), so each task runs these steps instead of §6.
+Read the mode in effect for the task's repo from that repo's `effective_mode` in `repos_list`, not from the `workflow_mode` config key alone: the key holds only the project's mode, and a repo's own mode wins over it. `truest` runs §5 and §6 as written. Under `agile` the work lands on one long-lived feature branch with no per-task review, and code-reviewer reviews it at the milestone (`tmb_push-gate`), so each task runs these steps instead of §6. For a task in a repo whose mode is `exempt`, make no `review_handoff` and spawn no code-reviewer; `bro_atomic_close` closes it with no review pass and records the task as exempt.
 
 `<feature-branch>` below stands for `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" feature-branch`. The backup push of `<feature>` first runs `git -C <repo path> remote get-url origin`; when it succeeds, run `git -C <repo path> push origin <feature>`. When it fails the repo has no remote: skip the push, and `<feature>` stays local until the Human merges it at the milestone.
 
