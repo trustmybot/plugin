@@ -1,0 +1,2 @@
+### Changed
+- **The bug form needs only three answers and one checkbox** (GH 3318): what went wrong, what happened and the impact come first and are the only required questions, plus the no-secrets check; every other field is optional, and the form opens with a line saying so and that a TMB user can ask bro to file the bug. Triage now sets the priority from the Impact answer on any bug with no priority, not only on a report bro filed.

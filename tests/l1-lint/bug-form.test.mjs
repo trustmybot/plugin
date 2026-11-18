@@ -1,4 +1,4 @@
-// L1 lint: .github/ISSUE_TEMPLATE/bug.yml lists the same fields, in the same order, as FORM_FIELDS in the bug-report module (GH 2034).
+// L1 lint: .github/ISSUE_TEMPLATE/bug.yml lists the same fields, in the same order, as FORM_FIELDS in the bug-report module (GH 2034); markdown elements are skipped (GH 3318).
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -23,11 +23,20 @@ function parseForm(yml) {
   let field = null;
   let section = null;
   let blockIndent = null;
+  let block = null;
+  const closeBlock = () => {
+    if (block) block.owner[block.key] = block.lines.join(block.fold ? ' ' : '\n') + '\n';
+    block = null;
+    blockIndent = null;
+  };
   for (const line of yml.split('\n')) {
     if (line.trim() === '') continue;
     const indent = line.length - line.trimStart().length;
-    if (blockIndent !== null && indent >= blockIndent) continue;
-    blockIndent = null;
+    if (blockIndent !== null && indent >= blockIndent) {
+      block.lines.push(line.slice(blockIndent));
+      continue;
+    }
+    closeBlock();
     const item = /^\s*- (.*)$/.exec(line);
     const pair = /^\s*(?:- )?([\w-]+):\s*(.*)$/.exec(line);
     if (indent === 0 && pair) {
@@ -51,7 +60,7 @@ function parseForm(yml) {
     if (!pair) continue;
     const [, key, value] = pair;
     if (value === '|' || value === '>') {
-      field[key] = null;
+      block = { owner: field, key, fold: value === '>', lines: [] };
       blockIndent = indent + 2;
       continue;
     }
@@ -68,7 +77,8 @@ function parseForm(yml) {
     if (section === 'validations' && key === 'required') field.required = scalar(value);
     else field[key] = scalar(value);
   }
-  return { top, fields };
+  closeBlock();
+  return { top, fields: fields.filter((f) => f.type !== 'markdown') };
 }
 
 test('GH 2034 form: bug.yml matches FORM_FIELDS', () => {
@@ -90,6 +100,51 @@ test('GH 2034 form: bug.yml matches FORM_FIELDS', () => {
     assert.deepEqual(have.options, want.options && [...want.options].map((o) => (typeof o === 'string' ? o : { ...o })), `${want.id} options`);
     assert.equal(typeof have.description === 'string' || want.type === 'checkboxes', true, `${want.id} description`);
   });
+});
+
+test('GH 3318 form: bug.yml opens with one markdown element naming the required answers and bro', () => {
+  const yml = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/bug.yml'), 'utf8');
+  const types = [...yml.matchAll(/^ {2}- type: (\S+)$/gm)].map((m) => m[1]);
+  assert.equal(types[0], 'markdown');
+  assert.equal(types.filter((t) => t === 'markdown').length, 1);
+  const intro = /^ {2}- type: markdown\n {4}attributes:\n {6}value: (.+)$/m.exec(yml)?.[1] ?? '';
+  assert.match(intro, /first three questions and one checkbox/);
+  assert.match(intro, /bro/);
+});
+
+test('GH 3318 form: the parser skips markdown elements and reads a block description', () => {
+  const yml = [
+    'name: Bug report',
+    'body:',
+    '  - type: markdown',
+    '    attributes:',
+    '      value: Read me first.',
+    '  - type: dropdown',
+    '    id: area',
+    '    attributes:',
+    '      label: Area',
+    '      description: |',
+    '        Optional. Your best guess.',
+    '        - Hooks: something was blocked.',
+    '      options:',
+    '        - Hooks',
+    '    validations:',
+    '      required: false',
+    '  - type: textarea',
+    '    id: notes',
+    '    attributes:',
+    '      label: Notes',
+    '      description: >',
+    '        One',
+    '        line.',
+    '',
+  ].join('\n');
+  const { fields } = parseForm(yml);
+  assert.deepEqual(fields.map((f) => f.id), ['area', 'notes']);
+  assert.equal(fields[0].description, 'Optional. Your best guess.\n- Hooks: something was blocked.\n');
+  assert.deepEqual(fields[0].options, ['Hooks']);
+  assert.equal(fields[0].required, false);
+  assert.equal(fields[1].description, 'One line.\n');
 });
 
 test('GH 2034 form: the parser sees a drifted option', () => {
