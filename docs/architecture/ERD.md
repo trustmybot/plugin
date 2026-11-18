@@ -10,7 +10,7 @@ The DB is TMB's cold memory ([`MEMORY.md`](./MEMORY.md)): the only source of tru
 - **Registries** — standalone state not tied to an issue: registered repos with their per-repo branch policy, remotes and toolchain profiles; milestones; agents; capabilities (cheatcodes) and what each install wired; PR records; plugin config and schema metadata.
 - **World model** — the project map (directories, files, symbols, the edges between them, concepts) and its freshness state. A derived cache, keyed by repo and rebuilt by scanning, with no foreign key into the workflow tables. It moves to its own file ([Planned for the world model file](#planned-for-the-world-model-file)).
 - **Search** — FTS5 indexes and embedding caches over discussions, audit rows and the world model, each keyed by its source row.
-- **Eval mode** — capture tables in `schema-eval.sql`, applied only with `TMB_EVAL_MODE=1`, so production DBs never carry them.
+- **Eval mode** — capture tables in `schema-eval.sql`, applied only with `TMB_EVAL_MODE=1`, so production DBs never carry them. Planned (GH 3360): eval mode moves to the research repo.
 
 ## Design requirements
 
@@ -1450,7 +1450,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 
 ## Eval mode
 
-Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MODE=1`; production DBs do not carry these tables. Planned (GH 3360): eval mode moves to the research repo.
+Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MODE=1`; production DBs do not carry these tables.
 
 #### `debug_trajectory`
 
