@@ -2652,6 +2652,37 @@ describe('prepush_hook round (GH 3281)', () => {
     }
   });
 
+  it('GH 3327: the card opens with the feature, and each option carries a benefit and a risk or cost within the length limits', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'prepush_hook' }));
+      const card = (data.questions as Array<{ question: string; recommended_reason: string | null; options: Array<Option & { description: string }> }>)[0];
+      assert.equal(
+        card.question,
+        'TMB installs a git pre-push hook in each repo. It records every agent push and never blocks one. Keep it on?',
+      );
+      assert.equal(card.options[0].wire, 'on');
+      assert.equal(card.options[0].recommended, true);
+      assert.ok(card.recommended_reason, 'On is recommended with a reason');
+      const description = (wire: string): string | undefined => card.options.find((o) => o.wire === wire)?.description;
+      assert.equal(description('on'), 'TMB records what its push check would decide. Cost: none, it never blocks.');
+      assert.equal(description('off'), 'TMB adds nothing to your pushes. Cost: pushes go unrecorded; each session says so.');
+
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', prepush_hook: 'off' });
+      const kept = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'prepush_hook' }));
+      const words = (text: string): number => text.trim().split(/\s+/).filter(Boolean).length;
+      for (const q of [data, kept].map((d) => (d.questions as typeof card[])[0])) {
+        for (const option of q.options.filter((o) => o.wire !== '__keep__')) {
+          assert.ok(words(option.label) <= 5, `label "${option.label}" is over 5 words`);
+          assert.ok(words(option.description) <= 15, `description "${option.description}" is over 15 words`);
+        }
+      }
+    } finally {
+      db.close();
+    }
+  });
+
   it('SC1: apply writes off and on; omitted or Keep keeps it; the hook installer reads the stored value', async () => {
     const base = mkdtempSync(join(tmpdir(), 'onboard-prepush-'));
     const dbFile = join(base, 'trajectory.db');

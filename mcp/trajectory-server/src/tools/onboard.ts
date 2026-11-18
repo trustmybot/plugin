@@ -679,7 +679,7 @@ const PREPUSH_HOOK_ADVICE: Advice = {
 function prepushHookQuestion(current: PrepushHookSetting | null): BuiltQuestion {
   return {
     question:
-      "Install TMB's pre-push hook in this project's repos? It only observes agent pushes and never blocks one. Off removes it at the next session start. Only you change this, here.",
+      'TMB installs a git pre-push hook in each repo. It records every agent push and never blocks one. Keep it on?',
     header: 'Pre-push hook',
     multiSelect: false,
     ...assemble(keepOption(current, true), PREPUSH_HOOK_OPTIONS, PREPUSH_HOOK_ADVICE, 'on'),
@@ -841,8 +841,8 @@ const REVIEW_MODE_OPTIONS: QuestionOption[] = [
 ];
 
 const PREPUSH_HOOK_OPTIONS: QuestionOption[] = [
-  { label: 'On', description: 'Git checks and records each agent push; it never blocks one.', wire: 'on' },
-  { label: 'Off', description: 'Git stops checking agent pushes; each new session says so once.', wire: 'off' },
+  { label: 'On', description: 'TMB records what its push check would decide. Cost: none, it never blocks.', wire: 'on' },
+  { label: 'Off', description: 'TMB adds nothing to your pushes. Cost: pushes go unrecorded; each session says so.', wire: 'off' },
 ];
 
 const ALONE_APPLY_KEYS = ['headless_enforcement', 'bug_report_consent'] as const;
