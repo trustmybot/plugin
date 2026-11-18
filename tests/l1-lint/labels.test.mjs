@@ -110,7 +110,7 @@ test('GH 3318: a body with no Impact answer gets no priority', () => {
 
 test('GH 3318: a report drafted with every field filled gets Bug, the Impact priority and the Area, and no needs-triage', async () => {
   const { render } = await import('../../mcp/trajectory-server/dist/bug-report/render.js');
-  const ctx = { home: '/Users/a', projectRoot: '/Users/a/p', remoteUrls: [], repoNames: [], branchNames: ['main'], titles: [] };
+  const ctx = { home: '/srv/a', projectRoot: '/srv/a/p', remoteUrls: [], repoNames: [], branchNames: ['main'], titles: [] };
   const input = {
     tool: 'scan_run',
     error_class: 'TypeError',
