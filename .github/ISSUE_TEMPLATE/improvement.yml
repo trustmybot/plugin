@@ -1,29 +1,38 @@
 name: Improvement
-description: Refactor, polish or quality work on something that already exists
+description: Something TMB already does, but could do better
 labels: ["Improvement"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Plain words are enough. You do not need to know how TMB works inside. Only the first question is required.
   - type: textarea
     id: current
     attributes:
-      label: Current behaviour
+      label: What happens today?
+      description: What TMB does now, and what is slow, confusing or awkward about it.
+      placeholder: |
+        After every task TMB asks me the same question about the branch name.
+        I answer the same way each time.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed change
+      label: What would be better?
+      description: Optional. How you would like it to work. Leave it empty if you only know what bothers you.
     validations:
-      required: true
+      required: false
   - type: dropdown
     id: area
     attributes:
       label: Area
       description: |
-        Your best guess at the part of TMB. A maintainer corrects it, so a wrong guess is fine.
+        Optional. The part of TMB this is about. Not sure? Leave it empty and a maintainer fills it in.
         - Hooks: something you did was blocked or denied.
         - Agents: bro, swe or the reviewer did the wrong thing.
-        - Trajectory Server: a TMB tool failed, or TMB's records are wrong.
-        - World Model: TMB did not know your code, or its search was wrong.
+        - Trajectory Server: a TMB tool, or the records TMB keeps.
+        - World Model: what TMB knows about your code, and its search.
         - Dashboard: the dashboard page.
         - Install: installing, updating or starting TMB.
         - Cheatcode: finding or installing an outside skill or tool.
@@ -40,4 +49,4 @@ body:
         - Adapters
         - Release
     validations:
-      required: true
+      required: false

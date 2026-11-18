@@ -1,18 +1,26 @@
 name: Research
-description: A paper, experiment or open design question
+description: A question to look into before anything is built
 labels: ["Research"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Plain words are enough. You do not need to know how TMB works inside. Only the first question is required.
   - type: textarea
     id: question
     attributes:
-      label: Question
-      description: What do we want to learn or decide?
+      label: What do we want to find out?
+      description: The question, and what its answer would help decide.
+      placeholder: |
+        Does a second reviewer catch more bugs than one reviewer at higher effort?
+        The answer decides whether TMB should offer a second review.
     validations:
       required: true
   - type: textarea
     id: approach
     attributes:
-      label: Approach and sources
+      label: How could we find out?
+      description: Optional. A paper, some data or an experiment you have in mind. Leave it empty if you do not know.
     validations:
       required: false
   - type: dropdown
@@ -20,11 +28,11 @@ body:
     attributes:
       label: Area
       description: |
-        Your best guess at the part of TMB. A maintainer corrects it, so a wrong guess is fine.
+        Optional. The part of TMB this is about. Not sure? Leave it empty and a maintainer fills it in.
         - Hooks: something you did was blocked or denied.
         - Agents: bro, swe or the reviewer did the wrong thing.
-        - Trajectory Server: a TMB tool failed, or TMB's records are wrong.
-        - World Model: TMB did not know your code, or its search was wrong.
+        - Trajectory Server: a TMB tool, or the records TMB keeps.
+        - World Model: what TMB knows about your code, and its search.
         - Dashboard: the dashboard page.
         - Install: installing, updating or starting TMB.
         - Cheatcode: finding or installing an outside skill or tool.
@@ -41,4 +49,4 @@ body:
         - Adapters
         - Release
     validations:
-      required: true
+      required: false
