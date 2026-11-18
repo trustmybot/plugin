@@ -2,7 +2,8 @@
  * PostToolUse hook on task_update_status, validation_record and bro_atomic_close
  * (GH 1692): once a task is closed (bro's task_update_status to closed,
  * bro_atomic_close after code-reviewer's pass, or a passing validation_record
- * on a closed task whose pass is anchored to its commit), the task's linked
+ * on a closed task whose pass is anchored to its commit, or either of the last
+ * two on a closed task of an exempt repo, which owes no review), the task's linked
  * worktree under `<repo>/.claude/worktrees/<slug>` is removed and pruned, and
  * the main checkout is moved to the repo's PR target unless
  * TMB_KEEP_HEAD_ON_CLOSE=1. Every other payload, or a piece that does not
@@ -19,7 +20,7 @@ import { branchSlug, dbPath, haveSqlite, sqlInt, sqliteRo } from './lib/db.js';
 import { gitOk, gitOut, isDir } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { posixDirname } from './lib/project-env.js';
-import { repoPathByName, repoResolve, repoSinglePath } from './lib/repo.js';
+import { isExempt, repoPathByName, repoResolve, repoSinglePath } from './lib/repo.js';
 import { statSync } from 'node:fs';
 
 export const GATE_NAME = 'cleanup-worktree-on-task-close';
@@ -67,6 +68,12 @@ function taskRepoRoot(db: string, taskId: string, env: NodeJS.ProcessEnv): strin
   return repoSinglePath(db, env) || workspace;
 }
 
+/** Whether the task is closed in an exempt repo; a DB that does not read says no, so the worktree waits for a pass. */
+function closedInExemptRepo(db: string, taskId: string, env: NodeJS.ProcessEnv): boolean {
+  if (sqliteRo(db, `SELECT 1 FROM tasks WHERE id=${taskId} AND status='closed' LIMIT 1;`, env) !== '1') return false;
+  return isExempt(db, taskRepoRoot(db, taskId, env), env);
+}
+
 async function resetHead(db: string, repoRoot: string, taskId: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): Promise<void> {
   const target = repoResolve(db, repoRoot, env).split('|')[0] || DEFAULT_PR_TARGET;
   const current = await gitOut(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
@@ -97,7 +104,7 @@ export async function cleanupWorktree(payload: string, env: NodeJS.ProcessEnv, s
   if (db === null || db === '' || !isFile(db) || !haveSqlite(env)) return ALLOW;
   if (closesAfterPass) {
     const passed = sqliteRo(db, `SELECT 1 FROM tasks t WHERE t.id=${safeId} AND t.status='closed' AND ${HAS_PASS_SQL};`, env);
-    if (passed !== '1') return ALLOW;
+    if (passed !== '1' && !closedInExemptRepo(db, safeId, env)) return ALLOW;
   }
   const branch = sqliteRo(db, `SELECT branch_id FROM tasks WHERE id=${safeId} LIMIT 1;`, env);
   if (branch === '') return ALLOW;

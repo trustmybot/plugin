@@ -1,8 +1,8 @@
 /**
  * Per-repo mode (GH 3279): repos.mode is truest, agile, exempt or NULL (the
  * project's workflow_mode). scan_run registers a new repo exempt, a rescan
- * keeps whatever mode the row holds, repo_rename carries it and onboard_apply
- * clears exempt. isExempt is an allowlist: only a stored exempt stands the
+ * keeps whatever mode the row holds, repo_rename carries it and the final
+ * onboard_apply clears an unanswered exempt. isExempt is an allowlist: only a stored exempt stands the
  * git guards and the push gate down; every other deny names the repo and mode.
  * The stored task mode (GH 3281) admits exempt while the project's
  * workflow_mode key stays truest or agile.
@@ -314,7 +314,7 @@ describe('repo mode — scan_run, repos_list, repo_rename and onboard_apply', ()
     db.close();
   });
 
-  it('a per-repo onboard_apply clears exempt and leaves truest and agile', async () => {
+  it('a per-repo onboard_apply writes the policy and leaves every mode as stored', async () => {
     const db = tempDB();
     db.run(`INSERT INTO repos (name, path, mode) VALUES ('a', '/repo/a', 'exempt'), ('b', '/repo/b', 'agile'), ('c', '/repo/c', 'exempt')`);
     const tools = onboardTools(db);
@@ -322,16 +322,17 @@ describe('repo mode — scan_run, repos_list, repo_rename and onboard_apply', ()
       const out = await call(tools.handlers, 'onboard_apply', { shape: 'local', repo, branching_model: 'github-flow', pr_target: 'main' });
       assert.equal(out.ok, true, JSON.stringify(out));
     }
-    assert.deepEqual(modes(db), { a: null, b: 'agile', c: 'exempt' });
+    assert.deepEqual(modes(db), { a: 'exempt', b: 'agile', c: 'exempt' });
     db.close();
   });
 
-  it('a workspace onboard_apply clears exempt on every repo whose policy it seeds', async () => {
+  it('a workspace onboard_apply leaves the stored mode of every repo it got no repo_modes answer for', async () => {
     const db = tempDB();
-    db.run(`INSERT INTO repos (name, path, mode) VALUES ('a', '/repo/a', 'exempt'), ('b', '/repo/b', 'truest')`);
+    db.run(`INSERT INTO repos (name, path, mode, branching_model, target_branch) VALUES ('c', '/repo/c', 'exempt', 'github-flow', 'main')`);
+    db.run(`INSERT INTO repos (name, path, mode) VALUES ('a', '/repo/a', 'exempt'), ('b', '/repo/b', 'truest'), ('d', '/repo/d', 'agile')`);
     const out = await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
     assert.equal(out.ok, true, JSON.stringify(out));
-    assert.deepEqual(modes(db), { a: null, b: 'truest' });
+    assert.deepEqual(modes(db), { a: 'exempt', b: 'truest', c: 'exempt', d: 'agile' });
     db.close();
   });
 });

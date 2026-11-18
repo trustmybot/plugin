@@ -9,10 +9,12 @@ import { onboardTools } from '../tools/onboard.js';
 import { configTools, readWorkflowMode } from '../tools/config.js';
 import { prepushSwitchedOff } from '../hooks/lib/prepush-hook.js';
 import { envTools } from '../tools/env.js';
+import { scanTools } from '../tools/scan.js';
 import { readVerificationDefaults, VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
 import { parsePathClasses, PATH_CLASSES_FILE, readPathClasses } from '../path-classes.js';
 import { tempDB } from './helpers.js';
 import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import { __setGitAsyncRunnerForTests } from '../utils/git-run.js';
 import {
   removeProjectSandbox,
   SANDBOX_NETWORK_PROBE,
@@ -1395,7 +1397,7 @@ describe('onboard tools', () => {
       assert.match(String(parse(result).error), /unknown round 'headless'/);
       const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
       const roundSchema = (def?.inputSchema.properties as Record<string, { enum: string[] }>)['round'];
-      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'prepush_hook', 'verification_defaults', 'path_classes']);
+      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'prepush_hook', 'repo_mode', 'verification_defaults', 'path_classes']);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -3139,6 +3141,302 @@ describe('path classes round (GH 3074)', () => {
       assert.match(String(parse(ambiguous).error), /path_classes needs repo/);
       const ambiguousRound = (await call(onboardTools(db).handlers, 'onboard_get_questions', { round: 'path_classes' })) as { isError?: boolean };
       assert.equal(ambiguousRound.isError, true);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('repo_mode round (GH 3281)', () => {
+  type Option = { label: string; description: string; wire: string; recommended?: boolean };
+  type Question = {
+    question: string;
+    header: string;
+    options: Option[];
+    default_index: number;
+    evidence: string[];
+    recommended_reason: string | null;
+  };
+
+  // A git repo on main whose history has one commit per author email, in order.
+  function repoWithHistory(authors: string[], opts: { remote?: boolean; tag?: boolean; ci?: boolean } = {}): string {
+    const dir = mkdtempSync(join(tmpdir(), 'onboard-repo-mode-'));
+    remoteRepoDirs.push(dir);
+    const git = (args: string[], input?: string): void => {
+      const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: GIT_ISOLATED_ENV, input });
+      assert.equal(r.status, 0, r.stderr);
+    };
+    git(['init', '-q', '-b', 'main']);
+    const stream = authors
+      .map((email, i) => {
+        const who = `${email} <${email}> ${1700000000 + i} +0000`;
+        return `commit refs/heads/main\nauthor ${who}\ncommitter ${who}\ndata 2\nc\n\n`;
+      })
+      .join('');
+    if (stream !== '') git(['fast-import', '--quiet'], stream);
+    if (opts.remote ?? true) git(['remote', 'add', 'origin', 'https://example.invalid/app.git']);
+    if (opts.tag) git(['-c', 'user.email=t@t.t', '-c', 'user.name=t', 'tag', 'v1.0.0']);
+    if (opts.ci) mkdirSync(join(dir, '.github', 'workflows'), { recursive: true });
+    return dir;
+  }
+
+  const solo = (n: number): string[] => Array.from({ length: n }, () => 'solo@example.com');
+
+  // GH 3327 card pattern: the feature first, then the ask.
+  const modeQuestion = (repo: string): string =>
+    'TMB sets a review mode for each repository. Truest reviews every task before it is pushed. ' +
+    'Agile reviews the work as a whole before it merges. Exempt adds no TMB checks. ' +
+    `Which mode should ${repo} use?`;
+  const projectDescription = (mode: string): string => `One setting for all repos, now ${mode}. Risk: changes when the project's does.`;
+  const wordCount = (text: string): number => text.split(/\s+/).filter(Boolean).length;
+
+  async function onlyQuestion(db: TrajectoryDB): Promise<Question> {
+    const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { round: 'repo_mode' }));
+    const questions = data.questions as Question[];
+    assert.equal(questions.length, 1);
+    assert.equal(data.next_offset, undefined);
+    return questions[0];
+  }
+
+  const signalRows: Array<{ name: string; dir: () => string; protectedBranches?: string[]; wire: string; reason: RegExp; evidence: string }> = [
+    { name: 'no commits', dir: () => repoWithHistory([]), wire: 'exempt', reason: /no commits yet/, evidence: 'No commits yet.' },
+    { name: 'no remote', dir: () => repoWithHistory(solo(3), { remote: false }), wire: 'exempt', reason: /no remote/, evidence: 'No git remote.' },
+    { name: 'one author, few commits, no tag', dir: () => repoWithHistory(solo(3)), wire: 'agile', reason: /^one author, few commits and no release$/, evidence: '3 commits by 1 author.' },
+    { name: 'several authors', dir: () => repoWithHistory(['a@example.com', 'b@example.com']), wire: 'truest', reason: /several authors/, evidence: '2 commits by 2 authors.' },
+    { name: 'a tag', dir: () => repoWithHistory(solo(2), { tag: true }), wire: 'truest', reason: /releases/, evidence: 'Tagged, e.g. v1.0.0.' },
+    { name: 'a protected branch', dir: () => repoWithHistory(solo(51)), protectedBranches: ['main'], wire: 'truest', reason: /a protected branch/, evidence: 'Protected branches: main.' },
+    { name: 'CI', dir: () => repoWithHistory(solo(51), { ci: true }), wire: 'truest', reason: /CI/, evidence: 'Has a .github/workflows folder.' },
+    { name: 'nothing either way', dir: () => repoWithHistory(solo(51)), wire: 'agile', reason: /nothing in the repository points either way/, evidence: '51 commits by 1 author.' },
+  ];
+
+  for (const row of signalRows) {
+    it(`SC1: ${row.name} recommends ${row.wire}, first, with the signals as evidence`, async () => {
+      const db = tempDB();
+      try {
+        db.run(`INSERT INTO repos (path, name, protected_branches) VALUES (?, 'app', ?)`, [
+          row.dir(),
+          row.protectedBranches ? JSON.stringify(row.protectedBranches) : null,
+        ]);
+        const q = await onlyQuestion(db);
+        assert.equal(q.question, modeQuestion('app'));
+        assert.equal(q.header, 'Mode 1/1');
+        assert.equal(q.options[0].wire, row.wire);
+        assert.equal(q.options[0].recommended, true);
+        assert.equal(q.options.filter((o) => o.recommended).length, 1);
+        assert.equal(q.default_index, 0);
+        assert.deepEqual([...q.options.map((o) => o.wire)].sort(), ['agile', 'exempt', 'project', 'truest']);
+        assert.match(String(q.recommended_reason), row.reason);
+        assert.ok(q.evidence.includes(row.evidence), JSON.stringify(q.evidence));
+      } finally {
+        db.close();
+      }
+    });
+  }
+
+  it('SC1: a git probe that fails or times out is no evidence, so it never recommends exempt', async () => {
+    const db = tempDB();
+    try {
+      const notARepo = mkdtempSync(join(tmpdir(), 'onboard-repo-mode-nogit-'));
+      remoteRepoDirs.push(notARepo);
+      db.run(`INSERT INTO repos (path, name) VALUES (?, 'app')`, [notARepo]);
+      const failed = await onlyQuestion(db);
+      assert.equal(failed.options[0].wire, 'agile');
+      assert.match(String(failed.recommended_reason), /a git probe failed/);
+      for (const what of ['commits', 'remotes', 'tags']) {
+        assert.ok(failed.evidence.includes(`The git probe for ${what} failed or timed out, so it is no evidence.`), JSON.stringify(failed.evidence));
+      }
+      assert.ok(!failed.evidence.includes('No commits yet.') && !failed.evidence.includes('No git remote.'), JSON.stringify(failed.evidence));
+
+      // A timeout leaves git with no exit status.
+      db.run(`UPDATE repos SET path = ? WHERE name = 'app'`, [repoWithHistory([])]);
+      __setGitAsyncRunnerForTests(() => Promise.resolve({ status: null, stdout: '', stderr: '', error: new Error('spawnSync git ETIMEDOUT') }));
+      try {
+        const timedOut = await onlyQuestion(db);
+        assert.notEqual(timedOut.options[0].wire, 'exempt');
+        assert.ok(timedOut.evidence.includes('The git probe for commits failed or timed out, so it is no evidence.'), JSON.stringify(timedOut.evidence));
+      } finally {
+        __setGitAsyncRunnerForTests();
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC1: a NULL mode marks the project\'s option current, a stored mode marks its own', async () => {
+    const db = tempDB();
+    try {
+      const dir = repoWithHistory(solo(3));
+      db.run(`INSERT INTO repos (path, name) VALUES (?, 'app')`, [dir]);
+      const unset = await onlyQuestion(db);
+      const project = unset.options.find((o) => o.wire === 'project')!;
+      assert.equal(project.label, "The project's (current)");
+      assert.equal(project.description, projectDescription('truest'));
+      assert.equal(unset.options.filter((o) => o.label.endsWith('(current)')).length, 1);
+
+      db.run(`UPDATE repos SET mode = 'agile' WHERE name = 'app'`);
+      db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', '"agile"')`);
+      const agile = await onlyQuestion(db);
+      assert.deepEqual(agile.options.filter((o) => o.label.endsWith('(current)')).map((o) => o.wire), ['agile']);
+      assert.equal(agile.options.find((o) => o.wire === 'project')!.description, projectDescription('agile'));
+    } finally {
+      db.close();
+    }
+  });
+
+  it('GH 3327: the card opens with the feature, and each option says a benefit and a risk or cost within the word limits', async () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO repos (path, name) VALUES (?, 'app')`, [repoWithHistory(['a@example.com', 'b@example.com'])]);
+      const q = await onlyQuestion(db);
+      assert.equal(q.question, modeQuestion('app'));
+      assert.equal(q.options[0].wire, 'truest');
+      assert.equal(q.options[0].recommended, true);
+      assert.match(String(q.recommended_reason), /several authors/);
+      const descriptions = Object.fromEntries(q.options.map((o) => [o.wire, o.description]));
+      assert.deepEqual(descriptions, {
+        truest: 'Nothing unreviewed reaches the working branch. Cost: slower, more tokens per task.',
+        agile: 'Faster, for trying out a feature. Risk: problems surface late, at the batch review.',
+        exempt: 'TMB adds no task, review or push check. Risk: changes go unreviewed.',
+        project: projectDescription('truest'),
+      });
+      for (const o of q.options) {
+        assert.ok(wordCount(o.label) <= 5, `label over 5 words: ${o.label}`);
+        assert.ok(wordCount(o.description) <= 15, `description over 15 words: ${o.description}`);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC1: pages at four questions per call in name order; next_offset fetches the rest', async () => {
+    const db = tempDB();
+    try {
+      for (const name of ['e', 'c', 'a', 'd', 'b']) {
+        db.run(`INSERT INTO repos (path, name) VALUES (?, ?)`, [repoWithHistory([]), name]);
+      }
+      const tools = onboardTools(db);
+      const first = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'repo_mode' }));
+      const firstQs = first.questions as Question[];
+      assert.deepEqual(firstQs.map((q) => q.header), ['Mode 1/5', 'Mode 2/5', 'Mode 3/5', 'Mode 4/5']);
+      assert.deepEqual(firstQs.map((q) => q.question), ['a', 'b', 'c', 'd'].map(modeQuestion));
+      assert.equal(first.next_offset, 4);
+
+      const rest = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'repo_mode', offset: first.next_offset }));
+      assert.deepEqual((rest.questions as Question[]).map((q) => [q.header, q.question]), [['Mode 5/5', modeQuestion('e')]]);
+      assert.equal(rest.next_offset, undefined);
+
+      for (const bad of [-1, 1.5, '4']) {
+        const result = (await call(tools.handlers, 'onboard_get_questions', { round: 'repo_mode', offset: bad })) as { isError?: boolean };
+        assert.equal(result.isError, true, JSON.stringify(bad));
+        assert.match(String(parse(result).error), /offset must be a non-negative integer/);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  const modes = (db: TrajectoryDB): Record<string, string | null> =>
+    Object.fromEntries(db.all<{ name: string; mode: string | null }>(`SELECT name, mode FROM repos ORDER BY name`).map((r) => [r.name, r.mode]));
+
+  it('SC2: a per-repo Round 2 apply keeps a stored exempt, which the repo_mode round marks current', async () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'a', 'exempt')`, [repoWithHistory(solo(3))]);
+      const out = parse(await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', repo: 'a', branching_model: 'github-flow' }));
+      assert.equal(out.ok, true, JSON.stringify(out));
+      assert.ok(db.get(`SELECT 1 AS one FROM repos WHERE name = 'a' AND branching_model = 'github-flow'`), 'the policy was written');
+      assert.deepEqual(modes(db), { a: 'exempt' });
+      const q = await onlyQuestion(db);
+      assert.deepEqual(q.options.filter((o) => o.label.endsWith('(current)')).map((o) => o.wire), ['exempt']);
+    } finally {
+      db.close();
+    }
+  });
+
+  // Three repos with no stored policy: the final apply writes each one's policy and only the answered modes.
+  function threeRepos(): TrajectoryDB {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'a', 'exempt')`, [repoWithHistory(solo(1))]);
+    db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'b', 'agile')`, [repoWithHistory(solo(1))]);
+    db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'c', 'exempt')`, [repoWithHistory(solo(1))]);
+    return db;
+  }
+
+  it('SC2: apply writes each answer after the policy write; project stores NULL; an unanswered repo keeps its stored mode', async () => {
+    const db = threeRepos();
+    try {
+      db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'd', 'truest')`, [repoWithHistory(solo(1))]);
+      db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'e', 'agile')`, [repoWithHistory(solo(1))]);
+      const data = parse(await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', repo_modes: { a: 'exempt', b: 'project' } }));
+      assert.deepEqual((data.applied as Record<string, unknown>).repo_modes, { a: 'exempt', b: 'project' });
+      assert.deepEqual(modes(db), { a: 'exempt', b: null, c: 'exempt', d: 'truest', e: 'agile' });
+      assert.ok(db.get(`SELECT 1 AS one FROM repos WHERE name = 'a' AND target_branch IS NOT NULL`), 'the policy was written too');
+
+      const listed = parse(await call(scanTools(db, null).handlers, 'repos_list', {})).repos as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        listed.map(({ name, mode, effective_mode }) => ({ name, mode, effective_mode })),
+        [
+          { name: 'a', mode: 'exempt', effective_mode: 'exempt' },
+          { name: 'b', mode: null, effective_mode: 'truest' },
+          { name: 'c', mode: 'exempt', effective_mode: 'exempt' },
+          { name: 'd', mode: 'truest', effective_mode: 'truest' },
+          { name: 'e', mode: 'agile', effective_mode: 'agile' },
+        ],
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC2: option labels, with or without the (current) mark, resolve to their modes', async () => {
+    const db = threeRepos();
+    try {
+      await call(onboardTools(db).handlers, 'onboard_apply', {
+        shape: 'local',
+        repo_modes: { a: 'Exempt (current)', b: "The project's", c: 'Truest' },
+      });
+      assert.deepEqual(modes(db), { a: 'exempt', b: null, c: 'truest' });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC2: an unknown repo or value is refused, naming it, and nothing is written', async () => {
+    const db = threeRepos();
+    try {
+      const tools = onboardTools(db);
+      const refusals: Array<[unknown, RegExp]> = [
+        [{ zed: 'agile' }, /unknown repo 'zed'/],
+        [{ a: 'fast' }, /repo_modes: 'a' must be 'truest', 'agile', 'exempt' or 'project' \(got "fast"\)/],
+        [{ a: '__keep__' }, /repo_modes: 'a' must be/],
+        [{ b: 1 }, /repo_modes: 'b' must be/],
+        [['a'], /repo_modes must be an object/],
+      ];
+      for (const [repo_modes, error] of refusals) {
+        const result = (await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: 'agile', repo_modes })) as { isError?: boolean };
+        assert.equal(result.isError, true, JSON.stringify(repo_modes));
+        assert.match(String(parse(result).error), error);
+      }
+      assert.deepEqual(modes(db), { a: 'exempt', b: 'agile', c: 'exempt' });
+      assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key IN ('workflow_mode', 'onboarded')`), undefined);
+      assert.equal(db.get(`SELECT 1 AS one FROM repos WHERE target_branch IS NOT NULL`), undefined);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC2: a per-repo apply refuses repo_modes', async () => {
+    const db = threeRepos();
+    try {
+      const result = (await call(onboardTools(db).handlers, 'onboard_apply', {
+        shape: 'local',
+        repo: 'a',
+        branching_model: 'github-flow',
+        repo_modes: { a: 'agile' },
+      })) as { isError?: boolean };
+      assert.equal(result.isError, true);
+      assert.match(String(parse(result).error), /repo_modes goes on the final workspace apply/);
+      assert.deepEqual(modes(db), { a: 'exempt', b: 'agile', c: 'exempt' });
     } finally {
       db.close();
     }

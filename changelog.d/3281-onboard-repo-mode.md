@@ -1,0 +1,2 @@
+### Added
+- **`/onboard` asks which rules each repo follows** (GH 3281): a new round after the review mode asks one question per repo: truest, agile, exempt, or the project's mode. bro's recommendation comes first, with the reason from what the repo shows: its commits, authors, remote, tags, CI and protected branches. The repo's current mode is marked, and `repos_list` shows the mode you pick. A repo you leave unanswered keeps today's behaviour. A closed task in an exempt repo now also has its worktree removed at the close, since no review will come to remove it.
