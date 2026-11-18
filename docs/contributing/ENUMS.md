@@ -224,9 +224,9 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 
 ---
 
-## Planned for schema v75
+## Planned: the lifecycle schema
 
-Schema v75 (GH 3224) changes the task status vocabulary. Its code hasn't merged, so the task lifecycle table above doesn't show it yet. When v75 lands, its updated table replaces this section. [`TASKS.md`](../architecture/TASKS.md) holds the lifecycle.
+The lifecycle schema (GH 3224) changes the task status vocabulary. It has no schema version yet: version 75 went to the task overlay. Its code hasn't merged, so the task lifecycle table above doesn't show it yet. When it lands, its updated table replaces this section. [`TASKS.md`](../architecture/TASKS.md) holds the lifecycle.
 
 - **submitted** replaces completed: the author closed the task and its checks passed; review is still ahead.
 - **in review**: a submitted task handed to code-reviewer, or a review-deferred task the Human asked to have reviewed now, awaiting its verdict.
@@ -236,8 +236,8 @@ Schema v75 (GH 3224) changes the task status vocabulary. Its code hasn't merged,
 - **waived**: the Human waived the branch review of a review-deferred task; it closes when the feature branch merges.
 - **superseded**: the task was retried as a new task, which names it; final.
 - **cancelled**: the task's work stopped because its issue closed over it or its agile feature branch was dropped; final.
-- **escalated** goes away. v75 moves every such task to superseded when another task retries it, and to cancelled otherwise.
-- **needs validation** goes away. v75 moves every such task to submitted, and its check refuses the value.
+- **escalated** goes away. the migration moves every such task to superseded when another task retries it, and to cancelled otherwise.
+- **needs validation** goes away. the migration moves every such task to submitted, and its check refuses the value.
 
 ## How to add a new ENUM value
 

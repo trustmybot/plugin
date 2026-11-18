@@ -21,12 +21,15 @@ Only the Human sets a mode. Today truest is the default and agile is opt-in. Pla
 
 ```mermaid
 flowchart TD
-    A[Task closes] --> B{Its lane has its own review mode?}
+    A[Task closes] --> E{"Its repo is exempt? (planned, GH 3281)"}
+    E -- yes --> EX[Exempt: no review at all, and nothing below can change that]
+    E -- no --> B{"Its lane has its own review mode? (planned, GH 3025)"}
     B -- yes --> L[Use the lane's review mode]
     B -- no, or no lane --> R{"Its repo has its own mode? (planned, GH 3281)"}
-    R -- yes --> RM[Use the repo's mode; an exempt repo has no review at all]
+    R -- yes --> RM[Use the repo's mode]
     R -- no --> P[Use the project's review mode]
-    L --> T[The task records that mode, fixed from now on]
+    EX --> T[The task records that mode, fixed from now on]
+    L --> T
     RM --> T
     P --> T
 ```
@@ -137,7 +140,7 @@ flowchart TD
 ```
 
 - **What stays on.** swe's completion report, the spec's checks, the git and write guards, and the close as one step.
-- **What the close records.** The task's review mode is resolved once, at the close, from its lane and then the project, and stored on the task. Everything later reads that stored mode, never the current setting.
+- **What the close records.** The task's review mode is fixed at the close and stored on the task. Today it comes from the project alone; the order above, an exempt repo, then the lane, the repo and the project, is planned (GH 3281, GH 3025). After the close, the queue, the merge gate and the health check read the stored mode. Before the close, every step that depends on the mode uses the mode in effect for the task at that moment, resolved the same way: the base its checks measure against, whether its close needs a pass, and which review it is handed to. So a mode per repo or per lane changes each of those steps, not only the close.
 - **Recovery.** A close that fails partway leaves the task as it was. bro fixes the cause and closes again.
 
 ## Feature branch review
@@ -197,7 +200,7 @@ flowchart TD
 - **Scope.** Task merges into the feature branch are not gated by the queue. Only the merge into the working branch is.
 - **Waivers.** Only the Human records a waiver. bro asks one question that names the feature branch and its queued tasks, and records the Human's answer word for word. The waiver covers one repo: every task of that repo queued on the branch at that moment. When a milestone spans several repos, each repo's feature branch needs its own review or its own waiver, so the Human's call on one repo's unreviewed code never covers another's; a waiver that names no repo is refused when the queue holds more than one. The audit log keeps it with the list of tasks that merged unreviewed. A task queued after the waiver is not covered and needs the review or a new waiver.
 - **A waiver covers queued tasks only.** A task in review or being reworked blocks the merge until its review passes or its rework closes back into the queue.
-- **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. They are cancelled with the dropped branch as the cause, which ends them without a retry (escalated, until schema v75 splits that state), and bro deletes the branch only when the Human says so.
+- **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. They are cancelled with the dropped branch as the cause, which ends them without a retry (escalated, until the lifecycle schema of GH 3224 splits that state), and bro deletes the branch only when the Human says so.
 
 ## Switching review modes
 

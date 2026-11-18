@@ -1493,15 +1493,15 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `idx_eval_results_flow` | `eval_results` | `flow_name, created_at` |  |  |
 <!-- erd:generated:end -->
 
-## Planned for schema v75
+## Planned: the lifecycle schema
 
-Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't merged, so the generated tables above don't show it yet. When v75 lands, its regenerated tables replace this section. [`TASKS.md`](./TASKS.md) holds the lifecycle these tables enforce.
+The lifecycle schema (GH 3224) records each task's lifecycle as events. It has no schema version yet: version 75 went to the task overlay, and a version is fixed only when a migration merges. Its code hasn't merged, so the generated tables above don't show it yet. When it lands, its regenerated tables replace this section. [`TASKS.md`](./TASKS.md) holds the lifecycle these tables enforce.
 
 - **`task_event_types`** lists every lifecycle event type: its code, a description, and when it went out of use.
 - **`task_event_causes`** lists every cause a move can carry: its code, a description, and when it went out of use. Causes are codes, never free text, so they can be counted.
 - **`task_status_edges`** lists the allowed moves. Each row is one move from a state to a state, the event type that makes it, and the kind of record the move must rest on. A row whose two states are the same admits a fact that changes no state. Only a seeded move can happen.
 - **`task_events`** holds one row per move a task makes, and one per task fact that changes no state: the task, its per-task sequence number, the event type, the from and to states, the role that acted and its agent run (empty for the Human or a hook), a cause code with an optional note, the kind and id of the record behind it, an optional idempotency key, whether a migration backfilled it, when the move happened and when it was recorded. A task's sequence numbers are unique.
-- **`tasks.status`** becomes a cache of the task's latest event and changes only through one. It gains `in_review`, `reviewed`, `review_deferred`, `batch_reviewed` and `waived`. It renames `completed` to `submitted`, because the task still awaits review, and drops `needs_validation`; v75 moves every such task to `submitted`. It also splits `escalated` into `superseded` and `cancelled`; v75 moves each escalated task to `superseded` when another task retries it, and to `cancelled` otherwise.
+- **`tasks.status`** becomes a cache of the task's latest event and changes only through one. It gains `in_review`, `reviewed`, `review_deferred`, `batch_reviewed` and `waived`. It renames `completed` to `submitted`, because the task still awaits review, and drops `needs_validation`; the migration moves every such task to `submitted`. It also splits `escalated` into `superseded` and `cancelled`; v75 moves each escalated task to `superseded` when another task retries it, and to `cancelled` otherwise.
 - **`tasks.retry_of`** points a retry at the task it retries.
 - **`review_batches`** records one grouped review of review-deferred tasks; those tasks' events point at the batch.
 
