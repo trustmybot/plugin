@@ -13,7 +13,6 @@ import {
   closeLintsPlan,
   type CloseLintsRun,
   describeFailures,
-  LINT_TIMED_OUT,
   runBashKilledAt,
   runCloseLints,
   tailLines,
@@ -600,17 +599,94 @@ interface HandoffLint {
   results: HandoffLintResult[];
 }
 
-/** The verification budget in seconds: TMB_VERIFICATION_TIMEOUT_S, else plugin_config.verification_timeout_s. */
-function lintBudgetS(db: TrajectoryDB): number {
+/** The verification budget in seconds, and where it came from: TMB_VERIFICATION_TIMEOUT_S, else plugin_config.verification_timeout_s, else the default. */
+function verificationBudget(db: TrajectoryDB): { seconds: number; source: string } {
   let raw = process.env['TMB_VERIFICATION_TIMEOUT_S'] ?? '';
+  let source = 'TMB_VERIFICATION_TIMEOUT_S';
   if (raw === '') {
     const row = db.get<{ v: unknown }>(`SELECT json_extract(value_json, '$') AS v FROM plugin_config WHERE key = 'verification_timeout_s'`);
     raw = typeof row?.v === 'number' || typeof row?.v === 'string' ? String(row.v) : '';
+    source = raw === '' ? 'the default' : 'plugin_config.verification_timeout_s';
   }
-  return parseBudget(raw).timeoutS;
+  return { seconds: parseBudget(raw).timeoutS, source };
 }
 
 const GIT_WORKTREE_TIMEOUT_MS = 120_000;
+
+// The MCP client's tool-call timeout the server runs under. Nothing in this
+// repo configures one: .mcp.json gives trajectory-server no timeout and the
+// server reads no MCP_TOOL_TIMEOUT. 1800 s is where the client cut
+// review_batch_handoff off with no result (GH 3249).
+export const MCP_TOOL_CEILING_S = 1800;
+// What the hand-off still does once its checks stop: remove the temporary
+// worktree (git worktree remove, itself capped at GIT_WORKTREE_TIMEOUT_MS,
+// then a prune) and write one review_batch_handoff row. 120 s holds the
+// remove at its own timeout; the row is one SQLite transaction.
+const HANDOFF_MARGIN_S = 120;
+// A step left less than this does not start: it could only be killed.
+const MIN_STEP_S = 1;
+// A kill timer set to the time left fires a few ms either side of the deadline.
+const DEADLINE_SLACK_MS = 100;
+
+/** The seconds the checks of one hand-off share: the verification budget, kept HANDOFF_MARGIN_S under the MCP tool ceiling. */
+export function handoffDeadlineS(verificationBudgetS: number): number {
+  return Math.min(verificationBudgetS, MCP_TOOL_CEILING_S - HANDOFF_MARGIN_S);
+}
+
+// One deadline, taken when the hand-off starts, that worktree add, deps,
+// setup, lints, the suite-slot wait and the suite all spend from.
+class HandoffDeadline {
+  private readonly startedAt = Date.now();
+  readonly seconds: number;
+  readonly source: string;
+
+  constructor(budget: { seconds: number; source: string }) {
+    this.seconds = handoffDeadlineS(budget.seconds);
+    this.source = `min(the ${budget.seconds}s verification budget from ${budget.source}, the ${MCP_TOOL_CEILING_S}s MCP tool ceiling less a ${HANDOFF_MARGIN_S}s margin)`;
+  }
+
+  leftMs(): number {
+    return this.seconds * 1000 - (Date.now() - this.startedAt);
+  }
+
+  leftS(): number {
+    return this.leftMs() / 1000;
+  }
+
+  spentS(): number {
+    return Math.round((Date.now() - this.startedAt) / 1000);
+  }
+
+  /** `<spent>s of the hand-off's <deadline>s deadline spent, <source>`. */
+  describeSpent(): string {
+    return `${this.spentS()}s of the hand-off's ${this.seconds}s deadline spent; the deadline is ${this.source}`;
+  }
+
+  /** The seconds left for <step>; refuses budget_exhausted when under MIN_STEP_S. */
+  startStep(step: string): number {
+    const left = this.leftS();
+    if (left < MIN_STEP_S) this.refuse(step, `had ${Math.max(0, Math.round(left))}s left, under the ${MIN_STEP_S}s it needs to start`);
+    return left;
+  }
+
+  /** Refuses budget_exhausted when the deadline has passed: <step> ran out of time rather than failed. */
+  refuseIfPassed(step: string): void {
+    if (this.leftMs() <= DEADLINE_SLACK_MS) this.refuse(step, 'ran past the deadline');
+  }
+
+  /** The refusal's budget block: the step that stopped, the seconds spent, and the deadline with where it came from. */
+  budgetDetail(step: string): { step: string; spent_s: number; deadline_s: number; deadline_from: string } {
+    return { step, spent_s: this.spentS(), deadline_s: this.seconds, deadline_from: this.source };
+  }
+
+  private refuse(step: string, what: string): never {
+    throw new BatchRefused('budget_exhausted', `the ${step} step ${what}: ${this.describeSpent()}. Nothing was recorded; hand the group off again.`, undefined, {
+      budget: this.budgetDetail(step),
+    });
+  }
+}
+
+const SLOT_WAIT_STEP = 'suite slot wait';
 
 // runCloseLints records every run into the lint_runs of the DB it is given,
 // keyed by task_id, which a batch has none of. The batch run goes into a
@@ -668,21 +744,28 @@ function readOutput(path: string): string {
   }
 }
 
-// Each command in <wt> in order, sharing <budgetS>, stopping at the first
+// Each command in <wt> in order, within <deadline>, stopping at the first
 // that exits non-zero: that failure, or null when all pass. A full suite
 // (isFullSuite) first takes a suite slot, as the swe-verification-gate does,
-// waiting at most the budget; a slot still busy then refuses the hand-off.
-async function runSuiteCommands(wt: string, commands: readonly string[], budgetS: number, env: NodeJS.ProcessEnv): Promise<SuiteFailure | null> {
+// waiting at most until MIN_STEP_S before the deadline; a slot still busy
+// then refuses the hand-off as suite_slot_busy. A command the deadline cuts
+// off, or finds too little time to start, refuses it as budget_exhausted.
+async function runSuiteCommands(wt: string, commands: readonly string[], deadline: HandoffDeadline, env: NodeJS.ProcessEnv): Promise<SuiteFailure | null> {
   if (commands.length === 0) return null;
-  const started = Date.now();
-  const leftS = (): number => budgetS - (Date.now() - started) / 1000;
+  deadline.startStep('suite');
   const fullSuite = commands.find(isFullSuite);
   let runEnv = env;
   let release = (): void => {};
   if (fullSuite !== undefined) {
-    const slot = await acquireSuiteSlot({ command: fullSuite, worktree: wt, env, maxWaitS: Math.max(0, Math.floor(budgetS)) });
+    const maxWaitS = Math.max(0, Math.floor(deadline.leftS() - MIN_STEP_S));
+    const slot = await acquireSuiteSlot({ command: fullSuite, worktree: wt, env, maxWaitS });
     if (slot.kind === 'busy') {
-      throw new BatchRefused('suite_slot_busy', `the suite did not run: every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s. Hand the group off again once that suite finishes.`);
+      throw new BatchRefused(
+        'suite_slot_busy',
+        `the suite did not run: at the ${SLOT_WAIT_STEP} step every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, ${deadline.describeSpent()}. Hand the group off again once that suite finishes.`,
+        undefined,
+        { budget: { ...deadline.budgetDetail(SLOT_WAIT_STEP), waited_s: slot.waitedS } },
+      );
     }
     if (slot.kind === 'held') {
       runEnv = { ...env, [SUITE_LOCK_HELD_ENV]: slot.slot };
@@ -692,14 +775,13 @@ async function runSuiteCommands(wt: string, commands: readonly string[], budgetS
   const scratch = mkdtempSync(join(env.TMPDIR || tmpdir(), 'tmb-review-suite-'));
   try {
     for (const [i, command] of commands.entries()) {
-      const left = leftS();
-      if (left <= 0) return { command, exit_code: LINT_TIMED_OUT, tail: `the ${budgetS}s verification budget ran out before it started` };
+      const step = `suite command \`${command}\``;
+      const left = deadline.startStep(step);
       const outPath = join(scratch, `out-${i + 1}`);
       const rc = await runBashKilledAt(command, wt, runEnv, left, outPath);
       if (rc === 0) continue;
-      const printed = suiteTail(readOutput(outPath));
-      const killed = rc === LINT_TIMED_OUT ? `killed at the ${budgetS}s verification budget` : '';
-      return { command, exit_code: rc, tail: [printed, killed].filter((s) => s !== '').join('\n') };
+      deadline.refuseIfPassed(step);
+      return { command, exit_code: rc, tail: suiteTail(readOutput(outPath)) };
     }
     return null;
   } finally {
@@ -709,8 +791,8 @@ async function runSuiteCommands(wt: string, commands: readonly string[], budgetS
 }
 
 // Refuses the hand-off as suite_failed when a suite command fails in <wt>.
-async function assertSuitePasses(wt: string, head: string, commands: readonly string[], budgetS: number, env: NodeJS.ProcessEnv): Promise<void> {
-  const failure = await runSuiteCommands(wt, commands, budgetS, env);
+async function assertSuitePasses(wt: string, head: string, commands: readonly string[], deadline: HandoffDeadline, env: NodeJS.ProcessEnv): Promise<void> {
+  const failure = await runSuiteCommands(wt, commands, deadline, env);
   if (failure === null) return;
   throw new BatchRefused(
     'suite_failed',
@@ -721,10 +803,12 @@ async function assertSuitePasses(wt: string, head: string, commands: readonly st
 }
 
 // The close lints of <head> against <base>, then, once they pass, the
-// <suiteCommands>, all within <budgetS>, in a temporary detached worktree of
-// <repoPath> prepared as cli.js integrate prepares its own; the lint run, or
-// why none ran. A failing suite command refuses the hand-off.
-async function runBatchChecks(repoPath: string, head: string, base: string, budgetS: number, suiteCommands: readonly string[]): Promise<CloseLintsRun | string> {
+// <suiteCommands>, in a temporary detached worktree of <repoPath> prepared as
+// cli.js integrate prepares its own; the lint run, or why none ran. A failing
+// suite command refuses the hand-off. Worktree add, deps, setup, lints, the
+// slot wait and the suite all spend from <deadline>; a step it leaves too
+// little to start, or that fails once it has passed, refuses budget_exhausted.
+async function runBatchChecks(repoPath: string, head: string, base: string, deadline: HandoffDeadline, suiteCommands: readonly string[]): Promise<CloseLintsRun | string> {
   const env = process.env;
   const worktrees = join(repoPath, '.claude', 'worktrees');
   let wt: string;
@@ -736,19 +820,32 @@ async function runBatchChecks(repoPath: string, head: string, base: string, budg
   }
   const scratch = mkdtempSync(join(env.TMPDIR || tmpdir(), 'tmb-review-batch-'));
   try {
-    const add = await runGitAsync(repoPath, ['worktree', 'add', '-q', '--detach', wt, head], { timeout: GIT_WORKTREE_TIMEOUT_MS });
-    if (add.error || add.status !== 0) return `git worktree add ${head} failed: ${(add.stderr ?? '').trim()}`;
+    const addLeftMs = deadline.startStep('worktree add') * 1000;
+    const add = await runGitAsync(repoPath, ['worktree', 'add', '-q', '--detach', wt, head], { timeout: Math.min(GIT_WORKTREE_TIMEOUT_MS, addLeftMs) });
+    if (add.error || add.status !== 0) {
+      deadline.refuseIfPassed('worktree add');
+      return `git worktree add ${head} failed: ${(add.stderr ?? '').trim()}`;
+    }
     const runEnv = { ...env, PATH: joinToolchainPath(toolchainDirs(env, wt), env.PATH ?? '') };
+    deadline.startStep('worktree deps');
+    // prepareWorktreeDeps takes no time cap, so the deadline is checked once it returns.
     const deps = await prepareWorktreeDeps(repoPath, wt, { env: runEnv });
+    deadline.refuseIfPassed('worktree deps');
     if (deps.install_error !== undefined) return `worktree setup failed: ${deps.install_error}`;
-    const setup = await runWorktreeSetup(wt, { env: runEnv });
-    if (setup.error !== undefined) return describeSetupFailure(setup);
+    const setupLeftMs = deadline.startStep('worktree setup') * 1000;
+    const setup = await runWorktreeSetup(wt, { env: runEnv, totalTimeoutMs: setupLeftMs });
+    if (setup.error !== undefined) {
+      deadline.refuseIfPassed('worktree setup');
+      return describeSetupFailure(setup);
+    }
     const lintDb = join(scratch, 'lints.db');
     createScratchLintDb(lintDb);
-    const started = Date.now();
-    const lints = await runCloseLints(wt, head, base, budgetS, runEnv, { db: lintDb, taskId: '0', source: 'gate' });
-    if (typeof lints === 'string' || lints.exitCode !== 0) return lints;
-    await assertSuitePasses(wt, head, suiteCommands, budgetS - (Date.now() - started) / 1000, runEnv);
+    const lints = await runCloseLints(wt, head, base, deadline.startStep('close lints'), runEnv, { db: lintDb, taskId: '0', source: 'gate' });
+    if (typeof lints === 'string' || lints.exitCode !== 0) {
+      deadline.refuseIfPassed('close lints');
+      return lints;
+    }
+    await assertSuitePasses(wt, head, suiteCommands, deadline, runEnv);
     return lints;
   } finally {
     await removeTempWorktree(repoPath, wt);
@@ -762,8 +859,9 @@ interface BatchChecks {
 }
 
 // The close lints and the verification-defaults suite of <head>, both as
-// committed there; refuses the hand-off when either fails or cannot run.
-async function batchChecks(db: TrajectoryDB, repoPath: string, head: string, base: string): Promise<BatchChecks> {
+// committed there, within <deadline>; refuses the hand-off when either fails
+// or cannot run.
+async function batchChecks(repoPath: string, head: string, base: string, deadline: HandoffDeadline): Promise<BatchChecks> {
   const plan = await closeLintsPlan(repoPath, head, process.env, '');
   if (typeof plan === 'string') throw new BatchRefused('lint_unavailable', `the close lints of ${head} cannot run: ${plan}`);
   const defaults = readVerificationDefaults(repoPath, head);
@@ -775,7 +873,7 @@ async function batchChecks(db: TrajectoryDB, repoPath: string, head: string, bas
       ? { commands: [], passed: true, note: `no ${VERIFICATION_DEFAULTS_FILE} at ${head}, so no suite ran` }
       : { commands: defaults.commands, passed: true };
   if (plan.lints.length === 0 && defaults.commands.length === 0) return { lint: { fingerprint: plan.fingerprint, exit_code: 0, results: [] }, suite };
-  const run = await runBatchChecks(repoPath, head, base, lintBudgetS(db), defaults.commands);
+  const run = await runBatchChecks(repoPath, head, base, deadline, defaults.commands);
   if (typeof run === 'string') throw new BatchRefused('lint_unavailable', `the close lints and suite of ${head} cannot run: ${run}`);
   if (run.exitCode !== 0) {
     throw new BatchRefused('lint_failed', `the close lints fail on ${head}; fix them on the feature branch, then hand the group off again.\n${describeFailures(run)}`);
@@ -840,6 +938,7 @@ interface BatchHandoff {
 const pendingKey = (rows: readonly PendingTaskRow[]): string => rows.map((t) => `${t.id}@${t.commit_sha}:${t.status}`).join(',');
 
 async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHandoff> {
+  const deadline = new HandoffDeadline(verificationBudget(db));
   const branch = h.featureBranch;
   // Every repo's pending tasks of the branch; the group's own repo keys the rest.
   const pendingAll = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch, repo: null }]);
@@ -885,7 +984,7 @@ async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHand
     );
   }
   assertGroupKeepsSharedFiles(repoPath, repo, group, pending);
-  const { lint, suite } = await batchChecks(db, repoPath, head, base);
+  const { lint, suite } = await batchChecks(repoPath, head, base, deadline);
 
   return db.transaction(() => {
     // The lints ran outside the transaction; a task that closed, moved or was reviewed meanwhile voids the checks above.
@@ -948,7 +1047,7 @@ export function reviewQueueTools(db: TrajectoryDB): {
       name: 'review_batch_handoff',
       description:
         "bro only: hands feature_branch's queued tasks to a review at its tip once its close lints then verification-defaults suite pass. Returns {batch_handoff_id, head_sha, base_sha, task_ids, suite, reviewer_spawn}. " +
-        'Refused, writing nothing, if a task is not queued there or under the tip, a check fails, or a left-out task shares a changed file.',
+        'Refused, writing nothing, if a task is not queued there or under the tip, a check fails or outlasts its deadline under the MCP timeout (budget_exhausted), or a left-out task shares a changed file.',
       inputSchema: {
         type: 'object',
         properties: {

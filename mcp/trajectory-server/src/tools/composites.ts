@@ -1,6 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { constants as osConstants } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
@@ -119,6 +119,7 @@ import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
+import { sqlText, taskStatusUpdate } from '../task-status.js';
 
 const STDOUT_KEEP = 4096;
 const STDERR_KEEP = 2048;
@@ -534,12 +535,17 @@ function closeTaskInTx(
   }
 
   // 3. flip task to closed, stamping the workflow mode it closed under.
-  db.run(
-    `UPDATE tasks
-        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?, workflow_mode=?
-      WHERE id=?`,
-    [commitSha, now, now, workflowMode, task.id],
-  );
+  const closeWrite = taskStatusUpdate({
+    status: 'closed',
+    set: {
+      commit_sha: commitSha,
+      completed_at: sqlText('COALESCE(completed_at, ?)', now),
+      updated_at: now,
+      workflow_mode: workflowMode,
+    },
+    where: sqlText('id = ?', task.id),
+  });
+  db.run(closeWrite.sql, closeWrite.params);
 
   // 4. close every open agent_runs row of the task (bro and swe).
   closeOpenRunsForTask(db, task.id, now, 'completed');
@@ -811,6 +817,29 @@ function worktreesDirContained(repoPath: string, dir: string): boolean {
   if (resolve(dir) !== resolve(repoPath, '.claude', 'worktrees')) return false;
   try {
     return realpathSync(dir) === join(realpathSync(repoPath), '.claude', 'worktrees');
+  } catch {
+    return false;
+  }
+}
+
+// Checked before mkdir: each existing component of <repo>/.claude/worktrees
+// must be a directory whose realpath is its own in-repo path, so mkdir cannot
+// follow a symlink out of the repo. A missing component is fine (mkdir creates
+// it in the repo); a dangling symlink, a non-directory or any redirect refuses.
+function worktreesAncestorsContained(repoPath: string): boolean {
+  try {
+    const realRepo = realpathSync(repoPath);
+    for (const rel of [['.claude'], ['.claude', 'worktrees']]) {
+      const lexical = join(repoPath, ...rel);
+      try {
+        lstatSync(lexical);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return true;
+        throw e;
+      }
+      if (realpathSync(lexical) !== join(realRepo, ...rel) || !statSync(lexical).isDirectory()) return false;
+    }
+    return true;
   } catch {
     return false;
   }
@@ -3515,6 +3544,7 @@ export function compositeTools(
         let timedOut = false;
 
         try {
+          if (!worktreesAncestorsContained(repoPath)) throw new Error(`${wtParent} resolves outside ${repoPath}`);
           mkdirSync(wtParent, { recursive: true });
           if (!worktreesDirContained(repoPath, wtParent)) throw new Error(`${wtParent} resolves outside ${repoPath}`);
           wtPath = mkdtempSync(`${wtParent}/pr-review-${commitSha}-`);

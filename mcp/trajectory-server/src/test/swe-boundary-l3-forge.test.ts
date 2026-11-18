@@ -161,6 +161,23 @@ describe('swe-boundary l3: push and forge writes', () => {
       });
     }
 
+    for (const cmd of ['gh issue create --help', 'gh pr merge -h', 'gh -R o/r issue close --help', 'glab mr create --help', 'gh api --help']) {
+      it(`(b) GH 2233: SWE help-only '${cmd}': NOT denied`, () => {
+        hasNot(sweBash(cmd), DENY, 'a help-only gh/glab call changes nothing');
+      });
+    }
+
+    for (const cmd of [
+      'gh issue create --title --help',
+      'gh issue create --help --title x',
+      'gh issue create --body b --help',
+      'gh api -X POST repos/o/r/issues --help',
+    ]) {
+      it(`(b) GH 2233: SWE '${cmd}' (help beside another word): DENIED`, () => {
+        has(sweBash(cmd), 'gh/glab mutating', 'only a help-only call is read-only');
+      });
+    }
+
     it('(b) ghMutation keeps no wrapper allowlist', () => {
       const src = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/cmd-analysis/forge.ts'), 'utf8');
       for (const head of ['export function ghMutation(stmt: string): string {', 'export function ghMutationFrom(', 'function ghMutationIn(']) {

@@ -29,6 +29,9 @@ import { DEFAULT_DAYS, DEFAULT_TRANSCRIPTS, percentile, transcriptStats } from '
 import { PLUGIN_ROOT, type RouterCorpusGate, routerSandbox, underUid } from './router-sandboxes.js';
 import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term } from './router-floors.js';
 
+// A bare `node --test` collects every .js under a test/ dir, this bench too; it is no test, so it ends at once there (GH 3249).
+if (process.env.NODE_TEST_CONTEXT !== undefined) process.exit(0);
+
 const MIN_ROUNDS = 20;
 const BUDGETS = join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/router/budgets.json');
 

@@ -84,6 +84,8 @@ node --experimental-strip-types tests/run-all.ts
 
 Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Release-gate's `tests` job runs it at rc; pull requests run only L1 + the dashboard tests (GH 2805). Locally, run the tests for the paths you touch, `bun run build:tsc` and the L1 lints you touch.
 
+The hook parity suites (`mcp/trajectory-server/src/test/*-parity.shard-*.test.ts` and `router-parity.*.test.ts`, which replay the recordings under `fixtures/hook-golden/`) are L2 files, so they run only in this sweep's L2 step: at the rc release gate, or when you run `run-all.ts` or the built `dist/test/` files yourself. PR CI does not run them, so a PR that changes the DB schema, the seeded rows or a hook's output runs the affected parity suites locally and updates the drifted fields of the recordings (GH 3302).
+
 L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so the scan walker reads its plugin inventory from that file instead of spawning `claude plugin list --json`. L1 runs with `TMB_L1_OFFLINE=1`, so `l1-lint/manifest-shape.test.mjs` skips its `claude plugin validate --strict` step there; run the lint directly on a host with the `claude` CLI to include it. Each L4 flow runs with `bun test --timeout 30000`.
 
 Four switches narrow a run:

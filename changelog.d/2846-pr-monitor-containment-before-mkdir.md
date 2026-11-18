@@ -1,0 +1,2 @@
+### Fixed
+- **A PR-monitor run no longer leaves an empty worktrees folder outside the repo** (GH 2846): when the repo's `.claude` folder or its `worktrees` folder was a symlink pointing elsewhere, the run refused but first created a `worktrees` folder at the outside target. The containment check now runs before anything is created, so a redirected or dangling link refuses with nothing written outside the repo.

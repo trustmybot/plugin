@@ -20,6 +20,10 @@
  * as a heartbeat, and tries the slots only while fewer than N live tickets rank
  * ahead of its own. A ticket unrefreshed for 10 s is removed. A waiter that
  * can't write its ticket polls unordered, with one stderr line.
+ *
+ * A slot holder runs its suite in a process group of its own and ends that
+ * group with stopProcessGroup (GH 3249): SIGTERM first, so a test-run nested
+ * in the group can stop its own group and free its own slot, then SIGKILL.
  */
 import { spawnSync } from 'node:child_process';
 import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -29,6 +33,9 @@ export const SUITE_LOCK_POLL_MS = 500;
 export const SUITE_LOCK_NOTICE_MS = 60_000;
 export const SUITE_LOCK_STALE_MS = 10_000;
 export const SUITE_LOCK_HELD_ENV = 'TMB_SUITE_LOCK_HELD';
+/** How long stopProcessGroup waits after SIGTERM before it sends SIGKILL. */
+export const GROUP_KILL_GRACE_MS = 2_000;
+const GROUP_POLL_MS = 100;
 
 export interface SlotHolder {
   pid: number;
@@ -268,6 +275,38 @@ export function describeHolder(holder: SlotHolder | null): string {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+
+/** True while any process of group <pgid> is alive. */
+export function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function signalGroup(pgid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pgid, signal);
+  } catch {
+    /* the group is already gone */
+  }
+}
+
+async function waitGroupGone(pgid: number, ms: number): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (groupAlive(pgid) && Date.now() < deadline) await sleep(GROUP_POLL_MS);
+}
+
+/** Ends process group <pgid>: SIGTERM, then SIGKILL to whatever is left after <graceMs>, waiting up to <graceMs> more for it to go. */
+export async function stopProcessGroup(pgid: number, graceMs = GROUP_KILL_GRACE_MS): Promise<void> {
+  signalGroup(pgid, 'SIGTERM');
+  await waitGroupGone(pgid, graceMs);
+  if (!groupAlive(pgid)) return;
+  signalGroup(pgid, 'SIGKILL');
+  await waitGroupGone(pgid, graceMs);
+}
 
 const TICKET_NAME = /^[0-9]{15}-[0-9]{10}-[0-9]{6}$/;
 let ticketSeq = 0;

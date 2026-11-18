@@ -6,7 +6,7 @@ The principles behind how TMB is shaped. Each is the reason a design looks the w
 
 Work starts as the Human's idea and reaches code only through two conversions, each recorded where the next actor will look.
 
-- **Idea to goal.** bro grounds the idea in past decisions and the project map, then asks two questions before anything is built: is it actionable, and does something existing (a maintained package or a published capability) already cover it? An actionable idea becomes an issue: the goal. Its plan lives in the issue, and every later choice is a recorded decision, the newest one winning.
+- **Idea to goal.** bro grounds the idea in past decisions and the project map, then asks two questions before anything is built: is it actionable, and does something existing (a maintained package or a published capability) already cover it? An actionable idea becomes an issue: the goal. Its plan lives in the issue, and every later choice is recorded as a decision; when two decisions conflict, the newest wins.
 - **Goal to tasks.** bro splits the goal into tasks. Each task's spec is a contract: numbered success criteria, the surfaces it touches, and the commands that verify it. A spec too large for one swe run splits into linked tasks, so each run fits in one context.
 
 Every later check is judged against these records, never against what someone remembers the Human meant.
@@ -32,7 +32,7 @@ Each layer owns one level of quality, and no layer repeats another's check; a re
 - **swe** owns functionality. Before closing it reviews its own work: every criterion and edge case has a change behind it, nothing outside the task was touched on the way, the tests for what it touched pass, and its report answers every criterion with evidence. When the spec contradicts itself or a fact is missing, it closes as failed rather than guessing.
 - **code-reviewer** owns the diff. It reads it cold and probes what depends on it, and it is strict: a missed bug costs more than a rework.
 
-bro and code-reviewer complement each other through a context asymmetry. bro's full picture makes the system-fit call possible but primes it to read a line for what it was meant to do; code-reviewer's fresh context, unprimed by intent, gives it better odds on the local bug bro would rationalize past.
+bro and code-reviewer complement each other because they know different things. bro holds the full picture, so it can judge whether a change fits the system, but it tends to read a line for what the line was meant to do. code-reviewer starts with a fresh context and does not know the intent, so it is more likely to catch a local bug that bro would explain away.
 
 Exhaustive quality hunting is the audit's job, run separately against live data, so the per-task loop stays lean.
 
@@ -40,7 +40,7 @@ Exhaustive quality hunting is the audit's job, run separately against live data,
 
 What code can check, code checks; a prompt keeps only the calls that need judgment. A rule stated only in a prompt is a rule the model may skip.
 
-Gates fail closed. A guard admits what it can prove safe and denies the rest, because a guard that blocks only known-bad input fails open on whatever it did not foresee.
+Gates fail closed. A guard admits what it can prove safe and denies the rest, because a guard that blocks only known-bad input lets through whatever it did not foresee.
 
 ## 6. Remove cleanly
 
@@ -48,4 +48,4 @@ When a design is replaced, delete the old one outright. Code, prompts and docs d
 
 ## 7. Memory is hot and cold
 
-The DB is the only source of truth. Context is a disposable cache of it, written through and never the only copy. Every agent loads the smallest page it needs and ends at a task boundary. [MEMORY.md](./MEMORY.md) covers the tiers, what each costs, and how to tell which tier a fact belongs in.
+The DB is the only source of truth. Context is a disposable cache of it: everything is written to the DB as it happens, so context is never the only copy. Every agent loads the smallest page it needs and ends at a task boundary. [MEMORY.md](./MEMORY.md) covers the tiers, what each costs, and how to tell which tier a fact belongs in.

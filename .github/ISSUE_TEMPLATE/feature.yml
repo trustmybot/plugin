@@ -1,30 +1,38 @@
 name: Feature request
-description: New functionality for TMB
+description: Something you wish TMB could do
 labels: ["Feature"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Plain words are enough. You do not need to know how TMB works inside. Only the first question is required.
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What can't you do today, and why does it matter?
+      label: What do you want to do?
+      description: What you are trying to get done, and what stops you today.
+      placeholder: |
+        I want to pause a task and pick it up tomorrow.
+        Today I have to keep the session open, or the work starts over.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
+      label: What would help?
+      description: Optional. Your idea of how TMB could do it. Leave it empty if you do not have one.
     validations:
-      required: true
+      required: false
   - type: dropdown
     id: area
     attributes:
       label: Area
       description: |
-        Your best guess at the part of TMB. A maintainer corrects it, so a wrong guess is fine.
+        Optional. The part of TMB this is about. Not sure? Leave it empty and a maintainer fills it in.
         - Hooks: something you did was blocked or denied.
         - Agents: bro, swe or the reviewer did the wrong thing.
-        - Trajectory Server: a TMB tool failed, or TMB's records are wrong.
-        - World Model: TMB did not know your code, or its search was wrong.
+        - Trajectory Server: a TMB tool, or the records TMB keeps.
+        - World Model: what TMB knows about your code, and its search.
         - Dashboard: the dashboard page.
         - Install: installing, updating or starting TMB.
         - Cheatcode: finding or installing an outside skill or tool.
@@ -41,4 +49,4 @@ body:
         - Adapters
         - Release
     validations:
-      required: true
+      required: false

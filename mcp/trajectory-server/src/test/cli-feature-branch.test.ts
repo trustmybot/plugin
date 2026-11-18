@@ -105,6 +105,10 @@ function heads(): string {
   return gitIn(work, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads');
 }
 
+function allRefs(): string {
+  return gitIn(work, 'for-each-ref', '--format=%(refname) %(objectname)');
+}
+
 function assertNoTempWorktree(): void {
   const dir = join(work, '.claude/worktrees');
   const left = existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith('feature-branch-')) : [];
@@ -220,11 +224,66 @@ describe('cli.js feature-branch sync', () => {
   it('SC2: a conflict exits 2, lists the path, leaves the branch and no worktree', () => {
     setup();
     const oldTip = cutFeature('dev.txt', 'feature side');
+    gitIn(work, 'fetch', '-q', 'origin', 'main');
+    const refsBefore = allRefs();
     const r = featureBranch('sync', FEATURE);
     assert.equal(r.code, 2, r.err);
     assert.equal(r.out, '');
     assert.match(r.err, /Conflicting paths:\ndev\.txt/);
     assert.equal(rev(`refs/heads/${FEATURE}`), oldTip);
+    assert.equal(allRefs(), refsBefore, 'no ref moved or created');
+    assertNoTempWorktree();
+  });
+
+  it('GH 3295: merges with no worktree when git worktree add cannot run', () => {
+    setup();
+    gitIn(work, 'checkout', '-q', '-b', FEATURE);
+    commitIn(work, '.mcp.json', '{"mcpServers":{}}');
+    const oldTip = commitIn(work, 'f.txt', 'feature');
+    gitIn(work, 'checkout', '-q', 'main');
+    // A file where the temp worktrees dir would go: neither mkdir nor `git worktree add` can use it.
+    mkdirSync(join(work, '.claude'));
+    writeFileSync(join(work, '.claude/worktrees'), 'not a dir\n');
+
+    const r = featureBranch('sync', FEATURE);
+    assert.equal(r.code, 0, r.err);
+    const tip = rev(`refs/heads/${FEATURE}`);
+    const originMain = rev('refs/remotes/origin/main');
+    assert.equal(r.out, tip);
+    assert.equal(gitIn(work, 'rev-list', '--parents', '-n', '1', tip), `${tip} ${oldTip} ${originMain}`, 'parents: the old tip, then the base');
+    assert.equal(gitIn(work, 'log', '-1', '--format=%B', tip), `Merge origin/main into ${FEATURE}`);
+    assert.equal(gitIn(work, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', tip), 'T <t@example.com>|T <t@example.com>', 'identity from the same env as git merge');
+    assert.deepEqual(gitIn(work, 'ls-tree', '-r', '--name-only', tip).split('\n'), ['.mcp.json', 'README.md', 'dev.txt', 'f.txt']);
+    assert.equal(gitIn(work, 'rev-parse', `${tip}^{tree}`), gitIn(work, 'merge-tree', '--write-tree', oldTip, originMain), 'the merged tree');
+    assert.equal(gitIn(work, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length, 1);
+  });
+
+  it('SC4: a git older than 2.38 exits 4 naming the floor and moves nothing', () => {
+    setup();
+    const oldTip = cutFeature();
+    const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const bin = join(root, 'old-git');
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\nfor a in "$@"; do [ "$a" = --version ] && { echo 'git version 2.37.1 (Apple Git-136)'; exit 0; }; done\nexec '${realGit}' "$@"\n`,
+      { mode: 0o755 },
+    );
+    const refsBefore = allRefs();
+    const r = spawnSync(process.execPath, ['--experimental-sqlite', CLI, 'feature-branch', 'sync', FEATURE], {
+      cwd: work,
+      encoding: 'utf8',
+      env: { ...GIT_ENV, TRAJECTORY_DB_PATH: db, PWD: work, PATH: `${bin}:${process.env.PATH ?? ''}` },
+      timeout: 120_000,
+    });
+    assert.equal(r.status, 4, r.stderr);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /git 2\.38 or newer/);
+    assert.equal(rev(`refs/heads/${FEATURE}`), oldTip);
+    assert.deepEqual(
+      allRefs().split('\n').filter((l) => !l.startsWith('refs/remotes/')),
+      refsBefore.split('\n').filter((l) => !l.startsWith('refs/remotes/')),
+    );
     assertNoTempWorktree();
   });
 

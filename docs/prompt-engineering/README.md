@@ -5,7 +5,7 @@ TMB splits every rule an agent follows into two layers:
 - **Deterministic:** code decides. The MCP server, hooks, frontmatter, schema constraints and skill `paths:` apply the rule whatever the prompt says.
 - **Judgment:** a model reads prose (`CLAUDE.md`, agent prompts, skills, commands) and decides.
 
-A rule goes deterministic whenever a check can decide it: a sequence, a default, a constraint or a measurement against a stable spec. Only what needs judgment stays in a prompt, such as classifying, composing, or weighing new context. A rule a prompt states is also caught by a harder layer where one fits, so a dropped prompt line fails loudly instead of silently.
+A rule goes deterministic whenever a check can decide it: a sequence, a default, a constraint or a measurement against a stable spec. Only what needs judgment stays in a prompt, such as classifying, composing, or weighing new context. Where a harder layer fits, it also enforces a rule that a prompt states, so when the prompt line is dropped, the failure is loud instead of silent.
 
 ## Index
 

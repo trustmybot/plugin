@@ -6,6 +6,7 @@
  */
 import type { TrajectoryDB } from '../db.js';
 import { REWORK_FLOOR_EFFORT, failsSinceLastPassSql, type ReworkChange } from '../task-rework.js';
+import { sqlText, taskStatusUpdate } from '../task-status.js';
 import { insertAudit } from './audit.js';
 import { effortRank, type Effort } from './config.js';
 import { insertDiscussion } from './discussions.js';
@@ -64,21 +65,20 @@ export function insertEffortRaised(
 /** Sets the task running at w.effort and writes its decision, task_reopened and (on a raise) task_effort_raised rows; true when the effort was raised. */
 export function applyReopenInTx(db: TrajectoryDB, w: ReopenWrite): boolean {
   const { task } = w;
-  const fenceSql = w.fence ? 'files = ?, verification = ?, ' : '';
-  const gateSql = w.envGate ? ', base_sha = ?, wm_commit = ?' : '';
-  db.run(
-    `UPDATE tasks SET status = 'running', ${fenceSql}effort = ?, completed_at = NULL,
-            completion_report = NULL, spawn_note = ?, updated_at = ?${gateSql}
-      WHERE id = ?`,
-    [
-      ...(w.fence ? [JSON.stringify(w.fence.files), JSON.stringify(w.fence.verification)] : []),
-      w.effort,
-      w.spawnNote,
-      w.now,
-      ...(w.envGate ? [w.envGate.base_sha, w.envGate.wm_commit] : []),
-      task.id,
-    ],
-  );
+  const reopen = taskStatusUpdate({
+    status: 'running',
+    set: {
+      ...(w.fence ? { files: JSON.stringify(w.fence.files), verification: JSON.stringify(w.fence.verification) } : {}),
+      effort: w.effort,
+      completed_at: null,
+      completion_report: null,
+      spawn_note: w.spawnNote,
+      updated_at: w.now,
+      ...(w.envGate ? { base_sha: w.envGate.base_sha, wm_commit: w.envGate.wm_commit } : {}),
+    },
+    where: sqlText('id = ?', task.id),
+  });
+  db.run(reopen.sql, reopen.params);
   const bodyLines = [
     `Task ${task.id} reopened from ${task.status}: ${w.reason}`,
     ...(w.decisionLines ?? []),
@@ -250,8 +250,10 @@ export function reReviewAdmission(
 
 /** Moves a re-reviewed task back to completed with the completion its FAIL's reopen cleared. */
 export function restoreForReReviewInTx(db: TrajectoryDB, taskId: number, reReview: ReReview, now: string): void {
-  db.run(
-    `UPDATE tasks SET status = 'completed', completion_report = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
-    [reReview.completionReport, reReview.completedAt ?? now, now, taskId],
-  );
+  const restore = taskStatusUpdate({
+    status: 'completed',
+    set: { completion_report: reReview.completionReport, completed_at: reReview.completedAt ?? now, updated_at: now },
+    where: sqlText('id = ?', taskId),
+  });
+  db.run(restore.sql, restore.params);
 }

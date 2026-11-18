@@ -37,8 +37,35 @@ function isForge(word: string): boolean {
   return b === 'gh' || b === 'glab';
 }
 
-/** tmb_gh_mutation_from <words…>: `POST|PATCH|PUT|DELETE` for a writing `gh api`, `<group> <action>` for a write subcommand, else "". */
+/**
+ * Whether a forge call only asks for usage (GH 2233): past the forge word, every
+ * word other than the group, the action and a `-R`/`--repo` option with its value
+ * is `--help` or `-h`, and one is present. Any other word keeps the call judged
+ * as written, since a value flag such as `--title` would take `--help` as its value.
+ */
+function isHelpOnly(w: readonly string[]): boolean {
+  let positionals = 0;
+  let help = false;
+  for (let k = 1; k < w.length; k++) {
+    const a = w[k];
+    if (a === '-R' || a === '--repo') {
+      k += 1;
+      continue;
+    }
+    if (a.startsWith('--repo=')) continue;
+    if (a === '--help' || a === '-h') {
+      help = true;
+      continue;
+    }
+    if (a.startsWith('-') || positionals === 2) return false;
+    positionals += 1;
+  }
+  return help;
+}
+
+/** tmb_gh_mutation_from <words…>: `POST|PATCH|PUT|DELETE` for a writing `gh api`, `<group> <action>` for a write subcommand, "" for a help-only call or a read. */
 export function ghMutationFrom(w: readonly string[]): string {
+  if (isHelpOnly(w)) return '';
   const n = w.length;
   const tool = base(w[0] ?? '');
   let k = 1;

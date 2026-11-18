@@ -1067,7 +1067,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           issue_sync: {
             type: 'string',
             enum: ['auto', 'off'],
-            description: 'The Round 3 answer when shape=remote; omitted means "off". Always "off" on local.',
+            description: 'The Round 3 answer when shape=remote; omitted keeps the stored value, "off" when none is stored. Always "off" on local.',
           },
           headless_enforcement: {
             type: 'string',
@@ -1803,6 +1803,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             } else {
               issue_sync = (rawSync as 'auto' | 'off') ?? 'off';
             }
+          } else {
+            // Omitted = Keep: a re-onboard keeps a stored value; a first onboard writes off.
+            issue_sync = readConfig(db, 'issue_sync') === 'auto' ? 'auto' : 'off';
           }
           if (issue_sync !== 'auto' && issue_sync !== 'off') {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);

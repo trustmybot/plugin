@@ -15,12 +15,14 @@
  * the target nor one of repos.protected_branches.
  *
  * cut creates refs/heads/<name> at the base; a ref already there is refused.
- * sync merges the base into <name> with a merge commit made in a temporary
- * detached worktree, then moves <name> with an update-ref guarded on its old
- * tip, so every prior feature commit stays reachable; a <name> the base is
- * already under is left as is. A <name> checked out in any worktree is
- * refused, as `cli.js feature-merge` refuses it; a conflict aborts the merge
- * and lists the conflicting paths.
+ * sync merges the base into <name> with no checkout (GH 3295: a sandboxed
+ * session cannot add a worktree): `git merge-tree --write-tree` makes the
+ * tree and `git commit-tree` the merge commit, parents the old tip and the
+ * base, then <name> moves with an update-ref guarded on its old tip, so every
+ * prior feature commit stays reachable; a <name> the base is already under is
+ * left as is. A <name> checked out in any worktree is refused, as
+ * `cli.js feature-merge` refuses it; a conflict lists the conflicting paths
+ * and moves nothing. A merge needs git 2.38 or newer.
  *
  * drop cancels the branch: in one transaction every task of the repo merged
  * onto <name> and still pending the grouped review moves to escalated, and
@@ -36,8 +38,8 @@
  *
  * Only drop writes the DB, and nothing pushes: bro pushes the branch through
  * the guarded `git push`. stdout carries only the SHA the branch is (or, once
- * deleted, was) at; progress and failures go to stderr. The temporary worktree
- * is removed on every exit.
+ * deleted, was) at; progress and failures go to stderr. No action makes a
+ * worktree.
  * Exit 0 = done, 2 = merge conflict (branch unchanged),
  * 4 = usage error or a precondition not met (no ref created, moved or
  * deleted, and the DB unchanged).
@@ -48,6 +50,7 @@ import { dbPath, GATE_READ_ERROR, gateRead, sqlQuote } from '../hooks/lib/db.js'
 import { commandSubstitution, shellPwd } from '../hooks/lib/project-env.js';
 import { repoGitRoot, repoNameForRoot } from '../hooks/lib/repo.js';
 import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
+import { taskStatusUpdateSql } from '../task-status.js';
 import type { CliIo } from './fallback-db.js';
 import { runTaskRebase, TaskRebase } from './integrate.js';
 
@@ -56,6 +59,7 @@ const ACTIONS: readonly string[] = ['cut', 'sync', 'drop', 'cleanup'];
 const LIVE_STATUSES = "('pending', 'running', 'needs_validation', 'completed')";
 const DROPPED_EVENT: AuditEventType = 'feature_branch_dropped';
 const FETCH_TIMEOUT_MS = 60_000;
+const MERGE_TREE_GIT: readonly [number, number] = [2, 38];
 
 interface Args {
   action: string;
@@ -123,6 +127,28 @@ class FeatureBranch extends TaskRebase {
     return 0;
   }
 
+  /** Exit 4 unless git is at least MERGE_TREE_GIT, the first with `merge-tree --write-tree`. */
+  private checkMergeTreeGit(name: string): void {
+    const version = this.g(['--version']);
+    const [, major = '0', minor = '0'] = /^git version (\d+)\.(\d+)/.exec(version.out) ?? [];
+    const [floorMajor, floorMinor] = MERGE_TREE_GIT;
+    const tooOld = Number(major) < floorMajor || (Number(major) === floorMajor && Number(minor) < floorMinor);
+    if (!version.ok || tooOld) {
+      this.die(4, `sync needs git ${floorMajor}.${floorMinor} or newer (found '${version.out || version.err.trim()}'); ${name} is unchanged`);
+    }
+  }
+
+  /** The tree of <tip> merged with <baseSha>, made with no checkout; exit 2 listing the conflicting paths on a conflict. */
+  private mergedTree(name: string, tip: string, baseSha: string): string {
+    const r = this.g(['merge-tree', '--write-tree', '--name-only', '--no-messages', tip, baseSha]);
+    const [tree = '', ...conflicted] = r.out.split('\n');
+    if (r.ok && tree !== '') return tree;
+    if (conflicted.length > 0) {
+      this.die(2, `merging ${this.baseRef} into ${name} conflicted; ${name} is unchanged. Conflicting paths:\n${conflicted.join('\n')}`);
+    }
+    return this.die(4, `merging ${this.baseRef} into ${name} failed; ${name} is unchanged: ${r.err.trim()}`);
+  }
+
   private sync(name: string, baseSha: string): number {
     const ref = `refs/heads/${name}`;
     const tip = this.revParse(this.repoRoot, `${ref}^{commit}`);
@@ -132,17 +158,12 @@ class FeatureBranch extends TaskRebase {
       return 0;
     }
 
-    this.openTempWorktree(name.replaceAll('/', '-'), tip);
-    this.say(`merging ${this.baseRef} (${baseSha}) into ${name} (${tip}) in ${this.wt}`);
-    const message = `Merge ${this.baseRef} into ${name}`;
-    if (!this.gitLoud(this.wt, ['merge', '--no-ff', '--no-edit', '-m', message, baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
-      const conflicted = this.git(this.wt, ['diff', '--name-only', '--diff-filter=U']).out;
-      this.git(this.wt, ['merge', '--abort']);
-      if (conflicted === '') this.die(4, `merging ${this.baseRef} into ${name} failed; ${name} is unchanged`);
-      this.die(2, `merging ${this.baseRef} into ${name} conflicted; aborted, ${name} is unchanged. Conflicting paths:\n${conflicted}`);
-    }
-    const merged = this.revParse(this.wt, 'HEAD');
-    if (merged === '') this.die(4, 'cannot read the merge commit');
+    this.checkMergeTreeGit(name);
+    this.say(`merging ${this.baseRef} (${baseSha}) into ${name} (${tip})`);
+    const tree = this.mergedTree(name, tip, baseSha);
+    const committed = this.g(['commit-tree', tree, '-p', tip, '-p', baseSha, '-m', `Merge ${this.baseRef} into ${name}`]);
+    const merged = committed.ok ? committed.out : '';
+    if (merged === '') this.die(4, `git commit-tree failed; ${name} is unchanged: ${committed.err.trim()}`);
 
     const holder = this.branchHolder(name);
     if (holder !== '') this.die(4, `${name} is now checked out at ${holder}; the merge commit is ${merged}, ${name} is unchanged`);
@@ -196,13 +217,18 @@ class FeatureBranch extends TaskRebase {
     const issue = `COALESCE((SELECT t.issue_id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id LIMIT 1),
     (SELECT l.issue_id FROM tasks l WHERE ${this.onBranchSql('l', name)} ORDER BY l.id LIMIT 1), -1)`;
     const taskIds = `(SELECT json_group_array(id) FROM (SELECT t.id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id))`;
+    const escalateQueued = taskStatusUpdateSql({
+      status: 'escalated',
+      alias: 't',
+      set: { completed_at: null, updated_at: now },
+      where: `${this.queuedSql(name)} AND ${this.noLiveTaskSql(name)}`,
+    });
     return `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
   SELECT ${issue}, '${branch}', 'bro', '${DROPPED_EVENT}', '${sqlQuote(`feature branch ${name} dropped; its queued tasks escalated`)}',
     json_object('feature_branch', '${branch}', 'repo', '${repo}', 'task_ids', json(${taskIds})), '${repo}', '${now}'
   WHERE ${this.noLiveTaskSql(name)};
 SELECT changes();
-UPDATE tasks AS t SET status = 'escalated', completed_at = NULL, updated_at = '${now}'
-  WHERE ${this.queuedSql(name)} AND ${this.noLiveTaskSql(name)};
+${escalateQueued};
 SELECT content_json FROM audit WHERE id = last_insert_rowid() AND event_type = 'feature_branch_dropped';`;
   }
 

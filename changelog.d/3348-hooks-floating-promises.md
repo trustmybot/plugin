@@ -1,0 +1,2 @@
+### Fixed
+- **The hooks promise-misuse test passes again** (GH 3348): the verification gate's stop-signal handler now always releases the held suite slots and exits `128 + signal`, even when stopping a command's process group or releasing a slot throws, and the process-table snapshot memo no longer compares promise identity. The two intended sites left, the signal listener and the per-env snapshot memo, are allowlisted with their reasons.

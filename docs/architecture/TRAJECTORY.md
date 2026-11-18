@@ -8,7 +8,7 @@ Planned (GH 3255). Today an agent run and a verification run are each one record
 
 - **Start is a fact.** Each of the four writes an event when it starts, before it does any work.
 - **End is a second event.** It carries an outcome from a fixed list and, when the outcome is not a clean finish, a cause from a fixed list.
-- **Each names its parent.** A nested session names the session that started it, an agent run its session, a hook run and a verification run the agent run or session they ran in.
+- **Each names its parent.** A nested session names the session that started it. An agent run names its session. A hook run or a verification run names the agent run or session it ran in.
 - **Writes stay cheap.** SQLite takes one writer at a time, so a record on a hot path is one small insert, and the detail a record keeps is weighed against what the write costs the session.
 - **Nothing is edited.** A start is never updated into an end. A record with a start and no end is still running, or was killed before it could say so.
 
@@ -95,7 +95,7 @@ stateDiagram-v2
     ended --> [*]
 ```
 
-A verification run that outlives the hook that started it is ended as killed by the sweep, so a killed close never leaves a run that looks unfinished.
+When a verification run outlives the hook that started it, the sweep ends it with the outcome killed, so a close that was killed never leaves a run that looks as if it is still going.
 
 ## Finding and ending what is stuck
 
@@ -120,7 +120,7 @@ flowchart TD
 
 ## Nothing is skipped silently
 
-A step that is skipped or runs degraded writes an event with its cause: a gate that allowed because it could not read its record, a sync that did not happen because no repo was named, a search that fell back because its model failed to load. The event hangs off the session or agent run it happened in.
+A step that is skipped or runs degraded writes an event with its cause: a gate that allowed because it could not read its record, a sync that did not happen because no repo was named, a search that fell back because its model failed to load. The event is attached to the session or agent run it happened in.
 
 ## Debugging with it
 

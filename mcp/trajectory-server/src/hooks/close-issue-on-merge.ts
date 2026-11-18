@@ -34,6 +34,7 @@ import { mergeFailed, readMergePayload } from './lib/merge.js';
 import { commandSubstitution, jqRawText } from './lib/project-env.js';
 import { forgeCommandDir, forgeRepoDir } from './lib/repo.js';
 import { RUN_UNMEASURED_SQL } from './swe-spawn-rollback.js';
+import { sqlText, taskStatusUpdateSql } from '../task-status.js';
 
 export const GATE_NAME = 'close-issue-on-merge';
 
@@ -200,7 +201,8 @@ class Merge {
    */
   private tasksSql(): string {
     const branch = sqlQuote(this.head);
-    const now = sqlQuote(nowIso());
+    const stamp = nowIso();
+    const now = sqlQuote(stamp);
     const out: string[] = [];
     const rows = this.read(`SELECT t.id || '|' || t.issue_id || '|' || COALESCE(t.commit_sha, '') FROM tasks t
      WHERE t.branch_id = '${branch}' AND t.status IN (${LIVE}, 'closed')
@@ -232,9 +234,11 @@ class Merge {
            ${RUN_UNMEASURED_SQL}
      WHERE completed_at IS NULL
        AND task_id IN (SELECT id FROM tasks WHERE branch_id = '${branch}' AND status IN (${LIVE}, 'closed'));
-    UPDATE tasks
-       SET status = 'closed', completed_at = COALESCE(completed_at, '${now}'), updated_at = '${now}'
-     WHERE branch_id = '${branch}' AND status IN (${LIVE});`);
+    ${taskStatusUpdateSql({
+      status: 'closed',
+      set: { completed_at: sqlText(`COALESCE(completed_at, '${now}')`), updated_at: stamp },
+      where: `branch_id = '${branch}' AND status IN (${LIVE})`,
+    })};`);
     return out.join('\n');
   }
 
