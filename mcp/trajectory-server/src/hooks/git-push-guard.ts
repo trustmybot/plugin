@@ -47,6 +47,7 @@ import { type DenyFix, denyResult as deny } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
 import { isExempt, repoGitRoot, repoNameForRoot, repoResolve, repoSinglePath, withRepoMode } from './lib/repo.js';
 import { agentRole, CODE_REVIEWER_ROLE } from './lib/role.js';
+import { observePush } from './pre-push/observe.js';
 import { AGILE_QUEUED_SQL, HAS_PASS_SQL } from '../review-sql.js';
 
 export const GATE_NAME = 'git-push-guard';
@@ -521,6 +522,51 @@ class Guard {
     return true;
   }
 
+  /** The full name of the remote ref <spec> writes, given the full name of its source <localRef>; '' when it cannot tell. */
+  private async remoteRefOf(dir: string, spec: Refspec, localRef: string): Promise<string> {
+    let dst = spec.dst || spec.src;
+    if (dst === 'HEAD' || dst === '@') dst = await gitOut(dir, ['symbolic-ref', '-q', 'HEAD'], this.env);
+    if (dst === '' || dst.startsWith('refs/')) return dst;
+    if (spec.dst === '' && localRef.startsWith('refs/')) return localRef;
+    return localRef.startsWith('refs/tags/') ? `refs/tags/${dst}` : `refs/heads/${dst.startsWith('heads/') ? dst.slice('heads/'.length) : dst}`;
+  }
+
+  /**
+   * The pre-push stdin git would hand its hook for this push: one
+   * `<local-ref> <local-sha> <remote-ref> <remote-sha>` line per ref, the
+   * remote sha its remote-tracking ref's, else zeros; null when a ref does
+   * not resolve.
+   */
+  async pushRefLines(dir: string, args: PushArgs): Promise<string | null> {
+    const zeros = '0'.repeat(40);
+    const remote = args.remote || 'origin';
+    let refspecs: string[];
+    if (args.refspecs.length === 0 && args.refSets.length === 0) {
+      const head = await gitOut(dir, ['symbolic-ref', '-q', 'HEAD'], this.env);
+      if (head === '') return null;
+      refspecs = [`${head}:${head}`];
+    } else {
+      const isMatching = (refspec: string): boolean => refspec === ':' || refspec === '+:';
+      const matching = args.refspecs.some(isMatching) ? ['refs/heads/'] : [];
+      refspecs = [...args.refspecs.filter((refspec) => !isMatching(refspec)), ...(await this.refSetSpecs(dir, [...new Set([...args.refSets, ...matching])]))];
+    }
+    const out: string[] = [];
+    for (const refspec of refspecs) {
+      const spec = splitRefspec(refspec);
+      if (spec === null) return null;
+      const deletes = args.deletes || spec.deletes;
+      const named = deletes ? { src: '', dst: spec.dst || spec.src, deletes } : spec;
+      const localSha = deletes ? zeros : await this.commitOf(dir, spec.src);
+      if (localSha === '') return null;
+      const localRef = deletes ? '(delete)' : (await gitOut(dir, ['rev-parse', '--symbolic-full-name', spec.src], this.env)) || spec.src;
+      const remoteRef = await this.remoteRefOf(dir, named, localRef);
+      if (remoteRef === '') return null;
+      const tracking = remoteRef.startsWith('refs/heads/') ? await this.commitOf(dir, `refs/remotes/${remote}/${remoteRef.slice('refs/heads/'.length)}`) : '';
+      out.push(`${localRef} ${localSha} ${remoteRef} ${tracking || zeros}`);
+    }
+    return out.length === 0 ? null : `${out.join('\n')}\n`;
+  }
+
   /** The deny for one push statement <push> in repo <root>, whose subcommand words are <sub>, or null when it may go. */
   async judge(push: Statement, sub: string, root: string): Promise<GateResult | null> {
     const { dir } = push;
@@ -607,7 +653,27 @@ export const gitPushGuard: Gate = async (payload, env) => {
     if (dir.includes('/.claude/worktrees/')) return deny(withRepoMode(WORKTREE_REASON, db, root, env), WORKTREE_FIX);
     if (db === '' || !haveSqlite(env)) continue;
     const verdict = await guard.judge(statement, sub, root);
-    if (verdict) return verdict;
+    if (verdict) {
+      await observeDeny(guard, statement, sub, jqAlternatives(payload, [['session_id']]), env);
+      return verdict;
+    }
   }
   return ALLOW;
 };
+
+/**
+ * Observe mode (GH 3281 slice 2): the prepush_observed row for a push this
+ * gate denies, the hook judge fed the ref lines git would have sent. It never
+ * changes the deny: a push whose refs do not resolve records nothing, and any
+ * failure is swallowed.
+ */
+async function observeDeny(guard: Guard, push: Statement, sub: string, sessionId: string, env: NodeJS.ProcessEnv): Promise<void> {
+  try {
+    const args = pushArgs(sub);
+    const stdin = await guard.pushRefLines(push.dir, args);
+    if (stdin === null) return;
+    await observePush({ dir: push.dir, remote: args.remote || 'origin', refLines: stdin, legacyVerdict: 'deny', sessionId, caller: GATE_NAME }, env);
+  } catch {
+    /* observing never changes the legacy verdict */
+  }
+}

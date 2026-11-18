@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, session-handoff, lane-membership, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge, prompt-write-approval, feature-branch-merge-gate and close-forge-merged have no hook-corpus
+ * liveness-alert, session-handoff, lane-membership, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge, prompt-write-approval, feature-branch-merge-gate, close-forge-merged, prepush-install and prepush-hook-guard have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -88,6 +88,8 @@ export const ROUTER_CORPUS_GATES = [
   'clean-merged-branch',
   'close-issue-on-merge',
   'close-forge-merged',
+  'prepush-install',
+  'prepush-hook-guard',
   'ref-move-reindex',
   'swe-spawn-bind',
   'swe-spawn-rollback',
@@ -461,6 +463,8 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('session-handoff')) cases.push(...sessionHandoffCases(join(root, 'session-handoff'), emptyProject));
   if (want('lane-membership')) cases.push(...laneMembershipCases(join(root, 'lane-membership'), emptyProject));
   if (want('close-forge-merged')) cases.push(...closeForgeMergedCases(join(root, 'close-forge-merged'), emptyProject));
+  if (want('prepush-install')) cases.push(...prepushInstallCases(join(root, 'prepush-install')));
+  if (want('prepush-hook-guard')) cases.push(...prepushHookGuardCases(join(root, 'prepush-hook-guard')));
   if (want('task-overrun-alert')) cases.push(...overrunCases(join(root, 'task-overrun-alert'), emptyProject));
   if (want('liveness-alert')) cases.push(...livenessCases(join(root, 'liveness-alert'), emptyProject));
 
@@ -711,6 +715,71 @@ function closeForgeMergedCases(dir: string, cwd: string): RouterCase[] {
     fakeUid: false,
     reset: () => build(status),
   }));
+}
+
+/** prepush-install's cases: a project repo plus one registered repo and one registered non-git dir, every hook removed per case. */
+function prepushInstallCases(dir: string): RouterCase[] {
+  const db = join(dir, 'trajectory.db');
+  const project = join(dir, 'project');
+  const other = join(dir, 'other');
+  const plain = join(dir, 'plain');
+  const envFile = join(dir, 'claude-env');
+  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const build = (gitProject: boolean, prepushOff: boolean): void => {
+    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
+    for (const d of [project, other, plain]) rmSync(d, { recursive: true, force: true });
+    rmSync(envFile, { force: true });
+    for (const d of [project, other, plain]) mkdirSync(d, { recursive: true });
+    for (const repo of gitProject ? [project, other] : [other]) execFileSync('git', ['init', '-q', repo], { env: { ...process.env, ...GIT_ENV }, timeout: 10_000 });
+    const d = new DatabaseSync(db);
+    d.exec(schema);
+    d.prepare('INSERT INTO repos (name, path) VALUES (?, ?)').run('other', other);
+    d.prepare('INSERT INTO repos (name, path) VALUES (?, ?)').run('plain', plain);
+    if (prepushOff) d.prepare("INSERT INTO plugin_config (key, value_json) VALUES ('prepush_hook', '\"off\"')").run();
+    d.close();
+  };
+  const payload = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 's', cwd: project, source: 'startup' });
+  const base = { PATH: process.env.PATH, HOME: join(dir, 'home'), ...GIT_ENV, TRAJECTORY_DB_PATH: db, CLAUDE_PROJECT_DIR: project, LC_ALL: LOCALE };
+  // [file, project is a git repo, prepush_hook stored off, extra env]
+  const scenarios: readonly (readonly [string, boolean, boolean, NodeJS.ProcessEnv])[] = [
+    ['fresh-repos', true, false, {}],
+    ['project-not-git', false, false, {}],
+    ['marks-env-file', true, false, { CLAUDE_ENV_FILE: envFile }],
+    ['disabled', true, true, {}],
+  ];
+  return scenarios.map(([file, gitProject, prepushOff, extra]) => ({
+    gate: 'prepush-install',
+    file,
+    input: payload,
+    env: clean({ ...base, ...extra }),
+    cwd: dir,
+    fakeUid: false,
+    reset: () => build(gitProject, prepushOff),
+  }));
+}
+
+/** prepush-hook-guard's cases: one git repo, each form denied in an agent session and passed for the Human, plus plain use. */
+function prepushHookGuardCases(dir: string): RouterCase[] {
+  const repo = join(dir, 'repo');
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  execFileSync('git', ['init', '-q', repo], { env: { ...process.env, ...GIT_ENV }, timeout: 10_000 });
+  const human = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), ...GIT_ENV, TRAJECTORY_DB_PATH: join(dir, 'absent.db'), LC_ALL: LOCALE });
+  const agent = { ...human, CLAUDECODE: '1' };
+  const shell = (command: string): string => JSON.stringify({ hook_event_name: 'PreToolUse', cwd: repo, tool_name: 'Bash', tool_input: { command } });
+  const scenarios: readonly (readonly [string, string, NodeJS.ProcessEnv])[] = [
+    ['no-verify', 'git push --no-verify origin main', agent],
+    ['hook-config-option', 'git -c hook.tmb.enabled=false push', agent],
+    ['git-config-env', 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=hook.tmb.enabled GIT_CONFIG_VALUE_0=false git push', agent],
+    ['git-config-hook-key', 'git config hook.tmb.enabled false', agent],
+    ['write-hook-script', 'echo exit 0 > .git/tmb/pre-push', agent],
+    ['strip-mark', 'env -u TMB_AGENT_SHELL git push', agent],
+    ['unparseable', 'git push --no-verify "$(', agent],
+    ['plain-push', 'git push origin main', agent],
+    ['config-user-name', 'git config user.name someone', agent],
+    ['human-no-verify', 'git push --no-verify origin main', human],
+  ];
+  return scenarios.map(([file, command, env]) => ({ gate: 'prepush-hook-guard', file, input: shell(command), env, cwd: repo, fakeUid: false }));
 }
 
 /** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */

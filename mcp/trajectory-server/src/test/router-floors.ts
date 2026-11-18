@@ -12,8 +12,10 @@
  * needs, reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one, and
  * prompt-write-approval, which reads the DB, the 6 s of cheatcode-install-approval, the DB-reading approval gate it mirrors.
  * feature-branch-merge-gate, which parses a Bash command, runs git and reads the DB, takes the 6 s of git-push-guard, the Bash gate it mirrors.
+ * prepush-hook-guard, which parses a Bash command and may run git, takes the same 6 s of git-push-guard.
  * lane-membership, which writes the DB after a tool call, takes the 6 s of session-handoff, the DB-writing gate it mirrors.
  * close-forge-merged, which runs a 10 s gh and records the merge, takes the 16 s of close-issue-on-merge, whose merge record it shares.
+ * prepush-install, which runs git over the same repos and writes a file in each, takes the 6 s of ensure-gitignore.
  * swe-edit-lint, born in the router too, takes the 10 s its spec sets for the
  * repo's lint commands on the edited file (GH 2570).
  */
@@ -22,6 +24,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'git-guards': 11,
   'git-push-guard': 6,
   'feature-branch-merge-gate': 6,
+  'prepush-hook-guard': 6,
   'swe-boundary': 6,
   'no-worktree-branch-create': 6,
   'stay-on-base-guard': 6,
@@ -63,6 +66,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'clean-merged-branch': 11,
   'close-issue-on-merge': 16,
   'close-forge-merged': 16,
+  'prepush-install': 6,
   'ref-move-reindex': 6,
   'swe-spawn-bind': 6,
   'swe-spawn-rollback': 6,

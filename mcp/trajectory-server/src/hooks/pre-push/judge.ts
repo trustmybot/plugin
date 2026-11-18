@@ -27,7 +27,7 @@
 import { spawnSync } from 'node:child_process';
 import { dbPath, GATE_READ_ERROR, gateRead, sqlQuote } from '../lib/db.js';
 import { agileParentRef, recordedFeatureBranch, resolveBaseRef } from '../lib/git-refs.js';
-import { repoDefaultBranch, repoGitRoot, repoNameForRoot } from '../lib/repo.js';
+import { isExempt, repoDefaultBranch, repoGitRoot, repoNameForRoot } from '../lib/repo.js';
 import { shaPrefixMatchSql, shaValuesCte } from '../lib/sha-prefix.js';
 import { HAS_PASS_SQL } from '../../review-sql.js';
 
@@ -41,8 +41,6 @@ const SHORT = 12;
 /** Diff options that make a patch-id independent of the user's diff config, binary content included. */
 const DIFF_FLAGS = ['--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--binary', '--full-index'];
 
-/** GH 3279 replaces this with isExempt(repo), read from the repo's mode; until then no repo is exempt. */
-const EXEMPT_REPOS: ReadonlySet<string> = new Set();
 
 /** One line git writes to the pre-push hook's stdin. */
 export interface PushRef {
@@ -70,13 +68,13 @@ interface Pass {
   readonly created_at: string;
 }
 
-/** Whether the push comes from a Claude Code session, whose hooks pass these on to git and so to its hooks. */
+/**
+ * Whether the push comes from a Claude Code session, whose hooks pass these on
+ * to git and so to its hooks; TMB_AGENT_SHELL is the mark the prepush-install
+ * gate puts in the session's CLAUDE_ENV_FILE.
+ */
 export function isAgentSession(env: NodeJS.ProcessEnv): boolean {
-  return env.CLAUDECODE === '1' || (env.CLAUDE_CODE_SESSION_ID ?? '') !== '';
-}
-
-function isExempt(repo: string): boolean {
-  return EXEMPT_REPOS.has(repo);
+  return env.CLAUDECODE === '1' || (env.CLAUDE_CODE_SESSION_ID ?? '') !== '' || env.TMB_AGENT_SHELL === '1';
 }
 
 /** git's stdin lines `<local-ref> <local-sha> <remote-ref> <remote-sha>`, or null when one is not that shape. */
@@ -317,9 +315,10 @@ export async function judgePrePush(remote: string, stdin: string, dir: string, e
   if (db === '' || gateRead(db, 'SELECT COUNT(*) FROM tasks;', env) === GATE_READ_ERROR) {
     return deny(`the trajectory DB ${db || '(unresolved)'} did not read, so the gate refuses to fail open`);
   }
+  // An exempt repo stands the gate down (GH 3279), checked before its policy can deny.
+  if (isExempt(db, await repoGitRoot(dir, env), env)) return { admit: true };
   try {
     const policy = await loadPolicy(db, dir, env);
-    if (isExempt(policy.repo)) return { admit: true };
     const judge = new PushJudge(dir, db, env, policy.repo, policy.target, policy.protectedBranches);
     for (const ref of refs) await judge.judge(ref);
     return { admit: true };
