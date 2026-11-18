@@ -15,7 +15,7 @@ Agility is agile mode's one core goal, and every agile design choice below serve
 
 So agile work builds up on one long-lived feature branch per milestone, such as an MVP. Each task closes without a code-reviewer pass and folds into the feature branch locally, with no PR and no CI run of its own. The Human can try the feature branch at any time. At the milestone, code-reviewer reviews the whole branch, and only then does it go to the working branch as one PR with one CI run.
 
-Only the Human sets a mode. Today truest is the default and agile is opt-in. Planned (GH 3281): onboarding recommends agile, because TMB's first users are solo developers, and a review of every task is too heavy for demo and early work. Truest is for a repo where nothing may reach the working branch unreviewed.
+Only the Human sets a mode. Today truest is the default and agile is opt-in. Planned (GH 3281): agile becomes the default, the mode that applies when none is stored, because TMB's first users are solo developers, and a review of every task is too heavy for demo and early work. bro still recommends a mode first, from what the project shows. Truest is for a repo where nothing may reach the working branch unreviewed.
 
 ## Where the review mode is set
 
@@ -31,7 +31,7 @@ flowchart TD
     P --> T
 ```
 
-- **Project.** /onboard sets the project-wide review mode. Truest is the default today. Planned (GH 3281): /onboard recommends agile and stores the Human's answer. A mode that is missing or unreadable still reads as truest, so no project changes mode by upgrading.
+- **Project.** /onboard sets the project-wide review mode. Truest is the default today. Planned (GH 3281): bro recommends a mode first, from what the project shows, and /onboard stores the Human's answer. Agile is the fallback: a mode that is missing or unreadable reads as agile. A project that never stored a mode therefore becomes agile at the upgrade, and bro says so once at its next session start. The mode already stored on a closed task is history and does not change.
 - **Repo.** Planned (GH 3281). /onboard asks one mode per repo, with bro's recommendation, and a repo left on the project's mode takes it ([GIT.md](GIT.md#multi-repo-workspaces)).
 - **Lane.** Each lane of a parallel run takes its own review mode when it starts, recorded on the lane's record, and it overrides the project's ([LANES.md](LANES.md)). bro recommends a mode per lane and the Human approves the set. Planned: GH 3025 records it on the lane; GH 2225 adds the lane lookup to the close.
 - **TMB keeps it.** The review mode lives in TMB's own records, never in GitHub labels, which a user without triage access cannot apply.
@@ -225,7 +225,7 @@ flowchart TD
 | Review mode recorded on each task at its close | Shipped, project mode only |
 | Health-check report of agile tasks closed without a review or waiver | Shipped |
 | /onboard question for the project review mode | Shipped |
-| Agile recommended at onboarding, and one mode per repo with bro's recommendation | Planned (GH 3281) |
+| Agile as the default when no mode is stored, bro's recommendation for the project, and one mode per repo with bro's recommendation | Planned (GH 3281) |
 | Feature branch per milestone: tasks cut from it and folded into it locally, with no per-task PR, and checked against it as their base | Shipped, project mode only |
 | Close without a per-task review | Shipped, project mode only |
 | Review states queued, batch-reviewed and waived | Shipped |

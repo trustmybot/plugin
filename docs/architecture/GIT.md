@@ -168,10 +168,10 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
      | Empty, or no remote | Exempt |
      | One author, few commits, no release | Agile |
      | A protected branch, CI, several authors or releases | Truest |
-     | Nothing clear | Agile, the project's default |
+     | Nothing clear | Agile, the default |
 
    - **A scan only indexes.** A repo a scan finds after onboarding is exempt until the Human answers, and bro asks at its first contact with that repo. bro never enforces a guessed policy. Today registration alone turns the guards on, with the repo's default branch as its PR target.
-   - **A repo left on the project's mode takes it.** The Human can answer "the project's" for a repo, and it then follows the project's review mode, truest or agile. The project's mode is never exempt, so one setting cannot switch the rules off in every repo. A lane's review mode still overrides both for a repo that is not exempt. Exempt is final: no lane and no project setting turns the rules back on.
+   - **A repo left on the project's mode takes it.** The Human can answer "the project's" for a repo, and it then follows the project's review mode, truest or agile, and agile when the project has none stored. The project's mode is never exempt, so one setting cannot switch the rules off in every repo. A lane's review mode still overrides both for a repo that is not exempt. Exempt is final: no lane and no project setting turns the rules back on.
    - **Two things stay on in an exempt repo.** Containment still keeps every write inside the project, and the trajectory still records what ran there. They protect the Human's machine and the record, not the repo's workflow.
    - **A task in an exempt repo is recorded, not gated.** Tasks are optional there. One that exists keeps its lifecycle events, its agent runs and its own checks, and it closes without a review: the close carries a cause naming the repo's mode, so the record says why no review ran.
    - **Its mode shows.** The repo list and the dashboard show each repo's mode, and a deny names the repo and the mode it applied.

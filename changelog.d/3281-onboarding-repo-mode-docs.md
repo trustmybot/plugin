@@ -1,2 +1,2 @@
 ### Changed
-- **Onboarding is planned to recommend agile and to ask one mode per repo** (GH 3281): bro recommends truest, agile or exempt from what each repo shows, the Human approves the set, and a missing mode still reads as truest so no project changes mode by upgrading.
+- **Agile is planned to become the default review mode, and onboarding to ask one mode per repo** (GH 3281): a missing mode will read as agile, bro recommends truest, agile or exempt from what the project and each repo show, and the Human approves the set.
