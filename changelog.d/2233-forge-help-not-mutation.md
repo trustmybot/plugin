@@ -1,0 +1,2 @@
+### Fixed
+- **swe can read gh and glab usage** (GH 2233): swe-boundary denied `gh issue create --help` and every other `--help` or `-h` on a writing gh or glab subcommand as a forge mutation. A call whose only words past the group, the action and `-R`/`--repo` are `--help` or `-h` now counts as read-only; a help flag beside any other word, such as `--title`, is still judged as the write it would run.
