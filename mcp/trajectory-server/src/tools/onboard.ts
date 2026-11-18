@@ -786,11 +786,14 @@ function repoModeQuestion(
 ): BuiltQuestion {
   const current = stored ?? REPO_MODE_PROJECT;
   const choices = REPO_MODE_OPTIONS.map((o) => {
-    const option = o.wire === REPO_MODE_PROJECT ? { ...o, description: `Follows the project's review mode, now ${projectMode}.` } : o;
+    const option = o.wire === REPO_MODE_PROJECT ? { ...o, description: projectModeDescription(projectMode) } : o;
     return o.wire === current ? { ...option, label: `${o.label}${CURRENT_SUFFIX}` } : option;
   });
   return {
-    question: `Which rules should ${repo} follow?`,
+    question:
+      'TMB sets a review mode for each repository. Truest reviews every task before it is pushed. ' +
+      'Agile reviews the work as a whole before it merges. Exempt adds no TMB checks. ' +
+      `Which mode should ${repo} use?`,
     header,
     multiSelect: false,
     ...assemble(null, choices, advice, null),
@@ -952,10 +955,16 @@ const REVIEW_MODE_OPTIONS: QuestionOption[] = [
 ];
 
 const REPO_MODE_OPTIONS: QuestionOption[] = [
-  ...REVIEW_MODE_OPTIONS,
-  { label: 'Exempt', description: 'No task, review or push check is required in this repository.', wire: 'exempt' },
-  { label: "The project's", description: "Follows the project's review mode.", wire: REPO_MODE_PROJECT },
+  { label: 'Truest', description: 'Nothing unreviewed reaches the working branch. Cost: slower, more tokens per task.', wire: 'truest' },
+  { label: 'Agile', description: 'Faster, for trying out a feature. Risk: problems surface late, at the batch review.', wire: 'agile' },
+  { label: 'Exempt', description: 'TMB adds no task, review or push check. Risk: changes go unreviewed.', wire: 'exempt' },
+  // repoModeQuestion fills in the description, which names the project's current mode.
+  { label: "The project's", description: '', wire: REPO_MODE_PROJECT },
 ];
+
+function projectModeDescription(projectMode: WorkflowMode): string {
+  return `One setting for all repos, now ${projectMode}. Risk: changes when the project's does.`;
+}
 
 const ALONE_APPLY_KEYS = ['headless_enforcement', 'bug_report_consent'] as const;
 

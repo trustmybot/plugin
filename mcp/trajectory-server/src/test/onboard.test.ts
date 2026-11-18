@@ -3046,6 +3046,14 @@ describe('repo_mode round (GH 3281)', () => {
 
   const solo = (n: number): string[] => Array.from({ length: n }, () => 'solo@example.com');
 
+  // GH 3327 card pattern: the feature first, then the ask.
+  const modeQuestion = (repo: string): string =>
+    'TMB sets a review mode for each repository. Truest reviews every task before it is pushed. ' +
+    'Agile reviews the work as a whole before it merges. Exempt adds no TMB checks. ' +
+    `Which mode should ${repo} use?`;
+  const projectDescription = (mode: string): string => `One setting for all repos, now ${mode}. Risk: changes when the project's does.`;
+  const wordCount = (text: string): number => text.split(/\s+/).filter(Boolean).length;
+
   async function onlyQuestion(db: TrajectoryDB): Promise<Question> {
     const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { round: 'repo_mode' }));
     const questions = data.questions as Question[];
@@ -3074,7 +3082,7 @@ describe('repo_mode round (GH 3281)', () => {
           row.protectedBranches ? JSON.stringify(row.protectedBranches) : null,
         ]);
         const q = await onlyQuestion(db);
-        assert.equal(q.question, 'Which rules should app follow?');
+        assert.equal(q.question, modeQuestion('app'));
         assert.equal(q.header, 'Mode 1/1');
         assert.equal(q.options[0].wire, row.wire);
         assert.equal(q.options[0].recommended, true);
@@ -3126,14 +3134,39 @@ describe('repo_mode round (GH 3281)', () => {
       const unset = await onlyQuestion(db);
       const project = unset.options.find((o) => o.wire === 'project')!;
       assert.equal(project.label, "The project's (current)");
-      assert.equal(project.description, "Follows the project's review mode, now truest.");
+      assert.equal(project.description, projectDescription('truest'));
       assert.equal(unset.options.filter((o) => o.label.endsWith('(current)')).length, 1);
 
       db.run(`UPDATE repos SET mode = 'agile' WHERE name = 'app'`);
       db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', '"agile"')`);
       const agile = await onlyQuestion(db);
       assert.deepEqual(agile.options.filter((o) => o.label.endsWith('(current)')).map((o) => o.wire), ['agile']);
-      assert.equal(agile.options.find((o) => o.wire === 'project')!.description, "Follows the project's review mode, now agile.");
+      assert.equal(agile.options.find((o) => o.wire === 'project')!.description, projectDescription('agile'));
+    } finally {
+      db.close();
+    }
+  });
+
+  it('GH 3327: the card opens with the feature, and each option says a benefit and a risk or cost within the word limits', async () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO repos (path, name) VALUES (?, 'app')`, [repoWithHistory(['a@example.com', 'b@example.com'])]);
+      const q = await onlyQuestion(db);
+      assert.equal(q.question, modeQuestion('app'));
+      assert.equal(q.options[0].wire, 'truest');
+      assert.equal(q.options[0].recommended, true);
+      assert.match(String(q.recommended_reason), /several authors/);
+      const descriptions = Object.fromEntries(q.options.map((o) => [o.wire, o.description]));
+      assert.deepEqual(descriptions, {
+        truest: 'Nothing unreviewed reaches the working branch. Cost: slower, more tokens per task.',
+        agile: 'Faster, for trying out a feature. Risk: problems surface late, at the batch review.',
+        exempt: 'TMB adds no task, review or push check. Risk: changes go unreviewed.',
+        project: projectDescription('truest'),
+      });
+      for (const o of q.options) {
+        assert.ok(wordCount(o.label) <= 5, `label over 5 words: ${o.label}`);
+        assert.ok(wordCount(o.description) <= 15, `description over 15 words: ${o.description}`);
+      }
     } finally {
       db.close();
     }
@@ -3149,11 +3182,11 @@ describe('repo_mode round (GH 3281)', () => {
       const first = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'repo_mode' }));
       const firstQs = first.questions as Question[];
       assert.deepEqual(firstQs.map((q) => q.header), ['Mode 1/5', 'Mode 2/5', 'Mode 3/5', 'Mode 4/5']);
-      assert.deepEqual(firstQs.map((q) => q.question), ['a', 'b', 'c', 'd'].map((n) => `Which rules should ${n} follow?`));
+      assert.deepEqual(firstQs.map((q) => q.question), ['a', 'b', 'c', 'd'].map(modeQuestion));
       assert.equal(first.next_offset, 4);
 
       const rest = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'repo_mode', offset: first.next_offset }));
-      assert.deepEqual((rest.questions as Question[]).map((q) => [q.header, q.question]), [['Mode 5/5', 'Which rules should e follow?']]);
+      assert.deepEqual((rest.questions as Question[]).map((q) => [q.header, q.question]), [['Mode 5/5', modeQuestion('e')]]);
       assert.equal(rest.next_offset, undefined);
 
       for (const bad of [-1, 1.5, '4']) {
