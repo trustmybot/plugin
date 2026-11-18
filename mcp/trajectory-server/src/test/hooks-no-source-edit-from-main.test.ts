@@ -12,8 +12,6 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findGate, gateNames } from '../hooks/registry.js';
-import { CAP_FIX, CAP_REASON } from '../hooks/cmd-analysis/index.js';
-import { fixedReason } from '../hooks/lib/deny.js';
 import { noSourceEditFromMain } from '../hooks/no-source-edit-from-main.js';
 import { buildSourceEditSandbox } from './hooks-no-source-edit-parity.suite.js';
 
@@ -76,16 +74,20 @@ describe('no-source-edit-from-main compares scratch roots canonically (GH 1796)'
     assert.equal(await decide(join(s, 'scratchlink/x.ts')), '');
   });
 
-  it('denies a padded prompt-surface write past the analyzer cap, naming the cap (GH 2090)', async () => {
-    const write = 'echo x > agents/swe.md';
-    const shapes = [
-      `echo ${'$('.repeat(5000)}x${')'.repeat(5000)}; ${write}`,
-      `echo ${'$('.repeat(2000)}x${')'.repeat(2000)}; ${write}`,
+  it('returns no decision for a Bash payload, whatever the command writes (GH 2098)', async () => {
+    const commands = [
+      'echo x > agents/swe.md',
+      `printf x | tee ${checkout}/CLAUDE.md`,
+      'echo x > src/a.ts',
+      'cp .claude/worktrees/wt/agents/a.md agents/a.md',
+      `echo ${'$('.repeat(5000)}x${')'.repeat(5000)}; echo x > agents/swe.md`,
     ];
-    for (const command of shapes) {
-      const payload = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: checkout, tool_name: 'Bash', tool_input: { command } });
-      const r = await noSourceEditFromMain(payload, env());
-      assert.equal((JSON.parse(r.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason, fixedReason(CAP_REASON, CAP_FIX));
+    const envs = [env(), { ...env(), TRAJECTORY_DB_PATH: undefined, CLAUDE_PROJECT_DIR: join(s, 'plain') }];
+    for (const command of commands) {
+      for (const e of envs) {
+        const payload = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: checkout, tool_name: 'Bash', tool_input: { command } });
+        assert.deepEqual(await noSourceEditFromMain(payload, e), { stdout: '', code: 0 }, command.slice(0, 80));
+      }
     }
   });
 

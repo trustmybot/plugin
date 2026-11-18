@@ -18,9 +18,6 @@
  * proven to sit in a running no-code task's worktree is denied, including when
  * the DB cannot be read or lacks the repos table or the task row.
  *
- * Rule 2, Bash, with or without a DB: a write the cmd-analysis analyzer finds
- * to a prompt-surface path outside a worktree is denied for every identity.
- *
  * Further rules:
  *   - GH 1796: the target and the scratch roots (.claude/<plugin>/scratch/ and
  *     /tmp/claude-<uid>, as containment-guard's harnessTmp admits it) are
@@ -28,18 +25,15 @@
  *     macOS, where /tmp links to /private/tmp, is allowed, as is a scratch
  *     file whose parent dir does not exist yet.
  *   - It needs neither jq nor the sqlite3 CLI.
- *   - The analyzer's never-judged targets (`$(parse)`, `$(computed)`,
- *     `$(unproven)`) are containment-guard's to deny, not Rule 2's. The
- *     analyzer's cap line (GH 2090) is the one Rule 2 denies itself: its
- *     padding could hide a write to a prompt-surface path.
+ *   - Bash is not judged (GH 2098): no hook predicts what a command writes.
  */
 import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { harnessTmp, NEVER_JUDGED } from './containment-guard.js';
-import { CAP_FIX, CAP_REASON, isCapLine, isPromptSurfacePath, payloadCwd, writePaths } from './cmd-analysis/index.js';
+import { payloadCwd } from './cmd-analysis/index.js';
 import { pathCanonical } from './lib/agent-context.js';
-import { dbPath, dbState, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, projectRoot, realdir, stripTrailingNewlines } from './lib/db.js';
+import { dbPath, dbState, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, isDir } from './lib/git.js';
 import { resolveTaskIdForTarget, worktreeRootForTarget } from './lib/target-task.js';
 import { classifyPath, PATH_CLASSES_FILE, readPathClasses } from '../path-classes.js';
@@ -51,10 +45,8 @@ import { agentRole } from './lib/role.js';
 
 export const GATE_NAME = 'no-source-edit-from-main';
 
-const JUDGED_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']);
+const JUDGED_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
-const BASH_REASON =
-  'BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.';
 const SURFACE_REASON =
   "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
 function sourceReason(env: NodeJS.ProcessEnv): string {
@@ -87,7 +79,6 @@ function field(input: string, ...paths: string[][]): string {
 }
 
 const SWE_TASK_FIX: DenyFix = { allowed: 'task_create_batch for the change, then the same edit from swe in the task worktree' };
-const PROMPT_TASK_FIX: DenyFix = { allowed: 'task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree' };
 const BRO_NO_CODE_FIX: DenyFix = {
   allowed: "task_provision with task.no_code_class 'docs' or 'prompts', then the same edit in that task's worktree; a code path goes to swe",
 };
@@ -177,14 +168,6 @@ function isEnforcementSurface(target: string): boolean {
   return hasDir(target, 'scripts/hooks') || target.endsWith('/hooks/hooks.json') || target === 'hooks/hooks.json';
 }
 
-/** `${p#"$root"/}` for the first of <roots> that prefixes <p>. */
-function projectRelative(p: string, roots: readonly string[]): string {
-  for (const root of roots) {
-    if (root !== '' && p.startsWith(`${root}/`)) return p.slice(root.length + 1);
-  }
-  return p;
-}
-
 /** `${word#UNRESOLVED:*:}`, or null for a never-judged marker. */
 export function judgedPath(word: string): string | null {
   if (!word.startsWith('UNRESOLVED:')) return word;
@@ -192,20 +175,6 @@ export function judgedPath(word: string): string | null {
   const colon = rest.indexOf(':');
   if (colon < 0) return word;
   return Object.hasOwn(NEVER_JUDGED, rest.slice(0, colon)) ? null : rest.slice(colon + 1);
-}
-
-async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
-  const command = field(input, ['tool_input', 'command']);
-  const proj = capture(projectRoot(env));
-  const roots = [proj, proj === '' ? '' : realdir(proj)];
-  const lines = capture((await writePaths(command, { cwd: payloadCwd(input, env), env })).join('\n')).split('\n');
-  if (lines.some(isCapLine)) return deny(CAP_REASON, CAP_FIX);
-  for (const line of lines) {
-    const path = judgedPath(line);
-    if (path === null || path === '') continue;
-    if (await isPromptSurfacePath(path, '', env) && !inWorktreeDir(projectRelative(path, roots))) return deny(BASH_REASON, PROMPT_TASK_FIX);
-  }
-  return ALLOW;
 }
 
 function broDenied(why: string, fix: DenyFix = BRO_NO_CODE_FIX): GateResult {
@@ -326,7 +295,6 @@ async function editRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
 export const noSourceEditFromMain: Gate = async (payload, env) => {
   const toolName = field(payload, ['tool_name']);
   if (!JUDGED_TOOLS.has(toolName)) return ALLOW;
-  if (toolName === 'Bash') return await bashRule(payload, env);
   if ((env.TMB_ALLOW_SOURCE_EDIT ?? '0') === '1') return ALLOW;
   return await editRule(payload, env);
 };

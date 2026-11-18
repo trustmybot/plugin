@@ -6,8 +6,7 @@
  * registered repo's files, and to any .claude/worktrees/ path inside a git repo,
  * need a running no-code task's worktree (GH 3075); enforcement surfaces are
  * denied first, but only in the running plugin's own source repo (GH 1362).
- * Bash writes to prompt surfaces are judged by destination (GH 1031, GH 1196),
- * a non-isolated swe may edit source, Rule 1 scopes by repo registration
+ * Bash is not judged, whatever it writes (GH 2098), a non-isolated swe may edit source, Rule 1 scopes by repo registration
  * (GH 693) and .claude/tmb/scratch/ is sanctioned scratch (GH 1597). Each case
  * runs `node dist/hooks.js no-source-edit-from-main` with CLAUDE_PROJECT_DIR
  * pinned to a sandbox and a fake uid, so /tmp/claude-<uid> never covers it.
@@ -222,54 +221,20 @@ describe('no-source-edit-from-main l3: other block paths and the missing DB', ()
     silent(hook(edit('Edit', 'src/foo.ts', tx.bro), { db: join(t, 'no-such.db') }), 'no DB = not a TMB project = allow'));
 });
 
-describe('no-source-edit-from-main l3: Rule 2, Bash writes to prompt surfaces', () => {
-  for (const [label, cmd] of [
-    ['Bash non-write', 'cat agents/swe.md'],
-    ['Bash redirect > to non-prompt file', 'echo "hello" > src/index.ts'],
-    ['Bash sed -n (read-only) on agents/swe.md', "sed -n '1,5p' agents/swe.md"],
-    ['Bash grep on agents/swe.md', 'grep "pattern" agents/swe.md'],
-    ['Bash write in a worktree path (worktree exemption)', 'echo "x" > .claude/worktrees/task-99/agents/swe.md'],
-    ['#1031: write whose destination IS the worktree', 'cat agents/swe.md > .claude/worktrees/task-99/agents/swe.md'],
-    ['Bash grep containing > char (not a redirect)', 'grep ">" agents/swe.md'],
-    ['Bash awk comparison > on .md file (comparison, not redirect)', "awk '$1 > 5' agents/swe.md"],
-    ['Bash echo with prompt path in string redirected to /tmp', 'echo "see agents/swe.md for details" > /tmp/notes.txt'],
-    ['Bash git commit -m message mentioning agents/swe.md', 'git commit -m "touch agents/swe.md"'],
-    ['GH 1196: heredoc whose body mentions a redirect to agents/swe.md', "cat > /tmp/notes.md <<'EOF'\necho x > agents/swe.md\nEOF\n"],
-    ['Bash redirect > to CODEX.md (not a prompt surface)', 'echo "x" > CODEX.md'],
-    ['Bash redirect > to CURSOR.md (not a prompt surface)', 'echo "x" > CURSOR.md'],
-    ['Bash python open a to GEMINI.md (not a prompt surface)', `python -c "open('GEMINI.md','a').write('x')"`],
-  ] as const) {
-    it(`${label}: pass`, () => silent(hook(bash(cmd)), `${cmd} is not a prompt-surface write`));
+describe('no-source-edit-from-main l3: Bash is not judged (GH 2098)', () => {
+  for (const cmd of [
+    'echo "content" > agents/swe.md',
+    'echo "extra" >> CLAUDE.md',
+    "sed -i 's/old/new/' skills/tmb_planning/SKILL.md",
+    `python3 -c "open('agents/swe.md','w').write('x')"`,
+    'cp .claude/worktrees/task-99/agents/swe.md agents/swe.md',
+    'echo "hello" > src/index.ts',
+  ]) {
+    it(`${cmd}: no decision`, () => {
+      silent(hook(bash(cmd)), `${cmd} is not judged`);
+      silent(hook(bash(cmd), { db: join(t, 'no-such.db') }), `${cmd} is not judged without a DB`);
+    });
   }
-  it('Bash redirect > to agents/swe.md: DENIED', () => {
-    const out = hook(bash('echo "content" > agents/swe.md'));
-    has(out, DENY, 'redirect > to agents/*.md denied from main checkout');
-    has(out, 'prompt-surface', 'deny reason mentions prompt-surface');
-  });
-  for (const [label, cmd] of [
-    ['Bash redirect >> to CLAUDE.md', 'echo "extra" >> CLAUDE.md'],
-    ['Bash tee to commands/scan.md', 'cat /tmp/x | tee commands/scan.md'],
-    ['Bash sed -i on skills/tmb_planning/SKILL.md', "sed -i 's/old/new/' skills/tmb_planning/SKILL.md"],
-    ['Bash perl -i on agents/bro.md', "perl -i -pe 's/x/y/' agents/bro.md"],
-    ['Bash python3 open w to agents/swe.md', `python3 -c "open('agents/swe.md','w').write('x')"`],
-    ['Bash python open a to CLAUDE.md', `python -c "open('CLAUDE.md','a').write('x')"`],
-    ['Bash cp to templates/agents/foo.md', 'cp /tmp/foo.md templates/agents/foo.md'],
-    ['Bash mv to commands/foo.md', 'mv /tmp/foo.md commands/foo.md'],
-    ['Bash rsync to agents/foo.md', 'rsync -av /tmp/agent.md agents/foo.md'],
-    ['#1031: sed reads worktree source, redirects to main-checkout prompt surface', "sed 's/x/y/' .claude/worktrees/task-99/agents/swe.md > agents/swe.md"],
-    ['#1031: cp from worktree source to main-checkout prompt surface', 'cp .claude/worktrees/task-99/agents/swe.md agents/swe.md'],
-    ['Bash redirect > to CLAUDE.md', 'echo "x" > CLAUDE.md'],
-    ['Bash deny applies regardless of agent identity (no agent_type field)', 'echo "x" > agents/swe.md'],
-    ["GH 1196: heredoc written straight to a prompt surface", "cat > agents/swe.md <<'EOF'\ntext\nEOF\n"],
-  ] as const) {
-    it(`${label}: DENIED`, () => has(hook(bash(cmd)), DENY, `${cmd} writes a prompt surface`));
-  }
-  it('Bash redirect > to <main>/src/templates/a.md: not prompt surface, pass; <main>/templates/a.md: DENIED', () => {
-    mkdirSync(join(userRepo, 'src/templates'), { recursive: true });
-    mkdirSync(join(userRepo, 'templates'), { recursive: true });
-    hasNot(hook(bash(`echo x > ${userRepo}/src/templates/a.md`)), 'prompt-surface', 'a nested templates/ dir is not prompt surface');
-    has(hook(bash(`echo x > ${userRepo}/templates/a.md`)), DENY, 'a root templates/ dir is prompt surface');
-  });
 });
 
 describe('no-source-edit-from-main l3: the non-isolated swe permit', () => {

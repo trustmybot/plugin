@@ -1,32 +1,4 @@
 {
-  "allow-bash-heredoc-body-is-data.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": ""
-    }
-  },
-  "allow-bash-non-prompt-write.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": ""
-    }
-  },
-  "allow-bash-read-only.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": ""
-    }
-  },
-  "allow-bash-write-into-worktree.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": ""
-    }
-  },
   "allow-bypass-env-edit.json": {
     "C,en_US.UTF-8": {
       "code": 0,
@@ -167,48 +139,6 @@
       "stdout": ""
     }
   },
-  "deny-bash-from-worktree-source-to-main.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed. Allowed form: task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree\"}}\n"
-    }
-  },
-  "deny-bash-no-db.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed. Allowed form: task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree\"}}\n"
-    }
-  },
-  "deny-bash-project-under-worktrees-path.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed. Allowed form: task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree\"}}\n"
-    }
-  },
-  "deny-bash-redirect-prompt-surface.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed. Allowed form: task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree\"}}\n"
-    }
-  },
-  "deny-bash-tee-claude-md-absolute.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed. Allowed form: task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree\"}}\n"
-    }
-  },
-  "deny-bypass-env-does-not-lift-bash.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed. Allowed form: task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree\"}}\n"
-    }
-  },
   "deny-corrupt-db.json": {
     "C,en_US.UTF-8": {
       "code": 0,
@@ -312,13 +242,6 @@
       "code": 0,
       "stderr": "",
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For an emergency hotfix the Human relaunches Claude Code with TMB_ALLOW_SOURCE_EDIT=1; ask the Human. Throwaway scripts, logs and data dumps belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable; plans, decisions and analysis go in the trajectory DB.\"}}\n"
-    }
-  },
-  "divergent-gh2090-analysis-cap.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stderr": "",
-      "stdout": ""
     }
   },
   "divergent-no-jq.json": {

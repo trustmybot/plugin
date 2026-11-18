@@ -9,8 +9,7 @@
  * a git repo whose manifest names the running plugin, tmb) and
  * other (a git repo whose manifest names other-plugin); an unregistered git
  * repo sibling; a dir in no git repo, plain; the running plugin root; a
- * corrupt DB (bad), a DB with no repos table (norepos), a project nested
- * under a .claude/worktrees/ path (nest) and scratchlink, a symlink to the
+ * corrupt DB (bad), a DB with no repos table (norepos) and scratchlink, a symlink to the
  * checkout's .claude/tmb/scratch/. Both sides run under a preload giving
  * node a fake uid, so /tmp/claude-<uid> never covers the sandbox.
  *
@@ -74,7 +73,7 @@ export function buildSourceEditSandbox(s: string): void {
   rmSync(s, { recursive: true, force: true });
   const checkout = join(s, 'project/checkout');
   gitRepo(checkout, 'tmb');
-  for (const dir of ['src', 'scripts/hooks', 'hooks', 'docs', 'templates', 'agents', '.github/workflows', '.claude/tmb/scratch', '.claude/worktrees/wt/agents', '.claude/worktrees/wt/src']) {
+  for (const dir of ['src', 'scripts/hooks', 'hooks', 'docs', 'templates', '.github/workflows', '.claude/tmb/scratch', '.claude/worktrees/wt/src']) {
     mkdirSync(join(checkout, dir), { recursive: true });
   }
   gitRepo(join(s, 'other'), 'other-plugin');
@@ -93,9 +92,6 @@ export function buildSourceEditSandbox(s: string): void {
   mkdirSync(join(s, 'bad/.claude/tmb'), { recursive: true });
   writeFileSync(join(s, 'bad/.claude/tmb/trajectory.db'), 'this is not a sqlite database\n'.repeat(64));
   trajectoryDb(join(s, 'norepos/.claude/tmb/trajectory.db'), () => {}, 'CREATE TABLE meta (k TEXT);');
-  const nest = join(s, 'nest/.claude/worktrees/proj');
-  trajectoryDb(join(nest, '.claude/tmb/trajectory.db'), () => {});
-  mkdirSync(join(nest, 'agents'));
   symlinkSync(join(checkout, '.claude/tmb/scratch'), join(s, 'scratchlink'));
 }
 
