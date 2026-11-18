@@ -462,4 +462,15 @@ describe('close-issue-on-merge l3', () => {
     );
     assert.equal(auditCount('review_queued'), '1', 'the agile task stays queued');
   });
+
+  it('(s) a task closed under exempt owes no review and gets no bypass row (GH 3281)', () => {
+    seedDb();
+    addIssue(5, 122);
+    addTask(1, 5, 'feat/x', 'closed');
+    sql("UPDATE tasks SET workflow_mode = 'exempt' WHERE id = 1");
+    runHook(input(MERGE), REF_122);
+    assert.equal(taskStatus(1), 'closed');
+    assert.equal(auditCount('review_gate_bypassed'), '0', 'an exempt close owes no review');
+    assert.equal(auditCount('review_queued'), '0', 'nor is it queued');
+  });
 });

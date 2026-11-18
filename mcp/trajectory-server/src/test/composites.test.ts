@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TrajectoryDB } from '../db.js';
-import { pinScanEnv, seedReviewedCommit, seedReviewerObservation, tempDB } from './helpers.js';
+import { pinScanEnv, seedReviewedCommit, seedReviewerObservation, setProjectWorkflowMode, tempDB } from './helpers.js';
 import { validationTools } from '../tools/validation.js';
 import { activeFindingProbes } from '../tools/verification-runs.js';
 import { reviewFindingsActive } from '../hooks/swe-verification-gate.js';
@@ -979,6 +979,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     }
 
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'dev')`, [repoRoot]);
     const issues = issueTools(db, dbPath);
     const tasks = taskTools(db);
@@ -1303,15 +1304,15 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     }
   });
 
-  for (const mode of ['agile', null] as const) {
+  for (const mode of ['agile', 'truest'] as const) {
     const agile = mode === 'agile';
-    it(`with workflow_mode ${mode ?? 'unset'}, review_handoff and bro_atomic_close take the merge-base from ${agile ? 'the parent feature branch' : 'the PR target'} (GH 2225)`, async () => {
+    it(`with workflow_mode ${mode}, review_handoff and bro_atomic_close take the merge-base from ${agile ? 'the parent feature branch' : 'the PR target'} (GH 2225)`, async () => {
       const { db, composites, taskId, sha, baseSha, siblingSha, cleanup } = await setup(['src/'], ['src/a.ts', 'rogue.ts'], {
         sibling: ['docs/sibling.md'],
         devAdvance: ['docs/dev-only.md'],
       });
       try {
-        if (mode !== null) db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)`, [JSON.stringify(mode)]);
+        setProjectWorkflowMode(db, mode);
         const mergeBase = agile ? siblingSha : baseSha;
 
         const handoff = await call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: taskId });
@@ -5837,8 +5838,8 @@ describe('bro_atomic_close under agile review mode (GH 2225)', () => {
     db.close();
   });
 
-  for (const mode of ['truest', null] as const) {
-    it(`SC1: with workflow_mode ${mode ?? 'unset'} the review_pass_missing refusal is unchanged`, async () => {
+  for (const mode of ['truest'] as const) {
+    it(`SC1: with workflow_mode ${mode} the review_pass_missing refusal is unchanged`, async () => {
       const { db, task, close } = seed(mode);
       const r = await close();
       assert.equal(r.isError, true);
@@ -5905,8 +5906,8 @@ describe('bro_atomic_close under agile review mode (GH 2225)', () => {
     db.close();
   });
 
-  for (const mode of ['truest', null] as const) {
-    it(`SC4: task_recover under workflow_mode ${mode ?? 'unset'} still writes review_gate_bypassed and no review_queued`, async () => {
+  for (const mode of ['truest'] as const) {
+    it(`SC4: task_recover under workflow_mode ${mode} still writes review_gate_bypassed and no review_queued`, async () => {
       const { db, task } = seed(mode);
       const r = await recover(db, task);
       assert.ok(!r.isError, JSON.stringify(parse(r)));

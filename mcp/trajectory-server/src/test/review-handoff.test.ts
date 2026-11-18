@@ -17,7 +17,7 @@ import { validationTools } from '../tools/validation.js';
 import { reviewQueueTools } from '../tools/review-queue.js';
 import { AGILE_PENDING_REVIEW_SQL } from '../review-sql.js';
 import { makeSandbox, runGate, type Sandbox } from './hook-sandbox.js';
-import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation, setProjectWorkflowMode, tempDB } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, ((args: Record<string, unknown>) => Promise<unknown>) | undefined>;
@@ -59,6 +59,7 @@ describe('review_handoff: code-reviewer reviews the completed task, bro closes a
     mkdirSync(join(sb.dir, '.claude', 'tmb'), { recursive: true });
     dbPath = join(sb.dir, '.claude', 'tmb', 'trajectory.db');
     db = tempDB({ path: dbPath });
+    setProjectWorkflowMode(db, 'truest');
     db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('shop', ?, 'main')`, [repoRoot]);
     db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
     handlers = { ...compositeTools(db, dbPath).handlers, ...taskTools(db).handlers, ...validationTools(db).handlers };

@@ -19,6 +19,17 @@ export function tempDB(opts: { seedScan?: boolean; path?: string } = {}): Trajec
   return db;
 }
 
+// setProjectWorkflowMode stores the project's workflow_mode, replacing any
+// stored value. Unset reads as agile (GH 3281), so a test of truest behavior
+// sets it explicitly.
+export function setProjectWorkflowMode(db: TrajectoryDB, mode: string): void {
+  db.run(
+    `INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+    [JSON.stringify(mode)],
+  );
+}
+
 // TEST_PROBES is a well-formed probes[] for a validation_record pass, which
 // refuses a pass without one (GH 2866).
 export const TEST_PROBES = [{ target: 'the changed behavior', probe_cmd: 'npm test', observed: 'exit 0: all passing' }];

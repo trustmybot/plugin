@@ -2583,11 +2583,11 @@ describe('review_mode round (GH 2225)', () => {
       const tools = onboardTools(db);
       db.run(`INSERT INTO repos (path, name) VALUES ('/repo/x', 'x')`);
       db.run(`CREATE TRIGGER forced_failure BEFORE UPDATE ON repos BEGIN SELECT RAISE(ABORT, 'forced failure'); END`);
-      const result = (await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: 'agile' })) as { isError?: boolean };
+      const result = (await call(tools.handlers, 'onboard_apply', { shape: 'local', review_mode: 'truest' })) as { isError?: boolean };
       assert.equal(result.isError, true);
       assert.match(String(parse(result).error), /forced failure/);
       assert.equal(storedMode(db), undefined);
-      assert.equal(readWorkflowMode(db), 'truest');
+      assert.equal(readWorkflowMode(db), 'agile', 'the unset default (GH 3281), not the rolled-back truest');
       assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'onboarded' AND value_json = 'true'`), undefined);
     } finally {
       db.close();

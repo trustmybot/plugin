@@ -129,10 +129,13 @@ describe('repo mode — the hooks/lib/repo.ts readers', () => {
     assert.equal(isExempt(junk, roots['free'], env), false, 'unreadable DB');
   });
 
-  it('repoMode reads the stored mode, else the project workflow_mode (unset reads as truest)', () => {
+  it('repoMode reads the stored mode, else the project workflow_mode (unset reads as agile, GH 3281)', () => {
     setProjectMode(null);
+    assert.equal(repoMode(dbPath, roots['held'], env), 'agile');
+    assert.equal(repoMode(dbPath, roots['stray'], env), 'agile', 'unregistered');
+    setProjectMode('truest');
     assert.equal(repoMode(dbPath, roots['held'], env), 'truest');
-    assert.equal(repoMode(dbPath, roots['stray'], env), 'truest', 'unregistered');
+    assert.equal(repoMode(dbPath, roots['loose'], env), 'agile');
     setProjectMode('agile');
     assert.equal(repoMode(dbPath, roots['held'], env), 'agile');
     assert.equal(repoMode(dbPath, roots['strict'], env), 'truest');
@@ -143,6 +146,7 @@ describe('repo mode — the hooks/lib/repo.ts readers', () => {
   });
 
   it('repoModeLabel names the registered repo, else the root dir', () => {
+    setProjectMode('truest');
     assert.equal(repoModeLabel(dbPath, roots['loose'], env), '(repo loose, mode agile)');
     assert.equal(repoModeLabel(dbPath, roots['stray'], env), '(repo stray, mode truest)');
   });
@@ -185,17 +189,18 @@ describe('repo mode — git-guards', () => {
 
   it('NULL, truest and agile keep the rules on, each deny naming the repo and mode', async () => {
     for (const [mode, project, label] of [
-      [null, null, 'truest'],
+      [null, null, 'agile'],
+      [null, 'truest', 'truest'],
       [null, 'agile', 'agile'],
       ['truest', 'agile', 'truest'],
-      ['agile', null, 'agile'],
+      ['agile', 'truest', 'agile'],
     ] as const) {
       setMode(mode, project);
       const r = await commitOnMain();
       assert.match(r, /^BLOCKED: main is a shared workflow base/, `${mode}/${project}`);
       assert.match(r, suffixed('app', label), `${mode}/${project}`);
     }
-    setMode(null);
+    setMode(null, 'truest');
     assert.match(reason((await gitGuards(payload(`gh pr create --base dev --head feat/x`, app), env)).stdout), suffixed('app', 'truest'));
     assert.match(reason((await gitGuards(payload(`git -C ${app} push --force origin main`, dir), env)).stdout), suffixed('app', 'truest'));
     git(app, 'switch', '-q', '-c', 'feat/x');
@@ -250,7 +255,7 @@ describe('repo mode — git-push-guard', () => {
   it('NULL, truest and agile keep the gate on, each deny naming the repo and mode', async () => {
     for (const mode of [null, 'truest', 'agile'] as const) {
       setMode(mode);
-      const label = mode ?? 'truest';
+      const label = mode ?? 'agile';
       const unsigned = await push(app);
       assert.match(unsigned, /^BLOCKED: pushing 1 unsigned commit\(s\)/, String(mode));
       assert.match(unsigned, suffixed('app', label), String(mode));
@@ -299,10 +304,10 @@ describe('repo mode — scan_run, repos_list, repo_rename and onboard_apply', ()
       ((await call(tools.handlers, 'repos_list')).repos as Array<Record<string, unknown>>).map(({ name, mode, effective_mode }) => ({ name, mode, effective_mode }));
     assert.deepEqual(await list(), [
       { name: 'alpha', mode: 'exempt', effective_mode: 'exempt' },
-      { name: 'beta', mode: null, effective_mode: 'truest' },
+      { name: 'beta', mode: null, effective_mode: 'agile' },
     ]);
-    db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, '"agile"')`, [WORKFLOW_MODE_KEY]);
-    assert.deepEqual((await list())[1], { name: 'beta', mode: null, effective_mode: 'agile' });
+    db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, '"truest"')`, [WORKFLOW_MODE_KEY]);
+    assert.deepEqual((await list())[1], { name: 'beta', mode: null, effective_mode: 'truest' });
     db.close();
   });
 
@@ -397,12 +402,16 @@ describe('stored task mode — tasks.workflow_mode admits exempt, the project ke
     truest.close();
   });
 
-  it('an unreviewed exempt close reads as not agile: closed_tasks_reviewed counts it, agile_review_queued does not', () => {
-    const db = tempDB();
-    closedTask(db, 'exempt', false);
-    const found = violations(db);
-    assert.deepEqual(found.find((v) => v.id === 'closed_tasks_reviewed'), { id: 'closed_tasks_reviewed', actual: 1 });
+  it('an unreviewed exempt close owes no review: neither closed_tasks_reviewed nor agile_review_queued counts it (GH 3281)', () => {
+    const exempt = tempDB();
+    const truest = tempDB();
+    closedTask(exempt, 'exempt', false);
+    closedTask(truest, 'truest', false);
+    const found = violations(exempt);
+    assert.equal(found.find((v) => v.id === 'closed_tasks_reviewed'), undefined);
     assert.equal(found.find((v) => v.id === 'agile_review_queued'), undefined);
-    db.close();
+    assert.deepEqual(violations(truest).find((v) => v.id === 'closed_tasks_reviewed'), { id: 'closed_tasks_reviewed', actual: 1 }, 'the same task stored truest is counted');
+    exempt.close();
+    truest.close();
   });
 });

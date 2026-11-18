@@ -33,7 +33,7 @@ function seedIssue(db: TrajectoryDB): number {
 }
 
 interface SeedOpts {
-  mode?: 'agile' | 'truest' | null;
+  mode?: 'agile' | 'truest' | 'exempt' | null;
   status?: string;
   files?: string[];
   updatedAt?: string;
@@ -101,7 +101,7 @@ async function queueOk(db: TrajectoryDB, args: Record<string, unknown> = {}): Pr
 const ids = (q: Queue): number[] => q.groups.flatMap((g) => g.tasks.map((t) => t.id)).sort((a, b) => a - b);
 
 describe('SC1: membership is the agile tasks pending review', () => {
-  it('lists a queued agile close and leaves out a passed, waived, truest, NULL-mode, open or unqueued task', async () => {
+  it('lists a queued agile close and leaves out a passed, waived, truest, exempt, NULL-mode, open or unqueued task', async () => {
     const db = tempDB();
     try {
       const issue = seedIssue(db);
@@ -110,6 +110,7 @@ describe('SC1: membership is the agile tasks pending review', () => {
       const waived = seedTask(db, issue);
       auditRow(db, issue, 'bro', 'review_waived', { feature_branch: 'feat/x', task_ids: [waived], commit_shas: ['c0ffee1'], human_answer: 'Yes' });
       seedTask(db, issue, { mode: 'truest' });
+      seedTask(db, issue, { mode: 'exempt' });
       seedTask(db, issue, { mode: null });
       seedTask(db, issue, { status: 'completed' });
       seedTask(db, issue, { queued: false });
@@ -677,6 +678,7 @@ describe('GH 2225 T4: review_batch_record', () => {
         const good = seedQueued(db, issue, repo.base);
         const open = seedQueued(db, issue, repo.base, { status: 'completed' });
         const truest = seedQueued(db, issue, repo.base, { mode: 'truest' });
+        const exempt = seedQueued(db, issue, repo.base, { mode: 'exempt' });
         const unqueued = seedTask(db, issue, { repo: 'app', commit: repo.base, queued: false });
         const reviewed = seedQueued(db, issue, repo.base);
         assert.ok(!(await observedBatch(db, [reviewed], repo.head, 'pass')).isError);
@@ -684,7 +686,7 @@ describe('GH 2225 T4: review_batch_record', () => {
         // tasks.repo references repos.name, so an unresolvable repo is a task and issue with none.
         const repoless = seedQueued(db, issue, repo.base, { repo: null });
         const missing = 999_999;
-        const group = [good, open, truest, unqueued, reviewed, offHead, repoless, missing];
+        const group = [good, open, truest, exempt, unqueued, reviewed, offHead, repoless, missing];
         observe(db, group, repo.head);
         const before = snapshot(db);
         const body = refusedWith(await batch(db, { task_ids: group, head_sha: repo.head, verdict: 'pass' }), 'task_not_batchable');
@@ -692,6 +694,7 @@ describe('GH 2225 T4: review_batch_record', () => {
         assert.deepEqual(reasons, {
           [open]: 'not_closed',
           [truest]: 'not_agile',
+          [exempt]: 'not_agile',
           [unqueued]: 'not_queued',
           [reviewed]: 'already_batch_reviewed',
           [offHead]: 'not_ancestor',

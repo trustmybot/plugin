@@ -293,6 +293,7 @@ describe('cli.js feature-merge', () => {
   for (const [label, task] of [
     ['a completed task', { status: 'completed' }],
     ['a closed truest task', { workflowMode: 'truest' }],
+    ['a closed exempt task', { workflowMode: 'exempt' }],
     ['a closed task with no workflow_mode', { workflowMode: null }],
   ] as const) {
     it(`SC3: ${label} → exit 3, nothing changes`, () => {

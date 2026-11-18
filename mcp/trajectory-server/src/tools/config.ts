@@ -287,8 +287,8 @@ export function isWorkflowMode(value: unknown): value is WorkflowMode {
 }
 
 /**
- * The project's workflow mode (GH 2225). Unset reads as truest; so does a
- * stored value that is unparseable or not a known mode.
+ * The project's workflow mode (GH 2225). Unset reads as agile (GH 3281); so
+ * does a stored value that is unparseable or not a known mode.
  */
 export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
   const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [WORKFLOW_MODE_KEY]);
@@ -297,14 +297,14 @@ export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
 
 /** A stored workflow_mode value_json as readWorkflowMode reads it; the hooks read it through their own DB reader. */
 export function parseWorkflowMode(valueJson: string | null | undefined): WorkflowMode {
-  if (!valueJson) return 'truest';
+  if (!valueJson) return 'agile';
   try {
     const value: unknown = JSON.parse(valueJson);
     if (isWorkflowMode(value)) return value;
   } catch {
     // An unparseable stored value reads as the default.
   }
-  return 'truest';
+  return 'agile';
 }
 
 /** A repo's rules (GH 3279): the workflow modes, plus exempt, under which the git guards stand down. */
@@ -318,6 +318,24 @@ export function isRepoMode(value: unknown): value is RepoMode {
 /** A repo's effective mode: its stored repos.mode, else the project's workflow_mode. */
 export function effectiveRepoMode(db: Pick<TrajectoryDB, 'get'>, stored: string | null | undefined): RepoMode {
   return isRepoMode(stored) ? stored : readWorkflowMode(db);
+}
+
+/**
+ * The mode in effect for a task of <repo> (GH 3281): an exempt repo is exempt
+ * before anything else is read, else the repo's truest|agile, else the
+ * project's workflow_mode. A NULL or empty <repo> stands for the sole
+ * registered repo; with none or several, and for a name no row holds, the
+ * project's mode decides.
+ */
+export function resolveWorkflowMode(db: Pick<TrajectoryDB, 'get'>, repo: string | null | undefined): RepoMode {
+  const name = repo ?? '';
+  const row = db.get<{ mode: string | null }>(
+    `SELECT mode FROM repos WHERE name = ? OR (? = '' AND (SELECT COUNT(*) FROM repos) = 1) LIMIT 1`,
+    [name, name],
+  );
+  if (row?.mode === 'exempt') return 'exempt';
+  // The lane step (GH 3025) goes here: after exempt, before the repo's mode.
+  return effectiveRepoMode(db, row?.mode);
 }
 
 export const WORLD_MODEL_TEST_LANE_KEY = 'world_model_test_lane';

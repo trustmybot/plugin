@@ -424,10 +424,12 @@ describe('code-reviewer-preflight', () => {
         return { f, sha, featureBase };
       }
 
-      it('agile: allows a lint record made against merge-base(feature branch, commit)', async () => {
-        const { f } = await stackedOnFeature('agile');
-        await assertAllowed(f);
-      });
+      for (const mode of ['agile', null] as const) {
+        it(`${mode ?? 'unset (reads as agile, GH 3281)'}: allows a lint record made against merge-base(feature branch, commit)`, async () => {
+          const { f } = await stackedOnFeature(mode);
+          await assertAllowed(f);
+        });
+      }
 
       describe('a per-task review of a closed agile task the feature branch fast-forwarded onto (decision #320 item 3)', () => {
         /** stackedOnFeature, then cli.js feature-merge's fast-forward: FEATURE moves to the task commit, so merge-base(FEATURE, commit) is the commit. */
@@ -473,8 +475,8 @@ describe('code-reviewer-preflight', () => {
         });
       });
 
-      for (const mode of ['truest', null] as const) {
-        it(`${mode ?? 'unset'} mode: denies that record, measuring from dev as before`, async () => {
+      for (const mode of ['truest'] as const) {
+        it(`${mode} mode: denies that record, measuring from dev as before`, async () => {
           const { f, sha, featureBase } = await stackedOnFeature(mode);
           const d = denial((await run(f)).stdout);
           assert.deepEqual(d, {

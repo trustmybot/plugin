@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tempDB } from './helpers.js';
+import { setProjectWorkflowMode, tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -296,6 +296,7 @@ describe('issue_close: review evidence for closed tasks', () => {
 
   it('a pass at an escalated commit A never covers a close at commit B', async () => {
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'completed', { commit: 'aaaaaaa', completedAt: iso(-3 * HOUR) });
     recordVerificationPass(db, issue, t, 'aaaaaaa', iso(-3 * HOUR));
@@ -455,6 +456,7 @@ describe('issue_close: review evidence for closed tasks', () => {
 
   it('a task whose bypass is already recorded does not block the close', async () => {
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
     const tasks = taskTools(db);
@@ -485,6 +487,7 @@ describe('issue_close: review evidence for closed tasks', () => {
 describe('review_gate_bypassed on non-atomic closes', () => {
   it('task_update_status → closed without a pass writes review_gate_bypassed', async () => {
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
     const r = await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
@@ -511,6 +514,7 @@ describe('review_gate_bypassed on non-atomic closes', () => {
 
   it('task_recover closing at a commit without a pass writes review_gate_bypassed', async () => {
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-HOUR) });
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'task_recover', {
@@ -572,24 +576,34 @@ describe('GH 2225 T5: task_update_status under workflow_mode agile queues the cl
     db.close();
   });
 
-  for (const mode of ['truest', null]) {
-    it(`with workflow_mode ${mode ?? 'unset'} a close without a pass still writes review_gate_bypassed and no review_queued row`, async () => {
-      const db = tempDB();
-      if (mode !== null) setMode(db, mode);
-      const issue = seedIssue(db);
-      const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
-      await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
-      assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((r) => r.content), [{ task_id: t, commit_sha: 'abc1234', closed_by: 'task_update_status' }]);
-      assert.equal(auditRows(db, 'review_queued').length, 0);
-      assert.equal(modeOf(db, t), null);
-      db.close();
-    });
-  }
+  it('with workflow_mode truest a close without a pass still writes review_gate_bypassed and no review_queued row, and stamps truest', async () => {
+    const db = tempDB();
+    setMode(db, 'truest');
+    const issue = seedIssue(db);
+    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
+    await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+    assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((r) => r.content), [{ task_id: t, commit_sha: 'abc1234', closed_by: 'task_update_status' }]);
+    assert.equal(auditRows(db, 'review_queued').length, 0);
+    assert.equal(modeOf(db, t), 'truest', 'the close stamps the mode it resolved (GH 3281)');
+    db.close();
+  });
+
+  it('with workflow_mode unset a close without a pass queues it as agile (GH 3281)', async () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
+    await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
+    assert.equal(auditRows(db, 'review_queued').length, 1);
+    assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
+    assert.equal(modeOf(db, t), 'agile');
+    db.close();
+  });
 });
 
 describe('a bypass is recorded once per (task, commit)', () => {
   it('closed → escalated → closed twice writes exactly one row; task_recover after a reopen adds none', async () => {
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'escalated', { commit: 'abc1234' });
     const tasks = taskTools(db).handlers;
@@ -646,6 +660,7 @@ describe('task_recover anchors its own bro_verification_pass before judging bypa
 
   it('a pass older than any anchor of the commit → bypass recorded, and issue_close accepts on that record', async () => {
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     recordVerdict(db, t, 'pass', iso(-HOUR));
@@ -667,6 +682,7 @@ describe('bro_atomic_close', () => {
 
   it('refuses review_pass_missing until code-reviewer passes the handed-off commit, then closes with no review_gate_bypassed', async () => {
     const db = tempDB();
+    setProjectWorkflowMode(db, 'truest');
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-3 * HOUR) });
     const handlers = compositeTools(db, DB_PATH, null).handlers;

@@ -192,7 +192,7 @@ export function isExempt(db: string, root: string, env: NodeJS.ProcessEnv = proc
   return storedRepoMode(db, root, env).stored === 'exempt';
 }
 
-/** <root>'s effective mode: its repos.mode, else the project's workflow_mode (unset or unreadable reads as truest). */
+/** <root>'s effective mode: its repos.mode, else the project's workflow_mode (unset reads as agile, a DB that does not read as truest). */
 export function repoMode(db: string, root: string, env: NodeJS.ProcessEnv = process.env): RepoMode {
   return effectiveMode(db, storedRepoMode(db, root, env).stored, env);
 }
