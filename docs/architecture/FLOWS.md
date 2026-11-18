@@ -211,7 +211,7 @@ flowchart LR
 
 ### 4.1 Cheatcode lifecycle
 
-bro acquires a published skill, MCP toolkit or plugin instead of building a capability by hand, and the Human approves each install. [CHEATCODES.md](CHEATCODES.md) covers every stage, the trust design and teardown.
+bro acquires a published skill, MCP toolkit or plugin instead of building a capability by hand, and the Human approves each install. [CHEATCODES.md](CHEATCODES.md) covers every stage, the trust design and teardown. Planned (GH 3360): cheatcodes are cut. The skill creator's attach step also takes a skill the Human downloaded, so a skill still reaches the agent that needs it.
 
 ```mermaid
 flowchart LR

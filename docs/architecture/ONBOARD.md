@@ -38,7 +38,7 @@ The first bro turn on a project that isn't onboarded runs `/onboard` before any 
 | 1 | Always | Project shape: Local-only or Remote-tracked | no value of its own: Remote-tracked keeps each repo's remotes and the sync choice, Local-only removes the recorded remotes and turns issue sync off |
 | 2 | Remote shape, a re-onboard, or a workspace whose repos differ | Branching model and PR target (once, or per repo when they differ); then remotes | each repo's branching, PR target and remotes |
 | 3 | Remote shape | Issue sync | the issue-sync setting |
-| 4 | Always | Bash sandbox | the sandbox setting |
+| 4 | Always | Bash sandbox. Planned (GH 3360): the round is cut, and onboarding sets up no sandbox | the sandbox setting |
 | 5 | Always | Opt-in TMB bug reports (flow 5.1) | the consent, no by default |
 | 5b | Always | The project review mode: truest, or agile on a long-lived feature branch ([AGILE.md](AGILE.md)); a stored mode is offered as Keep. Planned (GH 3281): bro recommends the project's mode, and the round then asks one mode per repo, truest, agile, exempt or the project's, each with bro's recommendation | the review mode, truest by default and untouched when the round is skipped; planned, agile by default, and each repo's mode |
 | 5c | Always | Whether TMB's pre-push hook is on or off for the project ([INSTALL.md](INSTALL.md#session-start)); a stored setting is offered as Keep. Only the Human sets it, here; no agent tool can change it | the pre-push setting, on by default and untouched when the round is skipped |
@@ -67,7 +67,7 @@ Each round asks through a card. A person who has never used TMB must be able to 
 - **The card shows the actual values.** Paths, commands and branch names appear on the card, shortened with a count when the list is long.
 - **Human language for what TMB works out.** An option that takes what bro found reads "Let bro detect".
 - **Plain, short sentences.** Setting names and file formats stay off the card. Detail that does not help the choice goes in the lines bro prints above it.
-- **A card only when the Human must choose.** A setting whose usual answer fits almost every project is applied without a card. The closing summary names each one, and a re-run of /onboard changes it. A card is shown only for a choice that is important and depends on the Human, with bro's recommendation as its first option. Three settings are applied without a card: the Bash sandbox is turned on, every task runs each lint, typecheck and test command bro found in the repo, and bro finds each repo's docs and prompts files. The Human reviews them in the closing summary.
+- **A card only when the Human must choose.** A setting whose usual answer fits almost every project is applied without a card. The closing summary names each one, and a re-run of /onboard changes it. A card is shown only for a choice that is important and depends on the Human, with bro's recommendation as its first option. Two settings are applied without a card: every task runs each lint, typecheck and test command bro found in the repo, and bro finds each repo's docs and prompts files. The Human reviews them in the closing summary.
 - **Repo modes get a card only in a workspace with more than one repo.** A project with one repo takes the project's mode and sees no repo-mode card.
 
 Planned (GH 3327): today's cards ask without the opening sentence, most options carry no benefit or risk, and every round shows a card.
