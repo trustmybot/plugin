@@ -1,6 +1,8 @@
 /**
- * `cli.js pre-push` (GH 3281 S1): the push gate at git's own pre-push hook,
- * driven through real `git push`es to a bare origin.
+ * `cli.js pre-push` (GH 3281): the push gate at git's own pre-push hook,
+ * driven through real `git push`es to a bare origin. Slice 2 runs it in
+ * observe mode: every push exits 0, and an agent's push leaves one
+ * prepush_observed row carrying the judge's verdict (legacy verdict admit).
  *
  * Each case builds a temp repo `work` whose .git/hooks/pre-push records git's
  * stdin and pipes it to the built bundle's `pre-push`, plus a trajectory DB
@@ -35,6 +37,7 @@ function baseEnv(): NodeJS.ProcessEnv {
   };
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_SESSION_ID;
+  delete env.TMB_AGENT_SHELL;
   delete env.TRAJECTORY_DB_PATH;
   return env;
 }
@@ -42,9 +45,22 @@ const GIT_ENV = baseEnv();
 
 type Pusher = 'agent' | 'session' | 'human';
 
+interface Observed {
+  repo: string;
+  remote: string;
+  refs: { local_ref: string; local_sha: string; remote_ref: string; remote_sha: string }[];
+  hook_verdict: string;
+  reason: string;
+  legacy_verdict: string;
+  agree: boolean;
+  session_id: string | null;
+}
+
 interface Push {
   code: number | null;
   err: string;
+  /** The prepush_observed rows the push wrote. */
+  rows: Observed[];
 }
 
 let root = '';
@@ -84,6 +100,20 @@ function sql(text: string, ...params: (string | number | null)[]): void {
     d.prepare(text).run(...params);
   } finally {
     d.close();
+  }
+}
+
+/** Every prepush_observed row, oldest first; [] when the DB is unreadable. */
+function observedRows(): Observed[] {
+  let d: DatabaseSync | undefined;
+  try {
+    d = new DatabaseSync(db, { readOnly: true });
+    const rows = d.prepare("SELECT content_json FROM audit WHERE event_type = 'prepush_observed' ORDER BY id").all() as { content_json: string }[];
+    return rows.map((r) => JSON.parse(r.content_json) as Observed);
+  } catch {
+    return [];
+  } finally {
+    d?.close();
   }
 }
 
@@ -155,18 +185,36 @@ function push(pusher: Pusher, ...args: string[]): Push {
     if (pusher === 'agent') env.CLAUDECODE = '1';
     else env.CLAUDE_CODE_SESSION_ID = 'session-1';
   }
+  const before = observedRows().length;
   const r = spawnSync('git', ['-C', work, 'push', ...args], { encoding: 'utf8', env, timeout: 120_000 });
-  return { code: r.status, err: r.stderr };
+  return { code: r.status, err: r.stderr, rows: observedRows().slice(before) };
 }
 
-function assertAdmitted(r: Push): void {
+/** The push went through, and an agent's left one admit row. */
+function assertAdmitted(r: Push, pusher: Pusher = 'agent'): void {
   assert.equal(r.code, 0, r.err);
+  if (pusher === 'human') {
+    assert.deepEqual(r.rows, [], 'the Human\'s push wrote no row');
+    return;
+  }
+  assert.equal(r.rows.length, 1, JSON.stringify(r.rows));
+  assert.equal(r.rows[0].hook_verdict, 'admit', r.rows[0].reason);
+  assert.equal(r.rows[0].legacy_verdict, 'admit');
+  assert.equal(r.rows[0].agree, true);
 }
 
-function assertDenied(r: Push, ...phrases: string[]): void {
-  assert.notEqual(r.code, 0, 'the push went through');
-  assert.match(r.err, /BLOCKED: pre-push gate/);
-  for (const phrase of phrases) assert.ok(r.err.includes(phrase), `stderr names "${phrase}":\n${r.err}`);
+/** Observe mode: the push still went through, and its one row records the judge's deny naming <phrases>. */
+function assertObservedDeny(r: Push, ...phrases: string[]): Observed {
+  assert.equal(r.code, 0, `observe mode never blocks:\n${r.err}`);
+  assert.doesNotMatch(r.err, /BLOCKED/);
+  assert.equal(r.rows.length, 1, JSON.stringify(r.rows));
+  const row = r.rows[0];
+  assert.equal(row.hook_verdict, 'deny');
+  assert.equal(row.legacy_verdict, 'admit');
+  assert.equal(row.agree, false);
+  assert.match(row.reason, /^BLOCKED: pre-push gate/);
+  for (const phrase of phrases) assert.ok(row.reason.includes(phrase), `the reason names "${phrase}":\n${row.reason}`);
+  return row;
 }
 
 /** A task branch cut from main with one commit of <file>, left checked out. */
@@ -188,14 +236,14 @@ describe('pre-push gate: task branches by net diff', () => {
     commit('a2.txt');
     gitIn(work, 'checkout', '-q', '-b', 'fix/t1');
     const oldTip = commit('c.txt');
-    assertAdmitted(push('human', 'origin', 'fix/t1'));
+    assertAdmitted(push('human', 'origin', 'fix/t1'), 'human');
     addTask(1, 'fix/t1', oldTip);
     addVerdict(1, 'pass', oldTip);
 
     gitIn(work, 'checkout', '-q', 'main');
     gitIn(work, 'merge', '-q', '--no-ff', '-m', 'merge wave', 'wave');
     commit('d.txt');
-    assertAdmitted(push('human', 'origin', 'main'));
+    assertAdmitted(push('human', 'origin', 'main'), 'human');
     gitIn(work, 'rebase', '-q', 'main', 'fix/t1');
     const newTip = gitIn(work, 'rev-parse', 'HEAD');
     assert.notEqual(newTip, oldTip);
@@ -232,8 +280,9 @@ describe('pre-push gate: task branches by net diff', () => {
     addTask(23, 'fix/b', retryTip);
     addVerdict(23, 'pass', retryTip);
 
-    assertDenied(push('agent', 'origin', 'fix/b:refs/heads/carry'), 'task 11 (fix/a)', 'newest verdict is fail');
-    assert.equal(remoteSha('refs/heads/carry'), '');
+    const row = assertObservedDeny(push('agent', 'origin', 'fix/b:refs/heads/carry'), 'task 11 (fix/a)', 'newest verdict is fail');
+    assert.deepEqual(row.refs.map((ref) => [ref.remote_ref, ref.local_sha]), [['refs/heads/carry', retryTip]]);
+    assert.equal(remoteSha('refs/heads/carry'), retryTip, 'observe mode let the push through');
   });
 
   it('SC3: a FAIL after the pass denies, naming the task', () => {
@@ -242,9 +291,8 @@ describe('pre-push gate: task branches by net diff', () => {
     addTask(5, 'fix/x', tip);
     addVerdict(5, 'pass', tip);
     addVerdict(5, 'fail', tip);
-    assertDenied(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', 'newest verdict is fail');
-    assert.equal(remoteSha('refs/heads/fix/x'), '');
-    assertAdmitted(push('human', 'origin', 'fix/x'));
+    assertObservedDeny(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', 'newest verdict is fail');
+    assert.equal(remoteSha('refs/heads/fix/x'), tip);
   });
 
   it('SC3: a pass that reviewed a different net diff denies', () => {
@@ -253,8 +301,7 @@ describe('pre-push gate: task branches by net diff', () => {
     addTask(5, 'fix/x', reviewed);
     addVerdict(5, 'pass', reviewed);
     commit('unreviewed.txt');
-    assertDenied(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', `reviewed ${reviewed.slice(0, 12)}`);
-    assertAdmitted(push('human', 'origin', 'fix/x'));
+    assertObservedDeny(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', `reviewed ${reviewed.slice(0, 12)}`);
   });
 
   it('SC3: a non-carrying task_integrated row newer than the pass denies; a pass after it admits', () => {
@@ -263,8 +310,8 @@ describe('pre-push gate: task branches by net diff', () => {
     addTask(5, 'fix/x', tip);
     addVerdict(5, 'pass', tip);
     addAudit('task_integrated', 'hook:integrate', { task_id: 5, rebased_from: tip, commit_sha: tip, base: 'main', run_id: 1, carried: false });
-    assertDenied(push('session', 'origin', 'fix/x'), 'task 5 (fix/x)', 'did not carry');
-    assertAdmitted(push('human', 'origin', 'fix/x'));
+    const row = assertObservedDeny(push('session', 'origin', 'fix/x'), 'task 5 (fix/x)', 'did not carry');
+    assert.equal(row.session_id, 'session-1');
     gitIn(work, 'push', '-q', 'origin', '--delete', 'fix/x');
 
     addVerdict(5, 'pass', tip);
@@ -274,13 +321,13 @@ describe('pre-push gate: task branches by net diff', () => {
   it('SC3: a push to a protected branch denies, a new branch or a delete alike', () => {
     setup();
     commit('direct.txt');
-    assertDenied(push('agent', 'origin', 'main'), 'refs/heads/main is a protected branch');
-    assertDenied(push('agent', 'origin', 'main:release'), 'refs/heads/release is a protected branch');
-    assert.equal(remoteSha('refs/heads/release'), '');
-    gitIn(work, 'push', '-q', 'origin', 'main~1:refs/heads/release');
-    assertDenied(push('agent', 'origin', '--delete', 'release'), 'refs/heads/release is a protected branch');
+    assertObservedDeny(push('agent', 'origin', 'main'), 'refs/heads/main is a protected branch');
+    assertObservedDeny(push('agent', 'origin', 'main:release'), 'refs/heads/release is a protected branch');
     assert.notEqual(remoteSha('refs/heads/release'), '');
-    assertAdmitted(push('human', 'origin', 'main'));
+    assertObservedDeny(push('agent', 'origin', '--delete', 'release'), 'refs/heads/release is a protected branch');
+    assert.equal(remoteSha('refs/heads/release'), '');
+    commit('human.txt');
+    assertAdmitted(push('human', 'origin', 'main'), 'human');
   });
 
   it('a pass with no reviewed_sha falls back to HAS_PASS_SQL with commit_sha the tip', () => {
@@ -290,16 +337,26 @@ describe('pre-push gate: task branches by net diff', () => {
     addAudit('review_handoff', 'bro', { task_id: 5, commit_sha: tip });
     addVerdict(5, 'pass', null);
     commit('later.txt');
-    assertDenied(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', 'names no reviewed commit');
+    assertObservedDeny(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', 'names no reviewed commit');
     gitIn(work, 'reset', '-q', '--hard', tip);
-    assertAdmitted(push('agent', 'origin', 'fix/x'));
+    assertAdmitted(push('agent', '-f', 'origin', 'fix/x'));
   });
 
   it('a task with no verdict denies', () => {
     setup();
     const tip = taskBranch('fix/x', 'x.txt');
     addTask(5, 'fix/x', tip);
-    assertDenied(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', 'no review verdict');
+    assertObservedDeny(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', 'no review verdict');
+  });
+
+  it('SC10: an exempt repo admits what its policy would deny, a protected branch or an unreviewed task', () => {
+    setup();
+    sql(`UPDATE repos SET mode = 'exempt' WHERE name = 'work'`);
+    commit('direct.txt');
+    assertAdmitted(push('agent', 'origin', 'main'));
+    const tip = taskBranch('fix/x', 'x.txt');
+    addTask(5, 'fix/x', tip);
+    assertAdmitted(push('agent', 'origin', 'fix/x'));
   });
 });
 
@@ -319,11 +376,14 @@ describe('pre-push gate: other refs', () => {
     assert.equal(remoteSha('refs/heads/spike'), '');
   });
 
-  it('an unreadable DB denies an agent push (fail closed)', () => {
+  it('an unreadable DB lets the push through and says the row was not written', () => {
     setup();
-    taskBranch('spike', 's.txt');
+    const tip = taskBranch('spike', 's.txt');
     writeFileSync(db, 'corrupt');
-    assertDenied(push('agent', 'origin', 'spike'), 'did not read');
+    const r = push('agent', 'origin', 'spike');
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.err, /tmb: pre-push observe row not written/);
+    assert.equal(remoteSha('refs/heads/spike'), tip);
   });
 });
 
@@ -342,24 +402,25 @@ describe('pre-push gate: the Human and git\'s contract', () => {
     });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(existsSync(join(root, 'missing.db')), false, 'no DB was created');
-    assertAdmitted(push('human', 'origin', 'fix/x', 'main', 'fix/x:refs/heads/release'));
+    assertAdmitted(push('human', 'origin', 'fix/x', 'main', 'fix/x:refs/heads/release'), 'human');
+    assert.deepEqual(observedRows(), [], 'the DB is untouched');
   });
 
-  it('SC5: git hands the hook one stdin line per ref, and one denied ref stops the whole push', () => {
+  it('SC5: git hands the hook one stdin line per ref, and the one row lists every ref', () => {
     setup();
-    taskBranch('spike', 's.txt');
+    const spike = taskBranch('spike', 's.txt');
     const tip = taskBranch('fix/x', 'x.txt');
     addTask(5, 'fix/x', tip);
-    const r = push('agent', 'origin', 'spike', 'fix/x');
-    assertDenied(r, 'task 5 (fix/x)');
+    const row = assertObservedDeny(push('agent', 'origin', 'spike', 'fix/x'), 'task 5 (fix/x)');
     const lines = readFileSync(stdinLog, 'utf8').split('\n').filter((line) => line !== '');
     assert.equal(lines.length, 2, lines.join('\n'));
     assert.deepEqual(lines.map((line) => line.split(' ')[2]).sort(), ['refs/heads/fix/x', 'refs/heads/spike']);
-    assert.equal(remoteSha('refs/heads/spike'), '', 'git pushed no ref');
-    assert.equal(remoteSha('refs/heads/fix/x'), '');
+    assert.deepEqual(row.refs.map((ref) => ref.remote_ref).sort(), ['refs/heads/fix/x', 'refs/heads/spike']);
+    assert.equal(remoteSha('refs/heads/spike'), spike, 'observe mode pushed every ref');
+    assert.equal(remoteSha('refs/heads/fix/x'), tip);
   });
 
-  it('SC5: a malformed stdin line denies an agent push', () => {
+  it('SC5: a malformed stdin line records a deny and exits 0', () => {
     setup();
     const r = spawnSync(process.execPath, ['--experimental-sqlite', CLI, 'pre-push', 'origin', origin], {
       cwd: work,
@@ -368,7 +429,11 @@ describe('pre-push gate: the Human and git\'s contract', () => {
       input: 'refs/heads/main\n',
       timeout: 60_000,
     });
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /BLOCKED: pre-push gate, push to origin: git handed the hook a line/);
+    assert.equal(r.status, 0, r.stderr);
+    const rows = observedRows();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].hook_verdict, 'deny');
+    assert.match(rows[0].reason, /BLOCKED: pre-push gate, push to origin: git handed the hook a line/);
+    assert.deepEqual(rows[0].refs, []);
   });
 });

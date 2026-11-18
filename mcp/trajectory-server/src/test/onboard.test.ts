@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
-import { readWorkflowMode } from '../tools/config.js';
+import { configTools, readWorkflowMode } from '../tools/config.js';
+import { prepushSwitchedOff } from '../hooks/lib/prepush-hook.js';
 import { envTools } from '../tools/env.js';
 import { scanTools } from '../tools/scan.js';
 import { readVerificationDefaults, VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
@@ -1396,7 +1397,7 @@ describe('onboard tools', () => {
       assert.match(String(parse(result).error), /unknown round 'headless'/);
       const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
       const roundSchema = (def?.inputSchema.properties as Record<string, { enum: string[] }>)['round'];
-      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'repo_mode', 'verification_defaults', 'path_classes']);
+      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'prepush_hook', 'repo_mode', 'verification_defaults', 'path_classes']);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -2612,6 +2613,141 @@ describe('review_mode round (GH 2225)', () => {
       assert.equal(storedMode(db), undefined);
       assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'bug_report_consent'`), undefined);
       assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'onboarded' AND value_json = 'true'`), undefined);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('prepush_hook round (GH 3281)', () => {
+  type Option = { label: string; wire: string; recommended?: boolean };
+  type Question = { header: string; multiSelect: boolean; options: Option[]; default_index: number };
+
+  async function question(tools: ReturnType<typeof onboardTools>): Promise<Question> {
+    const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'prepush_hook' }));
+    const questions = data.questions as Question[];
+    assert.equal(questions.length, 1);
+    return questions[0];
+  }
+
+  const stored = (db: TrajectoryDB): string | undefined =>
+    db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = 'prepush_hook'`)?.value_json;
+
+  it('SC1: offers on first and recommended, then off; a stored value adds Keep first and pre-selects it', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      const fresh = await question(tools);
+      assert.equal(fresh.header, 'Pre-push hook');
+      assert.equal(fresh.multiSelect, false);
+      assert.deepEqual(fresh.options.map((o) => o.wire), ['on', 'off']);
+      assert.equal(fresh.options[0].recommended, true);
+      assert.equal(fresh.default_index, 0);
+
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', prepush_hook: 'off' });
+      const kept = await question(tools);
+      assert.deepEqual(kept.options.map((o) => o.wire), ['__keep__', 'on', 'off']);
+      assert.equal(kept.options[0].label, 'Keep "off"');
+      assert.equal(kept.default_index, 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('GH 3327: the card opens with the feature, and each option carries a benefit and a risk or cost within the length limits', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'prepush_hook' }));
+      const card = (data.questions as Array<{ question: string; recommended_reason: string | null; options: Array<Option & { description: string }> }>)[0];
+      assert.equal(
+        card.question,
+        'TMB installs a git pre-push hook in each repo. It records every agent push and never blocks one. Keep it on?',
+      );
+      assert.equal(card.options[0].wire, 'on');
+      assert.equal(card.options[0].recommended, true);
+      assert.ok(card.recommended_reason, 'On is recommended with a reason');
+      const description = (wire: string): string | undefined => card.options.find((o) => o.wire === wire)?.description;
+      assert.equal(description('on'), 'TMB records what its push check would decide. Cost: none, it never blocks.');
+      assert.equal(description('off'), 'TMB adds nothing to your pushes. Cost: pushes go unrecorded; each session says so.');
+
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', prepush_hook: 'off' });
+      const kept = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'prepush_hook' }));
+      const words = (text: string): number => text.trim().split(/\s+/).filter(Boolean).length;
+      for (const q of [data, kept].map((d) => (d.questions as typeof card[])[0])) {
+        for (const option of q.options.filter((o) => o.wire !== '__keep__')) {
+          assert.ok(words(option.label) <= 5, `label "${option.label}" is over 5 words`);
+          assert.ok(words(option.description) <= 15, `description "${option.description}" is over 15 words`);
+        }
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC1: apply writes off and on; omitted or Keep keeps it; the hook installer reads the stored value', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'onboard-prepush-'));
+    const dbFile = join(base, 'trajectory.db');
+    const db = new TrajectoryDB(dbFile);
+    const hookEnv = (): NodeJS.ProcessEnv => ({ ...process.env, TRAJECTORY_DB_PATH: dbFile });
+    try {
+      const tools = onboardTools(db);
+      const fresh = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+      assert.equal((fresh.applied as Record<string, unknown>).prepush_hook, 'on');
+      assert.equal(stored(db), undefined, 'an omitted answer writes no prepush_hook row');
+      assert.equal(prepushSwitchedOff(hookEnv()), false);
+
+      const off = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', prepush_hook: 'off' }));
+      assert.equal((off.applied as Record<string, unknown>).prepush_hook, 'off');
+      assert.equal(stored(db), '"off"');
+      assert.equal(prepushSwitchedOff(hookEnv()), true);
+
+      await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+      assert.equal(stored(db), '"off"', 'omitting the answer keeps it');
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', prepush_hook: '__keep__' });
+      assert.equal(stored(db), '"off"', 'Keep keeps it');
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', prepush_hook: 'On' });
+      assert.equal(stored(db), '"on"', 'a label resolves to its value');
+      assert.equal(prepushSwitchedOff(hookEnv()), false);
+
+      const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+      assert.equal((state.current as Record<string, unknown>).prepush_hook, 'on');
+    } finally {
+      db.close();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('SC1: refuses any other value and writes nothing; without shape it is no lone answer', async () => {
+    const db = tempDB();
+    try {
+      const tools = onboardTools(db);
+      for (const bad of ['disabled', 'yes', '', 1]) {
+        const result = (await call(tools.handlers, 'onboard_apply', { shape: 'local', prepush_hook: bad })) as { isError?: boolean };
+        assert.equal(result.isError, true, JSON.stringify(bad));
+        assert.match(String(parse(result).error), /prepush_hook must be 'on', 'off' or '__keep__' \(got /);
+      }
+      const alone = (await call(tools.handlers, 'onboard_apply', { prepush_hook: 'off' })) as { isError?: boolean };
+      assert.equal(alone.isError, true);
+      assert.equal(stored(db), undefined);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC1: config_set refuses prepush_hook, before and after /onboard stores it', async () => {
+    const db = tempDB();
+    try {
+      for (const value of ['off', 'on']) {
+        const r = (await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'prepush_hook', value })) as { isError?: boolean };
+        assert.equal(r.isError, true);
+        assert.match(String(parse(r).error), /^human_only_config_key: .*\/onboard/);
+      }
+      assert.equal(stored(db), undefined);
+      await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', prepush_hook: 'off' });
+      const r = (await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'prepush_hook', value: 'on' })) as { isError?: boolean };
+      assert.equal(r.isError, true);
+      assert.equal(stored(db), '"off"');
     } finally {
       db.close();
     }

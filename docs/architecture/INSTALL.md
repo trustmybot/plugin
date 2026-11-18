@@ -81,6 +81,10 @@ To remove them:
 
 - **Advisory, never blocking.** Session start checks health, required tools, leftovers from older versions and the project inventory. When something is broken, a degraded banner names it and the session goes on. The gates still fail closed while the trajectory DB is unhealthy or unmigrated ([MEMORY.md](MEMORY.md)), so the work waits until the health check is green. The required tools are Node with its built-in SQLite, and git. A project whose repos have no remote gets one line saying TMB is operating locally and skips remote and push steps; that is not degraded.
 - **One compact nudge.** Once per session, when bro's context passes a configurable token threshold (off when set to zero), bro gets one line suggesting /compact at the next natural break. The compaction restore brings back the session's open issues, newest first up to a fixed limit with the counts of the rest, the current issue, its tasks and the newest decision.
+- **The pre-push hook.** On git 2.54 or newer, session start installs TMB's pre-push hook from the repo's own git config in the project's repo and every registered repo, beside any hook already there, and marks the agent's shell so the hook acts only on an agent's push; `cli.js prepush-uninstall [--repo <path>]` removes it from one repo.
+- **The pre-push switch.** The pre-push hook can be switched off for a project. Only the Human does it, through /onboard; no agent tool can change it.
+  - *Never silent.* Each session start with the setting off prints one notice that names the setting, /onboard and `prepush-uninstall`.
+  - *Fails safe.* With the setting off, session start removes any installed TMB hook from every repo it would install in, so no live hook remains, and the guard that reads the push command before it runs stays on. Each observed push records whether the setting was off. A setting the DB cannot read counts as on.
 - **Which DB.** The session uses the project's trajectory DB; [MEMORY.md](MEMORY.md#where-the-trajectory-db-lives) gives the rule that finds it.
 
 ## Debugging
