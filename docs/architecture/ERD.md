@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 75`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 76`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -22,7 +22,7 @@ Every table, and every change to one, meets these two requirements. The Human se
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 75`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 76`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -88,6 +88,7 @@ erDiagram
         TEXT onboard_scan
         TEXT indexed_commit
         TEXT indexed_stamp
+        TEXT mode "CHECK mode IS NULL OR mode IN ('truest','agile','exempt')"
     }
 
     repo_remotes {
@@ -179,7 +180,7 @@ erDiagram
         TEXT checkpoint
         TEXT worktree_path
         INTEGER worktree_adopted "NOT NULL; CHECK worktree_adopted IN (0,1)"
-        TEXT workflow_mode "CHECK workflow_mode IS NULL OR workflow_mode IN ('truest','agile')"
+        TEXT workflow_mode "CHECK workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')"
         TEXT base_sha
         TEXT wm_commit
         TEXT no_code_class "CHECK no_code_class IS NULL OR no_code_class IN ('docs','prompts')"
@@ -624,6 +625,7 @@ erDiagram
 | `onboard_scan` | TEXT | nullable |  |  |
 | `indexed_commit` | TEXT | nullable |  |  |
 | `indexed_stamp` | TEXT | nullable |  |  |
+| `mode` | TEXT | nullable |  | CHECK `mode IS NULL OR mode IN ('truest','agile','exempt')` |
 
 ### `repo_remotes`
 
@@ -743,7 +745,7 @@ Table constraints:
 | `checkpoint` | TEXT | nullable |  |  |
 | `worktree_path` | TEXT | nullable |  |  |
 | `worktree_adopted` | INTEGER | NOT NULL | `0` | CHECK `worktree_adopted IN (0,1)` |
-| `workflow_mode` | TEXT | nullable |  | CHECK `workflow_mode IS NULL OR workflow_mode IN ('truest','agile')` |
+| `workflow_mode` | TEXT | nullable |  | CHECK `workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')` |
 | `base_sha` | TEXT | nullable |  |  |
 | `wm_commit` | TEXT | nullable |  |  |
 | `no_code_class` | TEXT | nullable |  | CHECK `no_code_class IS NULL OR no_code_class IN ('docs','prompts')` |

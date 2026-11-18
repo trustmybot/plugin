@@ -307,6 +307,19 @@ export function parseWorkflowMode(valueJson: string | null | undefined): Workflo
   return 'truest';
 }
 
+/** A repo's rules (GH 3279): the workflow modes, plus exempt, under which the git guards stand down. */
+export const REPO_MODES = [...WORKFLOW_MODES, 'exempt'] as const;
+export type RepoMode = (typeof REPO_MODES)[number];
+
+export function isRepoMode(value: unknown): value is RepoMode {
+  return typeof value === 'string' && (REPO_MODES as readonly string[]).includes(value);
+}
+
+/** A repo's effective mode: its stored repos.mode, else the project's workflow_mode. */
+export function effectiveRepoMode(db: Pick<TrajectoryDB, 'get'>, stored: string | null | undefined): RepoMode {
+  return isRepoMode(stored) ? stored : readWorkflowMode(db);
+}
+
 export const WORLD_MODEL_TEST_LANE_KEY = 'world_model_test_lane';
 
 /**

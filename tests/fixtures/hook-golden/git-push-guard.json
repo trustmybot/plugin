@@ -104,31 +104,31 @@
   "deny-db-unreadable.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — the push gate could not read task review state through node:sqlite, so it refuses to fail open. Check the trajectory DB. Allowed form: the same call again, once the trajectory DB reads\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — the push gate could not read task review state through node:sqlite, so it refuses to fail open. Check the trajectory DB. (repo signed, mode truest) Allowed form: the same call again, once the trajectory DB reads\"}}\n"
     }
   },
   "deny-force-f.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-force-long.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-force-with-lease-value.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-pr-reviewer.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-swe-namespaced.json": {
@@ -146,19 +146,19 @@
   "deny-unchecked-rebase-regenerated-dist.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\\n\\n  - 0ae49ed3494805bc94a8ac44c542a63865bf24dd  rebase with regenerated dist of task_id=10  feat/t-10  (no passing verification run for this commit)\\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch. Allowed form: node --experimental-sqlite \\\"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js\\\" integrate <task_id> <base>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\\n\\n  - 0ae49ed3494805bc94a8ac44c542a63865bf24dd  rebase with regenerated dist of task_id=10  feat/t-10  (no passing verification run for this commit)\\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch. (repo dist, mode truest) Allowed form: node --experimental-sqlite \\\"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js\\\" integrate <task_id> <base>\"}}\n"
     }
   },
   "deny-unchecked-rebase-unreviewed-task.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\\n\\n  - ea303a43fa0388f9a93f9e2c0f0a36c7b4096923  rebase of task_id=6  feat/t-6  (the task has no passing review)\\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch. Allowed form: node --experimental-sqlite \\\"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js\\\" integrate <task_id> <base>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\\n\\n  - ea303a43fa0388f9a93f9e2c0f0a36c7b4096923  rebase of task_id=6  feat/t-6  (the task has no passing review)\\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch. (repo rebased-unreviewed, mode truest) Allowed form: node --experimental-sqlite \\\"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js\\\" integrate <task_id> <base>\"}}\n"
     }
   },
   "deny-unchecked-rebase.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\\n\\n  - 2d5e10c71c830b807ed272eba9f01ccabccd1bab  rebase of task_id=4  feat/t-4  (no passing verification run for this commit)\\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch. Allowed form: node --experimental-sqlite \\\"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js\\\" integrate <task_id> <base>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\\n\\n  - 2d5e10c71c830b807ed272eba9f01ccabccd1bab  rebase of task_id=4  feat/t-4  (no passing verification run for this commit)\\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch. (repo rebased, mode truest) Allowed form: node --experimental-sqlite \\\"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js\\\" integrate <task_id> <base>\"}}\n"
     }
   },
   "deny-unresolved-cd-dash.json": {
@@ -176,49 +176,49 @@
   "deny-unsigned-bash-c.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-unsigned-cd.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-unsigned-cwd.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-unsigned-eval.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-unsigned-first-push-default-main.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=9  feat/t-9  (feature default)\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 1 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=9  feat/t-9  (feature default)\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo first-push-default, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-unsigned-second-push.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. Allowed form: @bro review before push\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: pushing 2 unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\\n\\n  - task_id=2  feat/t-2  (fix \\\"quoted\\\" title with ü)\\n  - task_id=3  feat/t-3  (a title )\\n\\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing. (repo unsigned, mode truest) Allowed form: @bro review before push\"}}\n"
     }
   },
   "deny-worktree-cd.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaping the detached-HEAD commits. Allowed form: git fetch ./.claude/worktrees/<slug> HEAD:<feature>, then git push from the main checkout\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaping the detached-HEAD commits. (repo multi, mode truest) Allowed form: git fetch ./.claude/worktrees/<slug> HEAD:<feature>, then git push from the main checkout\"}}\n"
     }
   },
   "deny-worktree-git-c.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaping the detached-HEAD commits. Allowed form: git fetch ./.claude/worktrees/<slug> HEAD:<feature>, then git push from the main checkout\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaping the detached-HEAD commits. (repo signed, mode truest) Allowed form: git fetch ./.claude/worktrees/<slug> HEAD:<feature>, then git push from the main checkout\"}}\n"
     }
   },
   "generic/allow-command-substitution-push.json": {

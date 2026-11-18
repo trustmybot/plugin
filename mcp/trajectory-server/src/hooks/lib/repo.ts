@@ -4,7 +4,9 @@
  * needs a working SQLite (haveSqlite), node:sqlite or the sqlite3 CLI.
  */
 import { payloadCwd } from '../cmd-analysis/path.js';
-import { haveSqlite, realdir, repoPathAbs, sqliteRo, sqlQuote } from './db.js';
+import { isRepoMode, type RepoMode } from '../../tools/config.js';
+import { GATE_READ_ERROR, haveSqlite, realdir, repoPathAbs, sqliteRo, sqlQuote } from './db.js';
+import { gateWorkflowMode } from './git-refs.js';
 import { cdPwd, gitOk, gitOut, isDir } from './git.js';
 import { posixDirname, shellPwd } from './project-env.js';
 import { statSync } from 'node:fs';
@@ -164,6 +166,46 @@ export function repoResolve(db: string, root: string, env: NodeJS.ProcessEnv = p
       env,
     ),
   );
+}
+
+/** The repos row naming <root> and its stored mode: "" for NULL, an unregistered <root> or an unreadable DB. */
+function storedRepoMode(db: string, root: string, env: NodeJS.ProcessEnv): { name: string; stored: string } {
+  if (!readable(db, env) || root === '') return { name: '', stored: '' };
+  const name = repoNameForRoot(db, root, env);
+  if (name === '') return { name, stored: '' };
+  const stored = firstLine(sqliteRo(db, `SELECT COALESCE(mode,'') FROM repos WHERE name = '${sqlQuote(name)}' LIMIT 1;`, env));
+  return { name, stored };
+}
+
+function effectiveMode(db: string, stored: string, env: NodeJS.ProcessEnv): RepoMode {
+  if (isRepoMode(stored)) return stored;
+  const project = gateWorkflowMode(db, env);
+  return project === GATE_READ_ERROR ? 'truest' : project;
+}
+
+/**
+ * Whether <root>'s repo stands the git guards and the push gate down (GH 3279).
+ * An allowlist: only a stored exempt does; NULL, truest, agile, an unknown
+ * value, an unregistered repo or a DB that does not read keep them on.
+ */
+export function isExempt(db: string, root: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return storedRepoMode(db, root, env).stored === 'exempt';
+}
+
+/** <root>'s effective mode: its repos.mode, else the project's workflow_mode (unset or unreadable reads as truest). */
+export function repoMode(db: string, root: string, env: NodeJS.ProcessEnv = process.env): RepoMode {
+  return effectiveMode(db, storedRepoMode(db, root, env).stored, env);
+}
+
+/** `(repo <name>, mode <mode>)`, the suffix a git deny names its repo's rules by; an unregistered root goes by its dir name. */
+export function repoModeLabel(db: string, root: string, env: NodeJS.ProcessEnv = process.env): string {
+  const { name, stored } = storedRepoMode(db, root, env);
+  return `(repo ${name || basename(root)}, mode ${effectiveMode(db, stored, env)})`;
+}
+
+/** <reason> with <root>'s repoModeLabel appended, for a git deny to name the rules it applied. */
+export function withRepoMode(reason: string, db: string, root: string, env: NodeJS.ProcessEnv = process.env): string {
+  return `${reason.replace(/\s+$/, '')} ${repoModeLabel(db, root, env)}`;
 }
 
 /** tmb_repo_is_registered <db> <root>. */

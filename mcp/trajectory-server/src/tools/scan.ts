@@ -48,7 +48,7 @@ import { closeContents, walkProject, type ScanFile, type ScanOutput, type ScanRe
 import type { CommitContent } from '../utils/git-objects.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 import { configureTestLane } from '../utils/test-paths.js';
-import { readTestLaneConfig } from './config.js';
+import { effectiveRepoMode, readTestLaneConfig } from './config.js';
 import { verificationDefaultsHint, type VerificationDefaultsHint } from './verification-defaults.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -743,9 +743,11 @@ async function persistScan(
 
   db.transaction(() => {
     for (const r of persisted.repos) {
+      // A newly registered repo starts exempt (GH 3279): the guards stay down
+      // until the Human gives it rules. A rescan never touches mode.
       db.run(
-        `INSERT INTO repos (name, path, file_count, last_scanned_at)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO repos (name, path, file_count, last_scanned_at, mode)
+         VALUES (?, ?, ?, ?, 'exempt')
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
            file_count = excluded.file_count,
@@ -1319,8 +1321,9 @@ export function scanTools(
           path: string;
           file_count: number;
           last_scanned_at: string;
-        }>(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
-        return ok({ repos: rows });
+          mode: string | null;
+        }>(`SELECT name, path, file_count, last_scanned_at, mode FROM repos ORDER BY name`);
+        return ok({ repos: rows.map((row) => ({ ...row, effective_mode: effectiveRepoMode(db, row.mode) })) });
       }),
     ),
 

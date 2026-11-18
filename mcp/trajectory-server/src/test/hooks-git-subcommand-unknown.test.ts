@@ -59,6 +59,8 @@ interface Case {
   unknown: ReadonlyArray<readonly [string, string]>;
   /** Literal forms the guard admits in scope. */
   admitted: readonly string[];
+  /** The repo and mode a per-repo guard names before its allowed form (GH 3279). */
+  repoLabel?: string;
 }
 
 describe('git guards deny a git subcommand they cannot read literally (GH 2641)', () => {
@@ -115,6 +117,7 @@ describe('git guards deny a git subcommand they cannot read literally (GH 2641)'
         ['p=merge; git $p dev', 'git $p dev'],
       ],
       admitted: ['git status', 'git -C "$wt" status', 'git log --oneline -1'],
+      repoLabel: '(repo main, mode truest)',
     },
     {
       name: 'stay-on-base-guard',
@@ -157,7 +160,8 @@ describe('git guards deny a git subcommand they cannot read literally (GH 2641)'
   for (const c of cases) {
     it(`${c.name} denies each unknown shape in scope with the ambiguous_git_subcommand reason`, async () => {
       for (const [command, what] of c.unknown) {
-        assert.equal(await run(c.gate, command, main, env()), `${ambiguousSubcommandReason(what, c.verb)} Allowed form: ${c.fix}`, command);
+        const label = c.repoLabel ? ` ${c.repoLabel}` : '';
+        assert.equal(await run(c.gate, command, main, env()), `${ambiguousSubcommandReason(what, c.verb)}${label} Allowed form: ${c.fix}`, command);
       }
     });
 

@@ -127,6 +127,14 @@ interface DetectedRemote {
 
 const GIT_PROBE_TIMEOUT_MS = 3000;
 
+// The Human confirming a repo's policy through /onboard gives it the
+// project's mode, so an exempt repo is cleared to NULL; truest and agile
+// stay (GH 3279).
+const WRITE_REPO_POLICY_SQL =
+  `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?,
+     mode = CASE WHEN mode = 'exempt' THEN NULL ELSE mode END
+   WHERE name = ?`;
+
 async function probeGit(cwd: string): Promise<{
   in_git: boolean;
   detected_remotes: DetectedRemote[];
@@ -1518,7 +1526,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           let repoWarnings: string[] = [];
           db.transaction(() => {
             db.run(
-              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+              WRITE_REPO_POLICY_SQL,
               [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo],
             );
             if (remoteRepo.length > 0) repoWarnings = applyRemoteChoice(db, repo, remoteRepo);
@@ -1679,7 +1687,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           for (const { name, inGit, detected, seed } of probed) {
             if (seed !== null) {
               db.run(
-                `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+                WRITE_REPO_POLICY_SQL,
                 [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), name],
               );
             }

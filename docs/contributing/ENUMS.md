@@ -8,6 +8,8 @@ Hooks, skills and bro branch on these values, so a typo or a silent rename break
 
 The tables below are the ones a lint holds against the code (see [Lint guard](#lint-guard)). Every other enumerated column is owned by its `CHECK` constraint in [`mcp/trajectory-server/src/schema.sql`](../../mcp/trajectory-server/src/schema.sql), shown per column in the generated [`ERD.md`](../architecture/ERD.md); a vocabulary with no `CHECK` (such as `cheatcodes.status` or `agent_runs.agent_type`) is owned by the code that writes it. The schema version is `TARGET_SCHEMA_VERSION` in `mcp/trajectory-server/src/db.ts`.
 
+`tasks.workflow_mode` is one such column: the mode a task closed under, stored as `truest`, `agile` or `exempt` (since v76), and NULL for an open task or one closed before modes were stored. `exempt` comes from the repo's mode; the project's `workflow_mode` config key stays `truest` or `agile` ([`CONFIG_KEYS.md`](../architecture/CONFIG_KEYS.md)).
+
 ---
 
 ## Canonical ENUM tables

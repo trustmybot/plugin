@@ -45,7 +45,7 @@ import { shaPrefixMatchSql, shaValuesCte } from './lib/sha-prefix.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { type DenyFix, denyResult as deny } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
-import { repoGitRoot, repoNameForRoot, repoResolve, repoSinglePath } from './lib/repo.js';
+import { isExempt, repoGitRoot, repoNameForRoot, repoResolve, repoSinglePath, withRepoMode } from './lib/repo.js';
 import { agentRole, CODE_REVIEWER_ROLE } from './lib/role.js';
 import { AGILE_QUEUED_SQL, HAS_PASS_SQL } from '../review-sql.js';
 
@@ -521,36 +521,37 @@ class Guard {
     return true;
   }
 
-  /** The deny for one push statement <push>, whose subcommand words are <sub>, or null when it may go. */
-  async judge(push: Statement, sub: string): Promise<GateResult | null> {
+  /** The deny for one push statement <push> in repo <root>, whose subcommand words are <sub>, or null when it may go. */
+  async judge(push: Statement, sub: string, root: string): Promise<GateResult | null> {
     const { dir } = push;
+    const repoDeny = (reason: string, fix: DenyFix): GateResult => deny(withRepoMode(reason, this.db, root, this.env), fix);
     const args = pushArgs(sub);
     const listed = await this.pushedShas(dir, args);
-    if ('unresolved' in listed) return deny(unresolvedRefspecReason(listed.unresolved, push.src ?? push.stmt, dir), UNRESOLVED_REFSPEC_FIX);
+    if ('unresolved' in listed) return repoDeny(unresolvedRefspecReason(listed.unresolved, push.src ?? push.stmt, dir), UNRESOLVED_REFSPEC_FIX);
     const pushed = listed.shas;
     if (pushed === '') return null;
     const shaList = hexLines(pushed);
     if (shaList.length === 0) return null;
     const values = shaValuesCte(shaList);
-    if (values === null) return deny(SHA_LIST_REASON, 'policy');
+    if (values === null) return repoDeny(SHA_LIST_REASON, 'policy');
 
     const admitQueued = await this.offTarget(dir, args);
     const notQueued = admitQueued ? ` AND NOT ${AGILE_QUEUED_SQL}` : '';
     const unsigned = this.read(
       `WITH ${values} SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE EXISTS (SELECT 1 FROM p WHERE ${shaPrefixMatchSql('t.commit_sha', 'p.sha')}) AND NOT ${HAS_PASS_SQL}${notQueued};`,
     );
-    if (unsigned === GATE_READ_ERROR) return deny(DB_REASON, DB_RETRY_FIX);
+    if (unsigned === GATE_READ_ERROR) return repoDeny(DB_REASON, DB_RETRY_FIX);
     if (unsigned !== '') {
       const rows = lines(unsigned);
       const list = rows.map((r) => `  - task_id=${field(r, 1)}  ${field(r, 2)}  (${field(r, 3)})`).join('\n');
-      return deny(
+      return repoDeny(
         `BLOCKED: pushing ${rows.length} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\n\n${list}\n\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`,
         { allowed: '@bro review before push' },
       );
     }
 
     const unchecked = await this.uncheckedRebases(dir, pushed, admitQueued);
-    if (unchecked === GATE_READ_ERROR) return deny(DB_REASON, DB_RETRY_FIX);
+    if (unchecked === GATE_READ_ERROR) return repoDeny(DB_REASON, DB_RETRY_FIX);
     if (unchecked === '') return null;
     const rows = lines(unchecked);
     const list = rows
@@ -560,7 +561,7 @@ class Guard {
         return `  - ${field(r, 1)}  ${kind} of task_id=${field(r, 2)}  ${field(r, 3)}  (${why})`;
       })
       .join('\n');
-    return deny(
+    return repoDeny(
       `BLOCKED: pushing ${rows.length} rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\n\n${list}\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch.`,
       INTEGRATE_FIX,
     );
@@ -601,9 +602,11 @@ export const gitPushGuard: Gate = async (payload, env) => {
     const { dir } = statement;
     if (dir === '?') return { stdout: denyAmbiguousGitTarget(statement), code: 0 };
     if (dir === '-') return { stdout: denyAmbiguousGitTarget(statement, true), code: 0 };
-    if (dir.includes('/.claude/worktrees/')) return deny(WORKTREE_REASON, WORKTREE_FIX);
+    const root = await stmtRepoRoot(dir, cwd, env);
+    if (isExempt(db, root, env)) continue; // An exempt repo stands the push gate down (GH 3279).
+    if (dir.includes('/.claude/worktrees/')) return deny(withRepoMode(WORKTREE_REASON, db, root, env), WORKTREE_FIX);
     if (db === '' || !haveSqlite(env)) continue;
-    const verdict = await guard.judge(statement, sub);
+    const verdict = await guard.judge(statement, sub, root);
     if (verdict) return verdict;
   }
   return ALLOW;

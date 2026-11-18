@@ -45,7 +45,7 @@ import { jqAlternatives, jqCompact, jqRawElements, jsonStream } from './lib/jq.j
 import { posixBasename } from './lib/project-env.js';
 import { type PrCreate, prCreateOf } from './lib/pr-create.js';
 import { lineStatements } from './lib/statement-rows.js';
-import { repoDefaultBranch, repoIsRegistered, repoNameForRoot, repoResolve, repoRootForForgeSpec } from './lib/repo.js';
+import { isExempt, repoDefaultBranch, repoIsRegistered, repoNameForRoot, repoResolve, repoRootForForgeSpec, withRepoMode } from './lib/repo.js';
 import { classifyUrl } from '../utils/classify-url.js';
 
 export const GATE_NAME = 'git-guards';
@@ -253,7 +253,12 @@ class GitGuards {
     return await gitOk(dir, args, this.env);
   }
 
-  /** load_policy: the repos row of <root>, or false for no root or an unregistered repo. */
+  /** A deny naming the repo it judged and the mode that repo runs under (GH 3279). */
+  private repoDeny(reason: string, fix: DenyFix): Denied {
+    return deny(withRepoMode(reason, this.db, this.gitRoot, this.env), fix);
+  }
+
+  /** load_policy: the repos row of <root>, or false for no root, an unregistered repo or an exempt one. */
   private async loadPolicy(root: string): Promise<boolean> {
     if (root === '') return false;
     this.gitRoot = root;
@@ -261,7 +266,7 @@ class GitGuards {
     this.policyRepo = root;
     let raw = '';
     if (this.dbReadable) {
-      if (!repoIsRegistered(this.db, root, this.env)) return false;
+      if (!repoIsRegistered(this.db, root, this.env) || isExempt(this.db, root, this.env)) return false;
       this.policyRepo = repoNameForRoot(this.db, root, this.env) || root;
       const row = repoResolve(this.db, root, this.env);
       this.prTarget = cutField(row, 1);
@@ -271,7 +276,7 @@ class GitGuards {
     this.prTarget ||= defaultBranch;
     raw ||= jqCompact([defaultBranch]);
     const parsed = jsonStream(raw);
-    if (!parsed.complete || !Array.isArray(parsed.values[parsed.values.length - 1])) throw deny(MALFORMED_REASON, 'policy');
+    if (!parsed.complete || !Array.isArray(parsed.values[parsed.values.length - 1])) throw this.repoDeny(MALFORMED_REASON, 'policy');
     this.protectedBranches = stripTrailingNewlines(jqRawElements(raw));
     return true;
   }
@@ -398,13 +403,13 @@ class GitGuards {
       let head = create.head;
       if (head === '' && this.needDir(dir, stmt, unresolved)) head = await this.git(dir, 'branch', '--show-current');
       if (head !== 'dev') {
-        throw deny(`BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${pr} in repo ${this.policyRepo}. Got --head=${head}.`, {
+        throw this.repoDeny(`BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${pr} in repo ${this.policyRepo}. Got --head=${head}.`, {
           allowed: `gh pr create ${repoFlag(create)}--base ${pr} --head <branch>`,
         });
       }
       return;
     }
-    throw deny(`BLOCKED: PRs must target ${pr} branch in repo ${this.policyRepo}. (Dev → main release merges are allowed when PR_TARGET=dev.)`, {
+    throw this.repoDeny(`BLOCKED: PRs must target ${pr} branch in repo ${this.policyRepo}. (Dev → main release merges are allowed when PR_TARGET=dev.)`, {
       allowed: `gh pr create ${repoFlag(create)}--base ${pr} --head <branch>`,
     });
   }
@@ -417,13 +422,13 @@ class GitGuards {
     if (pr === 'dev' && target === 'main') {
       if (source === '' && this.needDir(dir, stmt, unresolved)) source = await this.git(dir, 'branch', '--show-current');
       if (source !== 'dev') {
-        throw deny(`BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to ${pr} in repo ${this.policyRepo}. Got --source-branch=${source}.`, {
+        throw this.repoDeny(`BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to ${pr} in repo ${this.policyRepo}. Got --source-branch=${source}.`, {
           allowed: `glab mr create ${repoFlag(create)}--target-branch ${pr} --source-branch <branch>`,
         });
       }
       return;
     }
-    throw deny(`BLOCKED: MRs must target ${pr} branch in repo ${this.policyRepo}. (Dev → main release merges are allowed when PR_TARGET=dev.)`, {
+    throw this.repoDeny(`BLOCKED: MRs must target ${pr} branch in repo ${this.policyRepo}. (Dev → main release merges are allowed when PR_TARGET=dev.)`, {
       allowed: `glab mr create ${repoFlag(create)}--target-branch ${pr} --source-branch <branch>`,
     });
   }
@@ -434,9 +439,9 @@ class GitGuards {
     const reason = `BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only.${recovery.text}`;
     if (sub === 'merge' || sub.startsWith('merge ')) {
       if (await this.ffUpstreamSync(idx, dir, sub)) return;
-      throw deny(`${reason} Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed.`, recovery.fix);
+      throw this.repoDeny(`${reason} Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed.`, recovery.fix);
     }
-    throw deny(reason, recovery.fix);
+    throw this.repoDeny(reason, recovery.fix);
   }
 
   private async commitRule(stmt: string, dir: string, unresolved: boolean): Promise<void> {
@@ -451,7 +456,7 @@ class GitGuards {
     }
     if (branch === '') return;
     const recovery = await this.rule2Recovery(dir);
-    throw deny(`BLOCKED: ${branch} is a shared workflow base — no direct commits/merges/rebases.${recovery.text}`, recovery.fix);
+    throw this.repoDeny(`BLOCKED: ${branch} is a shared workflow base — no direct commits/merges/rebases.${recovery.text}`, recovery.fix);
   }
 
   private async forcePushRule(sub: string, stmt: string, dir: string, unresolved: boolean): Promise<void> {
@@ -467,7 +472,7 @@ class GitGuards {
       if (!this.needDir(dir, stmt, unresolved)) return;
       target = await this.git(dir, 'branch', '--show-current');
     }
-    if (target !== '' && this.branchIsProtected(target)) throw deny(`BLOCKED: Force push to ${target} is forbidden. This is destructive and irreversible.`, 'policy');
+    if (target !== '' && this.branchIsProtected(target)) throw this.repoDeny(`BLOCKED: Force push to ${target} is forbidden. This is destructive and irreversible.`, 'policy');
   }
 
   private async newBranchRule(stmt: string, dir: string, unresolved: boolean): Promise<void> {
@@ -479,12 +484,12 @@ class GitGuards {
       if (fallback !== '') t = fallback;
     }
     if (branch !== '' && branch !== t) {
-      throw deny(`BLOCKED: New branches must be created from ${t}. Currently on '${branch}'.`, {
+      throw this.repoDeny(`BLOCKED: New branches must be created from ${t}. Currently on '${branch}'.`, {
         allowed: `git checkout ${t} && git pull origin ${t}, then the same branch command`,
       });
     }
     if (branch === '') {
-      throw deny('BLOCKED: Detached HEAD detected; reattach before creating your feature branch.', {
+      throw this.repoDeny('BLOCKED: Detached HEAD detected; reattach before creating your feature branch.', {
         allowed: `git checkout -B ${t} origin/${t}, then the same branch command`,
       });
     }
@@ -492,7 +497,7 @@ class GitGuards {
     await gitRun(dir, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', 'origin', t, '--quiet'], this.env);
     const local = await this.git(dir, 'rev-parse', '--verify', t);
     const remote = await this.git(dir, 'rev-parse', '--verify', `origin/${t}`);
-    if (local !== '' && remote !== '' && local !== remote) throw deny(`BLOCKED: Local ${t} is behind origin/${t}.`, { allowed: `git pull origin ${t}, then the same branch command` });
+    if (local !== '' && remote !== '' && local !== remote) throw this.repoDeny(`BLOCKED: Local ${t} is behind origin/${t}.`, { allowed: `git pull origin ${t}, then the same branch command` });
   }
 
   /**
@@ -529,7 +534,7 @@ class GitGuards {
       // A dir that may name any checkout is the deny to fix first, as for a literal subcommand (GH 2510).
       this.needDir(dir, stmt, unresolved);
       const what = typeof statement === 'string' ? statement : (statement.src ?? statement.stmt);
-      throw deny(ambiguousSubcommandReason(what, 'commits, merges, rebases, cherry-picks, pushes or creates a branch'), UNKNOWN_FIX);
+      throw this.repoDeny(ambiguousSubcommandReason(what, 'commits, merges, rebases, cherry-picks, pushes or creates a branch'), UNKNOWN_FIX);
     }
     if (create?.forge === 'gh') return await this.ghRule(create, stmt, dir, unresolved);
     if (create?.forge === 'glab') return await this.glabRule(create, stmt, dir, unresolved);
