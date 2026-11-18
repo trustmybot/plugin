@@ -2,73 +2,21 @@ name: Bug report
 description: TMB did something wrong. You do not need to know how TMB works inside.
 labels: ["Bug"]
 body:
+  - type: markdown
+    attributes:
+      value: Only the first three questions and one checkbox at the end are required; skip anything else you cannot answer. If you use TMB, you can also ask bro to report the bug for you.
   - type: input
     id: summary
     attributes:
-      label: What broke
+      label: What went wrong
       description: "One sentence, in your own words. Example: TMB blocked a normal git push."
     validations:
       required: true
   - type: textarea
     id: what-happened
     attributes:
-      label: Expected vs actual
+      label: What happened
       description: What you were trying to do, what you expected, and what happened. Plain words are enough.
-    validations:
-      required: true
-  - type: textarea
-    id: reproduce
-    attributes:
-      label: Steps to reproduce
-      description: What you typed or clicked, in order, as far as you remember. If you do not know how to make it happen again, say so and describe the last thing you did.
-      placeholder: |
-        1. I asked: "add a login page".
-        2. TMB worked for a while, then stopped with a message that starts with BLOCKED.
-        3. I asked again and got the same message.
-    validations:
-      required: true
-  - type: textarea
-    id: repro-script
-    attributes:
-      label: Minimal repro script
-      description: Optional. Skip this unless you already have a script that makes the bug happen.
-      render: shell
-    validations:
-      required: false
-  - type: dropdown
-    id: frequency
-    attributes:
-      label: How often
-      description: How often it happens when you try the same thing again. Tried it once? Pick Once.
-      options:
-        - Every time
-        - Sometimes
-        - Once
-    validations:
-      required: true
-  - type: textarea
-    id: error
-    attributes:
-      label: Error message
-      description: Copy the message you saw, exactly as it appeared. If there was no message, write "none".
-      render: text
-    validations:
-      required: true
-  - type: dropdown
-    id: area
-    attributes:
-      label: Area
-      description: "Your best guess; a maintainer corrects it, so a wrong guess is fine. Hooks: something you did was blocked or denied. Agents: bro, swe or the reviewer did the wrong thing. Trajectory Server: a TMB tool failed or its records are wrong. World Model: TMB did not know your code. Dashboard: the dashboard page. Install: installing, updating or starting TMB. Cheatcode: an outside skill or tool. Adapters: Codex, Cursor or Gemini. Release: TMB's own builds."
-      options:
-        - Hooks
-        - Trajectory Server
-        - World Model
-        - Dashboard
-        - Install
-        - Agents
-        - Cheatcode
-        - Adapters
-        - Release
     validations:
       required: true
   - type: dropdown
@@ -83,13 +31,78 @@ body:
     validations:
       required: true
   - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      description: Optional. Copy the message you saw, exactly as it appeared.
+      render: text
+    validations:
+      required: false
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often
+      description: Optional. How often it happens when you try the same thing again. Tried it once? Pick Once.
+      options:
+        - Every time
+        - Sometimes
+        - Once
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: |
+        Optional. Your best guess; a maintainer corrects it, so a wrong guess is fine.
+        - Hooks: something you did was blocked or denied.
+        - Agents: bro, swe or the reviewer did the wrong thing.
+        - Trajectory Server: a TMB tool failed or its records are wrong.
+        - World Model: TMB did not know your code.
+        - Dashboard: the dashboard page.
+        - Install: installing, updating or starting TMB.
+        - Cheatcode: an outside skill or tool.
+        - Adapters: Codex, Cursor or Gemini.
+        - Release: TMB's own builds.
+      options:
+        - Hooks
+        - Trajectory Server
+        - World Model
+        - Dashboard
+        - Install
+        - Agents
+        - Cheatcode
+        - Adapters
+        - Release
+    validations:
+      required: false
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Optional. What you typed or clicked, in order, as far as you remember. If you do not know how to make it happen again, say so and describe the last thing you did.
+      placeholder: |
+        1. I asked: "add a login page".
+        2. TMB worked for a while, then stopped with a message that starts with BLOCKED.
+        3. I asked again and got the same message.
+    validations:
+      required: false
+  - type: textarea
+    id: repro-script
+    attributes:
+      label: Minimal repro script
+      description: Optional. Skip this unless you already have a script that makes the bug happen.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: Your TMB version, your Claude Code version (`claude --version`) and your operating system. Write "unknown" for any you cannot find. A report bro drafted has this filled in already.
+      description: Optional. Your TMB version, your Claude Code version (`claude --version`) and your operating system. A report bro drafted has this filled in already.
       render: text
     validations:
-      required: true
+      required: false
   - type: textarea
     id: doctor
     attributes:
@@ -111,7 +124,7 @@ body:
       label: Checks
       options:
         - label: I searched existing issues for this error.
-          required: true
+          required: false
         - label: I read this report and it contains no secrets, private code or personal paths.
           required: true
         - label: It still happens on the latest version.

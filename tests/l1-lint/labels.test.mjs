@@ -83,7 +83,7 @@ test('a backslash cannot undo the pipe escape in a table cell', () => {
 
 const MARKER = '<!-- tmb-report v1 sig=0123456789ab -->';
 const reportBody = (impact, area = 'Hooks', marker = MARKER) =>
-  `### What broke\n\nWrite denied\n\n### Area\n\n${area}\n\n### Impact\n\n${impact}\n\n${marker}\n`;
+  `### What went wrong\n\nWrite denied\n\n### Area\n\n${area}\n\n### Impact\n\n${impact}\n\n${marker}\n`;
 
 test('GH 2034 V6: a marker body with no labels gets Bug, the Impact priority and the Area, and no needs-triage', () => {
   const result = triage({ labels: [], body: reportBody('Blocks one task, has a workaround'), catalog });
@@ -93,8 +93,41 @@ test('GH 2034 V6: a marker body with no labels gets Bug, the Impact priority and
 test('GH 2034 V6: a body without the marker gets no Bug', () => {
   const result = triage({ labels: [], body: reportBody('Blocks all TMB work', 'Hooks', ''), catalog });
   assert.ok(!result.add.includes('Bug'));
-  assert.ok(!result.add.includes('Priority: High'));
-  assert.deepEqual(result, { add: ['Area: Hooks', 'needs-triage'], remove: [] });
+  assert.deepEqual(result, { add: ['Priority: High', 'Area: Hooks', 'needs-triage'], remove: [] });
+});
+
+test('GH 3318: a web form body (no marker) gets the Impact priority', () => {
+  const result = triage({ labels: ['Bug', 'needs-triage'], body: reportBody('Blocks one task, has a workaround', 'Hooks', ''), catalog });
+  assert.deepEqual(result, { add: ['Priority: Medium', 'Area: Hooks'], remove: ['needs-triage'] });
+});
+
+test('GH 3318: a body with no Impact answer gets no priority', () => {
+  for (const body of [reportBody('_No response_', 'Hooks', ''), formBody('Hooks'), reportBody('Blocks everything', 'Hooks', '')]) {
+    const result = triage({ labels: ['Bug'], body, catalog });
+    assert.deepEqual(result, { add: ['Area: Hooks', 'needs-triage'], remove: [] }, body);
+  }
+});
+
+test('GH 3318: a report drafted with every field filled gets Bug, the Impact priority and the Area, and no needs-triage', async () => {
+  const { render } = await import('../../mcp/trajectory-server/dist/bug-report/render.js');
+  const ctx = { home: '/Users/a', projectRoot: '/Users/a/p', remoteUrls: [], repoNames: [], branchNames: ['main'], titles: [] };
+  const input = {
+    tool: 'scan_run',
+    error_class: 'TypeError',
+    summary: 'scan fails',
+    'what-happened': 'Expected a scan, got an error.',
+    impact: 'Blocks all TMB work',
+    error: 'TypeError: x is undefined',
+    frequency: 'Every time',
+    area: 'World Model',
+    reproduce: 'Run /scan.',
+    'repro-script': 'tmb scan',
+    doctor: 'all green',
+    workaround: 'none',
+  };
+  const report = render(input, { os: 'darwin' }, ctx);
+  const result = triage({ labels: [], body: report.body, catalog });
+  assert.deepEqual(result, { add: ['Bug', 'Priority: High', 'Area: World Model'], remove: [] });
 });
 
 test('GH 2034 V6: an existing Priority: Low survives an Impact of "Blocks all TMB work"', () => {
