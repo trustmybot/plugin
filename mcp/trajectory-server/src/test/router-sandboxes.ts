@@ -772,7 +772,7 @@ function prepushHookGuardCases(dir: string): RouterCase[] {
     ['hook-config-option', 'git -c hook.tmb.enabled=false push', agent],
     ['git-config-env', 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=hook.tmb.enabled GIT_CONFIG_VALUE_0=false git push', agent],
     ['git-config-hook-key', 'git config hook.tmb.enabled false', agent],
-    ['write-hook-script', 'echo exit 0 > .git/tmb/pre-push', agent],
+    ['chmod-hook-script', 'chmod -x .git/tmb/pre-push', agent],
     ['strip-mark', 'env -u TMB_AGENT_SHELL git push', agent],
     ['unparseable', 'git push --no-verify "$(', agent],
     ['plain-push', 'git push origin main', agent],

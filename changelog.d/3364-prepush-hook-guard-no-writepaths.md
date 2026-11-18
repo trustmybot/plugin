@@ -1,0 +1,2 @@
+### Changed
+- **The pre-push hook guard judges only the literal command** (GH 3364, GH 2098): it no longer predicts which files a Bash command writes, so a redirect, `rm`, `mv`, `cp`, `tee` or `sed -i` aimed at `.git/tmb/` or the git config is no longer denied by this guard. It still denies `--no-verify`, a protected git config key set by `-c`, `GIT_CONFIG_*` or `git config`, a stripped `TMB_AGENT_SHELL`, and a `chmod` of `.git/tmb/` or the git config file named in the command's own words.

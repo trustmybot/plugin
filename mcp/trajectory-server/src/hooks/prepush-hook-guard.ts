@@ -9,13 +9,13 @@
  *   (d) `git config` writing a protected key: `hook.*`,
  *       `extensions.worktreeConfig`, `include.path` or `includeIf.*.path`, in
  *       any case;
- *   (e) a write, remove, move or chmod of `<git-common-dir>/tmb/` or the git
- *       config file, by a shell command rather than `git config`;
+ *   (e) a `chmod` of `.git/tmb/` or a git config file, by its literal words;
  *   (f) TMB_AGENT_SHELL stripped: `unset`, `env -u` / `env -i`, an assignment
  *       of any value but 1, `export -n`, `+x`, or a local shadowing it.
  * Assignments and environment changes are read from the tree-sitter-bash
  * parse, `bash -c` / `sh -c` / `eval` bodies included to depth 3; git
- * statements from cmdStatements; writes from writePaths. A command that does
+ * statements and `chmod` targets from cmdStatements. No other write is judged:
+ * a hook decides only from the literal command (GH 2098). A command that does
  * not parse, or whose code the analysis cannot read, is denied only when its
  * text names one of the forms.
  *
@@ -42,7 +42,7 @@
  */
 import type { Node } from 'web-tree-sitter';
 import { ALLOW, type Gate } from './gate.js';
-import { cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot, unquotedCommand, unquotedExpansions, writePaths, type Statement } from './cmd-analysis/index.js';
+import { cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot, unquotedCommand, unquotedExpansions, type Statement } from './cmd-analysis/index.js';
 import { bashParser } from './cmd-analysis/parser.js';
 import { GIT_VALUE_OPTION } from './cmd-analysis/statements.js';
 import { ASSIGNMENT, splitWords, unwrap } from './cmd-analysis/unwrap.js';
@@ -51,7 +51,6 @@ import { denyResult } from './lib/deny.js';
 import { isDir } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { posixBasename } from './lib/project-env.js';
-import { gitCommonDir } from './lib/prepush-hook.js';
 import { isExempt } from './lib/repo.js';
 import { payloadCwdOf } from './lib/statement-rows.js';
 import { isAgentSession } from './pre-push/judge.js';
@@ -709,15 +708,12 @@ function normalized(path: string): string {
   return `/${out.join('/')}`;
 }
 
-/** Whether <path> is the hook's dir, a file in it, or a git config file: by its `.git/` shape, else under <commonDir>. */
-function isProtectedPath(path: string, commonDir: string): boolean {
-  if (!path.startsWith('/')) return PROTECTED_TEXT.test(path);
-  const p = normalized(path);
-  if (PROTECTED_PATH.test(p)) return true;
-  return commonDir !== '' && (p === `${commonDir}/tmb` || p.startsWith(`${commonDir}/tmb/`) || p === `${commonDir}/config` || p === `${commonDir}/config.worktree`);
+/** Whether <path> is the hook's dir, a file in it, or a git config file, by its `.git/` shape alone. */
+function isProtectedPath(path: string): boolean {
+  return path.startsWith('/') ? PROTECTED_PATH.test(normalized(path)) : PROTECTED_TEXT.test(path);
 }
 
-/** A finding, the dir whose repo it lands in (a statement's dir, a written path, or '?' for the payload cwd) and the statement that made it. */
+/** A finding, the dir whose repo it lands in (a statement's dir, a chmodded path's dir, or '?' for the payload cwd) and the statement that made it. */
 type Located = { readonly finding: NonNullable<Finding>; readonly dir: string; readonly statement: string };
 
 const dirOf = (path: string): string => (path.startsWith('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '?');
@@ -729,24 +725,14 @@ async function locate(command: string, cwd: string, env: NodeJS.ProcessEnv): Pro
 
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return namesForm(command) ? { finding: unreadable('tree-sitter-bash could not parse it'), dir: '?', statement: command } : null;
-  const changed: { path: string; how: string }[] = [];
+  const chmodded: string[] = [];
   for (const s of listed.statements) {
     const found = await gitForm(s, command);
     if (found !== null) return { finding: found, dir: s.dir, statement: s.src ?? s.stmt };
-    changed.push(...chmodTargets(s).map((path) => ({ path, how: '`chmod` of' })));
+    chmodded.push(...chmodTargets(s));
   }
-  for (const line of await writePaths(command, { cwd, root: cwd, env })) {
-    changed.push({ path: line.startsWith('UNRESOLVED:') ? line.split(':').slice(2).join(':') : line, how: 'a write to' });
-  }
-  const located = (hit: { path: string; how: string }): Located => ({ finding: { form: `${hit.how} ${hit.path}` }, dir: dirOf(normalized(hit.path)), statement: command });
-  const byShape = changed.find(({ path }) => isProtectedPath(path, ''));
-  if (byShape !== undefined) return located(byShape);
-  // Only a path that could sit in a common dir not named .git (a bare repo) pays for the git call naming it.
-  const candidates = changed.filter(({ path }) => /\/(tmb(\/|$)|config(\.worktree)?$)/.test(path));
-  if (candidates.length === 0) return null;
-  const commonDir = await gitCommonDir(cwd, env);
-  const hit = candidates.find(({ path }) => isProtectedPath(path, commonDir));
-  return hit === undefined ? null : located(hit);
+  const hit = chmodded.find(isProtectedPath);
+  return hit === undefined ? null : { finding: { form: `\`chmod\` of ${hit}` }, dir: dirOf(normalized(hit)), statement: command };
 }
 
 /** Whether the guard stands down for the repo whose main checkout is <root>: only a stored exempt mode does (GH 3279). */

@@ -91,14 +91,8 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
     ['(d) hook key in mixed case', 'git config Hook.Tmb.Enabled false', 'which writes Hook.Tmb.Enabled'],
     ['(b) -c include.path', 'git -c include.path=/tmp/x push origin main', '`git -c include.path=/tmp/x`'],
     ['(b) -c includeIf.<cond>.path in mixed case', 'git -c IncludeIf.gitdir:/a/.Path=/tmp/x status', 'IncludeIf.gitdir:/a/.Path=/tmp/x'],
-    ['(e) a redirect into the git config file', 'echo x >> .git/config', /a write to .*\/repo\/\.git\/config/],
-    ['(e) rm of the hook dir', 'rm -rf .git/tmb', /a write to .*\/\.git\/tmb/],
-    ['(e) mv of the hook script', 'mv .git/tmb/pre-push /tmp/pre-push.bak', /\.git\/tmb\/pre-push/],
-    ['(e) cp over the hook script', 'cp /dev/null .git/tmb/pre-push', /\.git\/tmb\/pre-push/],
     ['(e) chmod of the hook script', 'chmod -x .git/tmb/pre-push', /`chmod` of .*\.git\/tmb\/pre-push/],
     ['(e) chmod through the common dir git names', 'chmod 000 "$(git rev-parse --git-common-dir)/tmb/pre-push"', /`chmod` of .*tmb\/pre-push/],
-    ['(e) sed -i on the git config file', "sed -i.bak 's/true/false/' .git/config", /\.git\/config/],
-    ['(e) tee into the hook script', 'echo exit 0 | tee .git/tmb/pre-push', /\.git\/tmb\/pre-push/],
     ['(f) unset', 'unset TMB_AGENT_SHELL; git push', '`unset TMB_AGENT_SHELL`'],
     ['(f) env -u', 'env -u TMB_AGENT_SHELL git push', '`env -u TMB_AGENT_SHELL`'],
     ['(f) env -i', 'env -i PATH=/usr/bin git push', '`env -i`'],
@@ -112,10 +106,6 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
   for (const [name, command, phrase] of forms) {
     it(name, async () => assertDenied(command, phrase));
   }
-
-  it('(e) the hook dir of a common dir not named .git', async () => {
-    await assertDenied(`rm -rf ${store}/tmb`, `a write to ${store}/tmb`, separate);
-  });
 
   // F101-1: a git word whose value bash only knows when it runs is judged unknown, never as its literal text.
   const unresolved: readonly (readonly [string, string, string | RegExp])[] = [
@@ -307,6 +297,22 @@ describe('prepush-hook-guard allows ordinary use (SC9)', () => {
     it(command, async () => assert.equal(await reason(command), ''));
   }
 
+  // GH 2098: a hook decides only from the literal command, so a write the guard would have had to
+  // predict, or a common dir only git can name, is no longer this guard's to deny.
+  const predictedWrites = [
+    'echo x >> .git/config',
+    'echo exit 0 > .git/tmb/pre-push',
+    'rm -rf .git/tmb',
+    'mv .git/tmb/pre-push /tmp/pre-push.bak',
+    'cp /dev/null .git/tmb/pre-push',
+    "sed -i.bak 's/true/false/' .git/config",
+    'echo exit 0 | tee .git/tmb/pre-push',
+  ];
+  for (const command of predictedWrites) {
+    it(`${command} (a write only a write-path analysis would resolve)`, async () => assert.equal(await reason(command), ''));
+  }
+  it('a chmod in a common dir not named .git', async () => assert.equal(await reason(`chmod -x ${store}/tmb/pre-push`, separate), ''));
+
   it("the Human's command is never gated", async () => {
     assert.equal(await reason('git push --no-verify origin main', repo, human()), '');
     assert.equal(await reason('unset TMB_AGENT_SHELL', repo, human()), '');
@@ -411,7 +417,7 @@ describe('prepush-hook-guard stands down through one predicate (SC9)', () => {
       roots.push(root);
       return true;
     });
-    for (const command of ['git push --no-verify', 'unset TMB_AGENT_SHELL', 'rm -rf .git/tmb', 'git push --no-verify "$(']) {
+    for (const command of ['git push --no-verify', 'unset TMB_AGENT_SHELL', 'chmod -x .git/tmb/pre-push', 'git push --no-verify "$(']) {
       const r = await gate(JSON.stringify({ tool_name: 'Bash', cwd: repo, tool_input: { command } }), agent());
       assert.equal(r.stdout, '', command);
     }
@@ -448,7 +454,7 @@ describe('prepush-hook-guard stands down in an exempt repo (SC10)', () => {
     }
   });
 
-  const forms = ['git push --no-verify', 'git -c hook.tmb.enabled=false push', 'unset TMB_AGENT_SHELL', 'rm -rf .git/tmb'];
+  const forms = ['git push --no-verify', 'git -c hook.tmb.enabled=false push', 'unset TMB_AGENT_SHELL', 'chmod -x .git/tmb/pre-push'];
   for (const command of forms) {
     it(`${command}: passes in the exempt repo, denied in the truest one`, async () => {
       assert.equal(await deniedIn(command, free), false);
@@ -460,8 +466,8 @@ describe('prepush-hook-guard stands down in an exempt repo (SC10)', () => {
     assert.equal(await deniedIn(`git -C ${free} push --no-verify`, held), false);
     assert.equal(await deniedIn(`git -C ${held} push --no-verify`, free), true);
     assert.equal(await deniedIn(`git -C ${held} -c hook.tmb.enabled=false push`, free), true);
-    assert.equal(await deniedIn(`rm -rf ${held}/.git/tmb`, free), true);
-    assert.equal(await deniedIn(`rm -rf ${free}/.git/tmb`, held), false);
+    assert.equal(await deniedIn(`chmod -x ${held}/.git/tmb/pre-push`, free), true);
+    assert.equal(await deniedIn(`chmod -x ${free}/.git/tmb/pre-push`, held), false);
     assert.equal(await deniedIn(`git -C ${free} push $(echo --no-verify)`, held), false);
     assert.equal(await deniedIn(`git -C ${held} push $(echo --no-verify)`, free), true);
   });
