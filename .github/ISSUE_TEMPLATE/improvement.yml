@@ -18,7 +18,17 @@ body:
     id: area
     attributes:
       label: Area
-      description: The part of TMB this touches. See docs/contributing/LABELS.md.
+      description: |
+        Your best guess at the part of TMB. A maintainer corrects it, so a wrong guess is fine.
+        - Hooks: something you did was blocked or denied.
+        - Agents: bro, swe or the reviewer did the wrong thing.
+        - Trajectory Server: a TMB tool failed, or TMB's records are wrong.
+        - World Model: TMB did not know your code, or its search was wrong.
+        - Dashboard: the dashboard page.
+        - Install: installing, updating or starting TMB.
+        - Cheatcode: finding or installing an outside skill or tool.
+        - Adapters: using TMB with Codex, Cursor or Gemini.
+        - Release: TMB's own builds and versions.
       options:
         - Hooks
         - Trajectory Server

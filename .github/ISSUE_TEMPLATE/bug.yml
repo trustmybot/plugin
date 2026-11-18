@@ -1,39 +1,37 @@
 name: Bug report
-description: Something in TMB is broken
+description: TMB did something wrong. You do not need to know how TMB works inside.
 labels: ["Bug"]
 body:
   - type: input
     id: summary
     attributes:
       label: What broke
-      description: One line naming the tool or command and what went wrong.
+      description: "One sentence, in your own words. Example: TMB blocked a normal git push."
     validations:
       required: true
   - type: textarea
     id: what-happened
     attributes:
       label: Expected vs actual
-      description: What you did, what you expected and what happened instead.
+      description: What you were trying to do, what you expected, and what happened. Plain words are enough.
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
       label: Steps to reproduce
-      description: "Numbered steps from a fresh session: the prompt you typed and the call that failed. If it only happens in your project, say what is unusual (worktree, monorepo, SSH remote)."
+      description: What you typed or clicked, in order, as far as you remember. If you do not know how to make it happen again, say so and describe the last thing you did.
       placeholder: |
-        1. Fresh project: `git init demo && cd demo`, run /onboard, pick Local-only.
-        2. Ask bro: "add a hello.ts that prints hi".
-        3. bro calls task_provision; swe starts.
-        4. swe's first Write is denied by containment-guard: "<verbatim deny text>".
-        Expected: swe writes hello.ts inside its worktree.
+        1. I asked: "add a login page".
+        2. TMB worked for a while, then stopped with a message that starts with BLOCKED.
+        3. I asked again and got the same message.
     validations:
       required: true
   - type: textarea
     id: repro-script
     attributes:
       label: Minimal repro script
-      description: Optional. A short shell script that reproduces the bug from an empty directory.
+      description: Optional. Skip this unless you already have a script that makes the bug happen.
       render: shell
     validations:
       required: false
@@ -41,7 +39,7 @@ body:
     id: frequency
     attributes:
       label: How often
-      description: How often it happens when you repeat the steps.
+      description: How often it happens when you try the same thing again. Tried it once? Pick Once.
       options:
         - Every time
         - Sometimes
@@ -52,7 +50,7 @@ body:
     id: error
     attributes:
       label: Error message
-      description: The tool or command that failed and its exact error or deny text.
+      description: Copy the message you saw, exactly as it appeared. If there was no message, write "none".
       render: text
     validations:
       required: true
@@ -60,7 +58,7 @@ body:
     id: area
     attributes:
       label: Area
-      description: The part of TMB this touches. See docs/contributing/LABELS.md.
+      description: "Your best guess; a maintainer corrects it, so a wrong guess is fine. Hooks: something you did was blocked or denied. Agents: bro, swe or the reviewer did the wrong thing. Trajectory Server: a TMB tool failed or its records are wrong. World Model: TMB did not know your code. Dashboard: the dashboard page. Install: installing, updating or starting TMB. Cheatcode: an outside skill or tool. Adapters: Codex, Cursor or Gemini. Release: TMB's own builds."
       options:
         - Hooks
         - Trajectory Server
@@ -77,7 +75,7 @@ body:
     id: impact
     attributes:
       label: Impact
-      description: How much this blocks you. It sets the priority label.
+      description: How much this stops you from working.
       options:
         - Blocks all TMB work
         - Blocks one task, has a workaround
@@ -88,7 +86,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Bro fills this in. On the web, paste `claude --version`, the TMB version and your OS.
+      description: Your TMB version, your Claude Code version (`claude --version`) and your operating system. Write "unknown" for any you cannot find. A report bro drafted has this filled in already.
       render: text
     validations:
       required: true
@@ -96,7 +94,7 @@ body:
     id: doctor
     attributes:
       label: Doctor output
-      description: Optional. Run trajectory_doctor and paste the violation names and counts.
+      description: Optional. Skip this unless a maintainer asks for it.
       render: text
     validations:
       required: false
@@ -104,7 +102,7 @@ body:
     id: workaround
     attributes:
       label: Workaround
-      description: What got you unblocked, if anything.
+      description: Optional. What let you keep working, if anything did.
     validations:
       required: false
   - type: checkboxes
