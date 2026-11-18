@@ -5,6 +5,12 @@
  * is denied when a `#<n>` in it is a local trajectory issue id whose remote
  * iid differs: gh_iid for gh, gl_iid for glab, the other forge's iid when the
  * command's own is unset. The deny names the remote ref to cite instead.
+ * A `#<n>` is read from the parsed statement's words as well as the raw text,
+ * so `$'\x23'` and a line continuation are read as bash reads them (GH 2787).
+ * Each remote write is judged against the local issues of the repo it targets
+ * (GH 2143): a `-R`/`--repo` value's registered repo (none: no verdict), else
+ * its dir's; a `#<n>` that already is that repo's remote iid of a local issue
+ * passes.
  *
  * It fails open: no DB, no SQLite, no issues table, no offending token, a
  * `#<n>` that is no local id, and TMB_DISABLE_REMOTE_ID_GUARD=1 all allow.
@@ -20,11 +26,12 @@
 import { statSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { cmdStatements, prefilterPasses } from './cmd-analysis/index.js';
+import { cmdStatements, payloadCwd, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
 import { auditAppend } from './lib/audit.js';
-import { dbPath, haveSqlite, sqliteRo, stripTrailingNewlines } from './lib/db.js';
+import { dbPath, haveSqlite, sqliteRo, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { denyResult } from './lib/deny.js';
 import { jqAlternatives, jqNumberLiteral } from './lib/jq.js';
+import { repoNameForRoot, repoRootForForgeSpec } from './lib/repo.js';
 
 export const GATE_NAME = 'remote-id-guard';
 
@@ -41,6 +48,7 @@ const REMOTE_WRITES: ReadonlyArray<readonly [string, Provider]> = [
 const TEXT_OPTION = /(--body|--title|--comment|--message|--description|--note)([ \t\n\v\f\r=]|$)/m;
 const SHORT_TEXT_OPTION = /(^|[ \t\n\v\f\r])-[btm]([ \t\n\v\f\r]|$)/m;
 const HEREDOC = /<<-?[ \t\v\f\r]*[A-Za-z_'"]/;
+const ISSUE_REF = /#[0-9]/;
 const REMOTE_MARKERS: readonly RegExp[] = [/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[0-9]+/g, /[Gg][Hh]-[0-9]+/g, /[Gg][Ll]-[0-9]+/g, /[Rr][Ee][Mm][Oo][Tt][Ee]:[0-9]+/g];
 
 const OVERRUN = Symbol('overrun');
@@ -69,6 +77,48 @@ export function candidateTokens(command: string): string[] {
   return [...tokens].sort();
 }
 
+/** candidateTokens of a listed statement, whose quoted blanks and other encoded bytes it shows as `_` (GH 2787). */
+function statementTokens(stmt: string): string[] {
+  return candidateTokens(stmt.replaceAll('_', ' '));
+}
+
+/** A remote write the listing found, with the tokens its own words carry. */
+interface RemoteWrite {
+  readonly provider: Provider;
+  readonly stmt: string;
+  readonly dir: string;
+  readonly tokens: readonly string[];
+}
+
+/** The `-R`/`--repo` value among a remote write's words, "" when it names none. */
+export function repoOption(stmt: string): string {
+  const w = stmt.split(/[ \t\n\v\f\r]+/).filter((word) => word !== '');
+  for (let i = 0; i < w.length; i++) {
+    if (w[i] === '--repo' || w[i] === '-R') return w[i + 1] ?? '';
+    if (w[i].startsWith('--repo=')) return w[i].slice('--repo='.length);
+    if (w[i].startsWith('-R')) return w[i].slice(2).replace(/^=/, '');
+  }
+  return '';
+}
+
+/**
+ * The local issues <write> is judged against (GH 2143): a literal `-R`/`--repo`
+ * names the registered repo whose origin it points at (null, no verdict, when
+ * none does); else the statement dir's repo, every local issue when that is
+ * no registered repo. A value the shell fills in keeps the dir's repo.
+ */
+async function scopeOf(write: RemoteWrite, cwd: string, db: string, env: NodeJS.ProcessEnv): Promise<Scope | null> {
+  const own = await stmtRepoRoot(write.dir, cwd, env);
+  const spec = repoOption(write.stmt);
+  if (spec !== '' && !/[$`]/.test(spec)) {
+    const root = await repoRootForForgeSpec(db, spec, own, env);
+    const name = root === '' ? '' : repoNameForRoot(db, root, env);
+    return name === '' ? null : { repo: name };
+  }
+  const name = own === '' ? '' : repoNameForRoot(db, own, env);
+  return { repo: name === '' ? null : name };
+}
+
 /** `$(printf '%s' "$row" | cut -d'|' -f<from>[-])`, line by line as cut reads it. */
 function cut(row: string, from: number, rest: boolean): string {
   const lines = row.split('\n').map((line) => {
@@ -85,12 +135,29 @@ function unhex(hex: string): string {
   return nul < 0 ? text : text.slice(0, nul);
 }
 
-/** Each token that is a local issue id, with its `gh|gl|objective` row; one read for all tokens. */
-function localRows(db: string, tokens: readonly string[], env: NodeJS.ProcessEnv): Map<string, string> {
+/**
+ * The local issues a remote write's `#<n>` is judged against (GH 2143): those
+ * of the registered repo <repo>, an issue with no repo counting only in a DB of
+ * at most one repo; null when the repo is unknown, every local issue.
+ */
+type Scope = { readonly repo: string | null };
+
+function inScope(issue: string, scope: Scope): string {
+  return scope.repo === null ? '1' : `(${issue}.repo = '${sqlQuote(scope.repo)}' OR (${issue}.repo IS NULL AND (SELECT COUNT(*) FROM repos) <= 1))`;
+}
+
+/**
+ * Each token that is a local issue id in <scope>, with its `gh|gl|objective`
+ * row; one read for all tokens. A token that already is the <provider>
+ * iid of a local issue in <scope> cites that remote issue, so it has no row;
+ * the iid is compared as text, as offense compares it, so `#042` is no iid.
+ */
+function localRows(db: string, tokens: readonly string[], provider: Provider, scope: Scope, env: NodeJS.ProcessEnv): Map<string, string> {
   const values = tokens.map((n) => `('${n}', ${n})`).join(', ');
+  const iid = provider === 'glab' ? 'gl_iid' : 'gh_iid';
   const out = sqliteRo(
     db,
-    `WITH t(n, k) AS (VALUES ${values}) SELECT t.n || '|' || hex(COALESCE(i.gh_iid, '')) || '|' || hex(COALESCE(i.gl_iid, '')) || '|' || hex(COALESCE(i.objective, '')) FROM t JOIN issues i ON i.id = t.k;`,
+    `WITH t(n, k) AS (VALUES ${values}) SELECT t.n || '|' || hex(COALESCE(i.gh_iid, '')) || '|' || hex(COALESCE(i.gl_iid, '')) || '|' || hex(COALESCE(i.objective, '')) FROM t JOIN issues i ON i.id = t.k WHERE ${inScope('i', scope)} AND NOT EXISTS (SELECT 1 FROM issues j WHERE CAST(j.${iid} AS TEXT) = t.n AND ${inScope('j', scope)});`,
     env,
   );
   const rows = new Map<string, string>();
@@ -176,25 +243,45 @@ type Analysis = GateResult | typeof OVERRUN;
 async function analyze(payload: string, env: NodeJS.ProcessEnv, overran: () => boolean): Promise<Analysis> {
   if (overran()) return OVERRUN;
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
-  if (command === '' || !prefilterPasses(command, carriesText)) return ALLOW;
-  const tokens = candidateTokens(command);
-  if (tokens.length === 0) return ALLOW;
+  if (command === '' || !prefilterPasses(command, (text) => carriesText(text) && ISSUE_REF.test(text))) return ALLOW;
 
-  const listed = await cmdStatements(command, '/', env);
+  const cwd = payloadCwd(payload, env);
+  const listed = await cmdStatements(command, cwd, env);
   if (overran()) return OVERRUN;
   if (!listed.ok) return ALLOW;
-  let provider: Provider | null = null;
-  for (const { stmt } of listed.statements) {
-    provider = providerOf(stmt);
-    if (provider) break;
+  const writes: RemoteWrite[] = [];
+  const seen = new Set(candidateTokens(command));
+  for (const { stmt, dir } of listed.statements) {
+    const tokens = statementTokens(stmt);
+    const provider = providerOf(stmt);
+    if (provider) writes.push({ provider, stmt, dir, tokens });
+    else for (const n of tokens) seen.add(n);
   }
-  if (!provider) return ALLOW;
+  if (writes.length === 0) return ALLOW;
+  // A token no remote write's own words carry (a heredoc body, a variable's value) may be in any of their texts.
+  const owned = new Set(writes.flatMap((write) => write.tokens));
+  const loose = [...seen].filter((n) => !owned.has(n));
 
   const db = dbPath(env) ?? '';
   if (db === '' || !haveSqlite(env)) return ALLOW;
-  const rows = localRows(db, tokens, env);
-  if (overran()) return OVERRUN;
-  const offenses = tokens.map((n) => (rows.has(n) ? offense(n, rows.get(n) ?? '', provider) : '')).join('');
+  const lines = new Map<string, string>();
+  for (const write of writes) {
+    const tokens = [...new Set([...write.tokens, ...loose])].filter((n) => !lines.has(n));
+    if (tokens.length === 0) continue;
+    const scope = await scopeOf(write, cwd, db, env);
+    if (overran()) return OVERRUN;
+    if (scope === null) continue;
+    const rows = localRows(db, tokens, write.provider, scope, env);
+    if (overran()) return OVERRUN;
+    for (const n of tokens) {
+      const line = rows.has(n) ? offense(n, rows.get(n) ?? '', write.provider) : '';
+      if (line !== '') lines.set(n, line);
+    }
+  }
+  const offenses = [...lines.keys()]
+    .sort()
+    .map((n) => lines.get(n))
+    .join('');
   if (offenses === '') return ALLOW;
 
   return denyResult(

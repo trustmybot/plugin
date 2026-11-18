@@ -14,6 +14,7 @@
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
+import { cmdStatements, prefilterPasses, unquotedCommand } from './cmd-analysis/index.js';
 import { dbPath } from './lib/db.js';
 import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
 import { mergeFailed, readMergePayload } from './lib/merge.js';
@@ -40,9 +41,21 @@ async function localBranch(root: string, name: string, env: NodeJS.ProcessEnv): 
   return await gitOk(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`], env);
 }
 
-/** The merge command names a merge (word-boundary grep over its lines). */
+/**
+ * The merge command may name a merge: a word-boundary grep over its lines, as
+ * written or with its line continuations joined and quotes dropped, or a
+ * `$'…'` word whose bytes only parsing decodes (GH 2787).
+ */
 export function namesMerge(cmd: string): boolean {
-  return MERGE_CMD.test(cmd);
+  return prefilterPasses(cmd, (text) => MERGE_CMD.test(text));
+}
+
+/** The merge command names a merge: namesMerge, with a `$'…'` word confirmed in the parsed statements, so `gh pr $'\x6derge'` counts and `echo $'hi'` does not. */
+export async function runsMerge(cmd: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  if (!namesMerge(cmd)) return false;
+  if (MERGE_CMD.test(cmd) || MERGE_CMD.test(unquotedCommand(cmd))) return true;
+  const listed = await cmdStatements(cmd, '/', env);
+  return listed.ok && listed.statements.some(({ stmt }) => MERGE_CMD.test(stmt));
 }
 
 /** _cmb_branch_from_cmd: the first word after `merge` (per line) that is no flag, URL or number and is a local branch. */
@@ -132,7 +145,7 @@ function fetchPrune(root: string, env: NodeJS.ProcessEnv): void {
 async function clean(payload: string, env: NodeJS.ProcessEnv): Promise<void> {
   const { input, toolName, command: cmd, response } = readMergePayload(payload);
   if (toolName !== 'Bash' || cmd === '') return;
-  if (!namesMerge(cmd) || mergeFailed(response)) return;
+  if (mergeFailed(response) || !await runsMerge(cmd, env)) return;
 
   const cwd = cmdCwd(cmd, input, env);
   const root = await repoGitRoot(cwd, env);

@@ -15,6 +15,7 @@ import { after, before, describe, it } from 'node:test';
 import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
 import { gateEnv, git, has, hasNot, sql, tryGit } from './git-push-guard-l3.js';
 import { sqlExec } from './db-test-fixtures.js';
+import { namesMerge, runsMerge } from '../hooks/clean-merged-branch.js';
 
 const GATE = 'clean-merged-branch';
 const MERGED = '✓ Merged pull request';
@@ -130,6 +131,15 @@ describe('clean-merged-branch l3', () => {
     assert.ok(existsSync(wt('dirty')), 'dirty worktree was removed');
   });
 
+  it("(a'') a merge keyword in $'…' or split by a line continuation also triggers cleanup (GH 2787)", () => {
+    makeMerged('feat/ansi', 'ansi');
+    has(runHook(input("gh pr $'\\x6derge' feat/ansi --squash")), 'cleaned up merged branch feat/ansi', 'ANSI-C cleanup report');
+    assert.ok(!branchExists('feat/ansi'), 'ANSI-C branch still present');
+    makeMerged('feat/split', 'split');
+    has(runHook(input('gh pr mer\\\nge feat/split --squash')), 'cleaned up merged branch feat/split', 'continuation cleanup report');
+    assert.ok(!branchExists('feat/split'), 'continuation branch still present');
+  });
+
   it('(d) non-merge Bash command → no-op (silent)', () => {
     makeMerged('feat/nonmerge', 'nonmerge');
     assert.equal(runHook(input('git status')), '', 'non-merge command is silent');
@@ -236,4 +246,19 @@ describe('clean-merged-branch l3', () => {
     g(repo, 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD');
     sql(db, "UPDATE repos SET target_branch = 'dev' WHERE name='repo'");
   });
+});
+
+describe('clean-merged-branch merge detection (GH 2787)', () => {
+  for (const command of ["gh pr $'\\x6derge' 5", 'gh pr mer\\\nge 5', "glab mr $'\\x6d\\x65rge' 3", 'gh pr merge 5']) {
+    it(`runsMerge reads ${JSON.stringify(command)} as a merge`, async () => {
+      assert.ok(namesMerge(command));
+      assert.ok(await runsMerge(command));
+    });
+  }
+
+  for (const command of ["echo $'hi'", "gh pr $'\\x76iew' 5", 'gh pr merged', 'gh pr\nmerge 5', 'git status']) {
+    it(`runsMerge reads ${JSON.stringify(command)} as no merge`, async () => {
+      assert.equal(await runsMerge(command), false);
+    });
+  }
 });
