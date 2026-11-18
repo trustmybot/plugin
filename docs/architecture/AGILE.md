@@ -63,7 +63,7 @@ flowchart TD
 - **Its tasks are checked against it.** An agile task's freshness, merge-base and scope checks use its feature branch as the base. The working branch is the base only for the milestone PR.
 - **Pushed only as a backup.** bro pushes the feature branch so the work is on origin. TMB opens no PR for it before the milestone, so no CI or review runs on it. A repo with no remote has no push and no PR: the branch stays local, and at the milestone the Human merges it into the working branch locally, behind the same merge gate.
 - **Tried in its own worktree.** The Human tries the work by opening the feature branch in a separate worktree, never by switching the shared checkout, which every lane reads on the working branch.
-- **Synced at the milestone.** At the milestone, bro brings the working branch into the feature branch and fixes its conflicts once. An optional periodic sync before then keeps that fix small. A conflict bro cannot settle from the two sides' intent goes to the Human, and the sync is undone until the Human answers.
+- **Synced at the milestone.** At the milestone, bro brings the working branch into the feature branch and fixes its conflicts once. An optional periodic sync before then keeps that fix small. On a conflict the sync is undone, bro reads what each side changed, and the Human says how to resolve each path. Planned (GH 3313): bro settles a conflict itself when the intent of both sides is clear, through a task on the feature branch, once that path has been proven end to end; until then every conflict goes to the Human.
 - **Cleaned up after the merge.** Once the milestone PR merges, TMB deletes the local feature branch, and the remote copy is deleted on merge.
 
 ## Review state
@@ -150,7 +150,7 @@ Shipped, project mode only.
 ```mermaid
 flowchart TD
     A[Human says the milestone is reached] --> B[bro brings the working branch into the feature branch and fixes its conflicts once]
-    B -- a conflict bro cannot settle --> BH[The sync is undone; the Human says how to resolve it]
+    B -- a conflict --> BH[The sync is undone; the Human says how to resolve it]
     BH --> B
     B --> C[Group the queued tasks whose changed files overlap]
     C --> HO{Hand-off of each group: the close lints and the full test suite pass at the feature branch's tip, and no queued task sharing a file is left out?}
