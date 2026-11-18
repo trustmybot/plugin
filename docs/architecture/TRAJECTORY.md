@@ -27,7 +27,7 @@ The chart is one moment of a real tree. To find what is stuck, follow the record
 
 ## Sessions
 
-Every session is recorded, not only a lane. A lane is a session with owned issues and a priority ([LANES.md](LANES.md)).
+Every session is recorded, not only a lane. A lane is a session with owned issues and its own review mode ([LANES.md](LANES.md)).
 
 ```mermaid
 stateDiagram-v2
@@ -109,7 +109,7 @@ flowchart TD
     C -- yes --> P[bro probes it: its last events, what it waits on, whether events still arrive]
     P -- working or waiting --> D
     P -- stalled --> F[Reported as stalled: what it is, since when, and its last event]
-    F --> H[bro tells the Human, or the parent nudges the lane]
+    F --> H[bro tells the Human]
 ```
 
 - **Last activity needs no heartbeat.** It is the newest event under the record: a hook run under an agent run, an agent run under a session.

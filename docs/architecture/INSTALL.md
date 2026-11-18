@@ -52,6 +52,8 @@ Other channels: `trustmybot/marketplace-rc` with `tmb@trustmybot-rc`, or `trustm
 | Linux | Supported (CI runs the suite on Linux) | Not yet validated on a Linux host; the network probe is macOS-only | **No**; answering Yes still writes the block |
 | Windows | WSL 2 only, which is the Linux case; native Windows is untested | None on native Windows | As Linux |
 
+Planned (GH 3360): `/onboard` stops setting up the sandbox, so the last column goes away. The sandbox is the Human's own Claude Code setting.
+
 ## Upgrade
 
 An upgrade changes two things: the plugin files, which Claude Code fetches when the plugin's version changes, and the trajectory DB, which the server migrates the first time it starts after a full restart. Neither change applies until Claude Code is fully restarted.

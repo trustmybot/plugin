@@ -171,7 +171,7 @@ flowchart TD
     CI -- a check fails, or a review comment asks for a change --> H
 ```
 
-- **The Human decides when.** The review runs when the Human says the milestone is reached, for example when an MVP works end to end, and not after each task. The Human can say so in the hub or in the lane's own session. It is one batch review of the milestone, split into groups that run in parallel.
+- **The Human decides when.** The review runs when the Human says the milestone is reached, for example when an MVP works end to end, and not after each task. The Human can say so in the lane's own session or in the session that started it. It is one batch review of the milestone, split into groups that run in parallel.
 - **Groups form after the fact.** Which files a task will touch is hard to know before it is planned, so tasks are not grouped up front. The groups come from the files each task actually changed, and tasks that share a file are reviewed together, so a reviewer sees their combined effect.
 - **Net diff.** The review reads what the feature branch adds to the working branch, not each task's patch. A change that a later task undid is never reviewed, and a conflict resolved on the branch is reviewed in its resolved form.
 - **The suite covers the gaps.** A reviewer reads its group's files and their dependents. The full suite runs at the feature branch's tip in each hand-off, and again in the milestone PR's CI run, and catches what crosses two groups.
@@ -215,7 +215,7 @@ flowchart TD
     E[Task open when a mode changed] --> F[Takes the mode resolved at its close]
 ```
 
-- **Only the Human switches.** The project's mode changes through /onboard. A lane's mode is set when the lane starts and changes later only through the lane change path in [LANES.md](LANES.md) (planned: GH 3025, with the approval gate in GH 3028). bro or another agent never switches a mode.
+- **Only the Human switches.** The project's mode changes through /onboard. A lane's mode is set when the lane starts and changes later only as [LANES.md](LANES.md#3-change-a-lane) sets out (planned: GH 3025, with the approval gate in GH 3028). bro or another agent never switches a mode.
 - **The close decides.** A task opened under one mode and closed under the other follows the mode resolved at its close.
 - **Switching a repo to exempt releases its queue.** Planned (GH 3281). The tasks of that repo still queued for review are released, each with a recorded cause that names the switch, and the merge gate stops holding the feature branch for them. The Human's switch is the decision, so it is recorded and never silent.
 - **Switching to truest keeps the branch.** Later tasks are reviewed before they merge into the feature branch, and the branch still needs its review, or a waiver, before it merges into the working branch.
