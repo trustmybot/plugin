@@ -54,11 +54,11 @@
  * writes have their own per-write and pooled budgets, and the finish write is
  * tried three times. timed_out is 1 only when the gate's own timer fired or
  * the budget was spent before a command started; a timed-out command's
- * process group is stopped (SIGTERM, then SIGKILL after a grace, so a nested
- * test-run frees its own slot). While a command runs, SIGTERM, SIGINT or
- * SIGHUP to the gate stops that command's group and releases the gate's
- * suite slot before the gate exits 128 + the signal (GH 3249), so a killed
- * hook leaves no orphaned suite holding the slot.
+ * process group is SIGKILLed at once. While a command runs, SIGTERM, SIGINT
+ * or SIGHUP to the gate stops that command's group (SIGTERM, then SIGKILL
+ * after a grace) and releases the gate's suite slot, and only then exits
+ * 128 + the signal (GH 3249), so a killed hook leaves no orphaned suite
+ * holding the slot.
  *
  * When a command or probe is a full suite (isFullSuite), the run first takes a
  * suite slot (suite-lock.ts, GH 2092), exported to the commands as
@@ -161,7 +161,8 @@ function trackGroup(pgid: number): () => void {
   onStop.groups.add(pgid);
   return () => {
     onStop.groups.delete(pgid);
-    if (onStop.groups.size === 0) for (const s of GATE_STOP_SIGNALS) process.off(s, onGateSignal);
+    // During a stop the handlers stay, so a repeated signal cannot end the gate before stopOnSignal's SIGKILL lands.
+    if (onStop.groups.size === 0 && onStop.signal === null) for (const s of GATE_STOP_SIGNALS) process.off(s, onGateSignal);
   };
 }
 
@@ -478,6 +479,8 @@ class VerificationRun {
         settled = true;
         clearTimeout(timer);
         untrack();
+        // A stop signal ends the gate in stopOnSignal once every group is killed; returning first would let the caller exit early.
+        if (onStop.signal !== null) return;
         done({ rc, fired });
       };
       const child = spawn('bash', ['-c', command], {
@@ -490,7 +493,12 @@ class VerificationRun {
       if (child.pid !== undefined) untrack = trackGroup(child.pid);
       const timer = setTimeout(() => {
         fired = true;
-        if (child.pid !== undefined) void stopProcessGroup(child.pid);
+        // SIGKILL at once: a SIGTERM grace would outlast the gate, which returns once the group's leader exits.
+        try {
+          if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
       }, seconds * 1000);
       child.on('error', () => finish(127));
       child.on('exit', (code, signal) => {

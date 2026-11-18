@@ -198,11 +198,13 @@ describe('swe-verification-gate suite-slot lock (GH 2092)', { timeout: 120_000 }
 stamp() { perl -MTime::HiRes=time -e 'printf "%d", time * 1000'; }
 printf 'start %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
 if [ -n "\${LEADER_FILE:-}" ]; then printf '%s' "$$" > "$LEADER_FILE.tmp" && mv "$LEADER_FILE.tmp" "$LEADER_FILE"; fi
+if [ -n "\${MEMBER_FILE:-}" ]; then (trap '' TERM; exec sleep 300) & printf '%s' "$!" > "$MEMBER_FILE.tmp" && mv "$MEMBER_FILE.tmp" "$MEMBER_FILE"; fi
 sleep "\${HOLD_S:-0}"
 printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
 `;
   const TASKS: { id: number; slug: string; verification: string[] }[] = [
     { id: 55, slug: 'suite-signal', verification: ['bash tests/run-all.sh S'] },
+    { id: 56, slug: 'suite-timeout-group', verification: ['bash tests/run-all.sh G'] },
     { id: 50, slug: 'suite-a', verification: ['bash tests/run-all.sh A'] },
     { id: 51, slug: 'suite-b', verification: ['bash tests/run-all.sh B'] },
     { id: 52, slug: 'suite-busy', verification: ['bash tests/run-all.sh C'] },
@@ -292,8 +294,9 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     stderr: () => string;
     done: Promise<{ stdout: string; stderr: string; code: number | null }>;
   }
-  const gateChild = (taskId: number, e: NodeJS.ProcessEnv): GateChild => {
-    const script = `const { sweVerificationGate } = await import(process.argv[1]); const r = await sweVerificationGate(process.argv[2], process.env); process.stdout.write(r.stdout);`;
+  /** The gate in a child process; <exitOnReturn> exits as the hook router does once the gate returns, dropping any pending timer. */
+  const gateChild = (taskId: number, e: NodeJS.ProcessEnv, exitOnReturn = false): GateChild => {
+    const script = `const { sweVerificationGate } = await import(process.argv[1]); const r = await sweVerificationGate(process.argv[2], process.env); process.stdout.write(r.stdout${exitOnReturn ? ', () => process.exit(0)' : ''});`;
     const child = spawn(process.execPath, ['--experimental-sqlite', '--no-warnings', '--input-type=module', '-e', script, GATE_URL, completion(taskId)], {
       env: e,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -390,6 +393,34 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     } finally {
       g.child.kill('SIGKILL');
       if (pgid > 0 && groupAlive(pgid)) process.kill(-pgid, 'SIGKILL');
+    }
+  });
+  it('GH 3249: a timed-out command leaves no member of its process group, one ignoring SIGTERM included, once the gate returns', async () => {
+    const memberFile = join(base, 'member-56');
+    const g = gateChild(56, env({ TMB_VERIFICATION_TIMEOUT_S: '2', HOLD_S: '300', MEMBER_FILE: memberFile }), true);
+    let member = 0;
+    try {
+      await waitFor('the command to start', () => existsSync(memberFile));
+      member = Number(readFileSync(memberFile, 'utf8'));
+      const { stdout } = await g.done;
+      assert.equal(decision(stdout).permissionDecision, 'deny');
+      assert.deepEqual(runs(56), [{ exit_code: 124, timed_out: 1 }]);
+      // The gate process is gone, so nothing it left pending can kill the member any more.
+      await waitFor(`the SIGTERM-ignoring member ${member} to go`, () => {
+        try {
+          process.kill(member, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+    } finally {
+      g.child.kill('SIGKILL');
+      try {
+        if (member > 0) process.kill(member, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
     }
   });
   it('runs a targeted command with no wait while the slot is held', async () => {
