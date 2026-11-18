@@ -41,7 +41,7 @@ The first bro turn on a project that isn't onboarded runs `/onboard` before any 
 | 4 | Always | Bash sandbox | the sandbox setting |
 | 5 | Always | Opt-in TMB bug reports (flow 5.1) | the consent, no by default |
 | 5b | Always | The project review mode: truest, or agile on a long-lived feature branch ([AGILE.md](AGILE.md)); a stored mode is offered as Keep. Planned (GH 3281): bro recommends the project's mode | the review mode, truest by default and untouched when the round is skipped; planned, agile by default |
-| 5c | Always, one question per registered repo | Each repo's mode: truest, agile, exempt or the project's, bro's recommendation first with its reason, and the repo's current mode marked | each repo's mode |
+| 5c | Always, one question per registered repo | Each repo's mode: truest, agile, exempt or the project's, the server's recommendation from offline facts first with its reason, and the repo's current mode marked; bro's own pick is planned (GH 3320) | each repo's mode |
 | 6 | Per repo, when its PR target has no verification defaults and its environment profile names a lint, typecheck or test command | Which of the [environment profile](ENVIRONMENT.md)'s lint, typecheck and test commands every task runs | a verification-defaults file in the repo's working tree |
 | 7 | Per repo, when docs or prompts paths are detected on its PR target | Whether to class the detected paths as docs and prompts, keep everything code, or keep the current classes; every other path stays code | a path-classes file in the repo's working tree when the Human takes the detected classes |
 
