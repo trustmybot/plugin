@@ -4,7 +4,7 @@ What each plugin-shipped agent is for, what it may and may not do, and why the r
 
 ## Why three roles
 
-The roles are split by what each can be trusted to do without marking its own homework, and by which one survives when something unexpected fires:
+Two things decide the split: what each role can be trusted to do without approving its own work, and which role keeps working when something unexpected happens:
 
 - **bro**, the persona on the main thread, holds the full picture: the system design and alignment with the Human. It has the widest permissions, does everything except coding, is the only agent that talks to the Human, and owns every workflow state change.
 - **swe** codes, split out for three reasons:
@@ -27,8 +27,8 @@ An agent's prompt file is its identity, its skills are its added capabilities, a
 The persona comes from the plugin's `CLAUDE.md`, delivered by hooks; there is no bro agent file.
 
 - **Plans and routes.** Grounds each ask in the trajectory DB and the world model, names the branch, writes the task spec, and provisions the task with its branch and worktree.
-- **Gates tasks.** When swe returns, bro hands the commit to review and spawns code-reviewer. After a pass it judges only the architecture fit and swe's extra paths, and writes or updates the concepts the work changed ([WORLD_MODEL.md](WORLD_MODEL.md)), re-running no checks and re-reviewing no diff, then closes the task in one transaction.
-- **Gates pushes.** It reads the verdict from its recorded row, never from reply text, rebases onto the base when it moved, pushes and opens the PR.
+- **Gates tasks.** When swe returns, bro hands the commit to review and spawns code-reviewer. After a pass it judges only two things: whether the change fits the architecture, and the paths swe edited outside the task's declared files. It runs no check again and reviews no diff again. It writes or updates the concepts the work changed ([WORLD_MODEL.md](WORLD_MODEL.md)), then closes the task in one transaction.
+- **Gates pushes.** It reads the verdict from its recorded row, never from reply text. When the base has moved, it rebases onto it. Then it pushes and opens the PR.
 - **Writes only no-code changes.** When a change touches nothing but the paths the project declares as docs or prompts, bro provisions a no-code task and writes the change itself in that task's worktree. Hooks deny bro's edits to registered repo files anywhere else, and the task's close refuses a diff that touches code. Every code change goes through swe, and code-reviewer gates bro's no-code tasks like any other task, unless the Human waives that task's review ([TASKS.md](TASKS.md#task-lifecycle)). Unregistered sibling repos are outside that guard; [GIT.md](GIT.md#multi-repo-workspaces) explains how a workspace with several repos decides which ones are registered.
 - **Talks to the Human.** Only bro asks the Human questions and reports to them.
 
@@ -40,13 +40,13 @@ The persona comes from the plugin's `CLAUDE.md`, delivered by hooks; there is no
 - **Stops on a hook block.** A deny is a hard stop: swe retries in the form the deny names, or closes failed and quotes the hook to bro.
 - **Hands back.** When the work will not fit its turns, it commits and returns a checkpoint so the next run resumes.
 
-Scope is recorded at the review handoff and judged at close: bro either has the extra paths reverted through swe or accepts them with a recorded reason. code-reviewer reads that record instead of recomputing it.
+Scope is recorded at the review handoff and judged at close: bro either has swe revert the extra paths or accepts them with a recorded reason. code-reviewer reads that record instead of recomputing it.
 
 ## code-reviewer
 
 - **One reviewer per completed task,** spawned after the review handoff and before the close, with the task's anchors only; a preflight hook checks them before the reviewer runs.
 - **Reviews from the records.** It reads the brief, the recorded verification run and the scope record, re-runs none of swe's checks, and spends the review on its own probes of what the diff's dependents rely on.
-- **Signs off with a typed verdict.** The server derives the reviewer's identity itself and refuses a verdict not independent of the swe that wrote the commit.
+- **Signs off with a typed verdict.** The server works out the reviewer's identity itself, and refuses a verdict from a reviewer that is not independent of the swe that wrote the commit.
 - **Never edits files** and never changes task status.
 - **Under agile review mode, reviews once per feature branch.** bro closes each agile task and folds it into the feature branch without a per-task verdict, for code and no-code tasks alike, and code-reviewer reviews the feature branch once, in groups of tasks, before it merges into the working branch. [AGILE.md](AGILE.md) covers every case.
 

@@ -15,7 +15,7 @@ The rules for moving TMB doctrine out of prompts and into code: the layers, what
 | 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context. | Soft — reduces prompt noise; the model can still ignore loaded content. No shipped skill uses it yet. |
 | 6 | **Prompts** | CLAUDE.md, agent prompts, skill prose: the judgment layer. | None — accept the compliance ceiling. |
 
-**Doctrine: prefer the hardest layer that fits.** Layer 6 is the fallback, not the default. Promote a constraint up the stack as soon as the soft layer below misses it.
+**Doctrine: prefer the hardest layer that fits.** Layer 6 is the fallback, not the default. Move a constraint to a harder layer as soon as the softer layer it sits in fails to enforce it.
 
 The layers stack: a rule a prompt states should also be caught by a harder layer, so a dropped prompt line fails loudly (a block, a rejection) instead of silently. Layers 1 and 4 hold in every host configuration; layer 2 depends on the host firing the plugin's hooks.
 
@@ -33,7 +33,7 @@ Recognizable by the verb. **Anything that is *classifying*, *composing*, or *wei
 | **Synthesize from novel context** | Roundtable participant arguments, code review qualitative assessment, consultant-style analysis |
 | **Recognize patterns in unfamiliar input** | "Does this diff match the spec?" "Is this a regression in the diff?" |
 
-These have no deterministic substitute: the criteria require contextual judgment over an open-ended input space.
+Code cannot replace these: each needs judgment in context, and the possible inputs are open-ended.
 
 ## What migrates out of layer 6
 
@@ -55,8 +55,8 @@ Recognizable by mechanism. **Anything that is *sequencing*, *defaulting*, *const
 For every numbered step or imperative in a skill, agent file, or CLAUDE.md:
 
 1. **Strike the verb.** Is what remains a *fact about the world* (file exists, role has access, value is X)? → migrate. Is it a *judgment* (is this good, what should I write)? → keep.
-2. **Imagine the LLM dropping this line.** Does the workflow break in a deterministic way (test fails, hook blocks, server rejects)? If not, determinism is missing — build the safety net so the prose isn't the safety net.
-3. **Count the steps.** Multi-step workflows have compound failure: at per-step adherence p, an N-step procedure succeeds with probability pᴺ.
+2. **Imagine the LLM dropping this line.** Does the workflow break in a deterministic way (test fails, hook blocks, server rejects)? If not, only the prose guards against the mistake: build a check that catches it.
+3. **Count the steps.** Failures compound in a multi-step workflow: if the model follows each step with probability p, an N-step procedure succeeds with probability pᴺ.
 
 | N (steps) | P(success) at p=0.95 | P(success) at p=0.90 |
 |---:|---:|---:|
@@ -65,7 +65,7 @@ For every numbered step or imperative in a skill, agent file, or CLAUDE.md:
 | 5 | 77% | 59% |
 | 7 | 70% | 48% |
 
-A composite collapses N → 1: one call decision, deterministic execution.
+A composite turns N steps into one: the model decides once to make the call, and code runs the steps.
 
 ## Coverage matrix
 
