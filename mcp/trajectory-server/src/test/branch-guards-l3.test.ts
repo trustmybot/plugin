@@ -3,7 +3,8 @@
  * node:test. stay-on-base-guard denies a checkout or switch of an open task's
  * branch from the main checkout; branch-up-to-date-with-remote denies attaching
  * a worktree to a branch behind origin/<pr_target>; no-worktree-branch-create
- * denies `git worktree add -b/-B/--create-branch/--detach`;
+ * denies `git worktree add -b/-B/--create-branch`, and `--detach` from any role
+ * but bro;
  * require-feature-branch-active denies a swe spawn whose task branch does not
  * exist. Each case runs `node dist/hooks.js <gate>` with CLAUDE_PROJECT_DIR
  * pinned to the sandbox and PWD set.
@@ -262,6 +263,9 @@ describe('no-worktree-branch-create l3', () => {
 
   const run = (tool: string, cmd: string, env?: NodeJS.ProcessEnv) =>
     gate(sb, 'no-worktree-branch-create', { tool_name: tool, tool_input: { command: cmd } }, { cwd: sb.dir, db, env });
+  /** A Bash call by <role>, named as `agent_type` the way Claude Code names a subagent. */
+  const runAs = (role: string, cmd: string, env?: NodeJS.ProcessEnv) =>
+    gate(sb, 'no-worktree-branch-create', { tool_name: 'Bash', tool_input: { command: cmd }, agent_type: role }, { cwd: sb.dir, db, env });
 
   it('non-Bash tool: silent pass', () => silent(run('Edit', 'whatever'), 'non-Bash ignored'));
   it('Bash, non-worktree command: silent pass', () => silent(run('Bash', 'ls -la'), 'non-worktree command ignored'));
@@ -283,16 +287,28 @@ describe('no-worktree-branch-create l3', () => {
   it('TMB_ALLOW_WORKTREE_BRANCH_CREATE bypass: pass even on -B', () =>
     silent(run('Bash', 'git worktree add -B foo .claude/worktrees/x HEAD', { TMB_ALLOW_WORKTREE_BRANCH_CREATE: '1' }), 'env bypass works'));
 
-  it('#2869: git worktree add --detach path branch: BLOCK', () => {
-    const out = run('Bash', 'git worktree add --detach .claude/worktrees/x fix/foo');
+  it('#2869: swe git worktree add --detach path branch: BLOCK', () => {
+    const out = runAs('swe', 'git worktree add --detach .claude/worktrees/x fix/foo');
     has(out, DENY, 'deny on --detach');
     has(out, 'strands SWE', 'reason cites #2869 doctrine');
+    has(out, 'only bro may add a detached worktree', 'reason names who may detach');
   });
+
+  for (const role of ['tmb:swe', 'code-reviewer', 'security-consultant', 'some-new-role']) {
+    it(`GH 1827: ${role} git worktree add --detach: BLOCK (only bro is allowed)`, () =>
+      has(runAs(role, 'git worktree add --detach .claude/worktrees/x fix/foo'), 'strands SWE', `${role} denied with the detach reason`));
+  }
+
+  it('GH 1827: bro git worktree add --detach path commit: silent pass', () =>
+    silent(run('Bash', 'git worktree add --detach .claude/worktrees/timing 0123abc'), "bro's read-only detached checkout allowed"));
+
+  it('GH 1827: bro git worktree add -b NAME --detach: BLOCK on branch-create', () =>
+    has(run('Bash', 'git worktree add -b feat/x --detach .claude/worktrees/x'), 'Branch authority belongs to bro', 'branch-create still denies bro'));
 
   it('#2869: git worktree add (no --detach): silent pass', () => silent(run('Bash', 'git worktree add .claude/worktrees/y fix/bar'), 'plain worktree add allowed'));
 
   it('#2869: TMB_ALLOW_WORKTREE_DETACH bypass: pass even with --detach', () =>
-    silent(run('Bash', 'git worktree add --detach .claude/worktrees/x fix/foo', { TMB_ALLOW_WORKTREE_DETACH: '1' }), 'detach bypass works'));
+    silent(runAs('swe', 'git worktree add --detach .claude/worktrees/x fix/foo', { TMB_ALLOW_WORKTREE_DETACH: '1' }), 'detach bypass works'));
 
   it('GH 1196: heredoc mentioning git worktree add -b: silent pass', () =>
     silent(run('Bash', heredoc('git worktree add -b foo .claude/worktrees/x')), 'heredoc content is not a worktree add'));
@@ -307,7 +323,7 @@ describe('no-worktree-branch-create l3', () => {
 
   it('no DB (not a TMB project): pass even on --detach', () => {
     rmSync(db);
-    silent(run('Bash', 'git worktree add --detach .claude/worktrees/x fix/foo'), 'no DB = not TMB = allow detach too');
+    silent(runAs('swe', 'git worktree add --detach .claude/worktrees/x fix/foo'), 'no DB = not TMB = allow detach too');
   });
 });
 
