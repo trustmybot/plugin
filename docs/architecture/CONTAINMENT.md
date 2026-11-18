@@ -4,7 +4,7 @@ TMB writes nothing outside the project it runs in, whatever scope it is installe
 
 ## The invariant
 
-- **Writes stay in the project.** Nothing is created, changed or deleted under the user's home directory: no Claude Code config, no marker, no log, no lock. A project without TMB state gets nothing written at all; gates still run and allow.
+- **Writes stay in the project.** Nothing is created, changed or deleted under the user's home directory: no Claude Code config, no marker, no log, no lock. Installing TMB is the agreement to its writes: in any folder where the plugin is enabled, the server creates the project's state folder and trajectory DB at session start, and each repo gets one ignore line. So TMB installs per project; a user-scope install writes that state into every folder a session opens ([INSTALL.md](INSTALL.md)).
 - **Reads outside the project are read-only and named.** Hooks read Claude Code's plugin install registry, to find which install serves the project, and its user settings, to warn about duplicate copies and leftover hooks. They never write either.
 - **A user project's `CLAUDE.md` is never written**, with one exception: a cheatcode the Human approved and attached to bro adds one reference line to the project's `CLAUDE.md`, and its uninstall removes that line. bro's persona reaches a session as injected context.
 - **No context or effort settings.** TMB never changes Claude Code's context, model or effort settings. Token savings come from TMB's own design, not from changing how the user's Claude Code runs.
@@ -22,7 +22,7 @@ Three exceptions, each declared once:
 Everything sits in the project's state directory: the trajectory DB, logs, short-lived session markers and the locks that dedupe hook calls. Markers and locks are pruned on a timer. Outside that directory TMB writes only these:
 
 - task worktrees, under the project;
-- one ignore line per repo, added at session start, that keeps the project's Claude folder out of commits;
+- one ignore line per repo, added at session start. Today it ignores the project's whole Claude folder, which also hides a team install's shared settings, agents and skills from commits; planned (GH 3260): it ignores only TMB's own state, the local settings and the task worktrees;
 - the agent, skill and cheatcode files the Human approved one by one;
 - after a yes during onboarding, the optional headless enforcement shim and the sandbox settings in the project's local Claude Code settings, each entry stamped as TMB's.
 
