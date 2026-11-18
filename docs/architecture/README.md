@@ -44,7 +44,7 @@ Looking for one answer instead?
 | Which agent may do Z? | [RESPONSIBILITIES.md](RESPONSIBILITIES.md) |
 | What does an agent see at the start of a turn? | [MEMORY.md](MEMORY.md) |
 | How does bro know where code lives? | [WORLD_MODEL.md](WORLD_MODEL.md) |
-| How do several sessions work in parallel without colliding? | [LANES.md](LANES.md) |
+| How are several sessions working in parallel recorded? | [LANES.md](LANES.md) |
 | Which branch is the work on, and which repo? | [GIT.md](GIT.md) |
 | May TMB write to this path? | [CONTAINMENT.md](CONTAINMENT.md) |
 | How does bro add a published skill or MCP server? | [CHEATCODES.md](CHEATCODES.md) |
@@ -61,7 +61,7 @@ Looking for one answer instead?
 - [ENVIRONMENT.md](ENVIRONMENT.md) — How bro learns and caches a repo's install, test and lint commands, with the repo as the source of truth.
 - [TASKS.md](TASKS.md) — Every case of a task from ask to merge: the code task and the non-code task with each step's owner, the push gate both share, retry and escalation, PR comment triage, the quality-layer rules, and debugging a stuck task.
 - [TRAJECTORY.md](TRAJECTORY.md) — Planned: how sessions, agent runs, hook runs and verification runs each record a start, an end and a parent, so a hang or a dead run can be found from the records.
-- [LANES.md](LANES.md) — Planned: every case of flow 3.8, how parallel lanes run as nested sessions, with issue ownership, conflict checks, the merge choice and the merge queue.
+- [LANES.md](LANES.md) — Planned: every case of flow 3.8, how parallel Claude sessions are recorded as lanes, with issue ownership and a review mode per lane, and what TMB leaves to Claude and the hosting service.
 - [AGILE.md](AGILE.md) — Agile review mode (shipped for the project; lane review modes planned): where the review mode is set, the long-lived feature branch agile tasks fold into without a per-task review, the grouped review of that branch, the gate on its one PR into the working branch, and how a mode switch treats tasks already closed.
 - [ISSUES.md](ISSUES.md) — Planned: the six groups of issue labels, the rules for each, and how a project makes the scheme its own.
 - [EXTENDING.md](EXTENDING.md) — How a project gains agents, skills, consultants and roundtables, and what each path refuses.
