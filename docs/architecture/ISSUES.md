@@ -48,6 +48,15 @@ flowchart TD
 - **Unsure means unset.** An agent that cannot tell the type or the area leaves it off, and the issue stays marked for triage. A wrong label hides an issue from every later search; a missing one is found.
 - **A new theme or status needs the Human.** Those two groups are the ones that grow without limit, so bro proposes a new value and the Human approves it.
 
+## One board, two authors
+
+A person and bro both file issues, and they know different things. A person knows what they saw and how badly it blocks them. bro knows the part of the code, the versions, the steps and the exact output.
+
+- **A form asks a person only what they know.** Each issue form requires its opening questions, written in plain words, and nothing that needs knowledge of the project's internals. Everything else is optional.
+- **bro supplies the rest.** A report bro drafts fills every field, and the Human reviews it before it is filed. An issue a person files with fields left empty is completed at triage, by bro or the Human.
+- **Both authors produce the same issue.** One field list serves the web form and bro's draft, so the two read the same and are triaged by the same rules.
+- **An empty answer is honest.** A field a person cannot answer stays empty and the issue is marked for triage, by the same rule as a label: a wrong answer misleads every later reader, a missing one is filled in.
+
 ## A project makes it its own
 
 - **A project starts with labels that work.** TMB ships a ready environment, and labels are part of it: with no knowledge of a project, bro cannot invent good ones. So every group has a shipped default, and a new project can file and find issues from its first session.
@@ -69,6 +78,7 @@ flowchart TD
 |---|---|
 | A type, a priority and an area list per project, with one of each required on a new issue | Shipped |
 | Area inferred from the paths an issue names | Shipped |
+| Issue forms that require only their opening questions | Shipped |
 | Status, decision and theme groups | Planned (GH 3314) |
 | One value per group enforced for type, priority, status and decision; several areas allowed | Planned (GH 3314); today a new issue needs at least one type and priority and exactly one area |
 | Lower-case names with a slash | Planned (GH 3314); today's defaults are capitalised, with a colon and a space |
