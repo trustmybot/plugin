@@ -258,7 +258,7 @@ flowchart LR
 
 ### 4.5 Roundtable
 
-The Human opens a table on a topic, 2–5 consultants each take a position, and the Human ratifies the outcome.
+The Human opens a table on a topic, 2–5 consultants each take a position, and the Human ratifies the outcome. Planned (GH 3360): the roundtable is cut; consultants stay.
 
 ```mermaid
 flowchart LR

@@ -1450,7 +1450,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 
 ## Eval mode
 
-Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MODE=1`; production DBs do not carry these tables.
+Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MODE=1`; production DBs do not carry these tables. Planned (GH 3360): eval mode moves to the research repo.
 
 #### `debug_trajectory`
 

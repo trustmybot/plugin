@@ -24,7 +24,7 @@ Everything sits in the project's state directory: the trajectory DB, logs, short
 - task worktrees, under the project;
 - one ignore line per repo, added at session start. Today it ignores the project's whole Claude folder, which also hides a team install's shared settings, agents and skills from commits; planned (GH 3260): it ignores only TMB's own state, the local settings and the task worktrees;
 - the agent, skill and cheatcode files the Human approved one by one;
-- after a yes during onboarding, the optional headless enforcement shim and the sandbox settings in the project's local Claude Code settings, each entry stamped as TMB's.
+- after a yes during onboarding, the optional headless enforcement shim and the sandbox settings in the project's local Claude Code settings, each entry stamped as TMB's. Planned (GH 3360): the headless shim is cut.
 
 ## Tests never touch the live DB
 
