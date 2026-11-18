@@ -17,13 +17,14 @@
  * not parse, or whose code the analysis cannot read, is denied only when its
  * text names one of the forms. A git statement whose subcommand, `-c` key,
  * push option or config key comes from an expansion or the words a $( ) cut
- * off is denied as it stands (fail closed). Outside an agent session nothing is gated, and
+ * off is denied as it stands (fail closed), save a `git config` that a literal
+ * read form makes a read and whose expansions are all double-quoted. Outside an agent session nothing is gated, and
  * every deny first asks standsDownFor, which stands down in an exempt repo,
  * for the repo its form lands in.
  */
 import type { Node } from 'web-tree-sitter';
 import { ALLOW, type Gate } from './gate.js';
-import { cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot, unquotedCommand, writePaths, type Statement } from './cmd-analysis/index.js';
+import { cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot, unquotedCommand, unquotedExpansions, writePaths, type Statement } from './cmd-analysis/index.js';
 import { bashParser } from './cmd-analysis/parser.js';
 import { ASSIGNMENT, splitWords, unwrap } from './cmd-analysis/unwrap.js';
 import { dbPath } from './lib/db.js';
@@ -249,24 +250,8 @@ const CONFIG_WRITE_OPTIONS = new Set(['--add', '--replace-all', '--unset', '--un
 const CONFIG_READ_OPTIONS = new Set(['--get', '--get-all', '--get-regexp', '--get-urlmatch', '--get-color', '--get-colorbool', '-l', '--list']);
 const CONFIG_VALUE_OPTIONS = new Set(['-f', '--file', '--blob', '-t', '--type', '--default', '--comment', '--value', '--url']);
 
-/**
- * The finding one `git config …` (<sub>, from `config` on) makes. An unknown
- * word before the key, or an unknown key, could itself be a hook key or an
- * action, so it is unresolved; an unknown word after a literal key is a value.
- */
-function configFinding(sub: readonly string[]): Finding {
-  const shown = `\`git ${sub.join(' ')}\``;
-  const unknownAt = sub.findIndex(isUnknownWord);
-  if (unknownAt > 0) {
-    const key = sub.slice(1, unknownAt).find((word, k, before) => !word.startsWith('-') && !CONFIG_VALUE_OPTIONS.has(before[k - 1] ?? '') && !CONFIG_WRITE_ACTIONS.has(word) && !CONFIG_READ_ACTIONS.has(word));
-    if (key === undefined) return { unresolved: `${shown} takes its key, an action or an option before the key from ${sub[unknownAt]}` };
-  }
-  const form = configForm(sub, shown);
-  return form === '' ? null : { form };
-}
-
-/** The form one `git config …` (<sub>, from `config` on) makes, its words read as literal. */
-function configForm(sub: readonly string[], shown: string): string {
+/** What the literal words of one `git config …` (<sub>, from `config` on) ask for: its action, the words after it, and whether a write or read form is named. */
+function configMode(sub: readonly string[]): { action: string; positional: string[]; write: boolean; read: boolean } {
   const positional: string[] = [];
   let write = false;
   let read = false;
@@ -283,6 +268,44 @@ function configForm(sub: readonly string[], shown: string): string {
   const action = positional.length > 0 && (CONFIG_WRITE_ACTIONS.has(positional[0]) || CONFIG_READ_ACTIONS.has(positional[0])) ? (positional.shift() as string) : '';
   if (CONFIG_WRITE_ACTIONS.has(action)) write = true;
   else if (action !== '') read = true;
+  return { action, positional, write, read };
+}
+
+/**
+ * Whether one `git config …` (<sub>) is a read whatever its expanded words
+ * hold (decision #420): a literal read action or option names it, no literal
+ * write form does, the action slot right after `config` is literal, and every
+ * expanded word is double-quoted (<loose>[k] false), so none can split into an
+ * option or a second action.
+ */
+function isQuotedRead(sub: readonly string[], loose: readonly boolean[] | null): boolean {
+  if (loose === null || isUnknownWord(sub[1] ?? '')) return false;
+  const mode = configMode(sub);
+  return mode.read && !mode.write && sub.every((word, k) => !isUnknownWord(word) || loose[k] === false);
+}
+
+/**
+ * The finding one `git config …` (<sub>, from `config` on) makes; <loose>
+ * tells, per word, whether bash may split it (null when unknown). A quoted
+ * read passes. Otherwise an unknown word before the key, or an unknown key,
+ * could itself be a hook key or an action, so it is unresolved; an unknown
+ * word after a literal key is a value.
+ */
+function configFinding(sub: readonly string[], loose: readonly boolean[] | null): Finding {
+  if (isQuotedRead(sub, loose)) return null;
+  const shown = `\`git ${sub.join(' ')}\``;
+  const unknownAt = sub.findIndex(isUnknownWord);
+  if (unknownAt > 0) {
+    const key = sub.slice(1, unknownAt).find((word, k, before) => !word.startsWith('-') && !CONFIG_VALUE_OPTIONS.has(before[k - 1] ?? '') && !CONFIG_WRITE_ACTIONS.has(word) && !CONFIG_READ_ACTIONS.has(word));
+    if (key === undefined) return { unresolved: `${shown} takes its key, an action or an option before the key from ${sub[unknownAt]}` };
+  }
+  const form = configForm(sub, shown);
+  return form === '' ? null : { form };
+}
+
+/** The form one `git config …` (<sub>, from `config` on) makes, its words read as literal. */
+function configForm(sub: readonly string[], shown: string): string {
+  const { action, positional, write, read } = configMode(sub);
   if (action === 'edit' || sub.includes('-e') || sub.includes('--edit')) return `${shown}, which edits a git config file`;
   // `git config <key> <value>` sets; one positional alone reads.
   if (!write && (read || positional.length < 2)) return '';
@@ -334,7 +357,11 @@ function gitForm(s: Statement): Finding {
     const unknown = options.find(isUnknownWord);
     if (unknown !== undefined) return { unresolved: `\`git ${args.join(' ')}\` takes an argument from ${unknown}, which may be --no-verify` };
   }
-  if (args[0] === 'config') return configFinding(args);
+  if (args[0] === 'config') {
+    // A cut statement's words do not line up with its source, so its split is unknown.
+    const loose = s.cut === undefined ? unquotedExpansions(s) : null;
+    return configFinding(args, loose === null ? null : loose.slice(loose.length - args.length));
+  }
   return null;
 }
 

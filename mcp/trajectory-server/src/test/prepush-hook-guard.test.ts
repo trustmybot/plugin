@@ -122,6 +122,14 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
     ['(b) a -c key from a variable', 'git -c "$KV" push', /`git -c \$KV` takes its config key from \$KV/],
     ['(b) a hook key whose -c value expands unquoted', 'git -c hook.tmb.enabled=$V push', /takes git's subcommand, or an option before it/],
     ['(b) an unquoted -c value bash may split into a hook key', 'git -c color.ui=$C push', /takes git's subcommand, or an option before it/],
+    // F101-2 / decision #420: an expanded config word passes only in a literal read with every expansion double-quoted;
+    // the writes above (`"$K" false`, `$(echo false)`) and the expanded pushes stay denied.
+    ['(d) a config read with an unquoted expansion', 'git config --get $KEY', /takes its key, an action or an option before the key from \$KEY/],
+    ['(d) a config read with an unquoted file argument', 'git config -f $F --list', /from \$F/],
+    ['(d) a literal read form beside a literal write form', 'git config --get --unset "$K"', /from \$K/],
+    ['(d) an expanded word in the action slot', 'git config "$A" --get hook.tmb.enabled', /from \$A/],
+    ['(global) an unquoted -C dir', 'git -C $WT log', /takes git's subcommand, or an option before it/],
+    ['(global) an unquoted --work-tree value', 'git --work-tree=$W status', /takes git's subcommand, or an option before it/],
   ];
   for (const [name, command, phrase] of unresolved) {
     it(name, async () => assertDenied(command, phrase));
@@ -149,6 +157,17 @@ describe('prepush-hook-guard allows ordinary use (SC9)', () => {
     'git config --get hook.tmb.command',
     'git config hook.tmb.command',
     'git config --list',
+    // SC9 (decision #420): a literal read form makes a git config with double-quoted expansions a read.
+    'git config --get "$KEY"',
+    'git config get "$K"',
+    'git config --get remote."$R".url',
+    'git config --get-regexp "$PAT"',
+    'git config -f "$F" --list',
+    'git config --list --file "$F"',
+    'git config --type=bool --get "$K"',
+    'git config --get-all "$K"',
+    'git config -l -f "$F"',
+    'git config --get "$(echo hook.tmb.command)"',
     'git -c color.ui=never log --oneline',
     'git hook list pre-push',
     'cat .git/config',
