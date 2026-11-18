@@ -78,7 +78,11 @@ To remove them:
 
 - **Advisory, never blocking.** Session start checks health, required tools, leftovers from older versions and the project inventory. When something is broken, a degraded banner names it and the session goes on. The gates still fail closed while the trajectory DB is unhealthy or unmigrated ([MEMORY.md](MEMORY.md)), so the work waits until the health check is green. The required tools are Node with its built-in SQLite, and git. A project whose repos have no remote gets one line saying TMB is operating locally and skips remote and push steps; that is not degraded.
 - **One compact nudge.** Once per session, when bro's context passes a configurable token threshold (off when set to zero), bro gets one line suggesting /compact at the next natural break. The compaction restore brings back the session's open issues, newest first up to a fixed limit with the counts of the rest, the current issue, its tasks and the newest decision.
-- **The pre-push hook.** On git 2.54 or newer, session start installs TMB's pre-push hook from the repo's own git config in the project's repo and every registered repo, beside any hook already there, and marks the agent's shell so the hook acts only on an agent's push; `cli.js prepush-uninstall [--repo <path>]` removes it.
+- **The pre-push hook.** On git 2.54 or newer, session start installs TMB's pre-push hook from the repo's own git config in the project's repo and every registered repo, beside any hook already there, and marks the agent's shell so the hook acts only on an agent's push; `cli.js prepush-uninstall [--repo <path>]` removes it from one repo.
+- **The pre-push switch.** `TMB_DISABLE_PREPUSH_INSTALL=1` turns the hook off in every repo session start would install it in, on three conditions:
+  - *Never silent.* Each session start prints one notice that names the switch and `prepush-uninstall`.
+  - *Fails safe.* Session start removes any installed TMB hook from those repos, so no live hook remains, and the command-text push judge stays on. Each observed push records that the switch was set.
+  - *Only the Human sets it.* An agent's command that names the switch, or an agent's edit that writes it into the session's environment file, a `.claude` settings file or a shell profile, is denied. An agent may still read it with a plain grep, cat or echo.
 - **Which DB.** The session uses the project's trajectory DB; [MEMORY.md](MEMORY.md#where-the-trajectory-db-lives) gives the rule that finds it.
 
 ## Debugging

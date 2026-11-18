@@ -28,6 +28,15 @@ export interface PrepushHookLive {
   readonly command_matches: boolean;
   /** That script exists and holds PREPUSH_MARKER. */
   readonly script_intact: boolean;
+  /** The Human set PREPUSH_SWITCH, so session start removes the hook instead of installing it. */
+  readonly switched_off: boolean;
+}
+
+/** The Human's switch that keeps the hook out: session start removes it from each repo it would install in. */
+export const PREPUSH_SWITCH = 'TMB_DISABLE_PREPUSH_INSTALL';
+
+export function prepushSwitchedOff(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[PREPUSH_SWITCH] === '1';
 }
 
 /** The plugin's own dist/cli.js, the absolute path the script runs. */
@@ -155,7 +164,7 @@ function enabledLine(line: string, name: string): boolean {
   return fields[fields.length - 1] === name && !fields.includes('disabled') && !fields.includes('event-disabled');
 }
 
-/** Whether TMB's pre-push hook is live in the checkout at <cwd>: listed and enabled, its command the expected script, the script intact. */
+/** Whether TMB's pre-push hook is live in the checkout at <cwd>: listed and enabled, its command the expected script, the script intact, and whether the switch is set. */
 export async function prepushHookLive(cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<PrepushHookLive> {
   const listing = await gitRun(cwd, ['hook', 'list', '--show-scope', 'pre-push'], env);
   const listed = listing.code === 0 && listing.stdout.split('\n').some((line) => enabledLine(line, HOOK_NAME));
@@ -167,5 +176,6 @@ export async function prepushHookLive(cwd: string, env: NodeJS.ProcessEnv = proc
     listed,
     command_matches: expected !== '' && command === expected,
     script_intact: script !== null && script.split('\n').includes(PREPUSH_MARKER),
+    switched_off: prepushSwitchedOff(env),
   };
 }

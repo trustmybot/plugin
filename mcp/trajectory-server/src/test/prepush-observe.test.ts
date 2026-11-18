@@ -14,13 +14,16 @@ import { commit, DENY, GATE, gateEnv, git, initRepo, newDb, signTask, sql } from
 
 interface Observed {
   repo: string;
+  source: string;
+  deny_class: string | null;
+  command_form: string | null;
   remote: string;
   refs: { local_ref: string; local_sha: string; remote_ref: string; remote_sha: string }[];
   hook_verdict: string;
   reason: string;
   legacy_verdict: string;
   agree: boolean;
-  hook_live: { listed: boolean; command_matches: boolean; script_intact: boolean };
+  hook_live: { listed: boolean; command_matches: boolean; script_intact: boolean; switched_off: boolean };
   session_id: string | null;
 }
 
@@ -65,11 +68,11 @@ function rows(db: string): { from_node: string; issue_id: number; content: Obser
   }
 }
 
-function guard(repo: string, db: string, command: string): string {
+function guard(repo: string, db: string, command: string, extraEnv: NodeJS.ProcessEnv = {}): string {
   const r = runGate(GATE, {
     cwd: repo,
     input: JSON.stringify({ tool_input: { command }, session_id: 'sess-1' }),
-    env: { ...gateEnv(sb, repo), TRAJECTORY_DB_PATH: db },
+    env: { ...gateEnv(sb, repo), TRAJECTORY_DB_PATH: db, ...extraEnv },
   });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
@@ -100,7 +103,20 @@ describe('git-push-guard deny path records the hook judge beside it (SC6)', () =
     assert.equal(row.content.remote, 'origin');
     assert.equal(row.content.session_id, 'sess-1');
     assert.deepEqual(row.content.refs, [{ local_ref: 'refs/heads/fix/b', local_sha: tip, remote_ref: 'refs/heads/fix/b', remote_sha: ZERO }]);
-    assert.deepEqual(row.content.hook_live, { listed: false, command_matches: false, script_intact: false });
+    assert.deepEqual(row.content.hook_live, { listed: false, command_matches: false, script_intact: false, switched_off: false });
+    assert.equal(row.content.source, 'legacy_deny');
+    assert.equal(row.content.deny_class, null);
+    assert.equal(row.content.command_form, null);
+  });
+
+  it('with TMB_DISABLE_PREPUSH_INSTALL=1 the command-text judge still denies an unreviewed push, and the row says switched_off', () => {
+    const { repo, db } = setup();
+    const sha = commit(sb.env, repo, 'feat: s', { 's.txt': 's\n' });
+    addTask(db, 8, 'fix/s', sha);
+    assert.ok(guard(repo, db, 'git push origin main', { TMB_DISABLE_PREPUSH_INSTALL: '1' }).includes(DENY));
+    const [row] = rows(db);
+    assert.equal(row.content.legacy_verdict, 'deny');
+    assert.equal(row.content.hook_live.switched_off, true);
   });
 
   it('both judges deny an unreviewed push to a protected branch: agree true, remote sha from origin/main', () => {
@@ -169,6 +185,7 @@ describe('observePush: the error verdicts (SC5)', () => {
     assert.equal(r.ok, true);
     const [row] = rows(db);
     assert.equal(row.from_node, 'hook:pre-push');
+    assert.equal(row.content.source, 'pre_push');
     assert.equal(row.content.hook_verdict, 'error');
     assert.match(row.content.reason, /could not read git's ref lines on stdin \(EAGAIN\)/);
     assert.equal(row.content.agree, false);

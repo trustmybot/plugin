@@ -111,17 +111,23 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
   // F101-1: a git word whose value bash only knows when it runs is judged unknown, never as its literal text.
   const unresolved: readonly (readonly [string, string, string | RegExp])[] = [
     ['(d) a hook key set from a $( ) that cut the statement', 'git config hook.tmb.enabled $(echo false)', 'which writes hook.tmb.enabled'],
-    ['(a) a push option from a $( )', 'git push $(echo --no-verify)', /cannot tell what this git command runs: `git push \$\(…\)`/],
-    ['(a) a push option from a backtick', 'git push origin `echo --no-verify`', /`git push origin \$\(…\)` takes an argument from/],
-    ['(a) a push option from a variable', 'x=--no-verify; git push $x', /`git push \$x` takes an argument from \$x, which may be --no-verify/],
-    ['(a) a push option from a quoted variable', 'git push origin "$BR"', /takes an argument from \$BR/],
-    ['(a) a push option from a brace pattern', 'git push origin {--no-verify,main}', /takes an argument from \{--no-verify,main\}/],
-    ['(d) a config key from a variable', 'git config "$K" false', /takes \$K with no literal read form/],
-    ['(d) a config key glued to a $( )', 'git config h$(echo ook.tmb.enabled) false', /takes h\$\(…\) with no literal read form/],
+    // SC3 (c): a push with any expansion but a double-quoted -C, --git-dir or --work-tree value fails closed.
+    ['(a) a push option from a $( )', 'git push $(echo --no-verify)', /`git push \$\(…\)` takes \$\(…\), which bash expands when it runs: its value may be --no-verify/],
+    ['(a) a push option from a backtick', 'git push origin `echo --no-verify`', /`git push origin \$\(…\)` takes \$\(…\), which bash expands/],
+    ['(a) a push option from a variable', 'x=--no-verify; git push $x', /`git push \$x` takes \$x, which bash expands when it runs: its value may be --no-verify/],
+    ['(a) a push option from a quoted variable', 'git push origin "$BR"', /takes \$BR, which bash expands/],
+    ['(a) a push option from a brace pattern', 'git push origin {--no-verify,main}', /takes \{--no-verify,main\}, which bash expands/],
+    ['(c) a push refspec from a quoted variable after --', 'git push origin -- "$BR"', /`git push origin -- \$BR` takes \$BR, which bash expands/],
+    ['(c) a push with a quoted -C and an expanded refspec', 'git -C "$WT" push origin "$BR"', /takes \$BR, which bash expands/],
+    ['(c) a push with a quoted value of another global option', 'git --namespace="$NS" push origin main', /takes --namespace=\$NS, which bash expands/],
+    ['(c) a push behind a wrapper holding an expansion', 'sudo -u "$U" git push origin main', /takes git's subcommand, or an option before it, from text the guard cannot read literally/],
+    ['(d) a config key from a variable', 'git config "$K" false', /takes \$K before the key/],
+    ['(d) a config key glued to a $( )', 'git config h$(echo ook.tmb.enabled) false', /takes h\$\(…\) before the key/],
     ['(d) a config action from a variable', 'git config "$ACTION" hook.tmb.enabled', 'which writes hook.tmb.enabled'],
-    ['(b) a -c key from a variable', 'git -c "$KV" push', /`git -c \$KV` takes its config key from \$KV/],
-    ['(b) a hook key whose -c value expands unquoted', 'git -c hook.tmb.enabled=$V push', /takes git's subcommand, or an option before it/],
-    ['(b) an unquoted -c value bash may split into a hook key', 'git -c color.ui=$C push', /takes git's subcommand, or an option before it/],
+    ['(b) a -c key from a variable', 'git -c "$KV" push', /`git -c \$KV push` takes \$KV, which bash expands/],
+    ['(b) a -c key from a variable on another subcommand', 'git -c "$KV" status', /`git -c \$KV` takes its config key from \$KV/],
+    ['(b) a hook key whose -c value expands unquoted', 'git -c hook.tmb.enabled=$V push', '`git -c hook.tmb.enabled=$V` would skip'],
+    ['(b) an unquoted -c value bash may split into a hook key', 'git -c color.ui=$C push', 'Allowed form: git -c color.ui="$C" push'],
     // F101-3 / F101-4 / decision #423: an expanded config word passes only in a read whose literal read form follows
     // fully spelled known literal options, and whose expansions after it are double-quoted single words.
     ['(d) a config read with an unquoted expansion', 'git config --get $KEY', /takes \$KEY unquoted, which bash may split/],
@@ -134,7 +140,7 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
     ['(d) a quoted file argument glued with =', 'git config --file="$F" --list', /takes --file=\$F before a literal read form/],
     ['(d) a quoted expansion after a quoted file argument, before the read form', 'git config -f "$F" "$O" --get hook.tmb.enabled false', 'which writes hook.tmb.enabled'],
     ['(d) a quoted expansion after a quoted file argument, no hook key named', 'git config -f "$F" "$O" --get "$K"', /takes \$O before a literal read form/],
-    ['(d) a quoted value option argument with no read form', 'git config -f "$F" user.name x', /takes \$F with no literal read form/],
+    ['(d) a quoted value option argument with no read form', 'git config -f "$F" user.name x', /takes -f, which is not an option a config write with an expansion may carry before its key/],
     ['(d) a quoted value option argument beside a literal write form', 'git config -f "$F" --get --unset "$K"', /takes \$F beside a literal write form/],
     ['(d) a literal read form beside a literal write form', 'git config --get --unset "$K"', /takes \$K beside a literal write form/],
     // Options end at the first other word, so a word before --get makes it a value: `"$O"` there may be --comment.
@@ -156,11 +162,17 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
     ['(d) "$@" after the read form', 'git config --get "$@"', /takes \$@, which may stand for several words/],
     ['(d) "${a[@]}" after the read form', 'git config --get "${a[@]}"', /takes \$\{a\[@\]\}, which may stand for several words/],
     ['(d) "$*" after the read form', 'git config --get "$*"', /takes \$\*, which may stand for several words/],
-    ['(d) a get action not right after config', 'git config --global get "$K"', /takes \$K with no literal read form/],
-    ['(d) a write with a quoted value', 'git config user.name "$NAME"', /takes \$NAME with no literal read form/],
-    ['(d) a write with a value from a $( )', 'git config user.name $(whoami)', /takes \$\(…\) with no literal read form/],
-    ['(global) an unquoted -C dir', 'git -C $WT log', /takes git's subcommand, or an option before it/],
-    ['(global) an unquoted --work-tree value', 'git --work-tree=$W status', /takes git's subcommand, or an option before it/],
+    ['(d) a get action not right after config', 'git config --global get "$K"', /takes get where a literal key belongs/],
+    // SC3 (d): an expanded config write passes only with literal allowlisted options and a literal, non-hook key before it.
+    ['(d) a write with a value from a $( )', 'git config user.name $(whoami)', /takes an expansion in words the guard cannot line up/],
+    ['(d) a write with an unquoted value', 'git config user.name $NAME', /takes \$NAME unquoted, which bash may split into options/],
+    ['(d) a write through the set action', 'git config set user.name "$NAME"', /takes set where a literal key belongs/],
+    ['(d) a write with "$@" after the key', 'git config user.name "$@"', /takes \$@, which may stand for several words/],
+    ['(d) a write with an option off the allowlist before the key', 'git config --comment x user.name "$NAME"', /takes --comment, which is not an option a config write/],
+    ['(d) a write with an expanded --type value', 'git config --type "$T" user.name "$NAME"', /takes the value of --type from \$T/],
+    ['(d) a write renaming a section from a variable', 'git config --rename-section "$S" old', /takes --rename-section, which is not an option/],
+    ['(d) a write of extensions.worktreeConfig in any case, its value quoted', 'git config EXTENSIONS.WORKTREECONFIG "$V"', 'which writes EXTENSIONS.WORKTREECONFIG'],
+    ['(d) a write of a hook key, its value quoted', 'git config --add Hook.tmb.event "$E"', 'which writes Hook.tmb.event'],
   ];
   for (const [name, command, phrase] of unresolved) {
     it(name, async () => assertDenied(command, phrase));
@@ -173,15 +185,66 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
   });
 });
 
+describe('prepush-hook-guard: an unquoted expansion in a git global option value (SC3 a)', () => {
+  // Each deny's allowed form is the agent's own command with each such expansion double-quoted.
+  const cases: readonly (readonly [string, string, string])[] = [
+    ['-C on status', 'git -C $WT status', 'git -C "$WT" status'],
+    ['-C on log', 'git -C $WT log', 'git -C "$WT" log'],
+    ['-C on push', 'git -C $WT push origin main', 'git -C "$WT" push origin main'],
+    ['--git-dir as a separate word', 'git --git-dir $D status', 'git --git-dir "$D" status'],
+    ['--work-tree joined with =', 'git --work-tree=$W status', 'git --work-tree="$W" status'],
+    ['-c with an expanded value', 'git -c color.ui=$C log', 'git -c color.ui="$C" log'],
+    ['--config-env with an expanded value', 'git --config-env=core.editor=$E commit', 'git --config-env=core.editor="$E" commit'],
+    ['a $( ) as the -C value', 'git -C $(pwd) status', 'git -C "$(pwd)" status'],
+    ['each one in a list, the rest of the command kept', 'cd /tmp && git -C $A status && git -C $B log', 'cd /tmp && git -C "$A" status && git -C "$B" log'],
+    ['half-quoted values', 'git -C $ROOT/"sub dir" status', 'git -C "$ROOT"/"sub dir" status'],
+  ];
+  for (const [name, command, fixed] of cases) {
+    it(name, async () => {
+      const why = await reason(command);
+      assert.match(why, /an unquoted expansion, which bash splits into words/, why);
+      assert.ok(why.endsWith(`Allowed form: ${fixed}`), why);
+      assert.ok(why.includes('only observes in this release'), why);
+      // The corrected command passes when it is no push with another expansion.
+      if (!fixed.includes('push')) assert.equal(await reason(fixed), '', fixed);
+    });
+  }
+});
+
 describe('prepush-hook-guard allows ordinary use (SC9)', () => {
   const allowed = [
     'git push origin main',
     'git push -u origin feat/x',
     'git push origin feat/push-gate-prepush-observe',
-    'git push origin -- "$BR"',
     'git config user.name someone',
     'git -c "color.ui=$C" log --oneline',
     'git -C "$DIR" log --oneline',
+    // SC3 (b): a double-quoted -C, --git-dir or --work-tree value passes on any subcommand, a push included.
+    'git -C "$WT" push origin main',
+    'git -C "$WT" push -u origin feat/x',
+    'git --git-dir="$D" push origin main',
+    'git --work-tree "$W" --git-dir "$D" push origin main',
+    'git -C "$WT" status',
+    'git -C "$(pwd)/sub" commit -m msg',
+    // SC3 (d): a config write with literal allowlisted options, a literal non-hook key and double-quoted expansions after it.
+    'git config user.name "$NAME"',
+    'git config --global user.email "$EMAIL"',
+    'git config --local --add remote.origin.fetch "$SPEC"',
+    'git config --type=bool core.bare "$B"',
+    'git config -t int core.compression "$N"',
+    'git config --replace-all remote.origin.url "$URL" "$OLD"',
+    'git config --unset user.name "$PATTERN"',
+    'git -C "$WT" config user.name "$NAME"',
+    // SC2: the switch named only as an argument to a read-only command, with no redirection.
+    'grep -rn TMB_DISABLE_PREPUSH_INSTALL src',
+    'rg TMB_DISABLE_PREPUSH_INSTALL docs',
+    'git grep -n TMB_DISABLE_PREPUSH_INSTALL',
+    'cat notes.txt | grep TMB_DISABLE_PREPUSH_INSTALL',
+    'grep -rn TMB_DISABLE_PREPUSH_INSTALL src | head -5',
+    'printenv TMB_DISABLE_PREPUSH_INSTALL',
+    'echo "$TMB_DISABLE_PREPUSH_INSTALL"',
+    'cd src && grep -rln TMB_DISABLE_PREPUSH_INSTALL .',
+    'grep -rn "TMB_DISABLE_PREPUSH_INSTALL=1" docs',
     'git commit -m "$(cat msg)"',
     'git config --get hook.tmb.command',
     'git config hook.tmb.command',
@@ -238,11 +301,173 @@ describe('prepush-hook-guard allows ordinary use (SC9)', () => {
     assert.notEqual(await reason('git push --no-verify', repo, { ...human(), TMB_AGENT_SHELL: '1' }), '');
   });
 
-  it('is registered as a PreToolUse Bash enforcement gate', () => {
+  it('is registered as a PreToolUse Bash and Write|Edit enforcement gate', () => {
     assert.equal(findGate('prepush-hook-guard'), prepushHookGuard);
     assert.ok(gateNames().includes('prepush-hook-guard'));
-    const bash = ROUTER_GROUPS.find((g) => g.event === 'PreToolUse' && g.matcher === 'Bash' && g.part === undefined);
-    assert.ok(bash?.gates.some((g) => g.name === 'prepush-hook-guard' && g.kind === 'enforcement'));
+    for (const matcher of ['Bash', 'Write|Edit|MultiEdit|NotebookEdit']) {
+      const group = ROUTER_GROUPS.find((g) => g.event === 'PreToolUse' && g.matcher === matcher && g.part === undefined);
+      assert.ok(group?.gates.some((g) => g.name === 'prepush-hook-guard' && g.kind === 'enforcement'), matcher);
+    }
+  });
+});
+
+describe('prepush-hook-guard: only the Human sets the switch (SC2)', () => {
+  const SWITCH = 'TMB_DISABLE_PREPUSH_INSTALL';
+  const switchDenied = (why: string): boolean => why.includes(`names ${SWITCH}`) && why.includes('only the Human sets it');
+
+  const commands = [
+    `export ${SWITCH}=1`,
+    `${SWITCH}=1 claude`,
+    `echo ${SWITCH}=1 >> ~/.zshrc`,
+    `echo "export ${SWITCH}=1" > "$CLAUDE_ENV_FILE"`,
+    `printf 'export %s=1\\n' ${SWITCH} >> ~/.bashrc`,
+    `echo ${SWITCH}=1 | tee -a ~/.profile`,
+    `sed -i 's/x/${SWITCH}=1/' ~/.zshenv`,
+    `cat <<EOF >> ~/.zprofile\nexport ${SWITCH}=1\nEOF`,
+    `bash -c 'export ${SWITCH}=1'`,
+    `grep ${SWITCH} src > hits.txt`,
+    `grep -rn ${SWITCH} src 2>/dev/null`,
+    `echo $(echo ${SWITCH}=1 >> ~/.zshrc)`,
+    `rg --pre ./run.sh ${SWITCH} src`,
+    `git grep -O'sh -c x' ${SWITCH}`,
+    `(grep ${SWITCH} src)`,
+    `TMB_DISABLE_"PREPUSH"_INSTALL=1 claude`,
+    `grep ${SWITCH} src | xargs sed -i s/a/b/`,
+    `declare -x ${SWITCH}=1`,
+  ];
+  for (const command of commands) {
+    it(`denies ${JSON.stringify(command)}`, async () => {
+      const why = await reason(command);
+      assert.ok(switchDenied(why), `${command}\n${why}`);
+      assert.match(why, /Allowed form: a read-only grep, rg, git grep, cat, printenv or echo/);
+    });
+  }
+
+  it('denies in an exempt repo too: the switch reaches every repo', async () => {
+    const gate = prepushHookGuardWith(() => true);
+    const r = await gate(JSON.stringify({ tool_name: 'Bash', cwd: repo, tool_input: { command: `export ${SWITCH}=1` } }), agent());
+    assert.ok(switchDenied(r.stdout));
+  });
+
+  it("the Human's command is never gated", async () => {
+    assert.equal(await reason(`export ${SWITCH}=1`, repo, human()), '');
+  });
+
+  async function edit(tool: string, toolInput: Record<string, unknown>, env = agent()): Promise<string> {
+    const r = await prepushHookGuard(JSON.stringify({ tool_name: tool, cwd: repo, tool_input: toolInput }), env);
+    return r.stdout;
+  }
+
+  const home = '/Users/someone';
+  const targets = [
+    ['CLAUDE_ENV_FILE', join(dir ?? tmpdir(), 'session-env.sh')],
+    ['a project .claude/settings.json', `${home}/proj/.claude/settings.json`],
+    ['a project .claude/settings.local.json', `${home}/proj/.claude/settings.local.json`],
+    ['the user ~/.claude/settings.json', `${home}/.claude/settings.json`],
+    ...['.zshrc', '.zshenv', '.zprofile', '.zlogin', '.bashrc', '.bash_profile', '.bash_login', '.profile'].map((p) => [`the shell profile ${p}`, `${home}/${p}`]),
+  ] as const;
+  for (const [name, path] of targets) {
+    it(`denies an Edit, Write or MultiEdit putting the switch into ${name}`, async () => {
+      const env = { ...agent(), CLAUDE_ENV_FILE: join(dir, 'session-env.sh') };
+      const file = name === 'CLAUDE_ENV_FILE' ? join(dir, 'session-env.sh') : path;
+      const text = file.endsWith('.json') ? `{"env": {"${SWITCH}": "1"}}` : `export ${SWITCH}=1\n`;
+      for (const [tool, input] of [
+        ['Write', { file_path: file, content: text }],
+        ['Edit', { file_path: file, old_string: 'x', new_string: text }],
+        ['MultiEdit', { file_path: file, edits: [{ old_string: 'a', new_string: 'b' }, { old_string: 'x', new_string: text }] }],
+      ] as const) {
+        const out = await edit(tool, input, env);
+        assert.ok(switchDenied(out), `${tool} ${file}\n${out}`);
+      }
+      // The same file without the switch, or the switch leaving it, passes.
+      assert.equal(await edit('Write', { file_path: file, content: 'export FOO=1\n' }, env), '');
+      assert.equal(await edit('Edit', { file_path: file, old_string: `export ${SWITCH}=1`, new_string: '' }, env), '');
+      assert.equal(await edit('Write', { file_path: file, content: text }, { ...human(), CLAUDE_ENV_FILE: join(dir, 'session-env.sh') }), '');
+    });
+  }
+
+  it('passes the switch named in any other file', async () => {
+    for (const file of [join(repo, 'docs/INSTALL.md'), join(repo, 'src/settings.json'), join(repo, '.claude/notes.json'), join(repo, 'zshrc.example')]) {
+      assert.equal(await edit('Write', { file_path: file, content: `${SWITCH}=1` }), '', file);
+    }
+  });
+});
+
+describe('prepush-hook-guard records each fail-closed deny (SC4)', () => {
+  let db: string;
+  type Row = { from_node: string; event_type: string; content_json: string };
+  const rows = (): Row[] => {
+    const d = new DatabaseSync(db);
+    try {
+      return d.prepare("SELECT from_node, event_type, content_json FROM audit WHERE event_type = 'prepush_observed' ORDER BY id").all() as Row[];
+    } finally {
+      d.close();
+    }
+  };
+
+  before(() => {
+    db = join(dir, 'observe.db');
+    const d = new DatabaseSync(db);
+    try {
+      d.exec(SCHEMA);
+    } finally {
+      d.close();
+    }
+  });
+
+  const cases: readonly (readonly [string, string, string])[] = [
+    ['global_option_expansion', 'git -C $WT status', 'git -C $WT status'],
+    ['push_expansion', 'git push origin "$BR"', 'git push <arg> "$BR"'],
+    ['config_expansion', 'git config user.name $NAME', 'git config <arg> $NAME'],
+    ['unresolved', 'git $SUB origin', 'git $SUB <arg>'],
+    ['unreadable', 'git push --no-verify "$(', ''],
+  ];
+  for (const [denyClass, command, form] of cases) {
+    it(`a ${denyClass} deny writes one guard_fail_closed row`, async () => {
+      const before = rows().length;
+      const why = await reason(command, repo, { ...agent(), TRAJECTORY_DB_PATH: db, CLAUDE_CODE_SESSION_ID: 's-1' });
+      assert.notEqual(why, '');
+      const added = rows().slice(before);
+      assert.equal(added.length, 1, command);
+      assert.equal(added[0].from_node, 'hook:prepush-hook-guard');
+      const c = JSON.parse(added[0].content_json) as Record<string, unknown>;
+      assert.equal(c.source, 'guard_fail_closed');
+      assert.equal(c.deny_class, denyClass);
+      // The row keeps the reason; the deny adds its allowed form.
+      assert.ok(typeof c.reason === 'string' && c.reason !== '' && why.startsWith(c.reason), `${String(c.reason)}\n${why}`);
+      assert.equal(typeof c.command_form, 'string');
+      assert.ok((c.command_form as string).length > 0 && (c.command_form as string).length <= 200, String(c.command_form));
+      if (form !== '') assert.equal(c.command_form, form);
+      assert.equal(c.hook_verdict, null);
+      assert.equal(c.legacy_verdict, null);
+      assert.deepEqual(Object.keys(c.hook_live as object).sort(), ['command_matches', 'listed', 'script_intact', 'switched_off']);
+    });
+  }
+
+  it('masks literal arguments, keeps options, the subcommand and expansions, and caps the form at 200 chars', async () => {
+    const before = rows().length;
+    const long = `git push --force-with-lease=main:abc 'my remote' "$BR" ${'x'.repeat(300)}`;
+    await reason(long, repo, { ...agent(), TRAJECTORY_DB_PATH: db });
+    const c = JSON.parse(rows().slice(before)[0].content_json) as { command_form: string };
+    assert.equal(c.command_form, 'git push --force-with-lease=<arg> <arg> "$BR" <arg>');
+    await reason(`git push origin "$BR" ${'"$X" '.repeat(60)}`, repo, { ...agent(), TRAJECTORY_DB_PATH: db });
+    const capped = JSON.parse(rows().at(-1)?.content_json ?? '{}') as { command_form: string };
+    assert.equal(capped.command_form.length, 200);
+  });
+
+  it('a form deny or a switch deny writes no row', async () => {
+    const before = rows().length;
+    await reason('git push --no-verify', repo, { ...agent(), TRAJECTORY_DB_PATH: db });
+    await reason('export TMB_DISABLE_PREPUSH_INSTALL=1', repo, { ...agent(), TRAJECTORY_DB_PATH: db });
+    assert.equal(rows().length, before);
+  });
+
+  it('a write that fails leaves the deny unchanged', async () => {
+    const junk = join(dir, 'junk-observe.db');
+    writeFileSync(junk, 'not a sqlite file');
+    const plain = await reason('git push origin "$BR"');
+    assert.equal(await reason('git push origin "$BR"', repo, { ...agent(), TRAJECTORY_DB_PATH: junk }), plain);
+    assert.equal(await reason('git push origin "$BR"', repo, { ...agent(), TRAJECTORY_DB_PATH: join(dir, 'missing-observe.db') }), plain);
   });
 });
 

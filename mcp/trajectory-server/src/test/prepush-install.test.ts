@@ -180,12 +180,48 @@ describe('prepush-install: the SessionStart gate (SC1)', () => {
     assert.equal(git(work, 'config', '--local', '--get-regexp', '^hook\\.').code, 1);
   });
 
-  it('TMB_DISABLE_PREPUSH_INSTALL=1 installs nothing', () => {
+  it('TMB_DISABLE_PREPUSH_INSTALL=1 installs nothing and prints one notice naming the switch and prepush-uninstall', () => {
     const { dir, work } = repoCase();
     const r = runGate(GATE, { cwd: work, env: gateEnv(work, newDb(dir, {}), { TMB_DISABLE_PREPUSH_INSTALL: '1' }) });
     assert.equal(r.status, 0);
-    assert.equal(r.stderr, '');
+    assert.equal(r.stdout, '');
+    const lines = r.stderr.split('\n').filter((l) => l !== '');
+    assert.equal(lines.length, 1, r.stderr);
+    assert.match(lines[0], /^tmb: TMB_DISABLE_PREPUSH_INSTALL=1 is set, so TMB's pre-push hook is off: no installed hook to remove; the command-text push judge stays on\./);
+    assert.match(lines[0], /prepush-uninstall/);
     assert.equal(existsSync(join(work, '.git/tmb')), false);
+  });
+
+  it('TMB_DISABLE_PREPUSH_INSTALL=1 removes an installed hook from each repo it would install in, exempt or not', async () => {
+    const { dir, work } = repoCase();
+    const free = join(dir, 'free');
+    gitOk(dir, 'init', '-q', 'free');
+    const db = newDb(dir, { free });
+    const d = new DatabaseSync(db);
+    d.prepare("UPDATE repos SET mode = 'exempt' WHERE name = 'free'").run();
+    d.close();
+    for (const repo of [work, free]) {
+      const commonDir = await gitCommonDir(repo, sb.env);
+      await installPrepushHook(repo, commonDir, CLI, sb.env);
+    }
+    gitOk(work, 'config', 'user.name', 'kept');
+
+    const r = runGate(GATE, { cwd: work, env: gateEnv(work, db, { TMB_DISABLE_PREPUSH_INSTALL: '1' }) });
+    assert.equal(r.status, 0);
+    const lines = r.stderr.split('\n').filter((l) => l !== '');
+    assert.equal(lines.length, 1, r.stderr);
+    assert.ok(lines[0].includes(`removed it from ${work}, ${free}`), lines[0]);
+    for (const repo of [work, free]) {
+      assert.equal(git(repo, 'config', '--local', '--get-regexp', '^hook\\.tmb\\.').code, 1, `no hook.tmb key left in ${repo}`);
+      assert.equal(existsSync(join(repo, '.git/tmb')), false, repo);
+      assert.equal((await prepushHookLive(repo, { ...sb.env, TMB_DISABLE_PREPUSH_INSTALL: '1' })).switched_off, true);
+    }
+    assert.equal(gitOk(work, 'config', 'user.name'), 'kept', 'other config stays');
+
+    // Unset, the next session start installs it again.
+    const again = runGate(GATE, { cwd: work, env: gateEnv(work, db) });
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(existsSync(join(work, '.git/tmb')), true);
   });
 
   it('an exempt repo gets no script and no hook.tmb keys; a non-exempt one beside it still does (SC10)', () => {
@@ -313,13 +349,13 @@ describe('prepushHookLive (SC7)', () => {
 
   it('enabled: listed, command matches, script intact', async () => {
     const { work } = await installed();
-    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: true, command_matches: true, script_intact: true });
+    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: true, command_matches: true, script_intact: true, switched_off: false });
   });
 
   it('hook.tmb.enabled=false: not listed', async () => {
     const { work } = await installed();
     gitOk(work, 'config', 'hook.tmb.enabled', 'false');
-    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: false, command_matches: true, script_intact: true });
+    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: false, command_matches: true, script_intact: true, switched_off: false });
   });
 
   it('hook.pre-push.enabled=false (the event disabled): not listed', async () => {
@@ -331,7 +367,7 @@ describe('prepushHookLive (SC7)', () => {
   it('command swapped: command_matches false', async () => {
     const { work } = await installed();
     gitOk(work, 'config', 'hook.tmb.command', '/bin/true');
-    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: true, command_matches: false, script_intact: true });
+    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: true, command_matches: false, script_intact: true, switched_off: false });
   });
 
   it('script missing: script_intact false', async () => {
@@ -342,7 +378,7 @@ describe('prepushHookLive (SC7)', () => {
 
   it('nothing installed: all false', async () => {
     const { work } = repoCase();
-    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: false, command_matches: false, script_intact: false });
+    assert.deepEqual(await prepushHookLive(work, sb.env), { listed: false, command_matches: false, script_intact: false, switched_off: false });
   });
 });
 
