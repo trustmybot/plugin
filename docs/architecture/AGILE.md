@@ -34,7 +34,7 @@ flowchart TD
     P --> T
 ```
 
-- **Project.** /onboard sets the project-wide review mode. Truest is the default today: a mode that is missing or unreadable reads as truest. Planned (GH 3281): bro recommends a mode first, from what the project shows, and /onboard stores the Human's answer. Agile becomes the fallback: a mode that is missing or unreadable then reads as agile, a project that never stored a mode becomes agile at the upgrade, and bro says so once at its next session start. That change ships only together with a rule for the tasks already open at the upgrade, which is not decided yet. The mode already stored on a closed task is history and does not change.
+- **Project.** /onboard sets the project-wide review mode. Truest is the default today: a mode that is missing or unreadable reads as truest. Planned (GH 3281): bro recommends a mode first, from what the project shows, and /onboard stores the Human's answer. Agile becomes the fallback: a mode that is missing or unreadable then reads as agile, a project that never stored a mode becomes agile at the upgrade, and bro says so once at its next session start. That change ships together with the rule for tasks already open at the upgrade: each one finishes under the mode it was opened in, and the upgrade stores the project's mode explicitly, so nothing later depends on the fallback. The mode already stored on a closed task is history and does not change.
 - **Repo.** A repo's own mode decides before the project's, and an exempt repo decides before everything (shipped, GH 3281). Planned: /onboard asks one mode per repo, with bro's recommendation, and a repo left on the project's mode takes it ([GIT.md](GIT.md#multi-repo-workspaces)).
 - **Lane.** Each lane of a parallel run takes its own review mode when it starts, recorded on the lane's record, and it overrides the project's ([LANES.md](LANES.md)). bro recommends a mode per lane and the Human approves the set. Planned: GH 3025 records it on the lane; GH 2225 adds the lane lookup to the close.
 - **TMB keeps it.** The review mode lives in TMB's own records, never in GitHub labels, which a user without triage access cannot apply.
@@ -217,6 +217,7 @@ flowchart TD
 
 - **Only the Human switches.** The project's mode changes through /onboard. A lane's mode is set when the lane starts and changes later only through the lane change path in [LANES.md](LANES.md) (planned: GH 3025, with the approval gate in GH 3028). bro or another agent never switches a mode.
 - **The close decides.** A task opened under one mode and closed under the other follows the mode resolved at its close.
+- **Switching a repo to exempt releases its queue.** Planned (GH 3281). The tasks of that repo still queued for review are released, each with a recorded cause that names the switch, and the merge gate stops holding the feature branch for them. The Human's switch is the decision, so it is recorded and never silent.
 - **Switching to truest keeps the branch.** Later tasks are reviewed before they merge into the feature branch, and the branch still needs its review, or a waiver, before it merges into the working branch.
 - **Switching to agile starts a branch.** bro proposes a feature branch for the work still ahead, as in [The feature branch](#the-feature-branch).
 
