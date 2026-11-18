@@ -2114,6 +2114,57 @@ describe('pr_monitor_worktree — partial and stale worktree cleanup (GH 2814)',
     }
   });
 
+  it('refuses a symlinked .claude dir and creates no worktrees dir outside the repo (GH 2846)', async () => {
+    const { ws, sha } = makeRepo();
+    const outside = mkdtempSync(join(tmpdir(), 'prmon-outside-'));
+    try {
+      symlinkSync(outside, join(ws, '.claude'));
+      const r = await monitor(ws, sha);
+      assert.equal(r.isError, true);
+      assert.match(parse(r)['error'] as string, /^worktree add failed: .* resolves outside /);
+      assert.deepEqual(readdirSync(outside), [], 'nothing created outside');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a dangling worktrees symlink and creates nothing at its target (GH 2846)', async () => {
+    const { ws, sha } = makeRepo();
+    const outside = mkdtempSync(join(tmpdir(), 'prmon-outside-'));
+    const target = join(outside, 'missing');
+    try {
+      mkdirSync(join(ws, '.claude'));
+      symlinkSync(target, join(ws, '.claude', 'worktrees'));
+      const r = await monitor(ws, sha);
+      assert.equal(r.isError, true);
+      assert.match(parse(r)['error'] as string, /^worktree add failed: .* resolves outside /);
+      assert.equal(existsSync(target), false, 'dangling target not created');
+      assert.deepEqual(readdirSync(outside), [], 'nothing created outside');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('runs in a repo with no .claude dir and in one with a real in-repo .claude/worktrees', async () => {
+    const fresh = makeRepo();
+    const existing = makeRepo();
+    try {
+      assert.equal(existsSync(join(fresh.ws, '.claude')), false);
+      const r1 = await monitor(fresh.ws, fresh.sha, 'test -f a.txt');
+      assert.ok(!r1.isError, JSON.stringify(parse(r1)));
+      assert.equal(parse(r1)['passed'], true);
+      mkdirSync(join(existing.ws, '.claude', 'worktrees'), { recursive: true });
+      const r2 = await monitor(existing.ws, existing.sha, 'test -f a.txt');
+      assert.ok(!r2.isError, JSON.stringify(parse(r2)));
+      assert.equal(parse(r2)['passed'], true);
+    } finally {
+      rmSync(fresh.ws, { recursive: true, force: true });
+      rmSync(existing.ws, { recursive: true, force: true });
+    }
+  });
+
   it('prReviewDirRemovable admits only pr-review-<sha>-<suffix> directly under <repo>/.claude/worktrees', () => {
     const ws = mkdtempSync(join(tmpdir(), 'prmon-guard-'));
     try {
