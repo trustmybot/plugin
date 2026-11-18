@@ -20,6 +20,7 @@ import { branchSlug, dbPath, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js'
 import { JqUnindexable, jqAlt, jqGet, jqInput, jqTostring, type JqInput } from './lib/jq-raw.js';
 import { commandSubstitution } from './lib/project-env.js';
 import { RUN_UNMEASURED_SQL } from './swe-spawn-rollback.js';
+import { taskStatusUpdateSql } from '../task-status.js';
 
 export const GATE_NAME = 'record-swe-spawn';
 
@@ -102,8 +103,11 @@ UPDATE agent_runs
  WHERE task_id = ${taskId} AND agent_type = 'swe' AND completed_at IS NULL
    AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
    AND started_at IS NOT NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 seconds');
-UPDATE tasks SET status = 'running', updated_at = '${now}', completed_at = NULL
- WHERE id = ${taskId} AND status = 'pending';
+${taskStatusUpdateSql({
+  status: 'running',
+  set: { updated_at: now, completed_at: null },
+  where: `id = ${taskId} AND status = 'pending'`,
+})};
 INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host,
                         session_id, effort, model, spawn_id, plugin_version)
 SELECT id, issue_id, 'swe', '${now}', repo, ${rootDirSql}, 'claude',

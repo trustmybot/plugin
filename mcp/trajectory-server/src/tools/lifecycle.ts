@@ -4,6 +4,7 @@ import { closeOpenRunsForTask } from './agent-runs.js';
 import { dropTaskOverlay } from '../world-model/overlay.js';
 import { batchReviewedSql, GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL, waivedSql } from '../review-sql.js';
 import { storedExemptSql } from '../stored-mode.js';
+import { sqlText, taskStatusUpdate } from '../task-status.js';
 
 // Task statuses that still hold work open on an issue.
 export const LIVE_TASK_STATUSES = ['pending', 'running', 'needs_validation', 'completed'] as const;
@@ -119,10 +120,12 @@ export function escalateLiveTasksForIssueClose(
   now: string,
 ): void {
   for (const task of tasks) {
-    db.run(
-      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
-      [now, task.id],
-    );
+    const escalate = taskStatusUpdate({
+      status: 'escalated',
+      set: { completed_at: null, updated_at: now },
+      where: sqlText('id = ?', task.id),
+    });
+    db.run(escalate.sql, escalate.params);
     insertAudit(db, {
       issue_id: task.issue_id,
       branch_id: task.branch_id,
@@ -181,7 +184,12 @@ export function sweepStaleTasks(db: TrajectoryDB, now: string): StaleSweepResult
   if (stale.length > 0) {
     db.transaction(() => {
       for (const task of stale) {
-        db.run(`UPDATE tasks SET status = 'failed', completed_at = NULL, updated_at = ? WHERE id = ?`, [now, task.id]);
+        const sweep = taskStatusUpdate({
+          status: 'failed',
+          set: { completed_at: null, updated_at: now },
+          where: sqlText('id = ?', task.id),
+        });
+        db.run(sweep.sql, sweep.params);
         insertAudit(db, {
           issue_id: task.issue_id,
           branch_id: task.branch_id,

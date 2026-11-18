@@ -38,6 +38,7 @@ import { RESPONSE_FORMATS, parseResponseFormat, withoutKeys } from './response-f
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
 import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
 import { isPromptSurfaceUnder } from '../hooks/cmd-analysis/surface.js';
+import { sqlText, taskStatusUpdate, type TaskStatus } from '../task-status.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -1566,17 +1567,18 @@ export function taskTools(db: TrajectoryDB): {
             now,
           );
         }
-        if (commitSha !== undefined) {
-          db.run(
-            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, checkpoint = ?, commit_sha = ? WHERE id = ?`,
-            [status, now, completedAt, completionReport, checkpoint, commitSha, taskId],
-          );
-        } else {
-          db.run(
-            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, checkpoint = ? WHERE id = ?`,
-            [status, now, completedAt, completionReport, checkpoint, taskId],
-          );
-        }
+        const statusWrite = taskStatusUpdate({
+          status: status as TaskStatus,
+          set: {
+            updated_at: now,
+            completed_at: completedAt,
+            completion_report: completionReport,
+            checkpoint,
+            ...(commitSha !== undefined ? { commit_sha: commitSha } : {}),
+          },
+          where: sqlText('id = ?', taskId),
+        });
+        db.run(statusWrite.sql, statusWrite.params);
         if (closeMode !== null) db.run(`UPDATE tasks SET workflow_mode = ? WHERE id = ?`, [closeMode, taskId]);
         if (TERMINAL_TASK_STATUSES.has(status)) {
           closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));

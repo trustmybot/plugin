@@ -15,6 +15,7 @@ import { dbPath, haveSqlite, sqlQuote } from './lib/db.js';
 import { jqAlternatives, jqIndex, jqLiteralNumbers, jsonStream, jsonValues } from './lib/jq.js';
 import { commandSubstitution, jqRawText } from './lib/project-env.js';
 import { normalizeRole } from './lib/role.js';
+import { taskStatusUpdateSql } from '../task-status.js';
 
 export const GATE_NAME = 'swe-spawn-rollback';
 
@@ -47,13 +48,16 @@ export function toolUseId(input: string): string | null {
 export function rollbackSql(id: string, now: string): string {
   const safeSpawnId = sqlQuote(`tool_use:${id}`);
   return `
-UPDATE tasks SET status = 'pending', updated_at = '${now}'
- WHERE status = 'running'
+${taskStatusUpdateSql({
+  status: 'pending',
+  set: { updated_at: now },
+  where: `status = 'running'
    AND id = (SELECT task_id FROM agent_runs
               WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}' AND completed_at IS NULL)
    AND NOT EXISTS (SELECT 1 FROM agent_runs o
                     WHERE o.task_id = tasks.id AND o.agent_type = 'swe' AND o.completed_at IS NULL
-                      AND o.spawn_id IS NOT '${safeSpawnId}');
+                      AND o.spawn_id IS NOT '${safeSpawnId}')`,
+})};
 UPDATE agent_runs
    SET completed_at = '${now}',
        exit_reason = 'swept_orphan',

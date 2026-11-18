@@ -119,6 +119,7 @@ import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
+import { sqlText, taskStatusUpdate } from '../task-status.js';
 
 const STDOUT_KEEP = 4096;
 const STDERR_KEEP = 2048;
@@ -534,12 +535,17 @@ function closeTaskInTx(
   }
 
   // 3. flip task to closed, stamping the workflow mode it closed under.
-  db.run(
-    `UPDATE tasks
-        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?, workflow_mode=?
-      WHERE id=?`,
-    [commitSha, now, now, workflowMode, task.id],
-  );
+  const closeWrite = taskStatusUpdate({
+    status: 'closed',
+    set: {
+      commit_sha: commitSha,
+      completed_at: sqlText('COALESCE(completed_at, ?)', now),
+      updated_at: now,
+      workflow_mode: workflowMode,
+    },
+    where: sqlText('id = ?', task.id),
+  });
+  db.run(closeWrite.sql, closeWrite.params);
 
   // 4. close every open agent_runs row of the task (bro and swe).
   closeOpenRunsForTask(db, task.id, now, 'completed');
