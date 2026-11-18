@@ -309,23 +309,28 @@ function configMode(sub: readonly string[]): ConfigMode {
   return { action, positional, write, read, unspelled };
 }
 
+/** Whether an expanded <word> stays one word when bash runs it: double-quoted (<loose> false) and not `"$@"`-like. */
+const isOneQuotedWord = (word: string, loose: boolean | undefined): boolean => loose === false && !MANY_WORDS.test(word);
+
 const isReadForm = (word: string, k: number, forms: ReadonlySet<string>): boolean => forms.has(word) || (k === 1 && CONFIG_READ_ACTIONS.has(word));
 
 /**
  * Where the first of <forms> (or a read action right after `config`) sits in
  * <sub>, or why a word before it may not stand there: each must be a literal,
- * fully spelled option a read carries, a value option's argument literal too,
- * so none can take the read form as its value (`--comment --get <key> <value>`
- * sets <key>).
+ * fully spelled option a read carries, so none can take the read form as its
+ * value (`--comment --get <key> <value>` sets <key>). A value option's
+ * separate-word argument may also be one double-quoted expansion (<loose>[k]
+ * false, decision #425): git takes that word as the argument whatever it holds.
  */
-function readFormAt(sub: readonly string[], forms: ReadonlySet<string>): number | string {
+function readFormAt(sub: readonly string[], forms: ReadonlySet<string>, loose: readonly boolean[] | null): number | string {
   for (let k = 1; k < sub.length; k++) {
     const word = sub[k];
     if (isUnknownWord(word)) return `${word} before a literal read form`;
     if (isReadForm(word, k, forms)) return k;
     if (PRE_READ_VALUE_OPTIONS.has(word)) {
       const value = sub[k + 1];
-      if (value === undefined || isUnknownWord(value)) return `the value of ${word} from ${value ?? 'nothing'}`;
+      if (value === undefined) return `the value of ${word} from nothing`;
+      if (isUnknownWord(value) && !isOneQuotedWord(value, loose?.[k + 1])) return `the value of ${word} from ${value}`;
       k++;
     } else if (!PRE_READ_FLAGS.has(word) && !hasAttachedValue(word, PRE_READ_VALUE_OPTIONS)) {
       return `${word}, which is not a fully spelled option a read may carry before its read form`;
@@ -336,7 +341,7 @@ function readFormAt(sub: readonly string[], forms: ReadonlySet<string>): number 
 
 /**
  * Why one `git config …` (<sub>, from `config` on) with expanded words is not
- * a read whatever they hold, or null when it is (decision #423): a literal
+ * a read whatever they hold, or null when it is (decisions #423, #425): a literal
  * read form is present, readFormAt admits the words before it, and every
  * expanded word after it is double-quoted (<loose>[k] false) and stands for
  * one word.
@@ -344,7 +349,7 @@ function readFormAt(sub: readonly string[], forms: ReadonlySet<string>): number 
 function expandedReadBlocker(sub: readonly string[], loose: readonly boolean[] | null, mode: ConfigMode): string | null {
   const expanded = sub.find(isUnknownWord) ?? 'an expansion';
   if (!sub.some((word, k) => k > 0 && isReadForm(word, k, READ_FORM_OPTIONS))) return `${expanded} with no literal read form`;
-  const readAt = readFormAt(sub, READ_FORM_OPTIONS);
+  const readAt = readFormAt(sub, READ_FORM_OPTIONS, loose);
   if (typeof readAt === 'string') return readAt;
   if (loose === null) return `${expanded} in words the guard cannot line up with the command as written`;
   for (let k = readAt + 1; k < sub.length; k++) {
@@ -373,7 +378,7 @@ function configFinding(sub: readonly string[], loose: readonly boolean[] | null)
   let blocker: string | null = null;
   if (sub.some(isUnknownWord)) blocker = expandedReadBlocker(sub, loose, mode);
   else if (mode.read) {
-    const readAt = readFormAt(sub, CONFIG_READ_OPTIONS);
+    const readAt = readFormAt(sub, CONFIG_READ_OPTIONS, loose);
     blocker = typeof readAt === 'string' ? readAt : null;
   }
   return blocker === null ? null : { unresolved: `${shown} takes ${blocker}` };
