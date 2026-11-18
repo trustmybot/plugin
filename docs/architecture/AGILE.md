@@ -21,11 +21,11 @@ Only the Human sets a mode. Today truest is the default and agile is opt-in. Pla
 
 ```mermaid
 flowchart TD
-    A[Task closes] --> E{"Its repo is exempt? (planned, GH 3281)"}
+    A[Task closes] --> E{Its repo is exempt?}
     E -- yes --> EX[Exempt: no review at all, and nothing below can change that]
     E -- no --> B{"Its lane has its own review mode? (planned, GH 3025)"}
     B -- yes --> L[Use the lane's review mode]
-    B -- no, or no lane --> R{"Its repo has its own mode? (planned, GH 3281)"}
+    B -- no, or no lane --> R{Its repo has its own mode?}
     R -- yes --> RM[Use the repo's mode]
     R -- no --> P[Use the project's review mode]
     EX --> T[The task records that mode, fixed from now on]
@@ -34,8 +34,8 @@ flowchart TD
     P --> T
 ```
 
-- **Project.** /onboard sets the project-wide review mode. Truest is the default today. Planned (GH 3281): bro recommends a mode first, from what the project shows, and /onboard stores the Human's answer. Agile is the fallback: a mode that is missing or unreadable reads as agile. A project that never stored a mode therefore becomes agile at the upgrade, and bro says so once at its next session start. The mode already stored on a closed task is history and does not change.
-- **Repo.** Planned (GH 3281). /onboard asks one mode per repo, with bro's recommendation, and a repo left on the project's mode takes it ([GIT.md](GIT.md#multi-repo-workspaces)).
+- **Project.** /onboard sets the project-wide review mode. Truest is the default today: a mode that is missing or unreadable reads as truest. Planned (GH 3281): bro recommends a mode first, from what the project shows, and /onboard stores the Human's answer. Agile becomes the fallback: a mode that is missing or unreadable then reads as agile, a project that never stored a mode becomes agile at the upgrade, and bro says so once at its next session start. That change ships only together with a rule for the tasks already open at the upgrade, which is not decided yet. The mode already stored on a closed task is history and does not change.
+- **Repo.** A repo's own mode decides before the project's, and an exempt repo decides before everything (shipped, GH 3281). Planned: /onboard asks one mode per repo, with bro's recommendation, and a repo left on the project's mode takes it ([GIT.md](GIT.md#multi-repo-workspaces)).
 - **Lane.** Each lane of a parallel run takes its own review mode when it starts, recorded on the lane's record, and it overrides the project's ([LANES.md](LANES.md)). bro recommends a mode per lane and the Human approves the set. Planned: GH 3025 records it on the lane; GH 2225 adds the lane lookup to the close.
 - **TMB keeps it.** The review mode lives in TMB's own records, never in GitHub labels, which a user without triage access cannot apply.
 
@@ -140,7 +140,7 @@ flowchart TD
 ```
 
 - **What stays on.** swe's completion report, the spec's checks, the git and write guards, and the close as one step.
-- **What the close records.** The task's review mode is fixed at the close and stored on the task. Today it comes from the project alone; the order above, an exempt repo, then the lane, the repo and the project, is planned (GH 3281, GH 3025). After the close, the queue, the merge gate and the health check read the stored mode. Before the close, every step that depends on the mode uses the mode in effect for the task at that moment, resolved the same way: the base its checks measure against, whether its close needs a pass, and which review it is handed to. So a mode per repo or per lane changes each of those steps, not only the close.
+- **What the close records.** The task's review mode is fixed at the close and stored on the task. It is resolved in the order above: an exempt repo, then the repo's own mode, then the project's (shipped, GH 3281). The lane step between the exempt check and the repo's mode is planned (GH 3025). After the close, the queue, the merge gate and the health check read the stored mode. Before the close, every step that depends on the mode uses the mode in effect for the task at that moment, resolved the same way: the base its checks measure against, whether its close needs a pass, and which review it is handed to. So a mode per repo changes each of those steps, not only the close, and a mode per lane will too.
 - **Recovery.** A close that fails partway leaves the task as it was. bro fixes the cause and closes again.
 
 ## Feature branch review
