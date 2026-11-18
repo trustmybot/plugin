@@ -109,9 +109,9 @@ The default answer comes from evidence: a recorded live probe per platform runs 
 
 The guard still judges temp paths because a live probe showed the sandbox leaves its own temp dir writable by default.
 
-### Planned: an OS sandbox instead of write prediction
+### Planned: Claude Code's sandbox instead of write prediction
 
-(planned, GH 2098) Predicting what an arbitrary program will write cannot be done in general, so the parser both denies legitimate commands and misses real writes. The planned design stops predicting. The session sandbox becomes the hard boundary, and agents cannot write to TMB's own state inside the project. Each swe Bash call runs inside an OS sandbox profile for its task that allows only that task's worktree. Hooks decide only from what the literal input shows and never read an arbitrary program. Deliberate evasion is out of the threat model, since agents make mistakes but do not attack TMB.
+(planned, GH 2098) Predicting what an arbitrary program will write cannot be done in general, so the parser both denies legitimate commands and misses real writes. The planned design stops predicting, and TMB builds no sandbox of its own: sandboxing is Claude Code's job. Claude Code's Bash sandbox becomes the hard boundary for Bash, set so that agents cannot write to TMB's own state inside the project. The guard keeps judging the file tools by their target path and does not read Bash commands. Hooks decide only from what the literal input shows and never read an arbitrary program. One limit is accepted: Claude Code's sandbox covers the whole session, so a swe's Bash command can write anywhere in the project, not only in its task's worktree. Deliberate evasion is out of the threat model, since agents make mistakes but do not attack TMB.
 
 ## Enforcement
 
