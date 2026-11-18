@@ -129,13 +129,10 @@ describe('repo mode — the hooks/lib/repo.ts readers', () => {
     assert.equal(isExempt(junk, roots['free'], env), false, 'unreadable DB');
   });
 
-  it('repoMode reads the stored mode, else the project workflow_mode (unset reads as agile, GH 3281)', () => {
+  it('repoMode reads the stored mode, else the project workflow_mode (unset reads as truest)', () => {
     setProjectMode(null);
-    assert.equal(repoMode(dbPath, roots['held'], env), 'agile');
-    assert.equal(repoMode(dbPath, roots['stray'], env), 'agile', 'unregistered');
-    setProjectMode('truest');
     assert.equal(repoMode(dbPath, roots['held'], env), 'truest');
-    assert.equal(repoMode(dbPath, roots['loose'], env), 'agile');
+    assert.equal(repoMode(dbPath, roots['stray'], env), 'truest', 'unregistered');
     setProjectMode('agile');
     assert.equal(repoMode(dbPath, roots['held'], env), 'agile');
     assert.equal(repoMode(dbPath, roots['strict'], env), 'truest');
@@ -146,7 +143,6 @@ describe('repo mode — the hooks/lib/repo.ts readers', () => {
   });
 
   it('repoModeLabel names the registered repo, else the root dir', () => {
-    setProjectMode('truest');
     assert.equal(repoModeLabel(dbPath, roots['loose'], env), '(repo loose, mode agile)');
     assert.equal(repoModeLabel(dbPath, roots['stray'], env), '(repo stray, mode truest)');
   });
@@ -189,18 +185,17 @@ describe('repo mode — git-guards', () => {
 
   it('NULL, truest and agile keep the rules on, each deny naming the repo and mode', async () => {
     for (const [mode, project, label] of [
-      [null, null, 'agile'],
-      [null, 'truest', 'truest'],
+      [null, null, 'truest'],
       [null, 'agile', 'agile'],
       ['truest', 'agile', 'truest'],
-      ['agile', 'truest', 'agile'],
+      ['agile', null, 'agile'],
     ] as const) {
       setMode(mode, project);
       const r = await commitOnMain();
       assert.match(r, /^BLOCKED: main is a shared workflow base/, `${mode}/${project}`);
       assert.match(r, suffixed('app', label), `${mode}/${project}`);
     }
-    setMode(null, 'truest');
+    setMode(null);
     assert.match(reason((await gitGuards(payload(`gh pr create --base dev --head feat/x`, app), env)).stdout), suffixed('app', 'truest'));
     assert.match(reason((await gitGuards(payload(`git -C ${app} push --force origin main`, dir), env)).stdout), suffixed('app', 'truest'));
     git(app, 'switch', '-q', '-c', 'feat/x');
@@ -255,7 +250,7 @@ describe('repo mode — git-push-guard', () => {
   it('NULL, truest and agile keep the gate on, each deny naming the repo and mode', async () => {
     for (const mode of [null, 'truest', 'agile'] as const) {
       setMode(mode);
-      const label = mode ?? 'agile';
+      const label = mode ?? 'truest';
       const unsigned = await push(app);
       assert.match(unsigned, /^BLOCKED: pushing 1 unsigned commit\(s\)/, String(mode));
       assert.match(unsigned, suffixed('app', label), String(mode));
@@ -304,10 +299,10 @@ describe('repo mode — scan_run, repos_list, repo_rename and onboard_apply', ()
       ((await call(tools.handlers, 'repos_list')).repos as Array<Record<string, unknown>>).map(({ name, mode, effective_mode }) => ({ name, mode, effective_mode }));
     assert.deepEqual(await list(), [
       { name: 'alpha', mode: 'exempt', effective_mode: 'exempt' },
-      { name: 'beta', mode: null, effective_mode: 'agile' },
+      { name: 'beta', mode: null, effective_mode: 'truest' },
     ]);
-    db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, '"truest"')`, [WORKFLOW_MODE_KEY]);
-    assert.deepEqual((await list())[1], { name: 'beta', mode: null, effective_mode: 'truest' });
+    db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, '"agile"')`, [WORKFLOW_MODE_KEY]);
+    assert.deepEqual((await list())[1], { name: 'beta', mode: null, effective_mode: 'agile' });
     db.close();
   });
 

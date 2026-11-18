@@ -121,8 +121,6 @@ export function buildSandbox(sandbox: string): void {
   const db = new DatabaseSync(join(sandbox, 'db/trajectory.db'));
   try {
     db.exec(SCHEMA);
-    // The recorded bash goldens name mode truest, the unset default before GH 3281.
-    db.exec(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', '"truest"')`);
     db.exec('ALTER TABLE repos ADD COLUMN pr_target TEXT');
     const row = db.prepare('INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES (?, ?, ?, ?, ?)');
     const flow: [string, string, string | null, string | null, string | null][] = [

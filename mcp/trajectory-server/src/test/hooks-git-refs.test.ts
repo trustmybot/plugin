@@ -261,11 +261,11 @@ describe('gateWorkflowMode reads plugin_config.workflow_mode as readWorkflowMode
   after(() => rmSync(root, { recursive: true, force: true }));
 
   const stored: ReadonlyArray<[string, string | null, string]> = [
-    ['unset', null, 'agile'],
+    ['unset', null, 'truest'],
     ['agile', '"agile"', 'agile'],
     ['truest', '"truest"', 'truest'],
-    ['an unknown mode', '"lane"', 'agile'],
-    ['unparseable', 'not json', 'agile'],
+    ['an unknown mode', '"lane"', 'truest'],
+    ['unparseable', 'not json', 'truest'],
   ];
   for (const [name, valueJson, mode] of stored) {
     it(`${name} reads as ${mode}`, () => {

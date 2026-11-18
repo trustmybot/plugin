@@ -108,14 +108,12 @@ describe('branch-up-to-date-with-remote measures an agile task against its paren
   const attach = async (branch: string): Promise<GateResult> =>
     await branchUpToDateWithRemote(JSON.stringify({ tool_name: 'Bash', tool_input: { command: `git worktree add ../wt ${branch}` }, cwd: work }), env);
 
-  for (const mode of ['agile', null] as const) {
-    it(`${mode ?? 'unset (reads as agile, GH 3281)'}: denies a branch behind origin/<feature branch>, naming it, after fetching it`, async () => {
-      setMode(mode);
-      const reason = denyReason(await attach('feat/at-feature'));
-      assert.ok(reason.startsWith(`BLOCKED: branch 'feat/at-feature' is behind origin/${FEATURE} by 1 commit(s).`), reason);
-      assert.ok(reason.includes(`git fetch origin ${FEATURE} && git branch feat/at-feature origin/${FEATURE}`), reason);
-    });
-  }
+  it('agile: denies a branch behind origin/<feature branch>, naming it, after fetching it', async () => {
+    setMode('agile');
+    const reason = denyReason(await attach('feat/at-feature'));
+    assert.ok(reason.startsWith(`BLOCKED: branch 'feat/at-feature' is behind origin/${FEATURE} by 1 commit(s).`), reason);
+    assert.ok(reason.includes(`git fetch origin ${FEATURE} && git branch feat/at-feature origin/${FEATURE}`), reason);
+  });
 
   it('agile: measures against the local feature branch when origin has none', async () => {
     setMode('agile');
@@ -230,8 +228,8 @@ describe('branch-up-to-date-with-remote measures an agile task against its paren
     ),
   );
 
-  for (const mode of ['truest'] as const) {
-    it(`${mode} mode: measures a stacked task against origin/main as before`, async () => {
+  for (const mode of ['truest', null] as const) {
+    it(`${mode ?? 'unset'} mode: measures a stacked task against origin/main as before`, async () => {
       setMode(mode);
       assert.ok(denyReason(await attach('feat/at-feature')).startsWith("BLOCKED: branch 'feat/at-feature' is behind origin/main by 1 commit(s)."));
       git(work, 'fetch', '-q', 'origin', FEATURE);

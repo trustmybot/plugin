@@ -1,6 +1,6 @@
 // The repo's mode decides every pre-close step (GH 3281): resolveWorkflowMode
 // reads exempt first, then the repo's truest|agile, then the project mode
-// (unset reads as agile); the hooks' gateResolveWorkflowMode agrees with it;
+// (unset reads as truest); the hooks' gateResolveWorkflowMode agrees with it;
 // bro_atomic_close and task_update_status stamp the mode they resolved, an
 // exempt task closing with no review row; and src/stored-mode.ts reads a
 // stored task mode as the sites it replaced did, exempt owing no review.
@@ -35,10 +35,10 @@ const storeProject = (db: TrajectoryDB, valueJson: string | null): void => {
   db.run(`DELETE FROM plugin_config WHERE key = 'workflow_mode'`);
   if (valueJson !== null) db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)`, [valueJson]);
 };
-const projectMode = (valueJson: string | null): string => (valueJson === '"truest"' ? 'truest' : 'agile');
+const projectMode = (valueJson: string | null): string => (valueJson === '"agile"' ? 'agile' : 'truest');
 
 describe('SC1: resolveWorkflowMode', () => {
-  it('exempt wins over every project mode; a repo truest|agile wins over the project; a NULL repo mode reads the project (unset, unknown or unparseable: agile)', () => {
+  it('exempt wins over every project mode; a repo truest|agile wins over the project; a NULL repo mode reads the project (unset, unknown or unparseable: truest)', () => {
     const db = tempDB();
     try {
       db.run(`INSERT INTO repos (name, path) VALUES ('app', '/repo/app'), ('lib', '/repo/lib')`);
@@ -74,12 +74,12 @@ describe('SC1: resolveWorkflowMode', () => {
     }
   });
 
-  it('a missing project mode reads as agile', () => {
+  it('a missing project mode reads as truest', () => {
     const db = tempDB();
     try {
-      assert.equal(resolveWorkflowMode(db, null), 'agile');
+      assert.equal(resolveWorkflowMode(db, null), 'truest');
       db.run(`INSERT INTO repos (name, path) VALUES ('app', '/repo/app')`);
-      assert.equal(resolveWorkflowMode(db, 'app'), 'agile');
+      assert.equal(resolveWorkflowMode(db, 'app'), 'truest');
     } finally {
       db.close();
     }
@@ -240,15 +240,18 @@ describe('SC2/SC5: the close resolves the task repo mode and stamps it', () => {
     assert.deepEqual(reviewRows(updated.id), ['review_gate_bypassed']);
   });
 
-  it('SC5: a NULL-mode repo under an explicit project truest needs the pass and stamps truest', async () => {
-    setModes(null, 'truest');
-    const { id, sha } = seedTask('completed');
-    assert.match(String(parse(await atomicClose(id, sha))['error']), /^review_pass_missing: /);
-    seedReviewedCommit(db, 1, id, sha);
-    assert.ok(!(await atomicClose(id, sha)).isError);
-    assert.equal(modeOf(id), 'truest');
-    assert.deepEqual(reviewRows(id), ['review_handoff']);
-  });
+  for (const project of [null, 'truest']) {
+    it(`SC5: a NULL-mode repo under ${project === null ? 'an unset' : 'an explicit'} project truest needs the pass and stamps truest`, async () => {
+      db.run(`UPDATE repos SET mode = NULL WHERE name = 'app'`);
+      storeProject(db, project === null ? null : JSON.stringify(project));
+      const { id, sha } = seedTask('completed');
+      assert.match(String(parse(await atomicClose(id, sha))['error']), /^review_pass_missing: /);
+      seedReviewedCommit(db, 1, id, sha);
+      assert.ok(!(await atomicClose(id, sha)).isError);
+      assert.equal(modeOf(id), 'truest');
+      assert.deepEqual(reviewRows(id), ['review_handoff']);
+    });
+  }
 
   it('SC5: a NULL-mode repo under an explicit project agile closes unreviewed, queued and stamped agile', async () => {
     setModes(null, 'agile');

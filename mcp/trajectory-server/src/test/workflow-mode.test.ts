@@ -1,5 +1,5 @@
 // The workflow_mode config key (GH 2225): config_set refuses it, the value is
-// type-checked, readWorkflowMode defaults to agile (GH 3281), the shared close path of
+// type-checked, readWorkflowMode defaults to truest, the shared close path of
 // bro_atomic_close and task_recover stamps tasks.workflow_mode, and the v65→v66
 // migration adds the column once.
 import { after, before, describe, it } from 'node:test';
@@ -103,18 +103,18 @@ describe('SC2: workflow_mode values and readWorkflowMode', () => {
     }
   });
 
-  it('readWorkflowMode is agile with no row and the stored value when a row exists (GH 3281)', () => {
+  it('readWorkflowMode is truest with no row and the stored value when a row exists', () => {
     const db = tempDB();
     try {
-      assert.equal(readWorkflowMode(db), 'agile');
-      storeMode(db, '"truest"');
       assert.equal(readWorkflowMode(db), 'truest');
       storeMode(db, '"agile"');
       assert.equal(readWorkflowMode(db), 'agile');
+      storeMode(db, '"truest"');
+      assert.equal(readWorkflowMode(db), 'truest');
       storeMode(db, '"nonsense"');
-      assert.equal(readWorkflowMode(db), 'agile', 'an unknown stored mode reads as agile');
+      assert.equal(readWorkflowMode(db), 'truest', 'an unknown stored mode reads as truest');
       storeMode(db, 'not json');
-      assert.equal(readWorkflowMode(db), 'agile', 'an unparseable stored value reads as agile');
+      assert.equal(readWorkflowMode(db), 'truest', 'an unparseable stored value reads as truest');
     } finally {
       db.close();
     }
@@ -184,23 +184,23 @@ describe('SC3: the shared close path stamps tasks.workflow_mode', () => {
     assert.equal(parse(r)['action'], 'closed');
   };
 
-  it('bro_atomic_close stamps agile with no config row and truest when the row says truest (GH 3281)', async () => {
+  it('bro_atomic_close stamps truest with no config row and agile when the row says agile', async () => {
     db.run(`DELETE FROM plugin_config WHERE key = 'workflow_mode'`);
     await atomicClose(1);
-    assert.equal(modeOf(1), 'agile');
-    storeMode(db, '"truest"');
+    assert.equal(modeOf(1), 'truest');
+    storeMode(db, '"agile"');
     await atomicClose(2);
-    assert.equal(modeOf(2), 'truest');
-    assert.equal(modeOf(1), 'agile', 'an earlier close keeps the mode it closed under');
+    assert.equal(modeOf(2), 'agile');
+    assert.equal(modeOf(1), 'truest', 'an earlier close keeps the mode it closed under');
   });
 
   it('task_recover stamps the same way', async () => {
     db.run(`DELETE FROM plugin_config WHERE key = 'workflow_mode'`);
     await recover(3);
-    assert.equal(modeOf(3), 'agile');
-    storeMode(db, '"truest"');
+    assert.equal(modeOf(3), 'truest');
+    storeMode(db, '"agile"');
     await recover(4);
-    assert.equal(modeOf(4), 'truest');
+    assert.equal(modeOf(4), 'agile');
   });
 
   it('the CHECK holds the column to NULL, truest or agile', () => {

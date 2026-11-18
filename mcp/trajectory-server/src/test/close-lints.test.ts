@@ -292,7 +292,7 @@ INSERT OR REPLACE INTO tasks (id, issue_id, branch_id, parent_branch_id, descrip
           : `INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', '"${mode}"') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json;`,
       );
 
-    it('agile or unset (GH 3281): merge-base(feature branch, commit); truest: merge-base(dev, commit) as before', async () => {
+    it('agile: merge-base(feature branch, commit); truest or unset: merge-base(dev, commit) as before', async () => {
       const { repo, sha, devBase, featureBase } = stacked();
       assert.notEqual(devBase, featureBase);
       try {
@@ -301,7 +301,7 @@ INSERT OR REPLACE INTO tasks (id, issue_id, branch_id, parent_branch_id, descrip
         setMode('truest');
         assert.equal(await lintBaseSha(repo, db, String(STACKED), sha, env), devBase);
         setMode(null);
-        assert.equal(await lintBaseSha(repo, db, String(STACKED), sha, env), featureBase);
+        assert.equal(await lintBaseSha(repo, db, String(STACKED), sha, env), devBase);
       } finally {
         setMode(null);
       }

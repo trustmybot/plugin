@@ -287,8 +287,8 @@ export function isWorkflowMode(value: unknown): value is WorkflowMode {
 }
 
 /**
- * The project's workflow mode (GH 2225). Unset reads as agile (GH 3281); so
- * does a stored value that is unparseable or not a known mode.
+ * The project's workflow mode (GH 2225). Unset reads as truest; so does a
+ * stored value that is unparseable or not a known mode.
  */
 export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
   const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [WORKFLOW_MODE_KEY]);
@@ -297,14 +297,14 @@ export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
 
 /** A stored workflow_mode value_json as readWorkflowMode reads it; the hooks read it through their own DB reader. */
 export function parseWorkflowMode(valueJson: string | null | undefined): WorkflowMode {
-  if (!valueJson) return 'agile';
+  if (!valueJson) return 'truest';
   try {
     const value: unknown = JSON.parse(valueJson);
     if (isWorkflowMode(value)) return value;
   } catch {
     // An unparseable stored value reads as the default.
   }
-  return 'agile';
+  return 'truest';
 }
 
 /** A repo's rules (GH 3279): the workflow modes, plus exempt, under which the git guards stand down. */

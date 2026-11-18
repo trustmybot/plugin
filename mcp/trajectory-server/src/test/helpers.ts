@@ -20,8 +20,7 @@ export function tempDB(opts: { seedScan?: boolean; path?: string } = {}): Trajec
 }
 
 // setProjectWorkflowMode stores the project's workflow_mode, replacing any
-// stored value. Unset reads as agile (GH 3281), so a test of truest behavior
-// sets it explicitly.
+// stored value.
 export function setProjectWorkflowMode(db: TrajectoryDB, mode: string): void {
   db.run(
     `INSERT INTO plugin_config (key, value_json) VALUES ('workflow_mode', ?)

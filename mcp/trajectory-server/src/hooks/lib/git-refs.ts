@@ -44,7 +44,7 @@ export async function resolveRepoDefaultBranch(repoPath: string, env: NodeJS.Pro
   return await gitOutput(repoPath, ['symbolic-ref', '--short', 'HEAD'], env) ?? 'main';
 }
 
-/** The project's workflow mode as readWorkflowMode reads it (unset or unknown reads as agile), or GATE_READ_ERROR. */
+/** The project's workflow mode as readWorkflowMode reads it (unset or unknown reads as truest), or GATE_READ_ERROR. */
 export function gateWorkflowMode(db: string, env: NodeJS.ProcessEnv): WorkflowMode | typeof GATE_READ_ERROR {
   const out = gateRead(db, `SELECT value_json FROM plugin_config WHERE key = '${WORKFLOW_MODE_KEY}';`, env);
   return out === GATE_READ_ERROR ? GATE_READ_ERROR : parseWorkflowMode(out);
@@ -52,7 +52,7 @@ export function gateWorkflowMode(db: string, env: NodeJS.ProcessEnv): WorkflowMo
 
 /**
  * The mode in effect for a task of <repo> as resolveWorkflowMode reads it, in one read: exempt
- * first, then the repo's truest|agile, then the project's workflow_mode (unset reads as agile).
+ * first, then the repo's truest|agile, then the project's workflow_mode (unset reads as truest).
  * An empty <repo> stands for the sole registered repo. GATE_READ_ERROR when the DB does not read.
  */
 export function gateResolveWorkflowMode(db: string, repo: string, env: NodeJS.ProcessEnv): RepoMode | typeof GATE_READ_ERROR {
