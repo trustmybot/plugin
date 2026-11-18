@@ -138,10 +138,10 @@ describe('router budgets.json (GH 1861)', () => {
     it('the registry holds the spec layout, order kept', () => {
       const layout = ROUTER_GROUPS.filter((g) => ['SessionStart', 'UserPromptSubmit', 'WorktreeCreate'].includes(g.event)).map((g) => [g.event, g.part, g.gates.map((x) => x.name)]);
       assert.deepEqual(layout, [
-        ['SessionStart', undefined, ['ensure-gitignore', 'mcp-health-check', 'deferred-tools-drift-warn', 'plugin-hooks-marker', 'ensure-mcp-deps-installed', 'substrate-preflight', 'orphan-scan']],
+        ['SessionStart', undefined, ['ensure-gitignore', 'mcp-health-check', 'deferred-tools-drift-warn', 'plugin-hooks-marker', 'ensure-mcp-deps-installed', 'substrate-preflight', 'orphan-scan', 'close-forge-merged']],
         ['SessionStart', 'persona', ['session-start-persona']],
         ['SessionStart', 'prescan', ['session-start-prescan']],
-        ['UserPromptSubmit', undefined, ['activation-routine', 'session-log-capture', 'prompt-intent-hints', 'task-overrun-alert', 'liveness-alert']],
+        ['UserPromptSubmit', undefined, ['activation-routine', 'session-log-capture', 'prompt-intent-hints', 'task-overrun-alert', 'liveness-alert', 'close-forge-merged']],
         ['UserPromptSubmit', 'persona', ['user-prompt-persona']],
         ['UserPromptSubmit', 'roundtable', ['roundtable-slash-detect']],
         ['WorktreeCreate', undefined, ['worktree-create']],
@@ -153,8 +153,8 @@ describe('router budgets.json (GH 1861)', () => {
       assert.deepEqual(namesOf('SessionStart', 'prescan'), ['session-start-prescan']);
       assert.deepEqual(namesOf('UserPromptSubmit', 'persona'), ['user-prompt-persona']);
       assert.deepEqual(namesOf('UserPromptSubmit', 'roundtable'), ['roundtable-slash-detect']);
-      assert.equal(namesOf('SessionStart').length, 7);
-      assert.equal(namesOf('UserPromptSubmit').length, 5);
+      assert.equal(namesOf('SessionStart').length, 8);
+      assert.equal(namesOf('UserPromptSubmit').length, 6);
       assert.deepEqual(namesOf('PreCompact'), ['session-handoff']);
       assert.deepEqual(namesOf('Stop'), ['bro-turn-usage']);
       assert.deepEqual(namesOf('WorktreeCreate'), ['worktree-create']);

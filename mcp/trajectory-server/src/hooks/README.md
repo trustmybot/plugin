@@ -21,6 +21,7 @@ Each gate here is one `<name>.ts`, wired through `hooks/hooks.json`. Every regis
 | `swe-resume-gate.ts` | PreToolUse SendMessage | Deny resuming a swe at the rework limit or at an effort other than its task's |
 | `task-overrun-alert.ts` | UserPromptSubmit + PostToolUse trajectory-server | Tell bro once when a task or swe run passes `TMB_TASK_OVERRUN_MIN` minutes (default 60); never denies |
 | `liveness-alert.ts` | UserPromptSubmit + PostToolUse trajectory-server | Tell bro about a silent subagent run or a hung watcher; never denies |
+| `close-forge-merged.ts` | SessionStart + UserPromptSubmit | Close the live tasks whose PR merged on the forge, outside any Bash call, through close-issue-on-merge's merge record; one bounded `gh pr list` per repo, fails open. Bypass: `TMB_DISABLE_CLOSE_FORGE_MERGED=1` |
 | `liveness-sentinel.ts` | Stop (`asyncRewake`, outside the router) | While bro is idle in an attended session, poll for silent runs and wake bro on a finding; reports only |
 | `git-guards.ts` | PreToolUse Bash | Block `reset --hard`, `clean -fd` and force-pushes to protected branches |
 | `git-push-guard.ts` | PreToolUse Bash | swe cannot push; a push needs a passing review |
