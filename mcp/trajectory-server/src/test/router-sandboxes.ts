@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, session-handoff, lane-membership, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge, prompt-write-approval and feature-branch-merge-gate have no hook-corpus
+ * liveness-alert, session-handoff, lane-membership, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex, test-run-nudge, prompt-write-approval, feature-branch-merge-gate and close-forge-merged have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -87,6 +87,7 @@ export const ROUTER_CORPUS_GATES = [
   'attribution-footer',
   'clean-merged-branch',
   'close-issue-on-merge',
+  'close-forge-merged',
   'ref-move-reindex',
   'swe-spawn-bind',
   'swe-spawn-rollback',
@@ -459,6 +460,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
 
   if (want('session-handoff')) cases.push(...sessionHandoffCases(join(root, 'session-handoff'), emptyProject));
   if (want('lane-membership')) cases.push(...laneMembershipCases(join(root, 'lane-membership'), emptyProject));
+  if (want('close-forge-merged')) cases.push(...closeForgeMergedCases(join(root, 'close-forge-merged'), emptyProject));
   if (want('task-overrun-alert')) cases.push(...overrunCases(join(root, 'task-overrun-alert'), emptyProject));
   if (want('liveness-alert')) cases.push(...livenessCases(join(root, 'liveness-alert'), emptyProject));
 
@@ -668,6 +670,47 @@ function laneMembershipCases(dir: string, cwd: string): RouterCase[] {
     ['bad-session-id', payload('intent_start', {}, text({ issue_id: 602 }), { session_id: "bad'id" })],
   ];
   return scenarios.map(([file, input]) => ({ gate: 'lane-membership', file, input, env, cwd, fakeUid: false, reset: build }));
+}
+
+/** close-forge-merged's cases: one task on feat/x in a registered repo, and a fake gh on PATH whose `pr list` answer each case picks; DB rebuilt per case. */
+function closeForgeMergedCases(dir: string, cwd: string): RouterCase[] {
+  const db = join(dir, 'trajectory.db');
+  const repo = join(dir, 'repo');
+  mkdirSync(repo, { recursive: true });
+  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const build = (taskStatus: string): void => {
+    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
+    const d = new DatabaseSync(db);
+    d.exec(schema);
+    d.prepare('INSERT INTO repos (name, path) VALUES (?, ?)').run('repo', repo);
+    d.prepare("INSERT INTO issues (id, objective, status, repo, created_at, updated_at) VALUES (9, 'o', 'open', 'repo', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
+    d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, created_at, updated_at) VALUES (1, 9, 'feat/x', 'd', ?, 'repo', ?, ?)").run(taskStatus, SWE_RESUME_T0, SWE_RESUME_T0);
+    d.close();
+  };
+  const pr = (mergedAt: string): string => JSON.stringify([{ headRefName: 'feat/x', number: 7, mergedAt, body: 'Closes #9', closingIssuesReferences: [] }]);
+  const ghBin = (name: string, script: string): string => {
+    const bin = join(dir, 'bin', name);
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'gh'), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+    return bin;
+  };
+  const payload = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 's', cwd, source: 'startup' });
+  const scenarios: readonly (readonly [string, string, string])[] = [
+    ['merged-after-task', 'running', `printf '%s' '${pr('2026-10-26T09:00:00Z')}'`],
+    ['merged-before-task', 'running', `printf '%s' '${pr('2026-10-24T09:00:00Z')}'`],
+    ['gh-fails', 'running', 'exit 1'],
+    ['gh-bad-json', 'running', "printf 'not json'"],
+    ['no-live-branch', 'closed', `printf '%s' '${pr('2026-10-26T09:00:00Z')}'`],
+  ];
+  return scenarios.map(([file, status, script]) => ({
+    gate: 'close-forge-merged',
+    file,
+    input: payload,
+    env: clean({ PATH: `${ghBin(file, script)}:${process.env.PATH ?? ''}`, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, TMB_DISABLE_REMOTE_SYNC: '1', LC_ALL: LOCALE }),
+    cwd,
+    fakeUid: false,
+    reset: () => build(status),
+  }));
 }
 
 /** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */

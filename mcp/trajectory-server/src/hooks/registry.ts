@@ -70,6 +70,7 @@ import { GATE_NAME as ORPHAN_SCAN_GATE, orphanScan } from './orphan-scan.js';
 import { GATE_NAME as SESSION_START_PRESCAN_GATE, sessionStartPrescan } from './session-start-prescan.js';
 import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
 import { GATE_NAME as CLOSE_ISSUE_GATE, closeIssueOnMerge } from './close-issue-on-merge.js';
+import { GATE_NAME as CLOSE_FORGE_MERGED_GATE, closeForgeMerged } from './close-forge-merged.js';
 import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
 import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
@@ -152,6 +153,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [SESSION_START_PRESCAN_GATE, sessionStartPrescan],
   [CLEAN_MERGED_GATE, cleanMergedBranch],
   [CLOSE_ISSUE_GATE, closeIssueOnMerge],
+  [CLOSE_FORGE_MERGED_GATE, closeForgeMerged],
   [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
   [README_STALENESS_GATE, postAtomicCloseReadme],
   [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
@@ -325,6 +327,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate('ensure-mcp-deps-installed', 'advisory'),
     routerGate(SUBSTRATE_GATE, 'advisory'),
     routerGate(ORPHAN_SCAN_GATE, 'advisory'),
+    routerGate(CLOSE_FORGE_MERGED_GATE, 'advisory'),
   ], { concurrent: true }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PERSONA_GATE, 'advisory')], { part: 'persona' }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PRESCAN_GATE, 'advisory')], { part: 'prescan' }),
@@ -334,6 +337,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(PROMPT_INTENT_GATE, 'advisory'),
     routerGate(OVERRUN_GATE, 'advisory'),
     routerGate(LIVENESS_ALERT_GATE, 'advisory'),
+    routerGate(CLOSE_FORGE_MERGED_GATE, 'advisory'),
   ]),
   eventGroup('UserPromptSubmit', '', [routerGate(USER_PROMPT_PERSONA_GATE, 'advisory')], { part: 'persona' }),
   eventGroup('UserPromptSubmit', '', [routerGate(RT_SLASH_GATE, 'advisory')], { part: 'roundtable' }),
