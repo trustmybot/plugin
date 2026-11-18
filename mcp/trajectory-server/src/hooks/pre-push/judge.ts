@@ -70,12 +70,16 @@ interface Pass {
   readonly created_at: string;
 }
 
-/** Whether the push comes from a Claude Code session, whose hooks pass these on to git and so to its hooks. */
+/**
+ * Whether the push comes from a Claude Code session, whose hooks pass these on
+ * to git and so to its hooks; TMB_AGENT_SHELL is the mark the prepush-install
+ * gate puts in the session's CLAUDE_ENV_FILE.
+ */
 export function isAgentSession(env: NodeJS.ProcessEnv): boolean {
-  return env.CLAUDECODE === '1' || (env.CLAUDE_CODE_SESSION_ID ?? '') !== '';
+  return env.CLAUDECODE === '1' || (env.CLAUDE_CODE_SESSION_ID ?? '') !== '' || env.TMB_AGENT_SHELL === '1';
 }
 
-function isExempt(repo: string): boolean {
+export function isExempt(repo: string): boolean {
   return EXEMPT_REPOS.has(repo);
 }
 

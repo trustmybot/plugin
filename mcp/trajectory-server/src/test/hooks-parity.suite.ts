@@ -314,6 +314,7 @@ export function hooksParityShard(k: number, n: number): void {
           'liveness-alert',
           'liveness-sentinel',
           'no-prose-in-scratch',
+          'prepush-install',
           'prompt-write-approval',
           'record-reviewer-spawn',
           'ref-move-reindex',

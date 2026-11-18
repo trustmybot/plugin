@@ -80,7 +80,7 @@
     },
     "SessionStart:": {
       "max_budget_ms": 16000,
-      "p99_sum_ms": 19463.7,
+      "p99_sum_ms": 19788,
       "group_budget_ms": 16000
     },
     "SessionStart::persona": {
@@ -776,6 +776,22 @@
       "window_days": 14,
       "floor_ms": 16000,
       "budget_ms": 16000,
+      "date": "2026-11-17"
+    },
+    "prepush-install": {
+      "kind": "advisory",
+      "bench_p50": 136.1,
+      "bench_p95": 238.3,
+      "bench_p99": 324.3,
+      "bench_runs": 320,
+      "bench_load_avg": 10.14,
+      "transcript_p99": null,
+      "reason": "born in TypeScript (GH 3281): no prepush-install SessionStart hook attachment in any transcript yet",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
       "date": "2026-11-17"
     },
     "ref-move-reindex": {

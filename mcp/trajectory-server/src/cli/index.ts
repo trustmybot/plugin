@@ -1,7 +1,7 @@
 /**
  * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks, the health check,
  * bro's integrate, feature-merge and feature-branch, the assert-sql verification check, the prompt-author-lint
- * pre-write lint, the stale-docs pre-close check, the pre-push judge git's pre-push hook calls, and the Human-run maintenance tools (heal-mcp-cache,
+ * pre-write lint, the stale-docs pre-close check, the pre-push judge git's pre-push hook calls and that hook's uninstall, and the Human-run maintenance tools (heal-mcp-cache,
  * trajectory-doctor, backfill-agent-runs) and the hook-lib db-path answer the
  * L6 chain runner asks for run with
  * `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" <subcommand> ...`.
@@ -21,6 +21,7 @@ import { health } from './health.js';
 import { hookLib } from './hook-lib.js';
 import { integrate } from './integrate.js';
 import { prePush } from './pre-push.js';
+import { prepushUninstall } from './prepush-uninstall.js';
 import { promptAuthorLint } from './prompt-author-lint.js';
 import { staleDocs } from './stale-docs.js';
 import { trajectoryDoctor } from './trajectory-doctor.js';
@@ -39,6 +40,7 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   'hook-lib': hookLib,
   integrate,
   'pre-push': prePush,
+  'prepush-uninstall': prepushUninstall,
   'prompt-author-lint': promptAuthorLint,
   'stale-docs': staleDocs,
   'trajectory-doctor': trajectoryDoctor,
