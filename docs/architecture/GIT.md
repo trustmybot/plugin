@@ -86,7 +86,7 @@ flowchart TD
 
 ## The push gate at git's own hook
 
-Planned (GH 3281), and not prototyped yet. Today the push gate runs before a Bash command, reads its text to decide whether it is a push and what it sends, looks up each pushed commit on its own, and takes its policy from the working directory. Each of the three is a steady source of bugs: a shell form nobody foresaw, a commit whose id changed in a rebase or that two tasks share, and a command aimed at another repo. The design below removes the causes.
+Planned (GH 3281). A prototype proved the hook mechanism; the list under the bullets says what is still open. Today the push gate runs before a Bash command, reads its text to decide whether it is a push and what it sends, looks up each pushed commit on its own, and takes its policy from the working directory. Each of the three is a steady source of bugs: a shell form nobody foresaw, a commit whose id changed in a rebase or that two tasks share, and a command aimed at another repo. The design below removes the causes.
 
 ```mermaid
 flowchart TD
@@ -109,18 +109,22 @@ flowchart TD
 ```
 
 - **Git says what is pushed.** The hook receives each ref and commit the push sends, so the gate reads no command text and no shell form can hide a push from it. It runs inside the repo being pushed, so the policy is that repo's.
-- **The text guard keeps one job.** It denies an agent's command that would skip or replace git's hooks. That is a short, closed list, where "every way to write a push" is an open one.
-- **The Human is not gated.** The hook acts only on a push from an agent session. The Human's own push from a terminal passes, as it does today.
+- **The text guard keeps one job.** It denies an agent's command that would skip, disable or replace TMB's hook, or strip the mark of an agent's shell. That is a short, closed list, where "every way to write a push" is an open one.
+- **Every push checks the hook is live.** Before an agent's push, the guard asks git, in the worktree that pushes, which pre-push hooks it will run, and confirms TMB's is among them and enabled. Today's command-text judge steps aside only when that check passes, and stays on as the fallback otherwise.
+- **The Human is not gated.** The hook acts only on a push from an agent session. The Human's own push from a terminal passes, as it does today. TMB marks an agent's shell itself, at session start, with a mark no terminal the Human opens carries; it does not rely on the host's own mark, which the Human's terminal may share.
 - **The gate judges the branch, not each commit.** A review is recorded against the net diff between the base and the reviewed tip. A push is admitted when the newest verdict for the pushed tip's net diff is a pass.
   - A rebase that leaves the diff unchanged keeps its pass with no extra record.
   - Commits already on the base are never in the diff, so a moved base adds nothing to check.
   - A commit a retry inherited from the task it replaces is covered by the review of the whole diff.
 - **An unchanged diff is necessary, not enough.** Integrate still re-runs the task's verification on the rebased commit and checks that the base's changes touch nothing the diff depends on. When they do, the commit gets one new review, recorded against the new tip.
 - **Close follows integrate.** A task closes only once integrate succeeded, so a failed integrate always leaves an open task to rework or to review again. Today the task closes first, and a failed integrate leaves nothing to reopen (GH 3234).
-- **The hook is one more local file.** It lives in the repo's git folder, is never committed, calls on to a pre-push hook the project already has, and is removed with TMB.
+- **The hook is named in the repo's local git config, not placed in a hooks folder.** Git runs a hook named there in addition to the project's own, so TMB never touches the project's hooks folder or its hooks path, wraps no other hook, and a tool that manages the project's hooks, such as husky, cannot unhook it. The config is shared by every worktree of the repo.
+- **The hook script is a stable local file.** It sits in the repo's git folder, is never committed, and only hands the push to the installed TMB. Session start refreshes it, so a plugin update never leaves it pointing at a version that is gone. An exempt repo gets none.
+- **A leftover hook never blocks anyone.** A hook whose script is missing fails every push, the Human's included, so the script always exists and admits the push when TMB is no longer installed. Removing the plugin runs no code, so the hook is then inert, and one cleanup command, named in [INSTALL.md](INSTALL.md), removes the config entry and the script. When TMB is installed and its judge fails to run, an agent's push is denied and the Human's passes.
+- **It needs a git that runs hooks from config** (2.54 or newer). On an older git TMB installs nothing, keeps today's command-text judge, and says so once at session start. A plain hook file for an older git, only in a repo with no hooks path and no pre-push hook of its own, is a later slice.
 - **The forge is the last line.** A protected branch's rules on the forge stay the Human's to set; TMB's hook does not replace them.
 
-Still to prove with a prototype: chaining with an existing hook and with a hooks path the project sets, how an agent session is told apart from the Human's terminal, which ways of skipping the hook remain, and what the net diff costs on a large branch.
+Proven by the prototype, on git 2.56: the hook runs beside a project's own hooks path and in linked worktrees, a deny stops the push, the mark set at session start reaches the hook, and the net diff of a 1,339-file branch takes 0.22 s. Still to prove: that the mark reaches a subagent's shell and survives a compacted or resumed session. Until a live session shows it, the command-text judge stays on.
 
 ## Agile feature branches
 
