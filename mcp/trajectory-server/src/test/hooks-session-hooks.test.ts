@@ -83,10 +83,10 @@ describe('session hooks without jq or the sqlite3 CLI (decision 703)', () => {
     const context = (JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
     assert.ok(context.startsWith(HALT_TEXT), 'server down: HALT first');
     assert.ok(
-      context.includes('read-only node:sqlite fallback (`node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`)'),
+      context.includes('read-only node:sqlite fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`)'),
       'HALT cites the cli.js invocation',
     );
-    assert.ok(!/sqlite3|--experimental-sqlite/.test(HALT_TEXT), 'HALT no longer names the retired sqlite3 fallback or its flag');
+    assert.ok(!/sqlite3/.test(HALT_TEXT), 'HALT no longer names the retired sqlite3 fallback');
     assert.ok(!/readonly\.sh\b/.test(context), 'HALT no longer cites the deleted script');
   });
 
