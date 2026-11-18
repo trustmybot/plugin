@@ -44,7 +44,7 @@ Two distinct sub-cases — read the `additionalContext` warning from `mcp-health
 The plugin's MCP server is missing from CC's resolved-plugin list — a full quit + relaunch won't fix it because CC persists the cached config to disk.
 
 <!-- LOAD-BEARING-SAFETY: halt-on-B.1 (MCP absent) is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
-**During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`) is still available for emergency reads.
+**During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. The read-only node:sqlite fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`) is still available for emergency reads.
 
 Recovery escalation — try in order, stop at the first that brings MCP back:
 

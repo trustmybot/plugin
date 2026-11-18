@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const INSTALL_SCRIPT = 'scripts/maintenance/install-deps.mts';
-const NODE_FLOOR = '>=22.13.0';
+const NODE_FLOOR = '>=22.16.0';
 const NODE_PACKAGES = ['package.json', 'mcp/trajectory-server/package.json', 'dashboard/package.json'];
 const INSTALL_CMD = `node --experimental-strip-types ${INSTALL_SCRIPT}`;
 
