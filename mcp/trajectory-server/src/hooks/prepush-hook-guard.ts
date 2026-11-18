@@ -15,13 +15,15 @@
  * parse, `bash -c` / `sh -c` / `eval` bodies included to depth 3; git
  * statements from cmdStatements; writes from writePaths. A command that does
  * not parse, or whose code the analysis cannot read, is denied only when its
- * text names one of the forms. Outside an agent session nothing is gated, and
+ * text names one of the forms. A git statement whose subcommand, `-c` key,
+ * push option or config key comes from an expansion or the words a $( ) cut
+ * off is denied as it stands (fail closed). Outside an agent session nothing is gated, and
  * every deny first asks standsDownFor, which stands down in an exempt repo,
  * for the repo its form lands in.
  */
 import type { Node } from 'web-tree-sitter';
 import { ALLOW, type Gate } from './gate.js';
-import { cmdStatements, gitSubcommandOf, prefilterPasses, stmtRepoRoot, unquotedCommand, writePaths, type Statement } from './cmd-analysis/index.js';
+import { cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot, unquotedCommand, writePaths, type Statement } from './cmd-analysis/index.js';
 import { bashParser } from './cmd-analysis/parser.js';
 import { ASSIGNMENT, splitWords, unwrap } from './cmd-analysis/unwrap.js';
 import { dbPath } from './lib/db.js';
@@ -54,6 +56,10 @@ const PARSE_REASON = 'BLOCKED: the pre-push hook guard could not read this comma
 const denyForm = (form: string) =>
   denyResult(`BLOCKED: ${form} would skip, disable or replace TMB's pre-push hook. ${OBSERVE_ONLY}`, { allowed: 'the same command without that form' });
 const denyUnreadable = (why: string) => denyResult(`${PARSE_REASON} (${why}) ${OBSERVE_ONLY}`, { allowed: 'the same command split into simpler commands with plain quoting' });
+const denyUnresolved = (why: string) =>
+  denyResult(`BLOCKED: the pre-push hook guard cannot tell what this git command runs: ${why}, so it could skip, disable or replace TMB's pre-push hook. ${OBSERVE_ONLY}`, {
+    allowed: 'the same command with that git argument written literally',
+  });
 
 const namesForm = (text: string): boolean => NAMES_A_FORM.test(unquotedCommand(text)) || NAMES_A_FORM_ANY_CASE.test(unquotedCommand(text));
 
@@ -126,7 +132,8 @@ function envForm(w: readonly (string | null)[]): string {
   return '';
 }
 
-type Finding = { form: string } | { unreadable: string } | null;
+/** A form named literally, text the analysis cannot read that names one, or a git word whose value is unknown where a form could sit. */
+type Finding = { form: string } | { unreadable: string } | { unresolved: string } | null;
 
 /** The form one command's words make: its leading assignments and wrappers, `env`, `unset`, and a shell or `eval` body. */
 async function argvFinding(w: readonly (string | null)[], depth: number): Promise<Finding> {
@@ -226,14 +233,40 @@ async function treeFinding(command: string, depth: number): Promise<Finding> {
 const configKey = (value: string): string => value.split('=')[0].toLowerCase();
 const isHookKey = (key: string): boolean => key === 'hook' || key.startsWith('hook.');
 
+/**
+ * Whether a git argument word's value is unknown until bash runs it: it holds
+ * an expansion, or starts with a glob or brace pattern bash may turn into an
+ * option such as `--no-verify`. A statement's words have their quotes
+ * dropped, so a quoted expansion counts as well: its value may be an option.
+ */
+const isUnknownWord = (word: string): boolean => /[$`]/.test(word) || /^[*?[{]/.test(word);
+/** Stands for the words after an unquoted $( ) or backtick that cut a statement. */
+const CUT_WORDS = '$(…)';
+
 const CONFIG_WRITE_ACTIONS = new Set(['set', 'unset', 'rename-section', 'remove-section', 'edit']);
 const CONFIG_READ_ACTIONS = new Set(['get', 'list']);
 const CONFIG_WRITE_OPTIONS = new Set(['--add', '--replace-all', '--unset', '--unset-all', '--rename-section', '--remove-section', '-e', '--edit']);
 const CONFIG_READ_OPTIONS = new Set(['--get', '--get-all', '--get-regexp', '--get-urlmatch', '--get-color', '--get-colorbool', '-l', '--list']);
 const CONFIG_VALUE_OPTIONS = new Set(['-f', '--file', '--blob', '-t', '--type', '--default', '--comment', '--value', '--url']);
 
-/** The form one `git config …` (<sub>, from `config` on) makes. */
-function configForm(sub: readonly string[]): string {
+/**
+ * The finding one `git config …` (<sub>, from `config` on) makes. An unknown
+ * word before the key, or an unknown key, could itself be a hook key or an
+ * action, so it is unresolved; an unknown word after a literal key is a value.
+ */
+function configFinding(sub: readonly string[]): Finding {
+  const shown = `\`git ${sub.join(' ')}\``;
+  const unknownAt = sub.findIndex(isUnknownWord);
+  if (unknownAt > 0) {
+    const key = sub.slice(1, unknownAt).find((word, k, before) => !word.startsWith('-') && !CONFIG_VALUE_OPTIONS.has(before[k - 1] ?? '') && !CONFIG_WRITE_ACTIONS.has(word) && !CONFIG_READ_ACTIONS.has(word));
+    if (key === undefined) return { unresolved: `${shown} takes its key, an action or an option before the key from ${sub[unknownAt]}` };
+  }
+  const form = configForm(sub, shown);
+  return form === '' ? null : { form };
+}
+
+/** The form one `git config …` (<sub>, from `config` on) makes, its words read as literal. */
+function configForm(sub: readonly string[], shown: string): string {
   const positional: string[] = [];
   let write = false;
   let read = false;
@@ -250,7 +283,6 @@ function configForm(sub: readonly string[]): string {
   const action = positional.length > 0 && (CONFIG_WRITE_ACTIONS.has(positional[0]) || CONFIG_READ_ACTIONS.has(positional[0])) ? (positional.shift() as string) : '';
   if (CONFIG_WRITE_ACTIONS.has(action)) write = true;
   else if (action !== '') read = true;
-  const shown = `\`git ${sub.join(' ')}\``;
   if (action === 'edit' || sub.includes('-e') || sub.includes('--edit')) return `${shown}, which edits a git config file`;
   // `git config <key> <value>` sets; one positional alone reads.
   if (!write && (read || positional.length < 2)) return '';
@@ -269,11 +301,16 @@ function chmodTargets(s: Statement): string[] {
   return files.map((w) => (w.includes('$') || w.startsWith('/') || s.dir === '-' ? w : `${s.dir}/${w}`));
 }
 
-/** The form one listed statement makes as a git command. */
+/**
+ * The finding one listed statement makes as a git command. Its literal words
+ * are judged as written; a word whose value is unknown until bash runs it, or
+ * the words an unquoted $( ) or backtick cut off, is unresolved wherever it
+ * could be a form: any subcommand, a `-c` / `--config-env` key, a push option.
+ */
 function gitForm(s: Statement): Finding {
   if (s.opaque === true) return namesForm(s.src ?? s.stmt) ? { unreadable: 'it runs code the analysis cannot read' } : null;
   const sub = gitSubcommandOf(s);
-  if (sub === undefined) return namesForm(s.src ?? s.stmt) ? { unreadable: "it cannot read git's subcommand literally" } : null;
+  if (sub === undefined) return { unresolved: `\`${s.src ?? s.stmt}\` takes git's subcommand, or an option before it, from text the guard cannot read literally` };
   if (sub === '') return null;
   const words = splitWords(s.stmt);
   const subWords = splitWords(sub);
@@ -282,17 +319,22 @@ function gitForm(s: Statement): Finding {
   for (let k = 0; k < globals.length; k++) {
     const word = globals[k];
     const value = word === '-c' || word === '--config-env' ? globals[k + 1] ?? '' : word.startsWith('--config-env=') ? word.slice('--config-env='.length) : '';
-    if (value !== '' && isHookKey(configKey(value))) return { form: `\`git ${word.startsWith('--config-env=') ? word : `${word} ${value}`}\`` };
+    if (value === '') continue;
+    const shown = `\`git ${word.startsWith('--config-env=') ? word : `${word} ${value}`}\``;
+    if (isHookKey(configKey(value))) return { form: shown };
+    if (isUnknownWord(configKey(value))) return { unresolved: `${shown} takes its config key from ${value}` };
   }
-  if (subWords[0] === 'push') {
-    const end = subWords.indexOf('--');
-    const noVerify = subWords.slice(1, end < 0 ? undefined : end).find((w) => w.length >= '--no-veri'.length && '--no-verify'.startsWith(w));
+  // A `glued` cut joins the substitution to the last word, which is then unknown too.
+  const args = s.cut === undefined ? subWords : s.cut === 'glued' ? [...subWords.slice(0, -1), `${subWords.at(-1) ?? ''}${CUT_WORDS}`] : [...subWords, CUT_WORDS];
+  if (args[0] === 'push') {
+    const end = args.indexOf('--');
+    const options = args.slice(1, end < 0 ? undefined : end);
+    const noVerify = options.find((w) => w.length >= '--no-veri'.length && '--no-verify'.startsWith(w));
     if (noVerify !== undefined) return { form: `\`git push ${noVerify}\`` };
+    const unknown = options.find(isUnknownWord);
+    if (unknown !== undefined) return { unresolved: `\`git ${args.join(' ')}\` takes an argument from ${unknown}, which may be --no-verify` };
   }
-  if (subWords[0] === 'config') {
-    const form = configForm(subWords);
-    if (form !== '') return { form };
-  }
+  if (args[0] === 'config') return configFinding(args);
   return null;
 }
 
@@ -360,12 +402,14 @@ export function prepushHookGuardWith(standsDown: StandsDown): Gate {
     if (!isAgentSession(env)) return ALLOW;
     const input = jqInput(payload);
     const command = jqCapture(input, ['tool_input', 'command'], true);
-    if (command === '' || !prefilterPasses(command, (text) => KEYWORDS.test(text) || KEYWORDS_ANY_CASE.test(text))) return ALLOW;
+    // A git word beside an expansion may hide a form no keyword shows (`git -c "$KV" push`), so it is parsed too.
+    if (command === '' || (!prefilterPasses(command, (text) => KEYWORDS.test(text) || KEYWORDS_ANY_CASE.test(text)) && !gitBesideExpansion(command))) return ALLOW;
     const cwd = payloadCwdOf(input, env);
     const hit = await locate(command, cwd, env);
     if (hit === null) return ALLOW;
     if (await standsDown(await stmtRepoRoot(hit.dir, cwd, env), env)) return ALLOW;
-    return 'form' in hit.finding ? denyForm(hit.finding.form) : denyUnreadable(hit.finding.unreadable);
+    const finding = hit.finding;
+    return 'form' in finding ? denyForm(finding.form) : 'unresolved' in finding ? denyUnresolved(finding.unresolved) : denyUnreadable(finding.unreadable);
   };
 }
 

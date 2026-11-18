@@ -108,6 +108,25 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
     await assertDenied(`rm -rf ${store}/tmb`, `a write to ${store}/tmb`, separate);
   });
 
+  // F101-1: a git word whose value bash only knows when it runs is judged unknown, never as its literal text.
+  const unresolved: readonly (readonly [string, string, string | RegExp])[] = [
+    ['(d) a hook key set from a $( ) that cut the statement', 'git config hook.tmb.enabled $(echo false)', 'which writes hook.tmb.enabled'],
+    ['(a) a push option from a $( )', 'git push $(echo --no-verify)', /cannot tell what this git command runs: `git push \$\(…\)`/],
+    ['(a) a push option from a backtick', 'git push origin `echo --no-verify`', /`git push origin \$\(…\)` takes an argument from/],
+    ['(a) a push option from a variable', 'x=--no-verify; git push $x', /`git push \$x` takes an argument from \$x, which may be --no-verify/],
+    ['(a) a push option from a quoted variable', 'git push origin "$BR"', /takes an argument from \$BR/],
+    ['(a) a push option from a brace pattern', 'git push origin {--no-verify,main}', /takes an argument from \{--no-verify,main\}/],
+    ['(d) a config key from a variable', 'git config "$K" false', /takes its key, an action or an option before the key from \$K/],
+    ['(d) a config key glued to a $( )', 'git config h$(echo ook.tmb.enabled) false', /from h\$\(…\)/],
+    ['(d) a config action from a variable', 'git config "$ACTION" hook.tmb.enabled', /from \$ACTION/],
+    ['(b) a -c key from a variable', 'git -c "$KV" push', /`git -c \$KV` takes its config key from \$KV/],
+    ['(b) a hook key whose -c value expands unquoted', 'git -c hook.tmb.enabled=$V push', /takes git's subcommand, or an option before it/],
+    ['(b) an unquoted -c value bash may split into a hook key', 'git -c color.ui=$C push', /takes git's subcommand, or an option before it/],
+  ];
+  for (const [name, command, phrase] of unresolved) {
+    it(name, async () => assertDenied(command, phrase));
+  }
+
   it('a command that does not parse and names a form is denied with the parse reason', async () => {
     const why = await reason('git push --no-verify "$(');
     assert.match(why, /could not read this command/);
@@ -119,7 +138,14 @@ describe('prepush-hook-guard allows ordinary use (SC9)', () => {
   const allowed = [
     'git push origin main',
     'git push -u origin feat/x',
+    'git push origin feat/push-gate-prepush-observe',
+    'git push origin -- "$BR"',
     'git config user.name someone',
+    'git config user.name "$NAME"',
+    'git config user.name $(whoami)',
+    'git -c "color.ui=$C" log --oneline',
+    'git -C "$DIR" log --oneline',
+    'git commit -m "$(cat msg)"',
     'git config --get hook.tmb.command',
     'git config hook.tmb.command',
     'git config --list',
@@ -212,6 +238,8 @@ describe('prepush-hook-guard stands down in an exempt repo (SC10)', () => {
     assert.equal(await deniedIn(`git -C ${held} -c hook.tmb.enabled=false push`, free), true);
     assert.equal(await deniedIn(`rm -rf ${held}/.git/tmb`, free), true);
     assert.equal(await deniedIn(`rm -rf ${free}/.git/tmb`, held), false);
+    assert.equal(await deniedIn(`git -C ${free} push $(echo --no-verify)`, held), false);
+    assert.equal(await deniedIn(`git -C ${held} push $(echo --no-verify)`, free), true);
   });
 
   it('a DB that does not read, or is missing, keeps the deny', async () => {
