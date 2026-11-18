@@ -32,6 +32,8 @@ import {
   joinToolchainPath,
   msToS,
   parseBudget,
+  type StopState,
+  stopOnSignal,
   suiteWaitCapS,
   sweVerificationGate,
   toolchainDirs,
@@ -113,6 +115,35 @@ describe('swe-verification-gate helpers', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+  it('GH 3348: stopOnSignal resolves, releases every slot and exits 128 + signal when a group stop or a release throws', async () => {
+    const released: string[] = [];
+    const exits: number[] = [];
+    const state: StopState = {
+      groups: new Set([101, 102, 103]),
+      slotReleases: new Set([
+        () => {
+          throw new Error('release failed');
+        },
+        () => {
+          released.push('slot-1');
+        },
+      ]),
+      signal: null,
+    };
+    const stopped: number[] = [];
+    const stopGroup = (pgid: number): Promise<void> => {
+      if (pgid === 101) throw new Error('stop threw');
+      if (pgid === 102) return Promise.reject(new Error('stop rejected'));
+      stopped.push(pgid);
+      return Promise.resolve();
+    };
+    await stopOnSignal('SIGTERM', state, stopGroup, (code) => exits.push(code));
+    assert.deepEqual(stopped, [103]);
+    assert.deepEqual(released, ['slot-1']);
+    assert.deepEqual(exits, [143]);
+    await stopOnSignal('SIGINT', state, stopGroup, (code) => exits.push(code));
+    assert.deepEqual(exits, [143], 'a second signal during a stop exits no second time');
   });
 });
 

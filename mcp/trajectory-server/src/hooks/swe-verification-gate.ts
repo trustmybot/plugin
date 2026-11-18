@@ -141,14 +141,41 @@ const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(do
 
 const GATE_STOP_SIGNALS: readonly NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 /** What a stop signal to the gate cleans up before it exits: the running commands' process groups and the held suite slots. */
-const onStop = { groups: new Set<number>(), slotReleases: new Set<() => void>(), signal: null as NodeJS.Signals | null };
+export interface StopState {
+  groups: Set<number>;
+  slotReleases: Set<() => void>;
+  signal: NodeJS.Signals | null;
+}
+const onStop: StopState = { groups: new Set<number>(), slotReleases: new Set<() => void>(), signal: null };
 
-async function stopOnSignal(signal: NodeJS.Signals): Promise<void> {
-  if (onStop.signal !== null) return;
-  onStop.signal = signal;
-  await Promise.all([...onStop.groups].map((pgid) => stopProcessGroup(pgid)));
-  for (const release of onStop.slotReleases) release();
-  process.exit(128 + (signals[signal] ?? 0));
+function releaseSlot(release: () => void): void {
+  try {
+    release();
+  } catch (e) {
+    stderr(`${GATE_NAME}: releasing a suite slot on a stop signal failed: ${String(e)}\n`);
+  }
+}
+
+/**
+ * Stops <state>'s process groups, then releases its suite slots and exits
+ * 128 + the signal number. It never rejects: a stop or a release that throws is
+ * reported on stderr, and every slot is still released and the exit still made.
+ */
+export async function stopOnSignal(
+  signal: NodeJS.Signals,
+  state: StopState = onStop,
+  stopGroup: (pgid: number) => Promise<void> = stopProcessGroup,
+  exit: (code: number) => void = (code) => process.exit(code),
+): Promise<void> {
+  if (state.signal !== null) return;
+  state.signal = signal;
+  try {
+    const stops = await Promise.allSettled([...state.groups].map(async (pgid) => stopGroup(pgid)));
+    for (const stop of stops) if (stop.status === 'rejected') stderr(`${GATE_NAME}: stopping a process group on ${signal} failed: ${String(stop.reason)}\n`);
+  } finally {
+    for (const release of state.slotReleases) releaseSlot(release);
+    exit(128 + (signals[signal] ?? 0));
+  }
 }
 
 const onGateSignal = (signal: NodeJS.Signals): void => {
