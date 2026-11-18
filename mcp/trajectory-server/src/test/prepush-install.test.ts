@@ -188,6 +188,25 @@ describe('prepush-install: the SessionStart gate (SC1)', () => {
     assert.equal(existsSync(join(work, '.git/tmb')), false);
   });
 
+  it('an exempt repo gets no script and no hook.tmb keys; a non-exempt one beside it still does (SC10)', () => {
+    const { dir, work } = repoCase();
+    const free = join(dir, 'free');
+    gitOk(dir, 'init', '-q', 'free');
+    const db = newDb(dir, { free });
+    const d = new DatabaseSync(db);
+    d.prepare("UPDATE repos SET mode = 'exempt' WHERE name = 'free'").run();
+    d.close();
+
+    const r = runGate(GATE, { cwd: work, env: gateEnv(work, db) });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.stderr.split('\n').filter((l) => l !== ''), [
+      `tmb: installed TMB's pre-push hook (observe mode) in ${work}`,
+      `tmb: pre-push hook skipped for ${free}: repo free is exempt`,
+    ]);
+    assert.equal(existsSync(join(free, '.git/tmb')), false);
+    assert.equal(git(free, 'config', '--local', '--get-regexp', '^hook\\.').code, 1, 'no hook.* key in the exempt repo');
+  });
+
   it('parses git versions and gates on 2.54', () => {
     assert.deepEqual(parseGitVersion('git version 2.56.1\n'), [2, 56]);
     assert.deepEqual(parseGitVersion('git version 2.54.0.windows.1'), [2, 54]);

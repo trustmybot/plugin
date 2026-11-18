@@ -348,6 +348,16 @@ describe('pre-push gate: task branches by net diff', () => {
     addTask(5, 'fix/x', tip);
     assertObservedDeny(push('agent', 'origin', 'fix/x'), 'task 5 (fix/x)', 'no review verdict');
   });
+
+  it('SC10: an exempt repo admits what its policy would deny, a protected branch or an unreviewed task', () => {
+    setup();
+    sql(`UPDATE repos SET mode = 'exempt' WHERE name = 'work'`);
+    commit('direct.txt');
+    assertAdmitted(push('agent', 'origin', 'main'));
+    const tip = taskBranch('fix/x', 'x.txt');
+    addTask(5, 'fix/x', tip);
+    assertAdmitted(push('agent', 'origin', 'fix/x'));
+  });
 });
 
 describe('pre-push gate: other refs', () => {

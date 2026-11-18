@@ -4,7 +4,7 @@
  * repo, and marks the session's shell as an agent's. Per repo it writes
  * `<git-common-dir>/tmb/pre-push` and the repo-local `hook.tmb.*` keys, only
  * what differs, so a second run changes nothing (hooks/lib/prepush-hook.ts).
- * A non-git dir and a repo isExempt names are skipped. Below git 2.54, which
+ * A non-git dir and an exempt repo (lib/repo isExempt) are skipped. Below git 2.54, which
  * cannot run a hook git config defines, it installs nothing. Linked worktrees
  * share the repo-local config, so one install covers them. stderr only, one
  * line per repo changed or skipped; it never denies. Bypass:
@@ -16,8 +16,7 @@ import { candidateDirs } from './ensure-gitignore.js';
 import { dbPath } from './lib/db.js';
 import { gitRun, isDir } from './lib/git.js';
 import { gitCommonDir, installPrepushHook, pluginCliPath } from './lib/prepush-hook.js';
-import { repoGitRoot, repoNameForRoot } from './lib/repo.js';
-import { isExempt } from './pre-push/judge.js';
+import { isExempt, repoGitRoot, repoNameForRoot } from './lib/repo.js';
 
 export const GATE_NAME = 'prepush-install';
 
@@ -59,9 +58,8 @@ async function installIn(dir: string, cli: string, seen: Set<string>, env: NodeJ
   seen.add(commonDir);
   const root = await repoGitRoot(dir, env);
   const db = dbPath(env) ?? '';
-  const repo = db === '' ? '' : repoNameForRoot(db, root, env);
-  if (isExempt(repo)) {
-    note(`pre-push hook skipped for ${root}: repo ${repo} is exempt`);
+  if (isExempt(db, root, env)) {
+    note(`pre-push hook skipped for ${root}: repo ${repoNameForRoot(db, root, env)} is exempt`);
     return;
   }
   try {

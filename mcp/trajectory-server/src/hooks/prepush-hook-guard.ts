@@ -16,7 +16,8 @@
  * statements from cmdStatements; writes from writePaths. A command that does
  * not parse, or whose code the analysis cannot read, is denied only when its
  * text names one of the forms. Outside an agent session nothing is gated, and
- * every deny passes standsDownFor for the repo its form lands in.
+ * every deny first asks standsDownFor, which stands down in an exempt repo,
+ * for the repo its form lands in.
  */
 import type { Node } from 'web-tree-sitter';
 import { ALLOW, type Gate } from './gate.js';
@@ -28,9 +29,9 @@ import { denyResult } from './lib/deny.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { posixBasename } from './lib/project-env.js';
 import { gitCommonDir } from './lib/prepush-hook.js';
-import { repoNameForRoot } from './lib/repo.js';
+import { isExempt } from './lib/repo.js';
 import { payloadCwdOf } from './lib/statement-rows.js';
-import { isAgentSession, isExempt } from './pre-push/judge.js';
+import { isAgentSession } from './pre-push/judge.js';
 
 export const GATE_NAME = 'prepush-hook-guard';
 
@@ -346,14 +347,9 @@ async function locate(command: string, cwd: string, env: NodeJS.ProcessEnv): Pro
   return hit === undefined ? null : located(hit);
 }
 
-/**
- * Whether the guard stands down for the repo whose main checkout is <root>.
- * Whether an exempt repo is gated is still open (GH 3281), so this one line
- * carries the answer; GH 3279 swaps the stub isExempt for the repo's mode.
- */
+/** Whether the guard stands down for the repo whose main checkout is <root>: only a stored exempt mode does (GH 3279). */
 export function standsDownFor(root: string, env: NodeJS.ProcessEnv): boolean {
-  const db = root === '' ? '' : (dbPath(env) ?? '');
-  return db !== '' && isExempt(repoNameForRoot(db, root, env));
+  return isExempt(dbPath(env) ?? '', root, env);
 }
 
 export type StandsDown = (root: string, env: NodeJS.ProcessEnv) => boolean | Promise<boolean>;

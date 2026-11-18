@@ -6,14 +6,17 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { prepushHookGuard, prepushHookGuardWith, standsDownFor } from '../hooks/prepush-hook-guard.js';
 import { findGate, gateNames, ROUTER_GROUPS } from '../hooks/registry.js';
+import { PLUGIN_ROOT } from './hook-sandbox.js';
 
 const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 const MARKS = ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'TMB_AGENT_SHELL'] as const;
+const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 
 let dir: string;
 let repo: string;
@@ -21,7 +24,9 @@ let separate: string;
 let store: string;
 
 function human(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...GIT_ENV };
+  // No DB: the forms below are judged with no repo exempt.
+  const env: NodeJS.ProcessEnv = { ...process.env, ...GIT_ENV, TRAJECTORY_DB_PATH: join(tmpdir(), 'prepush-hook-guard-no.db') };
+  delete env.CLAUDE_PROJECT_DIR;
   for (const k of MARKS) delete env[k];
   return env;
 }
@@ -163,10 +168,62 @@ describe('prepush-hook-guard stands down through one predicate (SC9)', () => {
     assert.deepEqual(roots, [repo, repo, repo, repo]);
   });
 
-  it('denies when standsDown answers false, and the stub answers false today', async () => {
+  it('denies when standsDown answers false', async () => {
     const gate = prepushHookGuardWith(() => false);
     const r = await gate(JSON.stringify({ tool_name: 'Bash', cwd: repo, tool_input: { command: 'git push --no-verify' } }), agent());
     assert.notEqual(r.stdout, '');
-    assert.equal(standsDownFor(repo, agent()), false);
+  });
+});
+
+describe('prepush-hook-guard stands down in an exempt repo (SC10)', () => {
+  let free: string;
+  let held: string;
+  let db: string;
+  const withDb = (path = db): NodeJS.ProcessEnv => ({ ...agent(), TRAJECTORY_DB_PATH: path });
+  const deniedIn = async (command: string, cwd: string, env = withDb()): Promise<boolean> => (await reason(command, cwd, env)) !== '';
+
+  before(() => {
+    free = join(dir, 'free');
+    held = join(dir, 'held');
+    for (const r of [free, held]) execFileSync('git', ['init', '-q', r], { env: { ...process.env, ...GIT_ENV }, timeout: 10_000 });
+    db = join(dir, 'trajectory.db');
+    const d = new DatabaseSync(db);
+    try {
+      d.exec(SCHEMA);
+      // scan_run registers a new repo exempt (GH 3279); onboarding gives a repo its own mode.
+      d.prepare('INSERT INTO repos (name, path, mode) VALUES (?, ?, ?)').run('free', free, 'exempt');
+      d.prepare('INSERT INTO repos (name, path, mode) VALUES (?, ?, ?)').run('held', held, 'truest');
+    } finally {
+      d.close();
+    }
+  });
+
+  const forms = ['git push --no-verify', 'git -c hook.tmb.enabled=false push', 'unset TMB_AGENT_SHELL', 'rm -rf .git/tmb'];
+  for (const command of forms) {
+    it(`${command}: passes in the exempt repo, denied in the truest one`, async () => {
+      assert.equal(await deniedIn(command, free), false);
+      assert.equal(await deniedIn(command, held), true);
+    });
+  }
+
+  it('goes by the repo the command acts on, not the shell cwd', async () => {
+    assert.equal(await deniedIn(`git -C ${free} push --no-verify`, held), false);
+    assert.equal(await deniedIn(`git -C ${held} push --no-verify`, free), true);
+    assert.equal(await deniedIn(`git -C ${held} -c hook.tmb.enabled=false push`, free), true);
+    assert.equal(await deniedIn(`rm -rf ${held}/.git/tmb`, free), true);
+    assert.equal(await deniedIn(`rm -rf ${free}/.git/tmb`, held), false);
+  });
+
+  it('a DB that does not read, or is missing, keeps the deny', async () => {
+    const junk = join(dir, 'junk.db');
+    writeFileSync(junk, 'not a sqlite file');
+    assert.equal(await deniedIn('git push --no-verify', free, withDb(junk)), true);
+    assert.equal(await deniedIn('git push --no-verify', free, withDb(join(dir, 'missing.db'))), true);
+  });
+
+  it('standsDownFor answers from the stored mode', () => {
+    assert.equal(standsDownFor(free, withDb()), true);
+    assert.equal(standsDownFor(held, withDb()), false);
+    assert.equal(standsDownFor('', withDb()), false);
   });
 });
