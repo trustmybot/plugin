@@ -171,7 +171,7 @@ flowchart TD
     CI -- a check fails, or a review comment asks for a change --> H
 ```
 
-- **The Human decides when.** The review runs when the Human says the milestone is reached, such as when an MVP works end to end, not after each task. It is one batch review of the milestone, split into groups that run in parallel.
+- **The Human decides when.** The review runs when the Human says the milestone is reached, in the hub or in the lane's own session, such as when an MVP works end to end, not after each task. It is one batch review of the milestone, split into groups that run in parallel.
 - **Groups form after the fact.** Which files a task will touch is hard to know before it is planned, so tasks are not grouped up front. The groups come from the files each task actually changed, and tasks that share a file are reviewed together, so a reviewer sees their combined effect.
 - **Net diff.** The review reads what the feature branch adds to the working branch, not each task's patch. Churn a later task undid is never reviewed, and a conflict resolved on the branch is reviewed as resolved.
 - **The suite covers the gaps.** A reviewer reads its group's files and their dependents. The full suite runs at the feature branch's tip in each hand-off, and again in the milestone PR's CI run, and catches what crosses two groups.
