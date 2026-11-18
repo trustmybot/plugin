@@ -546,7 +546,11 @@ describe('git-guards l3: Rule 2 splits by command class (#1070, #1073)', () => {
     git(sb.env, f.repo, 'remote', 'add', 'origin', 'git@github.com:acme/app.git');
     const out = guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db });
     deny(out, 'commit on main must block');
-    has(out, 'Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>', 'the GitHub form');
+    has(
+      out,
+      'Push your feature branch and open a PR into main. (repo fixture, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>',
+      'the GitHub form',
+    );
     hasNot(out, 'glab', 'no GitLab form on a GitHub remote');
   });
 
@@ -557,7 +561,7 @@ describe('git-guards l3: Rule 2 splits by command class (#1070, #1073)', () => {
     deny(out, 'commit on main must block');
     has(
       out,
-      'Push your feature branch and open an MR into main. Allowed form: git push origin <branch> && glab mr create --target-branch main --source-branch <branch>',
+      'Push your feature branch and open an MR into main. (repo fixture, mode truest) Allowed form: git push origin <branch> && glab mr create --target-branch main --source-branch <branch>',
       'the GitLab form',
     );
     hasNot(out, 'gh pr create', 'no GitHub form on a GitLab remote');

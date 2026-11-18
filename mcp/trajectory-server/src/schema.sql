@@ -14,6 +14,9 @@ PRAGMA journal_mode = WAL;
 -- it at a commit. world_model_* and task_brief compare it with their target.
 -- indexed_stamp: '<EXTRACTOR_VERSION>:<schema version>' the index was built
 -- with; a mismatch forces a full rebuild of the repo.
+-- mode (v76, GH 3279): the rules the repo runs under. NULL takes the project's
+-- workflow_mode; exempt stands the git guards and the push gate down. A repo
+-- scan_run newly registers starts exempt until the Human sets it via /onboard.
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
@@ -24,7 +27,8 @@ CREATE TABLE IF NOT EXISTS repos (
     protected_branches TEXT,
     onboard_scan      TEXT,
     indexed_commit    TEXT,
-    indexed_stamp     TEXT
+    indexed_stamp     TEXT,
+    mode              TEXT CHECK (mode IS NULL OR mode IN ('truest','agile','exempt'))
 );
 
 -- repo_remotes: a repo's git remotes, the sole source of truth for them.
@@ -468,7 +472,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 75, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 76, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

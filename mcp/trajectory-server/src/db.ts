@@ -16,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 75;
+export const TARGET_SCHEMA_VERSION = 76;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -475,6 +475,7 @@ export type RepoRow = {
   protected_branches: string | null;
   indexed_commit: string | null;
   indexed_stamp: string | null;
+  mode: 'truest' | 'agile' | 'exempt' | null;
 };
 
 export type CheatcodeRow = {
@@ -855,6 +856,8 @@ function runMigrations(
   if (fromVersion < 74 && toVersion >= 74) migrateV73toV74(db);
   // v74→v75: wm_overlays and its wm_overlay_* tables, the per-task world-model overlay (GH 2957)
   if (fromVersion < 75 && toVersion >= 75) migrateV74toV75(db);
+  // v75→v76: repos.mode, a repo's truest, agile or exempt rules (GH 3279)
+  if (fromVersion < 76 && toVersion >= 76) migrateV75toV76(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3828,6 +3831,33 @@ function migrateV74toV75(db: DatabaseSync): void {
           CHECK (dst_overlay_id IS NULL OR dst_symbol_id IS NULL)
       );
     `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v76 step, repos.mode (GH 3279). A repo with a confirmed policy (a
+// target_branch, written by onboard_apply or the config backfill) keeps its
+// current rules at NULL, the project's workflow_mode; one with none becomes
+// exempt, as scan_run registers a new repo.
+function addRepoMode(db: DatabaseSync): void {
+  if (!tableExists(db, 'repos') || hasColumn(db, 'repos', 'mode')) return;
+  db.exec("ALTER TABLE repos ADD COLUMN mode TEXT CHECK (mode IS NULL OR mode IN ('truest','agile','exempt'))");
+  db.exec("UPDATE repos SET mode = 'exempt' WHERE target_branch IS NULL");
+}
+
+// v75→v76: one transaction; each schema step is its own guarded, idempotent
+// block, so a later v76 constraint change joins as one more step.
+function migrateV75toV76(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    addRepoMode(db);
     commitTransaction(db);
   } catch (err) {
     try {

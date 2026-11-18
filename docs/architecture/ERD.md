@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 75`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 76`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -22,7 +22,7 @@ Every table, and every change to one, meets these two requirements. The Human se
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 75`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 76`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -88,6 +88,7 @@ erDiagram
         TEXT onboard_scan
         TEXT indexed_commit
         TEXT indexed_stamp
+        TEXT mode "CHECK mode IS NULL OR mode IN ('truest','agile','exempt')"
     }
 
     repo_remotes {
@@ -624,6 +625,7 @@ erDiagram
 | `onboard_scan` | TEXT | nullable |  |  |
 | `indexed_commit` | TEXT | nullable |  |  |
 | `indexed_stamp` | TEXT | nullable |  |  |
+| `mode` | TEXT | nullable |  | CHECK `mode IS NULL OR mode IN ('truest','agile','exempt')` |
 
 ### `repo_remotes`
 
