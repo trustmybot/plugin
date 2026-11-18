@@ -60,6 +60,8 @@ Hooks enforce the rest of this model. Each hook applies the policy of the repo t
 
 swe never fetches, rebases or pulls. When `<base>` moves after a task passed review, bro rebases the reviewed commit in a scratch worktree, refuses when the rebased patch differs from the reviewed one or conflicts, and re-runs the task's verification on the result. Only on a pass do the branch and the task's recorded commit move to the rebased commit. Because the patch is unchanged, the review carries over, the way Gerrit carries a vote across a trivial rebase; any other new commit needs a fresh review. The push gate applies the same patch-identity rule to rebased commits no task records.
 
+Planned (GH 3357): where the target branch has a merge queue on GitHub or GitLab, bro skips this rebase and pushes the reviewed commit as is. The queue tests the commit on the new base before it merges, so a local re-run would test the same combination twice. A commit the queue rejects reopens its task, like any failed required check. The rebase stays for a repo with no merge queue. It also stays for a branch the queue cannot take: one that conflicts with the base, or one whose lower commits already merged into the base.
+
 ### When the base moves after the PR is open
 
 Planned (GH 3227). The rebase above runs before the first push. Once the PR is open, a moved base is not by itself a reason to rebase: a rebase rewrites the commit, so the branch on origin can only be updated by a force-push. Today bro rebases an open PR's branch whenever the base moved, and the push gate then also checks the base's own commits between the old tip and the new one, so the force-push is denied.
