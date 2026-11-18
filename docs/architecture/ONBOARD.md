@@ -41,15 +41,29 @@ The first bro turn on a project that isn't onboarded runs `/onboard` before any 
 | 5 | Always | Opt-in TMB bug reports (flow 5.1) | the consent, no by default |
 | 5b | Always | The project review mode: truest, or agile on a long-lived feature branch ([AGILE.md](AGILE.md)); a stored mode is offered as Keep. Planned (GH 3281): bro recommends the project's mode, and the round then asks one mode per repo, truest, agile, exempt or the project's, each with bro's recommendation | the review mode, truest by default and untouched when the round is skipped; planned, agile by default, and each repo's mode |
 | 6 | Per repo, when its PR target has no verification defaults and its environment profile names a lint, typecheck or test command | Which of the [environment profile](ENVIRONMENT.md)'s lint, typecheck and test commands every task runs | a verification-defaults file in the repo's working tree |
-| 7 | Per repo, when docs or prompts paths are detected on its PR target | Whether to class the detected paths as docs and prompts, keep everything code, or keep the current classes; every other path stays code | a path-classes file in the repo's working tree when the Human takes the detected classes |
+| 7 | Per repo, when bro finds docs or prompts files on its PR target | Which files are docs or prompts: let bro detect them, keep everything as code, or keep the current path classes. Every other file stays code | a path-classes file in the repo's working tree when the Human lets bro detect |
 
-- **Fresh evidence each round.** Each question shows the evidence behind its recommended option, listed first.
-- **Re-runs keep what stands.** A re-run pre-selects the current values, and changes a setting only when the Human picks a new one: a kept or unasked setting keeps its stored value. Identity is the onboarded marker alone. Since no shape is stored, switching from Local-only back to Remote-tracked detects the remotes again.
+- **Fresh evidence each round.** bro checks the project again before each question and shows what it found beside the recommended option, which is listed first.
+- **Re-runs keep what stands.** A re-run offers each current value first and changes a setting only when the Human picks a new one. A setting that is kept or not asked about keeps its stored value. The onboarded marker is the only record that a project is onboarded. No shape is stored, so switching from Local-only back to Remote-tracked detects the remotes again.
 - **A Local-only first run asks no branching question.** Each repo gets GitHub Flow, with its default branch as the PR target.
 - **Round 0 ends the run two ways.** Making the directory its own project writes the marker and a fresh DB there and stops, and the Human restarts and onboards in it. Cancel writes nothing. A stray DB is removed only if it is still empty when the answers land; a refusal is reported and the DB stays.
 - **The marker lands last.** Round 2's branching and PR target are written per repo as each is answered. The workspace answers (remotes, issue sync, sandbox, bug reports, review mode) land together with the marker. An interrupted run leaves the project not onboarded and keeps any repo policy already answered, which the re-run offers as the current value. The sandbox settings and the stray-DB removal are applied after that transaction; a failure there is reported and does not undo the marker.
 - **Rounds 6 and 7 can skip a repo.** Each is skipped, with the reason shown, when the repo's PR target branch does not exist yet or its existing file is invalid. bro records the repo's environment profile before Round 6 when none exists. A skipped round is offered again on the next run.
-- **Failures.** A failed step is reported word for word, retried once, and then the run stops. Picking Local-only on a project with a forge remote is questioned once, then accepted. Picking Remote-tracked when no repo has a remote onboards with a warning that nothing will sync.
+- **Failures.** A failed step is reported word for word, retried once, and then the run stops. Picking Local-only on a project that pushes to GitHub or GitLab is questioned once, then accepted. Picking Remote-tracked when no repo has a remote onboards with a warning that nothing will sync.
 - **The review-mode round recommends, the Human decides.** Planned (GH 3281). bro recommends a mode for the project and one per repo from what each shows, with the reason beside it ([GIT.md](GIT.md#multi-repo-workspaces)). The Human accepts the set in one answer or edits it. Agile is the fallback: it is what bro recommends when nothing is clear, and what applies when the round is skipped and no mode is stored. A re-run offers each stored mode as Keep and never changes one on its own.
 - **Repos come from the scan.** First contact reads the repos the first scan found (flow 2.2). When no repo is known yet, bro runs the scan first.
 - **Repo files stay the Human's to commit.** Rounds 6 and 7 apply on their own, outside that transaction. Each writes its file to the repo's working tree, never commits it, and never overwrites a different existing file. The file takes effect once the Human commits it to the PR target, because tasks read it from there.
+
+## How a card is written
+
+Each round asks through a card. A person who has never used TMB must be able to answer it from the card alone.
+
+- **The feature comes first.** The question opens by saying what TMB does here, in one or two sentences, and then asks.
+- **TMB's own names.** A card uses the name TMB uses everywhere, such as no-code task, path classes or review mode, and says what it means.
+- **One option is recommended, with its reason.** The reason comes from what bro found in the project. A card that asks for consent recommends nothing.
+- **Each option says its benefit and its risk or cost**, in one short line.
+- **The card shows the actual values.** Paths, commands and branch names appear on the card, shortened with a count when the list is long.
+- **Human language for what TMB works out.** An option that takes what bro found reads "Let bro detect".
+- **Plain, short sentences.** Setting names and file formats stay off the card. Detail that does not help the choice goes in the lines bro prints above it.
+
+Planned (GH 3327): today's cards ask without the opening sentence, and most options carry no benefit or risk.
