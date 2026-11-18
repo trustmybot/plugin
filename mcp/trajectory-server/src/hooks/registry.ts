@@ -258,7 +258,6 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(PROMPT_WRITE_APPROVAL_GATE, 'enforcement'),
     routerGate(NO_PROSE_GATE, 'enforcement'),
     routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
-    routerGate(PREPUSH_HOOK_GUARD_GATE, 'enforcement'),
     routerGate(SWE_SCOPE_FENCE_GATE, 'advisory'),
     routerGate(NAMING_LINT_GATE, 'advisory'),
     routerGate(CQ_LINT_GATE, 'advisory'),

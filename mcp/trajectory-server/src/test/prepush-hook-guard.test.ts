@@ -82,6 +82,15 @@ describe('prepush-hook-guard denies each way to skip the hook (SC9)', () => {
     ['(d) --remove-section', 'git config --remove-section hook.tmb', 'which writes hook.tmb'],
     ['(d) --rename-section', 'git config --rename-section hook.tmb hook.old', 'which writes hook.tmb'],
     ['(d) extensions.worktreeConfig', 'git config extensions.worktreeConfig true', 'which writes extensions.worktreeConfig'],
+    // SC3 (d): an include pulls in a file that may set any hook key, so its path keys are protected too, in any case.
+    ['(d) include.path', 'git config include.path x', 'which writes include.path'],
+    ['(d) includeIf.<cond>.path, --local', 'git config --local includeIf.gitdir:/a/.path x', 'which writes includeIf.gitdir:/a/.path'],
+    ['(d) include.path in mixed case', 'git config Include.PATH x', 'which writes Include.PATH'],
+    ['(d) includeIf.<cond>.path in mixed case', 'git config INCLUDEIF.onbranch:main.Path x', 'which writes INCLUDEIF.onbranch:main.Path'],
+    ['(d) --add include.path', 'git config --global --add include.path ~/evil', 'which writes include.path'],
+    ['(d) hook key in mixed case', 'git config Hook.Tmb.Enabled false', 'which writes Hook.Tmb.Enabled'],
+    ['(b) -c include.path', 'git -c include.path=/tmp/x push origin main', '`git -c include.path=/tmp/x`'],
+    ['(b) -c includeIf.<cond>.path in mixed case', 'git -c IncludeIf.gitdir:/a/.Path=/tmp/x status', 'IncludeIf.gitdir:/a/.Path=/tmp/x'],
     ['(e) a redirect into the git config file', 'echo x >> .git/config', /a write to .*\/repo\/\.git\/config/],
     ['(e) rm of the hook dir', 'rm -rf .git/tmb', /a write to .*\/\.git\/tmb/],
     ['(e) mv of the hook script', 'mv .git/tmb/pre-push /tmp/pre-push.bak', /\.git\/tmb\/pre-push/],
@@ -249,16 +258,10 @@ describe('prepush-hook-guard allows ordinary use (SC9)', () => {
     'git config --replace-all remote.origin.url "$URL" "$OLD"',
     'git config --unset user.name "$PATTERN"',
     'git -C "$WT" config user.name "$NAME"',
-    // SC2: the switch named only as an argument to a read-only command, with no redirection.
-    'grep -rn TMB_DISABLE_PREPUSH_INSTALL src',
-    'rg TMB_DISABLE_PREPUSH_INSTALL docs',
-    'git grep -n TMB_DISABLE_PREPUSH_INSTALL',
-    'cat notes.txt | grep TMB_DISABLE_PREPUSH_INSTALL',
-    'grep -rn TMB_DISABLE_PREPUSH_INSTALL src | head -5',
-    'printenv TMB_DISABLE_PREPUSH_INSTALL',
-    'echo "$TMB_DISABLE_PREPUSH_INSTALL"',
-    'cd src && grep -rln TMB_DISABLE_PREPUSH_INSTALL .',
-    'grep -rn "TMB_DISABLE_PREPUSH_INSTALL=1" docs',
+    // A key that merely starts like a protected one is no include path.
+    'git config include.other x',
+    'git config includeIf.gitdir:/a/.other x',
+    'git config --get include.path',
     'git commit -m "$(cat msg)"',
     'git config --get hook.tmb.command',
     'git config hook.tmb.command',
@@ -313,95 +316,13 @@ describe('prepush-hook-guard allows ordinary use (SC9)', () => {
     assert.notEqual(await reason('git push --no-verify', repo, { ...human(), TMB_AGENT_SHELL: '1' }), '');
   });
 
-  it('is registered as a PreToolUse Bash and Write|Edit enforcement gate', () => {
+  it('is registered as a PreToolUse Bash enforcement gate only', () => {
     assert.equal(findGate('prepush-hook-guard'), prepushHookGuard);
     assert.ok(gateNames().includes('prepush-hook-guard'));
-    for (const matcher of ['Bash', 'Write|Edit|MultiEdit|NotebookEdit']) {
-      const group = ROUTER_GROUPS.find((g) => g.event === 'PreToolUse' && g.matcher === matcher && g.part === undefined);
-      assert.ok(group?.gates.some((g) => g.name === 'prepush-hook-guard' && g.kind === 'enforcement'), matcher);
-    }
-  });
-});
-
-describe('prepush-hook-guard: only the Human sets the switch (SC2)', () => {
-  const SWITCH = 'TMB_DISABLE_PREPUSH_INSTALL';
-  const switchDenied = (why: string): boolean => why.includes(`names ${SWITCH}`) && why.includes('only the Human sets it');
-
-  const commands = [
-    `export ${SWITCH}=1`,
-    `${SWITCH}=1 claude`,
-    `echo ${SWITCH}=1 >> ~/.zshrc`,
-    `echo "export ${SWITCH}=1" > "$CLAUDE_ENV_FILE"`,
-    `printf 'export %s=1\\n' ${SWITCH} >> ~/.bashrc`,
-    `echo ${SWITCH}=1 | tee -a ~/.profile`,
-    `sed -i 's/x/${SWITCH}=1/' ~/.zshenv`,
-    `cat <<EOF >> ~/.zprofile\nexport ${SWITCH}=1\nEOF`,
-    `bash -c 'export ${SWITCH}=1'`,
-    `grep ${SWITCH} src > hits.txt`,
-    `grep -rn ${SWITCH} src 2>/dev/null`,
-    `echo $(echo ${SWITCH}=1 >> ~/.zshrc)`,
-    `rg --pre ./run.sh ${SWITCH} src`,
-    `git grep -O'sh -c x' ${SWITCH}`,
-    `(grep ${SWITCH} src)`,
-    `TMB_DISABLE_"PREPUSH"_INSTALL=1 claude`,
-    `grep ${SWITCH} src | xargs sed -i s/a/b/`,
-    `declare -x ${SWITCH}=1`,
-  ];
-  for (const command of commands) {
-    it(`denies ${JSON.stringify(command)}`, async () => {
-      const why = await reason(command);
-      assert.ok(switchDenied(why), `${command}\n${why}`);
-      assert.match(why, /Allowed form: a read-only grep, rg, git grep, cat, printenv or echo/);
-    });
-  }
-
-  it('denies in an exempt repo too: the switch reaches every repo', async () => {
-    const gate = prepushHookGuardWith(() => true);
-    const r = await gate(JSON.stringify({ tool_name: 'Bash', cwd: repo, tool_input: { command: `export ${SWITCH}=1` } }), agent());
-    assert.ok(switchDenied(r.stdout));
-  });
-
-  it("the Human's command is never gated", async () => {
-    assert.equal(await reason(`export ${SWITCH}=1`, repo, human()), '');
-  });
-
-  async function edit(tool: string, toolInput: Record<string, unknown>, env = agent()): Promise<string> {
-    const r = await prepushHookGuard(JSON.stringify({ tool_name: tool, cwd: repo, tool_input: toolInput }), env);
-    return r.stdout;
-  }
-
-  const home = '/Users/someone';
-  const targets = [
-    ['CLAUDE_ENV_FILE', join(dir ?? tmpdir(), 'session-env.sh')],
-    ['a project .claude/settings.json', `${home}/proj/.claude/settings.json`],
-    ['a project .claude/settings.local.json', `${home}/proj/.claude/settings.local.json`],
-    ['the user ~/.claude/settings.json', `${home}/.claude/settings.json`],
-    ...['.zshrc', '.zshenv', '.zprofile', '.zlogin', '.bashrc', '.bash_profile', '.bash_login', '.profile'].map((p) => [`the shell profile ${p}`, `${home}/${p}`]),
-  ] as const;
-  for (const [name, path] of targets) {
-    it(`denies an Edit, Write or MultiEdit putting the switch into ${name}`, async () => {
-      const env = { ...agent(), CLAUDE_ENV_FILE: join(dir, 'session-env.sh') };
-      const file = name === 'CLAUDE_ENV_FILE' ? join(dir, 'session-env.sh') : path;
-      const text = file.endsWith('.json') ? `{"env": {"${SWITCH}": "1"}}` : `export ${SWITCH}=1\n`;
-      for (const [tool, input] of [
-        ['Write', { file_path: file, content: text }],
-        ['Edit', { file_path: file, old_string: 'x', new_string: text }],
-        ['MultiEdit', { file_path: file, edits: [{ old_string: 'a', new_string: 'b' }, { old_string: 'x', new_string: text }] }],
-      ] as const) {
-        const out = await edit(tool, input, env);
-        assert.ok(switchDenied(out), `${tool} ${file}\n${out}`);
-      }
-      // The same file without the switch, or the switch leaving it, passes.
-      assert.equal(await edit('Write', { file_path: file, content: 'export FOO=1\n' }, env), '');
-      assert.equal(await edit('Edit', { file_path: file, old_string: `export ${SWITCH}=1`, new_string: '' }, env), '');
-      assert.equal(await edit('Write', { file_path: file, content: text }, { ...human(), CLAUDE_ENV_FILE: join(dir, 'session-env.sh') }), '');
-    });
-  }
-
-  it('passes the switch named in any other file', async () => {
-    for (const file of [join(repo, 'docs/INSTALL.md'), join(repo, 'src/settings.json'), join(repo, '.claude/notes.json'), join(repo, 'zshrc.example')]) {
-      assert.equal(await edit('Write', { file_path: file, content: `${SWITCH}=1` }), '', file);
-    }
+    const inGroup = (matcher: string) =>
+      ROUTER_GROUPS.find((g) => g.event === 'PreToolUse' && g.matcher === matcher && g.part === undefined)?.gates.some((g) => g.name === 'prepush-hook-guard' && g.kind === 'enforcement');
+    assert.ok(inGroup('Bash'));
+    assert.ok(!inGroup('Write|Edit|MultiEdit|NotebookEdit'));
   });
 });
 
@@ -467,10 +388,10 @@ describe('prepush-hook-guard records each fail-closed deny (SC4)', () => {
     assert.equal(capped.command_form.length, 200);
   });
 
-  it('a form deny or a switch deny writes no row', async () => {
+  it('a form deny writes no row', async () => {
     const before = rows().length;
     await reason('git push --no-verify', repo, { ...agent(), TRAJECTORY_DB_PATH: db });
-    await reason('export TMB_DISABLE_PREPUSH_INSTALL=1', repo, { ...agent(), TRAJECTORY_DB_PATH: db });
+    await reason('git config include.path x', repo, { ...agent(), TRAJECTORY_DB_PATH: db });
     assert.equal(rows().length, before);
   });
 

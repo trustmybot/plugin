@@ -32,7 +32,17 @@ import {
   type OtherClaudeDb,
 } from '../platform.js';
 import { insertAudit } from './audit.js';
-import { WORKFLOW_MODES, WORKFLOW_MODE_KEY, isWorkflowMode, writeConfigValueJson, type WorkflowMode } from './config.js';
+import {
+  PREPUSH_HOOK_KEY,
+  PREPUSH_HOOK_SETTINGS,
+  WORKFLOW_MODES,
+  WORKFLOW_MODE_KEY,
+  isPrepushHookSetting,
+  isWorkflowMode,
+  writeConfigValueJson,
+  type PrepushHookSetting,
+  type WorkflowMode,
+} from './config.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -659,6 +669,23 @@ function reviewModeQuestion(current: WorkflowMode | null): BuiltQuestion {
   };
 }
 
+const PREPUSH_HOOK_ADVICE: Advice = {
+  evidence: [],
+  reason: 'On is the default: the hook only observes and never blocks a push.',
+  wire: 'on',
+};
+
+// Only /onboard stores the setting, so a stored one always gets a Keep option.
+function prepushHookQuestion(current: PrepushHookSetting | null): BuiltQuestion {
+  return {
+    question:
+      "Install TMB's pre-push hook in this project's repos? It only observes agent pushes and never blocks one. Off removes it at the next session start. Only you change this, here.",
+    header: 'Pre-push hook',
+    multiSelect: false,
+    ...assemble(keepOption(current, true), PREPUSH_HOOK_OPTIONS, PREPUSH_HOOK_ADVICE, 'on'),
+  };
+}
+
 // AskUserQuestion takes 2-4 options per question and at most 4 questions.
 const AUQ_MAX_OPTIONS = 4;
 const AUQ_MAX_QUESTIONS = 4;
@@ -813,6 +840,11 @@ const REVIEW_MODE_OPTIONS: QuestionOption[] = [
   { label: 'Agile', description: 'Tasks close unreviewed; the work is reviewed as a whole before it merges.', wire: 'agile' },
 ];
 
+const PREPUSH_HOOK_OPTIONS: QuestionOption[] = [
+  { label: 'On', description: 'Git checks and records each agent push; it never blocks one.', wire: 'on' },
+  { label: 'Off', description: 'Git stops checking agent pushes; each new session says so once.', wire: 'off' },
+];
+
 const ALONE_APPLY_KEYS = ['headless_enforcement', 'bug_report_consent'] as const;
 
 const SANDBOX_YES_RECOMMENDED = 'Yes (Recommended)';
@@ -865,9 +897,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           },
           round: {
             type: 'string',
-            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'verification_defaults', 'path_classes'],
+            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'prepush_hook', 'verification_defaults', 'path_classes'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep). 'review_mode' = the project review mode (any shape): truest (recommended, the default) or agile, plus Keep first when a mode is stored. 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record). 'path_classes' = one repo's no-code path classes (any shape): one question whose evidence[] lists the docs and prompts globs detected from the files on its PR target, with options proposed (recommended), code (every path stays code) and Keep when the PR target already has " + PATH_CLASSES_FILE + "; nothing detected, an invalid file or an unresolvable PR target gives no questions and notes[] says why.",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard to Keep). 'review_mode' = the project review mode (any shape): truest (recommended, the default) or agile, plus Keep first when a mode is stored. 'prepush_hook' = TMB's pre-push hook (any shape): on (recommended, the default) or off, Keep first when stored. 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record). 'path_classes' = one repo's no-code path classes (any shape): one question whose evidence[] lists the docs and prompts globs detected from the files on its PR target, with options proposed (recommended), code (every path stays code) and Keep when the PR target already has " + PATH_CLASSES_FILE + "; nothing detected, an invalid file or an unresolvable PR target gives no questions and notes[] says why.",
           },
           repo: {
             type: 'string',
@@ -912,7 +944,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           remote: {
             type: 'array',
             items: { type: 'string', enum: ['github', 'gitlab'] },
-            description: 'The Remote answer when shape=remote: array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Issue and milestone sync reach only the chosen providers: per repo, one remote of each (the primary when it has that provider) is marked sync and every other remote is not, with a warning for a chosen provider a repo has no remote for. With repo: recorded on that repo only. Omitted or empty: each repo\'s git remotes are still recorded and its sync choice is left as it is. Ignored on local.',
+            description: 'The Remote answer when shape=remote: array of provider IDs (multiSelect AUQ answer), both for dual-host. Issue and milestone sync reach only the chosen providers: per repo, one remote of each (the primary when it has that provider) is marked sync and every other remote is not, with a warning for a chosen provider a repo has no remote for. With repo: recorded on that repo only. Omitted or empty: each repo\'s git remotes are still recorded and its sync choice is left as it is. Ignored on local.',
           },
           issue_sync: {
             type: 'string',
@@ -929,7 +961,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: ['yes', 'no'],
             description:
-              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host + network.allowLocalBinding for loopback servers such as /dashboard + enableWeakerNetworkIsolation on macOS, plus env npm/bun caches under the project) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
+              "Optional. 'yes' writes Claude Code's Bash sandbox block (writes to the project and model cache, network to GitHub, npm and each HTTPS remote's host, loopback binding, weaker network isolation on macOS, npm/bun caches in the project) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
           },
           bug_report_consent: {
             type: 'string',
@@ -941,7 +973,13 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: [...WORKFLOW_MODES, KEEP_SENTINEL],
             description:
-              "Optional. The 'review_mode' round answer, stored as the project's workflow_mode in the same transaction as the other answers: 'truest' reviews each task before it is pushed, 'agile' closes tasks without the per-task review and reviews the work as a whole before it merges. Omit (or '__keep__') to keep the stored mode (unset reads as truest). Only with shape; /onboard is the only path that sets it.",
+              "Optional. The 'review_mode' round answer, stored as the project's workflow_mode: 'truest' reviews each task before it is pushed, 'agile' closes tasks without the per-task review and reviews the work as a whole before it merges. Omit (or '__keep__') to keep the stored mode (unset reads as truest). Only with shape; /onboard is the only path that sets it.",
+          },
+          prepush_hook: {
+            type: 'string',
+            enum: [...PREPUSH_HOOK_SETTINGS, KEEP_SENTINEL],
+            description:
+              "Optional. The 'prepush_hook' round answer: 'on' installs TMB's pre-push hook at session start, 'off' removes it. Omit or '__keep__' to keep it (unset is on). Only with shape.",
           },
           verification_defaults: {
             type: 'array',
@@ -1046,6 +1084,22 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
   const storedReviewMode = (): WorkflowMode | null => {
     const stored = readConfig(db, WORKFLOW_MODE_KEY);
     return isWorkflowMode(stored) ? stored : null;
+  };
+
+  // Checked here for the same reason as review_mode; null means no change.
+  const resolvePrepushHook = (raw: unknown): PrepushHookSetting | null => {
+    if (raw === undefined) return null;
+    const resolved = typeof raw === 'string' ? resolveOption(raw, PREPUSH_HOOK_OPTIONS) : null;
+    if (resolved === KEEP_SENTINEL) return null;
+    if (!isPrepushHookSetting(resolved)) {
+      throw new Error(`prepush_hook must be ${PREPUSH_HOOK_SETTINGS.map((s) => `'${s}'`).join(', ')} or '${KEEP_SENTINEL}' (got ${JSON.stringify(raw)})`);
+    }
+    return resolved;
+  };
+
+  const storedPrepushHook = (): PrepushHookSetting | null => {
+    const stored = readConfig(db, PREPUSH_HOOK_KEY);
+    return isPrepushHookSetting(stored) ? stored : null;
   };
 
   // Headless enforcement is opt-in: 'yes' writes the shim into the project's
@@ -1277,6 +1331,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'no',
             bug_report_consent: readConfig(db, 'bug_report_consent') ?? 'no',
             review_mode: storedReviewMode() ?? 'truest',
+            prepush_hook: storedPrepushHook() ?? 'on',
           },
           probe: {
             in_git: git.in_git,
@@ -1306,6 +1361,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           | 'sandbox'
           | 'bug_report'
           | 'review_mode'
+          | 'prepush_hook'
           | 'verification_defaults'
           | 'path_classes';
         const repo = args['repo'] as string | undefined;
@@ -1334,6 +1390,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
 
         if (round === 'review_mode') {
           return ok({ questions: [reviewModeQuestion(storedReviewMode())] });
+        }
+
+        if (round === 'prepush_hook') {
+          return ok({ questions: [prepushHookQuestion(storedPrepushHook())] });
         }
 
         // Per-repo path: branching + pr_target questions seeded from THAT repos
@@ -1619,6 +1679,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
 
         const bug_report_consent = resolveBugReportConsent(args['bug_report_consent'] as string | undefined);
         const reviewModeAnswer = resolveReviewMode(args['review_mode']);
+        const prepushHookAnswer = resolvePrepushHook(args['prepush_hook']);
 
         // A NULL row gets the explicit answers, reconciled against its own git
         // tree (#13: a repo without the gitflow target branch falls back to
@@ -1683,6 +1744,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           writeConfig(db, 'sandbox_enforcement', sandbox_enforcement);
           writeConfig(db, 'bug_report_consent', bug_report_consent);
           if (reviewModeAnswer !== null) writeConfig(db, WORKFLOW_MODE_KEY, reviewModeAnswer);
+          if (prepushHookAnswer !== null) writeConfig(db, PREPUSH_HOOK_KEY, prepushHookAnswer);
 
           for (const { name, inGit, detected, seed } of probed) {
             if (seed !== null) {
@@ -1769,6 +1831,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             sandbox,
             bug_report_consent,
             review_mode: storedReviewMode() ?? 'truest',
+            prepush_hook: storedPrepushHook() ?? 'on',
             ...(warning ? { warning } : {}),
           },
           ...repoFileFields(),

@@ -61,6 +61,17 @@ function newDb(dir: string, repos: Record<string, string>): string {
   return db;
 }
 
+/** Stores the project's prepush_hook setting in <db>, as /onboard does; null deletes it. */
+function setPrepushHook(db: string, value: 'on' | 'off' | null): void {
+  const d = new DatabaseSync(db);
+  try {
+    if (value === null) d.prepare("DELETE FROM plugin_config WHERE key = 'prepush_hook'").run();
+    else d.prepare("INSERT INTO plugin_config (key, value_json) VALUES ('prepush_hook', ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json").run(JSON.stringify(value));
+  } finally {
+    d.close();
+  }
+}
+
 function gateEnv(project: string, db: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...sb.env, CLAUDE_PROJECT_DIR: project, TRAJECTORY_DB_PATH: db, ...extra };
 }
@@ -180,19 +191,22 @@ describe('prepush-install: the SessionStart gate (SC1)', () => {
     assert.equal(git(work, 'config', '--local', '--get-regexp', '^hook\\.').code, 1);
   });
 
-  it('TMB_DISABLE_PREPUSH_INSTALL=1 installs nothing and prints one notice naming the switch and prepush-uninstall', () => {
+  it('prepush_hook off installs nothing and prints one notice naming the setting, /onboard and prepush-uninstall', () => {
     const { dir, work } = repoCase();
-    const r = runGate(GATE, { cwd: work, env: gateEnv(work, newDb(dir, {}), { TMB_DISABLE_PREPUSH_INSTALL: '1' }) });
+    const db = newDb(dir, {});
+    setPrepushHook(db, 'off');
+    const r = runGate(GATE, { cwd: work, env: gateEnv(work, db) });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
     const lines = r.stderr.split('\n').filter((l) => l !== '');
     assert.equal(lines.length, 1, r.stderr);
-    assert.match(lines[0], /^tmb: TMB_DISABLE_PREPUSH_INSTALL=1 is set, so TMB's pre-push hook is off: no installed hook to remove; the command-text push judge stays on\./);
+    assert.match(lines[0], /^tmb: prepush_hook is off for this project, so TMB's pre-push hook is off: no installed hook to remove; the command-text push judge stays on\./);
+    assert.match(lines[0], /\/onboard/);
     assert.match(lines[0], /prepush-uninstall/);
     assert.equal(existsSync(join(work, '.git/tmb')), false);
   });
 
-  it('TMB_DISABLE_PREPUSH_INSTALL=1 removes an installed hook from each repo it would install in, exempt or not', async () => {
+  it('prepush_hook off removes an installed hook from each repo it would install in, exempt or not; on installs it again', async () => {
     const { dir, work } = repoCase();
     const free = join(dir, 'free');
     gitOk(dir, 'init', '-q', 'free');
@@ -205,8 +219,10 @@ describe('prepush-install: the SessionStart gate (SC1)', () => {
       await installPrepushHook(repo, commonDir, CLI, sb.env);
     }
     gitOk(work, 'config', 'user.name', 'kept');
+    assert.equal((await prepushHookLive(work, gateEnv(work, db))).switched_off, false, 'unset reads as on');
 
-    const r = runGate(GATE, { cwd: work, env: gateEnv(work, db, { TMB_DISABLE_PREPUSH_INSTALL: '1' }) });
+    setPrepushHook(db, 'off');
+    const r = runGate(GATE, { cwd: work, env: gateEnv(work, db) });
     assert.equal(r.status, 0);
     const lines = r.stderr.split('\n').filter((l) => l !== '');
     assert.equal(lines.length, 1, r.stderr);
@@ -214,14 +230,23 @@ describe('prepush-install: the SessionStart gate (SC1)', () => {
     for (const repo of [work, free]) {
       assert.equal(git(repo, 'config', '--local', '--get-regexp', '^hook\\.tmb\\.').code, 1, `no hook.tmb key left in ${repo}`);
       assert.equal(existsSync(join(repo, '.git/tmb')), false, repo);
-      assert.equal((await prepushHookLive(repo, { ...sb.env, TMB_DISABLE_PREPUSH_INSTALL: '1' })).switched_off, true);
+      assert.equal((await prepushHookLive(repo, gateEnv(work, db))).switched_off, true);
     }
     assert.equal(gitOk(work, 'config', 'user.name'), 'kept', 'other config stays');
 
-    // Unset, the next session start installs it again.
+    // Set back on, the next session start installs it again.
+    setPrepushHook(db, 'on');
+    assert.equal((await prepushHookLive(work, gateEnv(work, db))).switched_off, false);
     const again = runGate(GATE, { cwd: work, env: gateEnv(work, db) });
     assert.equal(again.status, 0, again.stderr);
     assert.equal(existsSync(join(work, '.git/tmb')), true);
+  });
+
+  it('a prepush_hook the DB cannot read keeps the hook on', async () => {
+    const { dir, work } = repoCase();
+    const junk = join(dir, 'junk.db');
+    writeFileSync(junk, 'not a sqlite file');
+    assert.equal((await prepushHookLive(work, gateEnv(work, junk))).switched_off, false);
   });
 
   it('an exempt repo gets no script and no hook.tmb keys; a non-exempt one beside it still does (SC10)', () => {

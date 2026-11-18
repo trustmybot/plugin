@@ -109,11 +109,12 @@ describe('git-push-guard deny path records the hook judge beside it (SC6)', () =
     assert.equal(row.content.command_form, null);
   });
 
-  it('with TMB_DISABLE_PREPUSH_INSTALL=1 the command-text judge still denies an unreviewed push, and the row says switched_off', () => {
+  it('with prepush_hook off the command-text judge still denies an unreviewed push, and the row says switched_off', () => {
     const { repo, db } = setup();
+    sql(db, "INSERT INTO plugin_config (key, value_json) VALUES ('prepush_hook', '\"off\"')");
     const sha = commit(sb.env, repo, 'feat: s', { 's.txt': 's\n' });
     addTask(db, 8, 'fix/s', sha);
-    assert.ok(guard(repo, db, 'git push origin main', { TMB_DISABLE_PREPUSH_INSTALL: '1' }).includes(DENY));
+    assert.ok(guard(repo, db, 'git push origin main').includes(DENY));
     const [row] = rows(db);
     assert.equal(row.content.legacy_verdict, 'deny');
     assert.equal(row.content.hook_live.switched_off, true);

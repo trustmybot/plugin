@@ -3,10 +3,12 @@
  * not skip, disable or replace TMB's pre-push hook, nor strip the agent mark
  * the hook script keys on. Denied forms:
  *   (a) `git push --no-verify` (or a unique prefix of it);
- *   (b) a `-c` / `--config-env` git option whose key is under `hook.`;
+ *   (b) a `-c` / `--config-env` git option whose key is a protected one;
  *   (c) GIT_CONFIG_COUNT, GIT_CONFIG_KEY_*, GIT_CONFIG_VALUE_* or
  *       GIT_CONFIG_PARAMETERS set by a prefix assignment, `env` or a declaration;
- *   (d) `git config` writing a `hook.*` key or `extensions.worktreeConfig`;
+ *   (d) `git config` writing a protected key: `hook.*`,
+ *       `extensions.worktreeConfig`, `include.path` or `includeIf.*.path`, in
+ *       any case;
  *   (e) a write, remove, move or chmod of `<git-common-dir>/tmb/` or the git
  *       config file, by a shell command rather than `git config`;
  *   (f) TMB_AGENT_SHELL stripped: `unset`, `env -u` / `env -i`, an assignment
@@ -27,21 +29,14 @@
  *   - a `git config` with an expansion that is neither a read (literal read
  *     form, literal options before it, double-quoted single words after it)
  *     nor a write whose options before the key are literal and allowlisted,
- *     whose key is literal and no hook key, and whose expansions after the key
+ *     whose key is literal and no protected key, and whose expansions after the key
  *     are double-quoted single words (config_expansion);
  *   - any other git word whose value the guard cannot tell (unresolved), or
  *     code it cannot read (unreadable).
  * Each fail-closed deny writes one guard_fail_closed prepush_observed row
  * (pre-push/observe.ts observeGuardDeny); a failed write leaves the deny as is.
  *
- * Only the Human sets the hook's switch, PREPUSH_SWITCH: an agent Bash command
- * naming it is denied unless it is only an argument to grep, rg, git grep,
- * cat, printenv or echo with no redirection, and an agent Edit, Write or
- * MultiEdit putting it into CLAUDE_ENV_FILE, a `.claude` settings*.json or a
- * shell profile is denied. The switch reaches every repo, so these denies do
- * not stand down for an exempt one.
- *
- * Outside an agent session nothing is gated, and every other deny first asks
+ * Outside an agent session nothing is gated, and every deny first asks
  * standsDownFor, which stands down in an exempt repo, for the repo its form
  * lands in.
  */
@@ -54,9 +49,9 @@ import { ASSIGNMENT, splitWords, unwrap } from './cmd-analysis/unwrap.js';
 import { dbPath } from './lib/db.js';
 import { denyResult } from './lib/deny.js';
 import { isDir } from './lib/git.js';
-import { jqCapture, jqGet, jqInput, type JqInput } from './lib/jq-raw.js';
+import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { posixBasename } from './lib/project-env.js';
-import { gitCommonDir, PREPUSH_SWITCH } from './lib/prepush-hook.js';
+import { gitCommonDir } from './lib/prepush-hook.js';
 import { isExempt } from './lib/repo.js';
 import { payloadCwdOf } from './lib/statement-rows.js';
 import { isAgentSession } from './pre-push/judge.js';
@@ -69,19 +64,19 @@ const GIT_CONFIG_ENV = /^GIT_CONFIG_(COUNT$|PARAMETERS$|KEY_|VALUE_)/;
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
 const MAX_DEPTH = 3;
 /** The words a command must hold, as written or unquoted, before it is parsed. */
-const KEYWORDS = /no-veri|GIT_CONFIG_|TMB_AGENT_SHELL|TMB_DISABLE_PREPUSH_INSTALL|\benv\b|\bunset\b|\bexport\b|\bdeclare\b|\btypeset\b|\blocal\b|config|\/tmb\b|\btmb\/|chmod/;
-const KEYWORDS_ANY_CASE = /hook\.|worktreeconfig/i;
+const KEYWORDS = /no-veri|GIT_CONFIG_|TMB_AGENT_SHELL|\benv\b|\bunset\b|\bexport\b|\bdeclare\b|\btypeset\b|\blocal\b|config|\/tmb\b|\btmb\/|chmod/;
+const KEYWORDS_ANY_CASE = /hook\.|worktreeconfig|include(if)?\./i;
 /** What an unreadable command must name to be denied: a form, never a bare `env` or `config`. */
 const NAMES_A_FORM = /--no-veri|GIT_CONFIG_|TMB_AGENT_SHELL|\.git\/(tmb|config)|\/tmb\/pre-push/;
-const NAMES_A_FORM_ANY_CASE = /hook\.|worktreeconfig/i;
+const NAMES_A_FORM_ANY_CASE = /hook\.|worktreeconfig|include(if)?\./i;
 /** A protected file named in text the analysis could not resolve, such as `"$(git rev-parse --git-common-dir)/tmb/pre-push"`. */
 const PROTECTED_TEXT = /(\.git|git-(common-)?dir)\S*\/(tmb(\/|$)|config(\.worktree)?$)/i;
 const PROTECTED_PATH = /\/\.git\/(tmb(\/|$)|config(\.worktree)?$|worktrees\/[^/]+\/config\.worktree$)/;
 const OBSERVE_ONLY = "TMB's pre-push hook only observes in this release: it never blocks a push, so there is nothing to skip.";
 const PARSE_REASON = 'BLOCKED: the pre-push hook guard could not read this command, and it names a way to skip the hook or strip the agent mark.';
 
-/** A form named literally, or a command naming the switch. */
-type FormFinding = { readonly form: string } | { readonly switchNamed: string };
+/** A form named literally. */
+type FormFinding = { readonly form: string };
 /** A deny because the guard cannot read the command literally: its class, why, and for global_option_expansion the corrected command. */
 type FailClosed = { readonly failClosed: DenyClass; readonly why: string; readonly fix?: string };
 type Finding = FormFinding | FailClosed | null;
@@ -91,12 +86,6 @@ const unresolved = (why: string): FailClosed => ({ failClosed: 'unresolved', why
 
 const denyForm = (form: string) =>
   denyResult(`BLOCKED: ${form} would skip, disable or replace TMB's pre-push hook. ${OBSERVE_ONLY}`, { allowed: 'the same command without that form' });
-
-const denySwitch = (what: string) =>
-  denyResult(
-    `BLOCKED: ${what} names ${PREPUSH_SWITCH}, the switch that takes TMB's pre-push hook out of every repo, and only the Human sets it. An agent command may name it only as an argument to grep, rg, git grep, cat, printenv or echo, with no redirection.`,
-    { allowed: `a read-only grep, rg, git grep, cat, printenv or echo naming it, with no redirection (\`grep -rn ${PREPUSH_SWITCH} src\`); to set the switch, ask the Human` },
-  );
 
 const PUSH_ALLOWED = 'the same push with every argument written literally; only a double-quoted -C, --git-dir or --work-tree value may come from an expansion';
 const CONFIG_ALLOWED =
@@ -291,7 +280,15 @@ async function treeFinding(command: string, depth: number): Promise<Finding> {
 
 /** The key a `-c` / `--config-env` value sets. */
 const configKey = (value: string): string => value.split('=')[0].toLowerCase();
-const isHookKey = (key: string): boolean => key === 'hook' || key.startsWith('hook.');
+/**
+ * Whether git config key <key> can reach the hook: a `hook.*` key itself, the
+ * switch that makes git read a worktree's config.worktree, or an include that
+ * pulls in a file holding either. Git matches section and key names in any case.
+ */
+const isProtectedKey = (key: string): boolean => {
+  const k = key.toLowerCase();
+  return k === 'hook' || k.startsWith('hook.') || k === 'extensions.worktreeconfig' || k === 'include.path' || (k.startsWith('includeif.') && k.endsWith('.path'));
+};
 
 /**
  * Whether a git argument word's value is unknown until bash runs it: it holds
@@ -457,8 +454,8 @@ const CONFIG_KEY = /^[A-Za-z0-9-]+(\..*)?\.[A-Za-z][A-Za-z0-9-]*$/;
  * a write whatever they hold, or null when it is: legacy mode, which ends its
  * options at the key, so every word before the key is a literal option
  * PRE_KEY_WRITE_* allows (no action word: subcommand mode may take options
- * after the key); the key literal and neither a hook key nor
- * extensions.worktreeConfig; every expanded word after it double-quoted
+ * after the key); the key literal and no protected key; every expanded word
+ * after it double-quoted
  * (<loose>[k] false) and one word.
  */
 function expandedWriteBlocker(sub: readonly string[], loose: readonly boolean[] | null): string | null {
@@ -478,7 +475,7 @@ function expandedWriteBlocker(sub: readonly string[], loose: readonly boolean[] 
   const key = sub[k];
   if (key === undefined) return 'an expansion and no key';
   if (CONFIG_WRITE_ACTIONS.has(key) || CONFIG_READ_ACTIONS.has(key) || !CONFIG_KEY.test(key)) return `${key} where a literal key belongs`;
-  if (isHookKey(key.toLowerCase()) || key.toLowerCase() === 'extensions.worktreeconfig') return `the key ${key}`;
+  if (isProtectedKey(key)) return `the key ${key}`;
   if (loose === null) return 'an expansion in words the guard cannot line up with the command as written';
   for (let j = k + 1; j < sub.length; j++) {
     const word = sub[j];
@@ -524,7 +521,7 @@ function configForm(sub: readonly string[], shown: string, mode: ConfigMode): st
   if (action === 'edit' || sub.includes('-e') || sub.includes('--edit')) return `${shown}, which edits a git config file`;
   // `git config <key> <value>` sets; one positional alone reads.
   if (!write && (read || positional.length < 2)) return '';
-  const touched = positional.find((p) => isHookKey(p.toLowerCase()) || p.toLowerCase() === 'extensions.worktreeconfig');
+  const touched = positional.find(isProtectedKey);
   return touched === undefined ? '' : `${shown}, which writes ${touched}`;
 }
 
@@ -604,7 +601,7 @@ async function quoteGlobalValues(text: string): Promise<string> {
 
 /**
  * The finding the SPLIT_CHECKED option values of git statement <src> make: a
- * literal `-c` / `--config-env` hook key is that form; an unquoted expansion
+ * literal `-c` / `--config-env` protected key is that form; an unquoted expansion
  * in any of them fails closed as global_option_expansion, its fix <command>
  * (else <src>) with each such expansion double-quoted. Null when <src> does
  * not parse, so the statement's other checks judge it.
@@ -621,7 +618,7 @@ async function globalValueFinding(src: string, command: string): Promise<Finding
       .find((v) => v !== null) ?? [];
     for (const value of values) {
       const key = unquotedCommand(value.node.text).replace(SPLIT_CHECKED_JOINED, '').split('=')[0];
-      if ((value.option === '-c' || value.option === '--config-env') && !/[$`]/.test(key) && isHookKey(key.toLowerCase())) {
+      if ((value.option === '-c' || value.option === '--config-env') && !/[$`]/.test(key) && isProtectedKey(key)) {
         return { form: `\`git ${SPLIT_CHECKED_JOINED.test(value.node.text) ? value.node.text : `${value.option} ${value.node.text}`}\`` };
       }
     }
@@ -682,7 +679,7 @@ async function gitForm(s: Statement, command: string): Promise<Finding> {
     const value = word === '-c' || word === '--config-env' ? globals[k + 1] ?? '' : word.startsWith('--config-env=') ? word.slice('--config-env='.length) : '';
     if (value === '') continue;
     const shown = `\`git ${word.startsWith('--config-env=') ? word : `${word} ${value}`}\``;
-    if (isHookKey(configKey(value))) return { form: shown };
+    if (isProtectedKey(configKey(value))) return { form: shown };
     if (isUnknownWord(configKey(value)) && !push) return unresolved(`${shown} takes its config key from ${value}`);
   }
   if (push) {
@@ -725,98 +722,8 @@ type Located = { readonly finding: NonNullable<Finding>; readonly dir: string; r
 
 const dirOf = (path: string): string => (path.startsWith('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '?');
 
-/** The commands that may take the switch's name as an argument, and what else a pipeline stage beside them may run. */
-const SWITCH_READERS = new Set(['grep', 'rg', 'cat', 'printenv', 'echo']);
-const SWITCH_PIPE_STAGES = new Set([...SWITCH_READERS, 'head', 'tail', 'wc']);
-/** Nodes that write, run other code or set a variable: none may sit in a command naming the switch. */
-const SWITCH_UNSAFE_NODES = ['file_redirect', 'heredoc_redirect', 'herestring_redirect', 'command_substitution', 'process_substitution', 'variable_assignment'];
-const SWITCH_SHOWN_MAX = 120;
-
-const namesSwitch = (text: string): boolean => text.includes(PREPUSH_SWITCH) || unquotedCommand(text).includes(PREPUSH_SWITCH);
-
-/**
- * Whether <node> is a plain read-only command from <allowed>: a literal name,
- * no redirect, substitution or assignment, and none of the options that make
- * rg or git grep run another program (`rg --pre`, `git grep -O`).
- */
-function isReadOnlyCommand(node: Node, allowed: ReadonlySet<string>): boolean {
-  if (node.type !== 'command' || node.descendantsOfType(SWITCH_UNSAFE_NODES).length > 0) return false;
-  const name = node.childForFieldName('name');
-  const argv0 = name === null ? null : literal(name);
-  if (argv0 === null) return false;
-  const args = node.childrenForFieldName('argument').map((a) => a?.text ?? '');
-  const base = posixBasename(argv0);
-  if (base === 'git') return allowed.has('grep') && args[0] === 'grep' && !args.some((a) => /^(-[A-Za-z]*O|--o)/.test(a));
-  if (base === 'rg' && args.some((a) => a.startsWith('--pre'))) return false;
-  return allowed.has(base);
-}
-
-/** Whether top-level statement <node> names the switch only as an argument to a SWITCH_READERS command, a pipeline of read-only stages, or a list of such. */
-function readsSwitchOnly(node: Node): boolean {
-  switch (node.type) {
-    case 'command':
-      return isReadOnlyCommand(node, SWITCH_READERS);
-    case 'pipeline':
-      return node.namedChildren.every((stage) => stage !== null && isReadOnlyCommand(stage, SWITCH_PIPE_STAGES));
-    case 'list':
-      return node.namedChildren.every((c) => c === null || c.type === 'comment' || !namesSwitch(c.text) || readsSwitchOnly(c));
-    default:
-      return false;
-  }
-}
-
-/** The switch finding of a Bash <command> that names PREPUSH_SWITCH anywhere but as an argument readsSwitchOnly admits; a command that does not parse counts. */
-async function switchFinding(command: string): Promise<Finding> {
-  if (!namesSwitch(command)) return null;
-  const shown = (text: string): string => `\`${text.length > SWITCH_SHOWN_MAX ? `${text.slice(0, SWITCH_SHOWN_MAX - 1)}…` : text}\``;
-  const tree = (await bashParser()).parse(command);
-  if (tree === null) return { switchNamed: `${shown(command)}, which the guard could not parse,` };
-  try {
-    if (tree.rootNode.hasError) return { switchNamed: `${shown(command)}, which the guard could not parse,` };
-    const named = tree.rootNode.namedChildren.find((c) => c !== null && c.type !== 'comment' && namesSwitch(c.text) && !readsSwitchOnly(c));
-    return named === undefined || named === null ? null : { switchNamed: shown(named.text) };
-  } finally {
-    tree.delete();
-  }
-}
-
-const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
-const SHELL_PROFILES = new Set(['.zshrc', '.zshenv', '.zprofile', '.zlogin', '.bashrc', '.bash_profile', '.bash_login', '.profile']);
-
-/** Whether <path> is a file an agent could set the switch through: the session's CLAUDE_ENV_FILE, a settings*.json under a `.claude` dir, or a shell profile. */
-function isSwitchTarget(path: string, env: NodeJS.ProcessEnv): boolean {
-  const envFile = env.CLAUDE_ENV_FILE ?? '';
-  if (envFile !== '' && normalized(envFile) === path) return true;
-  const base = posixBasename(path);
-  return SHELL_PROFILES.has(base) || (/^settings.*\.json$/.test(base) && path.split('/').includes('.claude'));
-}
-
-/** The text an Edit, Write or MultiEdit puts into its file: `content`, `new_string`, or each edit's `new_string`. */
-function newText(input: JqInput): string {
-  const tool = input.values[0];
-  const edits = jqGet(tool, 'tool_input', 'edits');
-  return [
-    jqGet(tool, 'tool_input', 'content'),
-    jqGet(tool, 'tool_input', 'new_string'),
-    ...(Array.isArray(edits) ? edits.map((e) => (e !== null && typeof e === 'object' ? (e as Record<string, unknown>).new_string : null)) : []),
-  ]
-    .filter((t): t is string => typeof t === 'string')
-    .join('\n');
-}
-
-/** The switch finding of an Edit, Write or MultiEdit (<tool>) whose new text names PREPUSH_SWITCH in a file isSwitchTarget names. */
-function editSwitchFinding(tool: string, input: JqInput, cwd: string, env: NodeJS.ProcessEnv): Finding {
-  const filePath = jqCapture(input, ['tool_input', 'file_path'], true);
-  if (filePath === '') return null;
-  const path = normalized(filePath.startsWith('/') ? filePath : `${cwd}/${filePath}`);
-  if (!isSwitchTarget(path, env) || !newText(input).includes(PREPUSH_SWITCH)) return null;
-  return { switchNamed: `a ${tool} of ${path} whose new text` };
-}
-
 /** The first form the command makes, with where it lands; null when it makes none. */
 async function locate(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<Located | null> {
-  const named = await switchFinding(command);
-  if (named !== null) return { finding: named, dir: '?', statement: command };
   const tree = await treeFinding(command, 0);
   if (tree !== null) return { finding: tree, dir: '?', statement: command };
 
@@ -913,27 +820,20 @@ async function recordFailClosed(hit: Located & { finding: FailClosed }, reason: 
 }
 
 /**
- * The gate. A switch finding denies whatever the repo, since the switch
- * reaches every repo; every other deny is routed through <standsDown> for the
- * repo the form lands in, and a fail-closed one is recorded before it returns.
+ * The gate. Every deny is routed through <standsDown> for the repo the form
+ * lands in, and a fail-closed one is recorded before it returns.
  */
 export function prepushHookGuardWith(standsDown: StandsDown): Gate {
   return async (payload, env) => {
     if (!isAgentSession(env)) return ALLOW;
     const input = jqInput(payload);
-    const tool = jqCapture(input, ['tool_name'], true);
     const cwd = payloadCwdOf(input, env);
-    if (EDIT_TOOLS.has(tool)) {
-      const named = editSwitchFinding(tool, input, cwd, env);
-      return named !== null && 'switchNamed' in named ? denySwitch(named.switchNamed) : ALLOW;
-    }
     const command = jqCapture(input, ['tool_input', 'command'], true);
     // A git word beside an expansion may hide a form no keyword shows (`git -c "$KV" push`), so it is parsed too.
     if (command === '' || (!prefilterPasses(command, (text) => KEYWORDS.test(text) || KEYWORDS_ANY_CASE.test(text)) && !gitBesideExpansion(command))) return ALLOW;
     const hit = await locate(command, cwd, env);
     if (hit === null) return ALLOW;
     const finding = hit.finding;
-    if ('switchNamed' in finding) return denySwitch(finding.switchNamed);
     if (await standsDown(await stmtRepoRoot(hit.dir, cwd, env), env)) return ALLOW;
     if ('form' in finding) return denyForm(finding.form);
     const { reason, allowed } = failClosedDeny(finding);

@@ -11,6 +11,8 @@
  */
 import { chmodSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parsePrepushHook, PREPUSH_HOOK_KEY } from '../../tools/config.js';
+import { dbPath, GATE_READ_ERROR, gateRead } from './db.js';
 import { gitRun } from './git.js';
 import { installRoot, posixDirname } from './project-env.js';
 
@@ -28,15 +30,18 @@ export interface PrepushHookLive {
   readonly command_matches: boolean;
   /** That script exists and holds PREPUSH_MARKER. */
   readonly script_intact: boolean;
-  /** The Human set PREPUSH_SWITCH, so session start removes the hook instead of installing it. */
+  /** The Human set PREPUSH_HOOK_KEY off, so session start removes the hook instead of installing it. */
   readonly switched_off: boolean;
 }
 
-/** The Human's switch that keeps the hook out: session start removes it from each repo it would install in. */
-export const PREPUSH_SWITCH = 'TMB_DISABLE_PREPUSH_INSTALL';
-
+/**
+ * Whether the project's PREPUSH_HOOK_KEY setting is off: session start then
+ * removes the hook from each repo it would install in. Unset, or a DB that
+ * does not read, is on.
+ */
 export function prepushSwitchedOff(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[PREPUSH_SWITCH] === '1';
+  const out = gateRead(dbPath(env) ?? '', `SELECT value_json FROM plugin_config WHERE key = '${PREPUSH_HOOK_KEY}';`, env);
+  return out !== GATE_READ_ERROR && parsePrepushHook(out) === 'off';
 }
 
 /** The plugin's own dist/cli.js, the absolute path the script runs. */
@@ -164,7 +169,7 @@ function enabledLine(line: string, name: string): boolean {
   return fields[fields.length - 1] === name && !fields.includes('disabled') && !fields.includes('event-disabled');
 }
 
-/** Whether TMB's pre-push hook is live in the checkout at <cwd>: listed and enabled, its command the expected script, the script intact, and whether the switch is set. */
+/** Whether TMB's pre-push hook is live in the checkout at <cwd>: listed and enabled, its command the expected script, the script intact, and whether the setting is off. */
 export async function prepushHookLive(cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<PrepushHookLive> {
   const listing = await gitRun(cwd, ['hook', 'list', '--show-scope', 'pre-push'], env);
   const listed = listing.code === 0 && listing.stdout.split('\n').some((line) => enabledLine(line, HOOK_NAME));

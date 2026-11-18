@@ -194,6 +194,13 @@ export const KEYS = [
     effect: 'The project\'s review mode; unset, unparseable or unknown reads as `truest`. Under `agile` a task closes with no code-reviewer pass and is queued for a grouped review, and the close\'s scope check, the worktree freshness check, the close lints, the verification gate and the reviewer checks measure the task against its feature branch instead of the PR target. The close stamps the mode on the task; `cli.js feature-merge`, the push guard, the merge gate, `review_queue` and `trajectory_doctor`\'s review-queue check read that stamp, so a switch back to `truest` leaves queued tasks queued. The key stays `truest` or `agile`; the stamp on a task can also read `exempt`, taken from the repo\'s mode.',
   },
   {
+    name: 'prepush_hook',
+    type: 'string: `on` \\| `off`',
+    defaultText: 'unset (read as `on`)',
+    setBy: 'the Human through `/onboard` only, in its pre-push hook round: `config_set` refuses the key, and any value other than `on` or `off` is refused',
+    effect: 'Whether session start installs TMB\'s pre-push hook (observe mode) in the project\'s repo and every registered repo. `off` removes the hook from each of them instead and prints one notice naming the key, `/onboard` and `cli.js prepush-uninstall`; the command-text push judge stays on either way, and `hook_live.switched_off` on each `prepush_observed` row reports it. Unset, unknown or a DB that does not read is `on`.',
+  },
+  {
     name: 'world_model_test_lane',
     type: 'object: `{extend?: glob[], exclude?: glob[]}`, each an array of non-blank strings',
     defaultText: 'unset (the default rules only)',

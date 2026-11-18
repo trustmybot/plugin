@@ -5,7 +5,7 @@
   "groups": {
     "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
       "max_budget_ms": 8090,
-      "p99_sum_ms": 18707.2,
+      "p99_sum_ms": 18636.2,
       "group_budget_ms": 8090
     },
     "PreToolUse:Bash": {

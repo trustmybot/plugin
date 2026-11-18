@@ -7,18 +7,19 @@
  * A non-git dir and an exempt repo (lib/repo isExempt) are skipped. Below git 2.54, which
  * cannot run a hook git config defines, it installs nothing. Linked worktrees
  * share the repo-local config, so one install covers them. stderr only, one
- * line per repo changed or skipped; it never denies. The Human's switch,
- * TMB_DISABLE_PREPUSH_INSTALL=1, is never silent and fails safe: it removes the
- * hook instead and prints one line naming the switch (switchOff); the
- * prepush-hook-guard keeps an agent from setting it.
+ * line per repo changed or skipped; it never denies. The project's
+ * prepush_hook setting off, which only the Human sets through /onboard, is
+ * never silent and fails safe: it removes the hook instead and prints one line
+ * naming the setting (switchOff).
  */
 import { appendFileSync, readFileSync } from 'node:fs';
 import { ALLOW, type Gate } from './gate.js';
 import { candidateDirs } from './ensure-gitignore.js';
 import { dbPath } from './lib/db.js';
 import { gitRun, isDir } from './lib/git.js';
-import { gitCommonDir, installPrepushHook, pluginCliPath, PREPUSH_SWITCH, prepushSwitchedOff, uninstallPrepushHook } from './lib/prepush-hook.js';
+import { gitCommonDir, installPrepushHook, pluginCliPath, prepushSwitchedOff, uninstallPrepushHook } from './lib/prepush-hook.js';
 import { isExempt, repoGitRoot, repoNameForRoot } from './lib/repo.js';
+import { PREPUSH_HOOK_KEY } from '../tools/config.js';
 
 export const GATE_NAME = 'prepush-install';
 
@@ -72,7 +73,7 @@ async function installIn(dir: string, cli: string, seen: Set<string>, env: NodeJ
 }
 
 /**
- * With the switch set, removes the hook from every repo the install would
+ * With the setting off, removes the hook from every repo the install would
  * reach (an exempt one too, so no live hook is left anywhere), on any git, and
  * says so in exactly one line; it leaves the shell unmarked.
  */
@@ -96,8 +97,8 @@ async function switchOff(env: NodeJS.ProcessEnv): Promise<void> {
     ...(failed.length > 0 ? [`could not remove it from ${failed.join(', ')}`] : []),
   ].join('; ');
   note(
-    `${PREPUSH_SWITCH}=1 is set, so TMB's pre-push hook is off: ${outcome}; the command-text push judge stays on. ` +
-      'Unset it to reinstall; `cli.js prepush-uninstall [--repo <path>]` removes the hook from one repo without the switch',
+    `${PREPUSH_HOOK_KEY} is off for this project, so TMB's pre-push hook is off: ${outcome}; the command-text push judge stays on. ` +
+      'Only the Human turns it back on, through /onboard; `cli.js prepush-uninstall [--repo <path>]` removes the hook from one repo without the setting',
   );
 }
 

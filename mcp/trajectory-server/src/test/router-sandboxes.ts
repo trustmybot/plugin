@@ -725,7 +725,7 @@ function prepushInstallCases(dir: string): RouterCase[] {
   const plain = join(dir, 'plain');
   const envFile = join(dir, 'claude-env');
   const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
-  const build = (gitProject: boolean): void => {
+  const build = (gitProject: boolean, prepushOff: boolean): void => {
     for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
     for (const d of [project, other, plain]) rmSync(d, { recursive: true, force: true });
     rmSync(envFile, { force: true });
@@ -735,24 +735,26 @@ function prepushInstallCases(dir: string): RouterCase[] {
     d.exec(schema);
     d.prepare('INSERT INTO repos (name, path) VALUES (?, ?)').run('other', other);
     d.prepare('INSERT INTO repos (name, path) VALUES (?, ?)').run('plain', plain);
+    if (prepushOff) d.prepare("INSERT INTO plugin_config (key, value_json) VALUES ('prepush_hook', '\"off\"')").run();
     d.close();
   };
   const payload = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 's', cwd: project, source: 'startup' });
   const base = { PATH: process.env.PATH, HOME: join(dir, 'home'), ...GIT_ENV, TRAJECTORY_DB_PATH: db, CLAUDE_PROJECT_DIR: project, LC_ALL: LOCALE };
-  const scenarios: readonly (readonly [string, boolean, NodeJS.ProcessEnv])[] = [
-    ['fresh-repos', true, {}],
-    ['project-not-git', false, {}],
-    ['marks-env-file', true, { CLAUDE_ENV_FILE: envFile }],
-    ['disabled', true, { TMB_DISABLE_PREPUSH_INSTALL: '1' }],
+  // [file, project is a git repo, prepush_hook stored off, extra env]
+  const scenarios: readonly (readonly [string, boolean, boolean, NodeJS.ProcessEnv])[] = [
+    ['fresh-repos', true, false, {}],
+    ['project-not-git', false, false, {}],
+    ['marks-env-file', true, false, { CLAUDE_ENV_FILE: envFile }],
+    ['disabled', true, true, {}],
   ];
-  return scenarios.map(([file, gitProject, extra]) => ({
+  return scenarios.map(([file, gitProject, prepushOff, extra]) => ({
     gate: 'prepush-install',
     file,
     input: payload,
     env: clean({ ...base, ...extra }),
     cwd: dir,
     fakeUid: false,
-    reset: () => build(gitProject),
+    reset: () => build(gitProject, prepushOff),
   }));
 }
 
