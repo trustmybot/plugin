@@ -64,7 +64,9 @@ flowchart LR
     H -- approve --> I[Lanes recorded with their owned issues, priority and review mode]
 ```
 
-- **One owner per issue.** Each issue belongs to exactly one lane, and an explicit transfer is the only way to move it. When single ownership ships, an issue that already sits in several lanes goes to the lane that touched it last. Planned: GH 3025.
+- **One owner per issue.** Each issue belongs to at most one lane. Ownership always binds, and it lapses when the owner's lane is done or archived or its session has ended, so a frozen lane keeps its issues and a finished one frees them. An issue no lane owns is open to any session. When single ownership ships, an open issue that already sits in several lanes goes to the lane whose session most recently ran work on it, and a closed issue keeps no owner. Planned: GH 3025.
+- **An issue can be transferred.** The Human moves an issue from one lane to another in the hub; the record names both lanes and the request, and the losing lane keeps the issue in its history. A lane bro never takes an issue on its own.
+- **Two lanes can be merged.** The Human can fold one lane into another: its issues, its open tasks and its queue entries move to the lane that stays, the folded lane is archived with the merge as the cause, and its session stops taking tasks. When the two lanes have different review modes, bro asks the Human which one the merged lane keeps.
 - **Dependencies cross lanes.** An issue may be blocked by an issue another lane owns. A dependency that would close a cycle is refused and goes to the Human. Planned: GH 3026.
 - **Schema versions are reserved up front**, in priority order, so two lanes never claim the same number. A lane that needs a migration nobody foresaw takes the next free version when it needs one. A version already used in a commit never moves when priorities change. Planned: GH 3027.
 - **Priority** is a tier, High, Medium or Low, plus an optional rank inside the tier when there are many lanes. The merge queue orders by tier, then rank, then the time a PR was queued. It also orders the schema reservations. Planned: GH 3025, or GH 3148 if GH 3025 ships without it.
@@ -89,8 +91,10 @@ flowchart LR
 
 - **The brief** holds the lane's owned issues, its priority, its review mode, its feature branch when the lane is agile, the merge choice, its branch naming and any reviewer rule that applies to its PRs.
 - **Where a lane session runs.** Each lane session starts in the shared main checkout, which stays on the working branch. Only its tasks' worktrees hold changes, so lanes never switch the checkout under each other.
-- **One hub.** bro in the main session is the hub of a lane run. It holds the merge choice and the one merge queue, and every lane reports to it, as nested sessions report to the session that started them.
-- **Nesting is the host's call.** TMB neither allows nor forbids a lane starting a session of its own: Claude Code decides, and asks the Human. A session started under a lane is recorded with its parent, and its PRs still go to the hub's queue.
+- **One hub.** bro in a main session is the hub of a lane run: any session started directly under the project's root, not one particular session. It holds the merge choice and the one merge queue, and every lane reports to it, as nested sessions report to the session that started them. When the hub session is gone, the next main session under the root is the hub: it reads the run and its queue from the record and asks the Human for the merge choice once more, because an approval does not carry from one session to another, and showing what it restored tells the Human nothing was lost.
+- **Nesting is the host's call.** TMB neither allows nor forbids a lane starting a session of its own: Claude Code decides, and asks the Human. A session started under a lane is recorded with its parent and works inside its parent's lane: it shares that lane's issues, review mode and priority, and its PRs still go to the hub's queue.
+- **Lanes need a stable session id and the hub's project.** bro proposes lanes only where the host gives each session an id that survives a rename, a clear and a compaction, which the desktop app does. A lane's name is a label looked up by that id, so a rename shows everywhere the name is read. A lane also runs only where it shares the hub's project folder and trajectory DB, so bro never proposes a cloud or remote-host lane.
+- **Lanes do not wait for file leases.** Until leases ship, the only guard against two lanes editing one file is how bro groups the issues, so bro arranges lanes for the fewest conflicts: it reads each issue's likely files from the world model, keeps issues that touch the same files in one lane, and tells the Human which overlaps it could not remove. The procedure for this is not in bro's prompts yet (GH 3307).
 - **Registration survives compaction.** A lane restores its whole queue by its stable session id, not one issue. Planned: GH 3025, completing GH 3020.
 - **Fresh worktrees install dependencies** before they build. Planned: GH 3146.
 - **Lanes share notes** in the folder the host hands them. Planned: GH 1818.
@@ -175,7 +179,8 @@ flowchart LR
     H[Session compacted, restarted, or gone] --> I[bro restores lanes from the registry]
     I -- lane's session is gone --> J[Start a new session that takes over the same lane record]
     P[Parent's turn: a lane with open work has been quiet longer than its recorded runs usually take] --> Q{The session answers a nudge?}
-    Q -- no --> J
+    Q -- no, and its process is gone --> J
+    Q -- no, but its process is alive --> R[Reported to the Human; the lane is left alone]
     Q -- yes --> G
     Q -- it is waiting on the Human --> W[Parent tells the Human which lane waits, and on what]
     I -- session alive --> G
@@ -183,8 +188,9 @@ flowchart LR
 ```
 
 - **Any of the Human's sessions can change a lane.** The Human can raise a priority, change a review mode or archive a lane from the parent or from the lane itself. A lane bro never changes another lane on its own. Planned: GH 3025, with the per-session approval gate in GH 3028.
-- **A stuck lane is found, not waited on.** At each of its turns the parent lists the lanes that have open work and have been quiet longer than runs of that kind usually take, from the recorded run times the dashboard shows. No fixed limit decides it: the parent reads the lane's last events, judges whether it is working, waiting or stalled, nudges the session, and takes the lane over when no answer comes. A lane records each question it is waiting on, since a message between sessions can approve nothing. The last recorded event comes from the session's own trajectory. Planned: GH 3255.
+- **A stuck lane is found, not waited on.** At each of its turns the parent lists the lanes that have open work and have been quiet longer than runs of that kind usually take, from the recorded run times the dashboard shows. No fixed limit decides it: the parent reads the lane's last events, judges whether it is working, waiting or stalled, and nudges the session. A busy session holds a message until its work finishes, so no answer is normal for a working lane. The parent takes a lane over only when its session's process is gone or the Human says so; a live, silent lane is reported to the Human. A lane records each question it is waiting on, since a message between sessions can approve nothing. The last recorded event comes from the session's own trajectory. Planned: GH 3255.
 - **Archiving does not cut work off.** An archive waits for the lane's running task to close, unless the Human says to cancel it. A queued PR stays queued under the parent.
 - **When a lane is done.** A lane is done when its issues are closed and its PRs merged. The run ends when every lane is done or archived, and its merge choice ends with it.
 - **Records are kept.** An archived lane keeps its record and history, so it can be listed and reopened later. Archiving the Claude session itself is the host's feature, which bro may offer alongside.
+- **A lane outlives its session.** A lane is its own record, held by one session at a time. When its session is gone, bro asks the Human, with a recommendation, whether a new session continues the lane or the lane ends there. A session that finds its lane now held by another stops taking tasks and tells the Human.
 - **Recovery uses the stable session id.** A new session that takes over a lane gets its brief rebuilt from the record, not from a message. Planned: GH 3025.
