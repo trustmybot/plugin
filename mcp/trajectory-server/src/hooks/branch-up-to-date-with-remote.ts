@@ -3,7 +3,10 @@
  * <branch> is behind origin/<pr_target>, after one bounded fetch of
  * <pr_target>. No origin, no such branch or no origin/<pr_target> passes, and
  * TMB_ALLOW_STALE_BRANCH=1 bypasses. A git statement whose subcommand is not
- * literal text (gitSubcommandOf, GH 2641) is denied when the DB resolves.
+ * literal text (gitSubcommandOf, GH 2641), a wrapper the listing stripped
+ * with a non-literal word included (`env $X git …`, GH 2808), and a worktree
+ * add that creates no branch run through xargs, whose branch comes from its
+ * input (GH 2850), are denied when the DB resolves.
  *
  * An agile task's branch is measured against its parent feature branch
  * instead (GH 2225): origin/<parent> after one bounded fetch, else the local
@@ -19,7 +22,18 @@
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
-import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
+import {
+  ambiguousSubcommandReason,
+  cmdStatements,
+  gitBehindXargs,
+  gitBesideExpansion,
+  gitFedByXargs,
+  gitSubcommandOf,
+  prefilterPasses,
+  rowsWithWrappers,
+  stmtRepoRoot,
+  xargsArgumentsReason,
+} from './cmd-analysis/index.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { agileParentRef, gateResolveWorkflowMode, normalizeBase, recordedFeatureBranch } from './lib/git-refs.js';
@@ -31,6 +45,9 @@ export const GATE_NAME = 'branch-up-to-date-with-remote';
 
 const CREATES_BRANCH = [' -b ', ' -B ', ' --create-branch '];
 const UNKNOWN_FIX = { allowed: 'git -C <path> worktree add <path> <branch>, the subcommand written literally' };
+const XARGS_FIX = { allowed: 'git -C <path> worktree add <path> <branch>, the branch written literally' };
+/** A worktree add, or a bare `worktree` whose action xargs may supply. */
+const XARGS_WORKTREE_ADD = /^worktree($| add( |$))/;
 
 /** `$(git … rev-list --count … 2>/dev/null || echo "?")`. */
 async function behindCount(root: string, range: string, env: NodeJS.ProcessEnv): Promise<string> {
@@ -43,17 +60,22 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
   if (jqCapture(input, ['tool_name']) !== 'Bash') return ALLOW;
   if ((env.TMB_ALLOW_STALE_BRANCH ?? '') === '1') return ALLOW;
   const command = jqCapture(input, ['tool_input', 'command']);
-  if (command === '' || (!prefilterPasses(command, (text) => text.includes('worktree')) && !gitBesideExpansion(command))) return ALLOW;
+  if (command === '' || (!prefilterPasses(command, (text) => text.includes('worktree')) && !gitBesideExpansion(command) && !gitBehindXargs(command))) return ALLOW;
 
   const cwd = payloadCwdOf(input, env);
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;
-  const rows = statementRows(listed.statements);
+  const rows = rowsWithWrappers(statementRows(listed.statements), listed.statements);
   const subs = rows.map((row) => gitSubcommandOf(row));
   const unknown = rows[subs.indexOf(undefined)];
   if (unknown) {
     if (dbPath(env) === null || !haveSqlite(env)) return ALLOW;
     return denyResult(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'adds a worktree'), UNKNOWN_FIX);
+  }
+  const fed = rows.find((row, i) => XARGS_WORKTREE_ADD.test(subs[i] ?? '') && !CREATES_BRANCH.some((flag) => ` ${subs[i]} `.includes(flag)) && gitFedByXargs(row));
+  if (fed) {
+    if (dbPath(env) === null || !haveSqlite(env)) return ALLOW;
+    return denyResult(xargsArgumentsReason(fed.src ?? fed.stmt, 'adds a worktree on a branch behind its base'), XARGS_FIX);
   }
   let wtDir = '';
   let wtSub = '';

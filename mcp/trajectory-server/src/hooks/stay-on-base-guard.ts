@@ -4,8 +4,10 @@
  * worktree instead. A statement already inside .claude/worktrees/, one whose
  * dir is unknown, and one that creates a branch (-b/-B/-c/-C/--create) or
  * restores files (`--`) pass. A git statement whose subcommand is not
- * literal text (gitSubcommandOf, GH 2641) in a known dir outside
- * .claude/worktrees/ is denied once the DB resolves.
+ * literal text (gitSubcommandOf, GH 2641), a wrapper the listing stripped
+ * with a non-literal word included (`env $X git …`, GH 2808), or a switch
+ * run through xargs, whose branch comes from its input (GH 2850), in a known
+ * dir outside .claude/worktrees/ is denied once the DB resolves.
  *
  * A command tree-sitter-bash cannot parse is denied with git-guards'
  * PARSE_REASON when the DB resolves. The payload is read with no jq on PATH,
@@ -15,7 +17,19 @@ import { statSync } from 'node:fs';
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
-import { ambiguousSubcommandReason, cmdStatements, denyAmbiguousGitTarget, gitBesideExpansion, gitSubcommandOf, prefilterPasses, type Statement } from './cmd-analysis/index.js';
+import {
+  ambiguousSubcommandReason,
+  cmdStatements,
+  denyAmbiguousGitTarget,
+  gitBehindXargs,
+  gitBesideExpansion,
+  gitFedByXargs,
+  gitSubcommandOf,
+  prefilterPasses,
+  rowsWithWrappers,
+  type Statement,
+  xargsArgumentsReason,
+} from './cmd-analysis/index.js';
 import { taskLocation } from './lib/agent-context.js';
 import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote } from './lib/db.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -27,6 +41,8 @@ export const GATE_NAME = 'stay-on-base-guard';
 const BRANCH_WORD = /^[a-zA-Z0-9_./:@^~-]+$/;
 const CREATES_OR_RESTORES = [' -b ', ' -B ', ' -c ', ' -C ', ' --create ', ' -- '];
 const UNKNOWN_FIX = { allowed: 'git -C <path> checkout <branch> or git -C <path> switch <branch>, the subcommand written literally' };
+const XARGS_FIX = { allowed: 'git -C <path> checkout <branch> or git -C <path> switch <branch>, the branch written literally' };
+const SWITCH_SUB = /^(checkout|switch)( |$)/;
 
 interface Switch {
   dir: string;
@@ -55,33 +71,40 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
   const input = jqInput(payload);
   if (jqCapture(input, ['tool_name']) !== 'Bash') return ALLOW;
   const command = jqCapture(input, ['tool_input', 'command']);
-  if (!prefilterPasses(command, (text) => text.includes('checkout') || text.includes('switch')) && !gitBesideExpansion(command)) return ALLOW;
+  if (!prefilterPasses(command, (text) => text.includes('checkout') || text.includes('switch')) && !gitBesideExpansion(command) && !gitBehindXargs(command)) return ALLOW;
 
   const listed = await cmdStatements(command, payloadCwdOf(input, env), env);
   if (!listed.ok) return haveSqlite(env) && isFile(dbPath(env) ?? '') ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;
   let lines = '';
   const kept: Statement[] = [];
   let unknown: Statement | undefined;
-  for (const row of statementRows(listed.statements)) {
+  let fed: Statement | undefined;
+  for (const row of rowsWithWrappers(statementRows(listed.statements), listed.statements)) {
     const { dir, stmt } = row;
+    const judged = dir !== '-' && !dir.includes('/.claude/worktrees/');
     const sub = gitSubcommandOf(row);
     if (sub === undefined) {
-      if (dir !== '-' && !dir.includes('/.claude/worktrees/')) unknown ??= row;
+      if (judged) unknown ??= row;
       continue;
     }
-    if (!sub.startsWith('checkout ') && !sub.startsWith('switch ')) continue;
+    if (!SWITCH_SUB.test(sub)) continue;
     if (CREATES_OR_RESTORES.some((flag) => ` ${sub} `.includes(flag))) continue;
-    const target = switchTarget(sub);
+    if (gitFedByXargs(row)) {
+      if (judged) fed ??= row;
+      continue;
+    }
+    const target = sub.includes(' ') ? switchTarget(sub) : '';
     if (target === '' || !BRANCH_WORD.test(target)) continue;
     lines += `${dir}\t${target}\t${stmt}\n`;
     kept.push(row);
   }
-  if (lines === '' && !unknown) return ALLOW;
+  if (lines === '' && !unknown && !fed) return ALLOW;
 
   if (!haveSqlite(env)) return ALLOW;
   const db = dbPath(env) ?? '';
   if (!isFile(db)) return ALLOW;
   if (unknown) return denyResult(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'switches the checkout to another branch'), UNKNOWN_FIX);
+  if (fed) return denyResult(xargsArgumentsReason(fed.src ?? fed.stmt, 'switches the checkout to another branch'), XARGS_FIX);
   if (lines === '') return ALLOW;
 
   const switches: Switch[] = lines.split('\n').map((line, i) => {

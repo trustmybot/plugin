@@ -10,9 +10,13 @@
  *   2. No merge / rebase / cherry-pick in a main checkout (a fast-forward of a
  *      branch to its own upstream aside), and no commit on a shared workflow base.
  *   3. No force push to a protected branch.
- *   4. A new branch starts from the latest pr_target.
+ *   4. A new branch starts from the latest pr_target. A checkout, switch or
+ *      branch run through xargs, whose input may name the branch (GH 2144,
+ *      GH 2850), is denied unless it is the literal `checkout -b <name>` /
+ *      `switch -c <name>` this rule judges; a merge run so is never a sync.
  *   5. A git statement whose subcommand is not literal text (gitSubcommandOf,
- *      GH 2641) is denied, since no rule can be judged on it.
+ *      GH 2641), a stripped wrapper's non-literal word included (`env $X
+ *      git …`, GH 2808), is denied, since no rule can be judged on it.
  * Only a registered repo is guarded when the DB reads; a registered repo with
  * no policy gets github-flow with its default branch as target and sole
  * protected branch.
@@ -32,11 +36,14 @@ import {
   denyAmbiguousGitTarget,
   gitBesideExpansion,
   gitSubcommandOf,
+  lineWrappers,
   payloadCwd,
   prefilterPasses,
   type Statement,
   stmtRepoRoot,
   stripLiterals,
+  xargsArgumentsReason,
+  xargsInputSlot,
 } from './cmd-analysis/index.js';
 import { dbPath, haveSqlite, sqliteRo, sqlQuote, stripTrailingNewlines, taskBySlug } from './lib/db.js';
 import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
@@ -54,6 +61,12 @@ const NEEDS_GUARD = /(^|[^A-Za-z0-9_.-])(git|gh|glab)([ \t\n\v\f\r]|$)/;
 const SPACE = '[ \\t\\n\\v\\f\\r]';
 const GUARDED_SUB = /^(commit|merge|rebase|cherry-pick|push)( |$)|^(checkout -b|switch -c) /;
 const INTEGRATION_SUB = /^(merge|rebase|cherry-pick)( |$)/;
+const BRANCH_SUB = /^(checkout|switch|branch)( |$)/;
+const NEW_BRANCH_SUB = /^(checkout -b|switch -c) /;
+/** checkout options whose value is the next word, so a `--` right after one is that value, not the end of options. */
+const CHECKOUT_VALUE_FLAG = new Set(['-b', '-B', '--orphan']);
+/** A `git branch` delete or list flag, alone or in a cluster of its no-value short flags: while either mode holds, git creates no branch. */
+const BRANCH_DELETE_OR_LIST = /^(--delete|--list|-[adDfilqrv]*[dDl][adDfilqrv]*)$/;
 const FF_SYNC_QUIET = new Set(['-q', '--quiet', '-v', '--verbose', '--stat', '--no-stat', '-n', '--progress', '--no-progress']);
 const FF_SYNC_COMPANIONS = new Set(['cd', 'echo', 'printf', 'true', 'false', 'test', '[', 'pwd']);
 const FF_SYNC_GIT_READS = new Set(['fetch', 'status', 'log', 'diff', 'show', 'rev-parse']);
@@ -64,6 +77,7 @@ export const PARSE_REASON =
   'BLOCKED: the git guard could not parse this command, so it cannot tell which statements run git, gh or glab, or in which checkout.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same command split into simpler commands with plain quoting' };
 const UNKNOWN_FIX: DenyFix = { allowed: 'git -C <path> <subcommand> …, the subcommand written literally' };
+const XARGS_FIX: DenyFix = { allowed: 'git -C <path> checkout -b <branch> or git -C <path> switch -c <branch>, the branch written literally' };
 const MALFORMED_REASON = "BLOCKED: this repo's protected_branches is malformed JSON; the repos row needs fixing or onboarding re-run.";
 
 /**
@@ -112,6 +126,26 @@ export function forgeRecovery(remotes: string, target: string): Recovery {
     text: ` Push your feature branch and open a PR into ${target}.`,
     fix: { allowed: `git push origin <branch> && gh pr create --base ${target} --head <branch>` },
   };
+}
+
+/**
+ * Whether the words xargs feeds checkout, switch or branch <sub> could make
+ * it create a branch whose name or mode the statement never writes (GH 2144,
+ * GH 2850): every such statement but a checkout whose fed words all land
+ * after a literal `--` (pathspecs only) and a branch with a literal delete
+ * or list flag. The literal `checkout -b <name>` / `switch -c <name>` form
+ * is newBranchRule's.
+ */
+function stdinMayCreateBranch(sub: string, slot: NonNullable<ReturnType<typeof xargsInputSlot>>): boolean {
+  if (!BRANCH_SUB.test(sub) || NEW_BRANCH_SUB.test(sub)) return false;
+  const w = sub.split(' ');
+  const fedAt = slot === 'append' ? [w.length] : w.flatMap((word, i) => (word.includes(slot.replace) ? [i] : []));
+  if (fedAt.length === 0) return false;
+  const optionsEnd = w.indexOf('--');
+  const beforeOptionsEnd = (i: number): boolean => optionsEnd < 0 || i < optionsEnd;
+  if (w[0] === 'checkout') return !(optionsEnd > 0 && !CHECKOUT_VALUE_FLAG.has(w[optionsEnd - 1]) && fedAt.every((i) => i > optionsEnd));
+  if (w[0] === 'branch') return !w.some((word, i) => BRANCH_DELETE_OR_LIST.test(word) && !fedAt.includes(i) && beforeOptionsEnd(i));
+  return true;
 }
 
 interface Row {
@@ -232,6 +266,7 @@ class GitGuards {
     private readonly env: NodeJS.ProcessEnv,
     private readonly lines: string[],
     private readonly owners: ReadonlyArray<Statement | undefined> = [],
+    private readonly wrappers: ReadonlyArray<string | undefined> = [],
   ) {
     const rows = lines.map(readRow);
     this.dirs = rows.map((r) => r.dir);
@@ -240,9 +275,12 @@ class GitGuards {
     this.dbReadable = db !== '' && isFile(db) && haveSqlite(env);
   }
 
-  /** Line <idx>'s statement, with its `cut` and `src`, when the line is all of one; else the line's text. */
+  /** Line <idx>'s statement, with its `cut`, `src` and `wrappers`, when the line is all of one; else the line's text, with the `wrappers` of the statement it starts (GH 2808). */
   private statementAt(idx: number): string | Statement {
-    return this.owners[idx] ?? this.stmts[idx];
+    const owner = this.owners[idx];
+    if (owner !== undefined) return owner;
+    const wrappers = this.wrappers[idx];
+    return wrappers === undefined ? this.stmts[idx] : { dir: this.dirs[idx], stmt: this.stmts[idx], wrappers };
   }
 
   private async git(dir: string, ...args: string[]): Promise<string> {
@@ -433,12 +471,13 @@ class GitGuards {
     });
   }
 
-  private async integrationRule(idx: number, sub: string, stmt: string, dir: string, unresolved: boolean): Promise<void> {
+  /** <fed>: git runs through xargs, whose input may add a merge target, so no merge reads as a sync with its own upstream. */
+  private async integrationRule(idx: number, sub: string, stmt: string, dir: string, unresolved: boolean, fed: boolean): Promise<void> {
     if (!this.needDir(dir, stmt, unresolved) || await this.dirInWorktree(dir)) return;
     const recovery = await this.rule2Recovery(dir);
     const reason = `BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only.${recovery.text}`;
     if (sub === 'merge' || sub.startsWith('merge ')) {
-      if (await this.ffUpstreamSync(idx, dir, sub)) return;
+      if (!fed && await this.ffUpstreamSync(idx, dir, sub)) return;
       throw this.repoDeny(`${reason} Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed.`, recovery.fix);
     }
     throw this.repoDeny(reason, recovery.fix);
@@ -520,7 +559,10 @@ class GitGuards {
     const statement = this.statementAt(idx);
     const sub = gitSubcommandOf(statement);
     const create = prCreateOf(stmt);
-    if (sub !== undefined && !GUARDED_SUB.test(sub) && create === null) return;
+    const slot = sub === undefined ? undefined : xargsInputSlot(statement);
+    const fed = slot !== undefined;
+    const branchFromInput = slot !== undefined && sub !== undefined && stdinMayCreateBranch(sub, slot);
+    if (sub !== undefined && !GUARDED_SUB.test(sub) && create === null && !branchFromInput) return;
 
     let dir = this.dirs[idx];
     let unresolved = false;
@@ -530,15 +572,19 @@ class GitGuards {
     }
     if (!await this.loadPolicy(await this.policyRoot(create, dir))) return;
 
+    const what = (): string => (typeof statement === 'string' ? statement : (statement.src ?? statement.stmt));
     if (sub === undefined) {
       // A dir that may name any checkout is the deny to fix first, as for a literal subcommand (GH 2510).
       this.needDir(dir, stmt, unresolved);
-      const what = typeof statement === 'string' ? statement : (statement.src ?? statement.stmt);
-      throw this.repoDeny(ambiguousSubcommandReason(what, 'commits, merges, rebases, cherry-picks, pushes or creates a branch'), UNKNOWN_FIX);
+      throw this.repoDeny(ambiguousSubcommandReason(what(), 'commits, merges, rebases, cherry-picks, pushes or creates a branch'), UNKNOWN_FIX);
     }
     if (create?.forge === 'gh') return await this.ghRule(create, stmt, dir, unresolved);
     if (create?.forge === 'glab') return await this.glabRule(create, stmt, dir, unresolved);
-    if (INTEGRATION_SUB.test(sub)) return await this.integrationRule(idx, sub, stmt, dir, unresolved);
+    if (branchFromInput) {
+      if (!this.needDir(dir, stmt, unresolved)) return;
+      throw this.repoDeny(xargsArgumentsReason(what(), 'creates a branch'), XARGS_FIX);
+    }
+    if (INTEGRATION_SUB.test(sub)) return await this.integrationRule(idx, sub, stmt, dir, unresolved, fed);
     if (sub === 'commit' || sub.startsWith('commit ')) return await this.commitRule(stmt, dir, unresolved);
     if (sub === 'push' || sub.startsWith('push ')) return await this.forcePushRule(sub, stmt, dir, unresolved);
     if (sub.startsWith('checkout -b ') || sub.startsWith('switch -c ')) return await this.newBranchRule(stmt, dir, unresolved);
@@ -571,5 +617,5 @@ export const gitGuards: Gate = async (payload, env) => {
   if (!listed.ok) return denyResult(PARSE_REASON, PARSE_FIX);
   const text = stripTrailingNewlines(listed.statements.map(({ dir, stmt }) => `${dir}\t${stmt}`).join('\n'));
   if (text === '') return ALLOW;
-  return await new GitGuards(command, cwd, dbPath(env) ?? '', env, text.split('\n'), lineStatements(listed.statements)).run();
+  return await new GitGuards(command, cwd, dbPath(env) ?? '', env, text.split('\n'), lineStatements(listed.statements), lineWrappers(listed.statements)).run();
 };
