@@ -77,6 +77,9 @@ const STASH_READS = [
 const AMBIGUOUS_SUBCOMMANDS: ReadonlyArray<readonly [string, string]> = [
   ['p=stash; git $p pop', 'git $p pop'],
   ['git $(echo stash) pop', 'git $(echo stash) pop'],
+  // #2760 (GH 2643): the git reader fails closed on a global option it cannot resolve, so these no longer reach the -c alias rule or pass as literal.
+  ['git -c $(echo alias.s=stash) s pop', 'git -c $(echo alias.s=stash) s pop'],
+  ['git -c user.name=$NAME log -1', 'git -c user.name=$NAME log -1'],
 ];
 const UNKNOWN_FIX = 'git -C <path> <subcommand> …, the subcommand written literally';
 const UNREADABLE_SUBCOMMANDS = [
@@ -90,7 +93,6 @@ const UNREADABLE_SUBCOMMANDS = [
   'git -c alias.s=stash s pop',
   "git -c 'Alias.s=stash' s pop",
   'git -c include.path=/tmp/x s pop',
-  'git -c $(echo alias.s=stash) s pop',
   'git --config-env=alias.s=V s pop',
   'git --config-env alias.s=V s pop',
 ];
@@ -148,7 +150,7 @@ const ALIAS_DEFINITIONS = [
 const EXPAND_ALIASES_ENABLES = ['shopt -s expand_aliases', 'shopt -qs expand_aliases', 'shopt -s nullglob expand_aliases', 'shopt -s $opt', 'bash -O expand_aliases -c "g pop"', 'builtin shopt -s expand_aliases'];
 const ALIAS_READS = ['alias', 'alias -p', 'alias g', 'shopt -s nullglob', 'shopt -u expand_aliases', 'shopt expand_aliases', 'shopt -p', 'echo aliases', 'grep -rn BASH_ALIASES src', 'printf %s "$x"'];
 const LITERAL_COMMANDS = ['ls *.ts', 'echo $HOME', "'ls' -la", '[ -f x ] && git log', "bash -c 'git status'", 'grep -rn GIT_CONFIG_COUNT src', 'git grep GIT_CONFIG_COUNT'];
-const LITERAL_GIT = ['git status', 'git -C x log', 'git log -1', 'git -c user.name=$NAME log -1', 'git log --format=x $(cat f)'];
+const LITERAL_GIT = ['git status', 'git -C x log', 'git log -1', 'git log --format=x $(cat f)'];
 const STASH_ROLES = ['tmb:swe', 'tmb:code-reviewer'];
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -260,7 +262,8 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
   });
 
   it('leaves never-judged write targets to containment-guard', async () => {
-    const command = `perl -i -pe 'BEGIN{open(F,"skills/s/SKILL.md")}' src/a.ts`;
+    // #3051 (GH 2024) reads a perl 2-arg open's mode from its prefix, so a bare path is a read; a computed `>` target stays unresolved.
+    const command = `perl -i -pe 'BEGIN{open(F,">$x")}' src/a.ts`;
     const lines = await writePaths(command, { cwd: wt, root: wt, env });
     assert.ok(
       lines.some((l) => l.startsWith('UNRESOLVED:$(')),
