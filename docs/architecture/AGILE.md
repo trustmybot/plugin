@@ -83,7 +83,7 @@ flowchart LR
 
 - **Queued** means closed without a per-task review and waiting for one. The task is queued at its close, and it counts toward its feature branch's review and merge gate once it is folded into that branch.
 - **Batch-reviewed** means the feature branch's review passed for the task's group. The move is recorded with the review that cleared it.
-- **Waived** means the Human let the feature branch merge without that review. The waiver names the branch, and the audit log keeps it.
+- **Waived** means the Human let the feature branch merge without that review. The waiver names the branch and its repo, and the audit log keeps it.
 - **A queued task can leave the queue early.** A review the Human asks for moves it to in review. A pass leaves it reviewed, and it closes with the rest when the feature branch merges. A fail leaves it queued with its findings open: bro reopens it when it is not yet folded into the feature branch, and after rework it closes into the queue again; once it is folded, bro files the findings as a fix task on the feature branch. Dropping the feature branch cancels it.
 - **Review states are lifecycle states.** Queued (named review-deferred in the lifecycle), batch-reviewed and waived are states of the task lifecycle in [TASKS.md](TASKS.md#task-lifecycle), and each move into one is a lifecycle event, not a separate record. A group review is recorded once, as a review batch. In the same transaction, every task in the group moves to batch-reviewed, and each move points at that batch. Planned, GH 3224.
 
@@ -195,7 +195,7 @@ flowchart TD
 ```
 
 - **Scope.** Task merges into the feature branch are not gated by the queue. Only the merge into the working branch is.
-- **Waivers.** Only the Human records a waiver. bro asks one question that names the feature branch and its queued tasks, and records the Human's answer word for word. The waiver covers every task queued on that branch at that moment, and the audit log keeps it with the list of tasks that merged unreviewed. A task queued after the waiver is not covered and needs the review or a new waiver.
+- **Waivers.** Only the Human records a waiver. bro asks one question that names the feature branch and its queued tasks, and records the Human's answer word for word. The waiver covers one repo: every task of that repo queued on the branch at that moment. When a milestone spans several repos, each repo's feature branch needs its own review or its own waiver, so the Human's call on one repo's unreviewed code never covers another's; a waiver that names no repo is refused when the queue holds more than one. The audit log keeps it with the list of tasks that merged unreviewed. A task queued after the waiver is not covered and needs the review or a new waiver.
 - **A waiver covers queued tasks only.** A task in review or being reworked blocks the merge until its review passes or its rework closes back into the queue.
 - **Dropped work.** A feature branch the Human abandons never merges, so its queued tasks need no review. They are cancelled with the dropped branch as the cause, which ends them without a retry (escalated, until schema v75 splits that state), and bro deletes the branch only when the Human says so.
 
