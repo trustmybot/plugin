@@ -302,31 +302,31 @@
   "deny-gh-pr-no-base.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch in repo ghf. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-gh-pr-release-merge-feature-head.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to dev. Got --head=feat/y. (repo gfl, mode truest) Allowed form: gh pr create --base dev --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to dev in repo gfl. Got --head=feat/y. (repo gfl, mode truest) Allowed form: gh pr create --base dev --head <branch>\"}}\n"
     }
   },
   "deny-gh-pr-wrong-base.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch in repo ghf. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-glab-mr-release-merge-feature.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to dev. Got --source-branch=feat/z. (repo gfl, mode truest) Allowed form: glab mr create --target-branch dev --source-branch <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to dev in repo gfl. Got --source-branch=feat/z. (repo gfl, mode truest) Allowed form: glab mr create --target-branch dev --source-branch <branch>\"}}\n"
     }
   },
   "deny-glab-mr-wrong-target.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: MRs must target main branch. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: glab mr create --target-branch main --source-branch <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: MRs must target main branch in repo ghf. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: glab mr create --target-branch main --source-branch <branch>\"}}\n"
     }
   },
   "deny-heredoc-commit-message-on-main.json": {

@@ -531,7 +531,10 @@ interface WaiveRecorded {
 function recordWaiver(db: TrajectoryDB, waive: WaiveArgs): WaiveRecorded {
   return db.transaction(() => {
     const pending = db.all<PendingTaskRow>(BRANCH_PENDING_SQL, [{ branch: waive.featureBranch, repo: waive.repo }]);
-    // A task with no repo on record belongs to whichever repo is named, as featureBranchTaskSql places it.
+    // featureBranchTaskSql places a task by its own repo, else its issue's, else its merge row's, so a
+    // named repo returns only the tasks it places there. t.repo holds the first two; a null one was
+    // placed by its merge row alone (or by nothing), so the span check counts only the repos tasks and
+    // issues record, and such a task never turns a call into mixed_repos.
     const repos = [...new Set(pending.flatMap((t) => (t.repo === null ? [] : [t.repo])))];
     if (repos.length > 1) {
       throw new BatchRefused('mixed_repos', `feature branch ${waive.featureBranch} has queued tasks in repos ${repos.map((r) => JSON.stringify(r)).join(', ')}; name one as repo. Nothing was recorded.`);
@@ -858,7 +861,9 @@ async function handoffBatch(db: TrajectoryDB, h: HandoffArgs): Promise<BatchHand
   if (repos.length > 1) throw new BatchRefused('mixed_repos', `the tasks span repos ${repos.join(', ')}; hand off one group per repo.`);
   const repo = repos[0];
   const repoPath = repoRowPath(db, group[0].repo_path as string);
-  // A task with no repo on record stays in, as featureBranchTaskSql places it in every repo.
+  // t.repo is the task's repo, else its issue's; featureBranchTaskSql falls back further, to the merge
+  // row's, which pendingAll (every repo) does not split by. A task neither records may be in this repo,
+  // so it stays in: a shared file with it refuses the hand-off rather than slipping past review.
   const ofRepo = (rows: readonly PendingTaskRow[]): PendingTaskRow[] => rows.filter((t) => t.repo === repo || t.repo === null);
   const pending = ofRepo(pendingAll);
 
@@ -976,8 +981,8 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_waive_record',
       description:
-        'bro only. Call only after the Human answered Yes to your AskUserQuestion asking to merge feature_branch without the grouped review. ' +
-        'Waives every queued agile task of that branch at its current commit; refused, writing nothing, when none is queued.',
+        'bro only. Call only after the Human answered Yes to your AskUserQuestion to merge feature_branch without grouped review. ' +
+        'Waives its queued agile tasks in one repo; refused, writing nothing, if none is queued or repo is omitted and they span repos.',
       inputSchema: {
         type: 'object',
         properties: {

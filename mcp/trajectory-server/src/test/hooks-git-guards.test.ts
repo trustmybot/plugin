@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { forgeRecovery, gitGuards, needsGitGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT, primaryRemoteUrl } from '../hooks/git-guards.js';
 import { fixedReason } from '../hooks/lib/deny.js';
+import { forgeSpecMatchesRemote } from '../hooks/lib/repo.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 
 const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
@@ -116,17 +117,21 @@ describe('git-guards: the TypeScript gate', () => {
 
   it('applies the PR-target rule to every PR-create spelling, reading the base from --base, -B or a base= field (GH 2225)', async () => {
     for (const command of [
-      'gh -R o/r pr create --base dev --head feat/x',
+      'gh pr create --base dev --head feat/x',
       'gh pr new -B dev',
-      'gh --repo=o/r pr create',
+      'gh pr create',
       'gh api repos/o/r/pulls -f head=feat/x -f base=dev',
       'gh api --method POST /repos/o/r/pulls --input body.json',
       `gh api graphql -f query='mutation { createPullRequest(input: {baseRefName: "dev", headRefName: "feat/x"}) { pullRequest { id } } }'`,
-      'glab -R o/r mr new --target-branch dev --source-branch feat/x',
+      'glab mr new --target-branch dev --source-branch feat/x',
     ]) {
-      assert.match(reason((await gitGuards(payload(command, main), env)).stdout), /^BLOCKED: (PR|MR)s must target main/, command);
+      assert.match(reason((await gitGuards(payload(command, main), env)).stdout), /^BLOCKED: (PR|MR)s must target main branch in repo main\./, command);
     }
     for (const command of [
+      // o/r names no registered repo's origin, so these get no verdict (GH 3278).
+      'gh -R o/r pr create --base dev --head feat/x',
+      'gh --repo=o/r pr create',
+      'glab -R o/r mr new --target-branch dev --source-branch feat/x',
       'gh -R o/r pr create --base main --head feat/x',
       'gh pr new -B main',
       'gh api repos/o/r/pulls -f head=feat/x -f base=main',
@@ -205,5 +210,156 @@ describe('git-guards: the Rule 2 recovery names the forge of the remote (GH 2713
         fix: { allowed: 'git push origin <branch> && gh pr create --base main --head <branch>' },
       });
     }
+  });
+});
+
+describe('git-guards: a PR/MR create naming -R/--repo is judged by that repo policy (GH 3278)', () => {
+  let dir: string;
+  let alpha: string;
+  let beta: string;
+  let outside: string;
+  let env: NodeJS.ProcessEnv;
+  const ALLOW_RESULT = { stdout: '', code: 0 };
+  before(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gg-repo-')));
+    alpha = join(dir, 'alpha');
+    beta = join(dir, 'beta');
+    const aardvark = join(dir, 'aardvark');
+    outside = join(dir, 'outside');
+    mkdirSync(outside);
+    for (const [repo, origin] of [
+      [alpha, 'https://github.com/acme/alpha.git'],
+      [beta, 'https://github.com/acme/beta.git'],
+      [aardvark, 'git@github.com:acme/beta.git'],
+    ]) {
+      mkdirSync(repo);
+      git(repo, 'init', '-q', '-b', 'main');
+      writeFileSync(join(repo, 'README.md'), 'x\n');
+      git(repo, 'add', '-A');
+      git(repo, 'commit', '-qm', 'init');
+      git(repo, 'remote', 'add', 'origin', origin);
+    }
+    const db = join(dir, 'trajectory.db');
+    const d = new DatabaseSync(db);
+    d.exec(SCHEMA);
+    const row = d.prepare("INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES (?, ?, ?, 'github-flow', '[\"main\"]')");
+    row.run('alpha', alpha, 'develop');
+    row.run('beta', beta, 'main');
+    // A second registered checkout of acme/beta, first by name, with its own target.
+    row.run('aardvark', aardvark, 'release');
+    d.close();
+    env = { ...GIT_ENV, CLAUDE_PROJECT_DIR: dir, TRAJECTORY_DB_PATH: db };
+    delete env.TMB_HOOKS_SQLITE;
+  });
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const judge = async (command: string, cwd: string, e: NodeJS.ProcessEnv = env) => await gitGuards(payload(command, cwd), e);
+
+  it("gh pr create --repo A from inside repo B: A's target is allowed, B's is denied naming A", async () => {
+    for (const spec of ['acme/alpha', 'github.com/acme/alpha', 'https://github.com/ACME/alpha.git', 'git@github.com:acme/alpha.git']) {
+      for (const flag of [`--repo ${spec}`, `--repo=${spec}`, `-R ${spec}`]) {
+        assert.deepEqual(await judge(`gh pr create ${flag} --base develop --head feat/x`, beta), ALLOW_RESULT, flag);
+        const r = reason((await judge(`gh pr create ${flag} --base main --head feat/x`, beta)).stdout);
+        assert.match(r, /^BLOCKED: PRs must target develop branch in repo alpha\./, flag);
+        assert.match(r, new RegExp(`Allowed form: gh pr create --repo ${spec.replace(/[.]/g, '\\.')} --base develop --head <branch>$`), flag);
+      }
+    }
+    assert.deepEqual(await judge('gh -R acme/alpha pr create --base develop --head feat/x', beta), ALLOW_RESULT);
+  });
+
+  it("glab mr create -R/--repo A from inside repo B: A's target is allowed, B's is denied naming A", async () => {
+    for (const flag of ['-R acme/alpha', '--repo acme/alpha', '--repo=acme/alpha', '-Racme/alpha']) {
+      assert.deepEqual(await judge(`glab mr create ${flag} --target-branch develop --source-branch feat/x`, beta), ALLOW_RESULT, flag);
+      assert.match(
+        reason((await judge(`glab mr create ${flag} --target-branch main --source-branch feat/x`, beta)).stdout),
+        /^BLOCKED: MRs must target develop branch in repo alpha\..* Allowed form: glab mr create --repo acme\/alpha --target-branch develop --source-branch <branch>$/,
+        flag,
+      );
+    }
+  });
+
+  it('a --repo that names no registered repo gets no verdict, inside a registered repo or outside any', async () => {
+    for (const cwd of [beta, outside]) {
+      for (const command of [
+        'gh pr create --repo acme/unknown --base anything --head feat/x',
+        'gh pr create --repo gitlab.com/acme/alpha --base main --head feat/x',
+        'glab mr create -R acme/unknown --target-branch anything',
+      ]) {
+        assert.deepEqual(await judge(command, cwd), ALLOW_RESULT, `${command} in ${cwd}`);
+      }
+    }
+  });
+
+  it('a --repo value the shell fills in keeps the cwd repo policy, as a create with no --repo does', async () => {
+    for (const flag of [
+      '--repo "$R"',
+      '--repo=${R}',
+      '-R "$(gh repo view --json nameWithOwner -q .nameWithOwner)"',
+      '--repo "acme/$NAME"',
+      '--repo="`echo acme/alpha`"',
+    ]) {
+      for (const prefix of ['', 'R=acme/alpha; ', 'R=acme/alpha ', 'export R=acme/alpha && ']) {
+        const command = `${prefix}gh pr create ${flag} --base develop --head feat/x`;
+        assert.match(reason((await judge(command, beta)).stdout), /^BLOCKED: PRs must target main branch in repo beta\./, command);
+        assert.deepEqual(await judge(`${prefix}gh pr create ${flag} --base main --head feat/x`, beta), ALLOW_RESULT, command);
+      }
+      assert.match(
+        reason((await judge(`glab mr create ${flag} --target-branch develop`, beta)).stdout),
+        /^BLOCKED: MRs must target main branch in repo beta\./,
+        flag,
+      );
+      // Outside any repo there is no cwd policy to fall back to, so no verdict, as before GH 3278.
+      assert.deepEqual(await judge(`gh pr create ${flag} --base anything --head feat/x`, outside), ALLOW_RESULT, flag);
+    }
+    // An unquoted backtick cuts the statement in the listing; the create is still judged by the cwd repo.
+    assert.match(reason((await judge('gh pr create --repo=`echo acme/alpha` --base develop --head feat/x', beta)).stdout), /^BLOCKED: PRs must target main branch in repo beta\./);
+  });
+
+  it('a create with no --repo outside any repo gets no verdict; inside one, the cwd repo policy applies and is named', async () => {
+    assert.deepEqual(await judge('gh pr create --base anything --head feat/x', outside), ALLOW_RESULT);
+    assert.deepEqual(await judge('gh pr create --base main --head feat/x', beta), ALLOW_RESULT);
+    assert.match(reason((await judge('gh pr create --base develop --head feat/x', beta)).stdout), /^BLOCKED: PRs must target main branch in repo beta\..* Allowed form: gh pr create --base main --head <branch>$/);
+    assert.match(reason((await judge('glab mr create --target-branch main', alpha)).stdout), /^BLOCKED: MRs must target develop branch in repo alpha\./);
+  });
+
+  it('a --repo from outside any repo is judged by the named repo', async () => {
+    assert.deepEqual(await judge('gh pr create --repo acme/alpha --base develop --head feat/x', outside), ALLOW_RESULT);
+    assert.match(reason((await judge('gh pr create --repo acme/alpha --base main --head feat/x', outside)).stdout), /in repo alpha\./);
+  });
+
+  it("several registered repos share the origin: the statement's own repo wins, else the first by name", async () => {
+    assert.deepEqual(await judge('gh pr create --repo acme/beta --base main --head feat/x', beta), ALLOW_RESULT);
+    assert.match(reason((await judge('gh pr create --repo acme/beta --base main --head feat/x', outside)).stdout), /^BLOCKED: PRs must target release branch in repo aardvark\./);
+    assert.match(reason((await judge('gh pr create --repo acme/beta --base main --head feat/x', alpha)).stdout), /in repo aardvark\./);
+  });
+
+  it('without a readable DB a --repo create gets no verdict, and a cwd create is named by its root', async () => {
+    const noDb = { ...env, TRAJECTORY_DB_PATH: join(dir, 'none.db') };
+    assert.deepEqual(await judge('gh pr create --repo acme/alpha --base anything', beta, noDb), ALLOW_RESULT);
+    assert.match(reason((await judge('gh pr create --base anything', beta, noDb)).stdout), new RegExp(`^BLOCKED: PRs must target main branch in repo ${beta}\\.`));
+  });
+
+  it('forgeSpecMatchesRemote compares host only when the spec names one, ignoring case, scheme, user, port and .git', () => {
+    const yes: Array<[string, string]> = [
+      ['acme/alpha', 'https://github.com/acme/alpha.git'],
+      ['ACME/Alpha', 'git@github.com:acme/alpha.git'],
+      ['acme/alpha', 'ssh://git@ghe.example.com:2222/acme/alpha.git/'],
+      ['github.com/acme/alpha', 'git@github.com:acme/alpha'],
+      ['https://github.com/acme/alpha/', 'https://git@github.com/acme/alpha.git'],
+      ['git@gitlab.com:g/sub/r.git', 'https://gitlab.com/g/sub/r'],
+      ['g/sub/r', 'https://gitlab.example.com/g/sub/r.git'],
+    ];
+    for (const [spec, url] of yes) assert.equal(forgeSpecMatchesRemote(spec, url), true, `${spec} ~ ${url}`);
+    const no: Array<[string, string]> = [
+      ['acme/alpha', 'https://github.com/acme/alphabet.git'],
+      ['gitlab.com/acme/alpha', 'https://github.com/acme/alpha.git'],
+      ['https://gitlab.com/acme/alpha', 'git@github.com:acme/alpha.git'],
+      ['alpha', 'https://github.com/acme/alpha.git'],
+      ['acme/alpha', ''],
+      ['', 'https://github.com/acme/alpha.git'],
+    ];
+    for (const [spec, url] of no) assert.equal(forgeSpecMatchesRemote(spec, url), false, `${spec} !~ ${url}`);
   });
 });

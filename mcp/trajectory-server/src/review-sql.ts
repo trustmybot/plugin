@@ -156,15 +156,16 @@ export const AGILE_PENDING_REVIEW_SQL = `((${AGILE_QUEUED_SQL} AND NOT ${batchRe
 
 // The tasks a feature branch of one repo carries: those cli.js feature-merge
 // moved onto it, each named by a bro feature_branch_merged row, whose repo
-// (the task's, else the row's) is repoSql. Two repos may hold a same-named
-// feature branch. branchSql and repoSql are SQL expressions, already quoted;
-// a NULL repoSql matches every repo, and a task with no repo on record
-// matches every repoSql, so no reader loses a task it cannot place.
+// (the task's, else its issue's, as review_queue places it, else the row's) is
+// repoSql. Two repos may hold a same-named feature branch. branchSql and
+// repoSql are SQL expressions, already quoted; a NULL repoSql matches every
+// repo, and a task none of the three places matches every repoSql, so no
+// reader loses a task it cannot place.
 export const featureBranchTaskSql = (alias: string, branchSql: string, repoSql: string): string => `EXISTS (SELECT 1 FROM audit m
   WHERE m.event_type = 'feature_branch_merged' AND m.from_node = 'bro'
     AND ${jsonSql('json_extract', 'm', '$.task_id')} = ${alias}.id
     AND ${jsonSql('json_extract', 'm', '$.feature_branch')} = ${branchSql}
-    AND (${repoSql} IS NULL OR COALESCE(${alias}.repo, m.repo, ${repoSql}) = ${repoSql}))`;
+    AND (${repoSql} IS NULL OR COALESCE(${alias}.repo, (SELECT i.repo FROM issues i WHERE i.id = ${alias}.issue_id), m.repo, ${repoSql}) = ${repoSql}))`;
 
 // validation_attempts is append-only, so a task's verdict is its newest row
 // (highest id): an older pass under a newer fail or escalate does not count,

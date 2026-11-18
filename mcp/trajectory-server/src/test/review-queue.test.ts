@@ -13,7 +13,7 @@ import { tempDB } from './helpers.js';
 import { DATA_CONTRACTS, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { groupQueuedTasks, pathsOverlap, reviewQueueTools } from '../tools/review-queue.js';
-import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, reviewBatchKey } from '../review-sql.js';
+import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, featureBranchTaskSql, reviewBatchKey } from '../review-sql.js';
 import { closedTasksWithoutReview } from '../tools/lifecycle.js';
 import { SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { issueTools } from '../tools/issues.js';
@@ -286,6 +286,28 @@ describe('GH 2225 one pending-review set: review_queue selects AGILE_PENDING_REV
       assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile', repo: 'lib' })), [inLib]);
       const both = await queueOk(db, { feature_branch: 'feat/agile' });
       assert.deepEqual(both.groups.map((g) => g.tasks.map((t) => t.id)), [[inApp], [inLib]], 'overlapping files[] in two repos stay two groups');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a task with no repo is placed in its issue repo, before the feature_branch_merged row repo', async () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO repos (name, path) VALUES ('app', '/app'), ('lib', '/lib')`);
+      const issue = seedIssue(db);
+      db.run(`UPDATE issues SET repo = 'app' WHERE id = ?`, [issue]);
+      const repoless = seedTask(db, issue, { repo: null });
+      foldOnto(db, issue, repoless, 'feat/agile');
+      db.run(`UPDATE audit SET repo = 'lib' WHERE event_type = 'feature_branch_merged'`);
+      const onBranchSql = `SELECT COUNT(*) AS n FROM tasks t WHERE ${featureBranchTaskSql('t', ':branch', ':repo')}`;
+      const onBranch = (repo: string): number => db.get<{ n: number }>(onBranchSql, [{ branch: 'feat/agile', repo }])!.n;
+      assert.deepEqual(ids(await queueOk(db, { repo: 'app' })), [repoless]);
+      assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile', repo: 'app' })), [repoless]);
+      assert.equal(onBranch('app'), 1, 'the merge gate reads the issue repo');
+      assert.deepEqual(ids(await queueOk(db, { repo: 'lib' })), []);
+      assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile', repo: 'lib' })), []);
+      assert.equal(onBranch('lib'), 0, 'the merge row repo is only the last fallback');
     } finally {
       db.close();
     }

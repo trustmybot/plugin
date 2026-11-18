@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node -e \"process.exit(typeof require('node:sqlite').StatementSync.prototype.setReturnArrays==='function'?0:1)\" >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node, or node older than 22.16 — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22.16 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart",
-            "timeout": 17
+            "timeout": 19
           },
           {
             "type": "command",
@@ -29,7 +29,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" UserPromptSubmit",
-            "timeout": 9
+            "timeout": 19
           },
           {
             "type": "command",

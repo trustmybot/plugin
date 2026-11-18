@@ -79,9 +79,9 @@
       "group_budget_ms": 11350
     },
     "SessionStart:": {
-      "max_budget_ms": 13038,
-      "p99_sum_ms": 18982,
-      "group_budget_ms": 13038
+      "max_budget_ms": 16000,
+      "p99_sum_ms": 19463.7,
+      "group_budget_ms": 16000
     },
     "SessionStart::persona": {
       "max_budget_ms": 8340,
@@ -94,9 +94,9 @@
       "group_budget_ms": 11792
     },
     "UserPromptSubmit:": {
-      "max_budget_ms": 6000,
-      "p99_sum_ms": 2205.6,
-      "group_budget_ms": 6000
+      "max_budget_ms": 16000,
+      "p99_sum_ms": 2687.3,
+      "group_budget_ms": 16000
     },
     "UserPromptSubmit::persona": {
       "max_budget_ms": 6000,
@@ -761,6 +761,22 @@
       "floor_ms": 16000,
       "budget_ms": 23300,
       "date": "2026-11-01"
+    },
+    "close-forge-merged": {
+      "kind": "advisory",
+      "bench_p50": 12.9,
+      "bench_p95": 122.4,
+      "bench_p99": 481.7,
+      "bench_runs": 400,
+      "bench_load_avg": 10.79,
+      "transcript_p99": null,
+      "reason": "born in TypeScript (GH 3275): no close-forge-merged SessionStart or UserPromptSubmit hook attachment in any transcript yet",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 16000,
+      "budget_ms": 16000,
+      "date": "2026-11-17"
     },
     "ref-move-reindex": {
       "kind": "advisory",
