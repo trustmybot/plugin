@@ -1,6 +1,6 @@
 # Labels
 
-The issue labels on the trustmybot/plugin GitHub board. The taxonomy governs TMB development only. It does not ship to TMB users: no shipped default, prompt, skill or tool description names these labels.
+The issue labels on the trustmybot/plugin GitHub board. This page lists the labels of TMB's own board. Planned (GH 3314): the board moves to six groups written in lower case with a slash, adding status, decision and theme groups, and the same scheme ships to TMB users as a default each project can change; [ISSUES.md](../architecture/ISSUES.md) holds that design. Until it ships, the list below is the one in force, and no shipped default, prompt, skill or tool description names these labels.
 
 Every label lives in [`.github/labels.json`](../../.github/labels.json) as `{name, color, description, group}`. The tables below are generated from it.
 
