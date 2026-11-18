@@ -37,10 +37,9 @@ describe('config_keys_contract', () => {
     assert.ok(docContent.includes('issue_sync'), 'issue_sync missing from docs');
   });
 
-  it('docs/architecture/CONFIG_KEYS.md names all three branching_model values', () => {
+  it('docs/architecture/CONFIG_KEYS.md names both branching_model values', () => {
     assert.ok(docContent.includes('github-flow'), 'github-flow missing from docs');
     assert.ok(docContent.includes('gitflow'), 'gitflow missing from docs');
-    assert.ok(docContent.includes('custom'), 'custom missing from docs');
   });
 
   it('round-trips branching_model = "github-flow" (string)', async () => {
