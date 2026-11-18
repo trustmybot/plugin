@@ -19,6 +19,9 @@ import { routerMain } from '../hooks/router/main.js';
 import { percentile } from './hook-transcripts.js';
 import { PLUGIN_ROOT, ROUTER_BASH_GATES } from './router-sandboxes.js';
 
+// A bare `node --test` collects every .js under a test/ dir, this bench too; it is no test, so it ends at once there (GH 3249).
+if (process.env.NODE_TEST_CONTEXT !== undefined) process.exit(0);
+
 const P95_LIMIT_MS = 40;
 const LOAD_LIMIT = 30;
 const NO_TOOL_CALLS_PER_ROUND = 40;

@@ -25,6 +25,9 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { percentile } from './hook-transcripts.js';
 import { type BenchResult, compareToBaseline, formatComparison, type HookStats, type McpStats, parseBenchResult } from './hot-path-compare.js';
 
+// A bare `node --test` collects every .js under a test/ dir, this bench too; it is no test, so it ends at once there (GH 3249).
+if (process.env.NODE_TEST_CONTEXT !== undefined) process.exit(0);
+
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SERVER = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/index.js');
 const LOAD_LIMIT = 30;

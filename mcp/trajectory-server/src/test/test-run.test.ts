@@ -1,15 +1,20 @@
 /**
  * dist/test-run.js (GH 1907): every case runs the built wrapper on a
  * `bash -c 'printf …'` fixture and checks the summary line, the printed
- * excerpts, the exit code and the raw log.
+ * excerpts, the exit code and the raw log. Then the hard budget and the stop
+ * paths (GH 3249): a full suite that hangs is stopped at --budget-s (exit 124),
+ * on SIGTERM to test-run and when test-run's parent dies, each leaving no
+ * process of its group and the suite slot free; and a bench that a bare
+ * `node --test` collects ends at once.
  */
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { acquireSuiteSlot, groupAlive, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WRAPPER = resolve(HERE, '../test-run.js');
@@ -362,4 +367,160 @@ describe('test-run wrapper', () => {
       assert.equal(res.stdout, '');
     }
   });
+});
+
+// A full suite that never ends: it records its pid, which leads its process group, then waits on a pipe nothing
+// writes to; HANG=ignore-term also ignores SIGTERM, which its children inherit.
+const HANGING_SUITE = `#!/usr/bin/env bash
+if [ "\${HANG:-}" = ignore-term ]; then trap '' TERM; fi
+printf '%s' "$$" > "$PIDS.tmp"
+mv "$PIDS.tmp" "$PIDS"
+sleep 600 | cat
+`;
+
+describe('test-run budget and stop paths (GH 3249)', { timeout: 60_000 }, () => {
+  let base: string;
+  let k = 0;
+  before(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-test-run-stop-')));
+  });
+  after(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+  // A failed assertion must not leave a hanging suite behind to keep this test file running.
+  const leftovers: { children: ChildProcess[]; groups: number[] } = { children: [], groups: [] };
+  afterEach(() => {
+    for (const child of leftovers.children.splice(0)) child.kill('SIGKILL');
+    for (const pgid of leftovers.groups.splice(0)) if (groupAlive(pgid)) process.kill(-pgid, 'SIGKILL');
+  });
+
+  interface Fixture {
+    work: string;
+    env: NodeJS.ProcessEnv;
+  }
+
+  function fixture(extra: NodeJS.ProcessEnv = {}): Fixture {
+    const work = join(base, `work-${k++}`);
+    mkdirSync(join(work, 'tests'), { recursive: true });
+    writeFileSync(join(work, 'tests/run-all.sh'), HANGING_SUITE);
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env[SUITE_LOCK_HELD_ENV];
+    delete env.TMB_TEST_RUN_BUDGET_S;
+    return { work, env: { ...env, TMB_SUITE_LOCK_DIR: join(work, 'lock'), TMB_TEST_SUITE_SLOTS: '1', PIDS: join(work, 'pids'), ...extra } };
+  }
+
+  function wrapperArgs(f: Fixture, extra: string[] = []): string[] {
+    return [WRAPPER, '--log', join(f.work, 'run.log'), ...extra, '--', 'bash', 'tests/run-all.sh'];
+  }
+
+  async function waitUntil(what: string, ok: () => boolean, ms: number): Promise<void> {
+    const deadline = Date.now() + ms;
+    while (!ok()) {
+      if (Date.now() > deadline) assert.fail(`timed out waiting for ${what}`);
+      await new Promise((done) => setTimeout(done, 50));
+    }
+  }
+
+  /** The suite's process group, once it has started: the suite's own pid, as test-run spawns it as a group leader. */
+  async function suiteGroup(f: Fixture): Promise<number> {
+    const pids = join(f.work, 'pids');
+    await waitUntil('the suite to start', () => existsSync(pids), 20_000);
+    const pgid = Number(readFileSync(pids, 'utf8'));
+    leftovers.groups.push(pgid);
+    return pgid;
+  }
+
+  async function assertSlotFree(f: Fixture): Promise<void> {
+    const next = await acquireSuiteSlot({ command: 'npm test', worktree: '/w/next', env: f.env, maxWaitS: 1, stderr: () => undefined });
+    assert.equal(next.kind, 'held');
+    if (next.kind === 'held') next.release();
+  }
+
+  function alive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === 'EPERM';
+    }
+  }
+
+  for (const hang of ['pipe', 'ignore-term']) {
+    it(`stops a full suite hanging (${hang}) at --budget-s 2: exit 124, the budget line, no process of its group left, the slot free`, async () => {
+      const f = fixture({ HANG: hang });
+      const res = spawnSync(process.execPath, wrapperArgs(f, ['--budget-s', '2']), { cwd: f.work, env: f.env, encoding: 'utf8', timeout: 30_000 });
+      assert.equal(res.status, 124, res.stdout + res.stderr);
+      const pgid = await suiteGroup(f);
+      const notice = `test-run: budget 2s exceeded; killed process group ${pgid}`;
+      const lines = res.stdout.trim().split('\n');
+      assert.match(lines[0], /^test-run: exit=124 /);
+      assert.ok(lines.includes(notice), res.stdout);
+      assert.ok(readFileSync(join(f.work, 'run.log'), 'utf8').includes(`${notice}\n`));
+      await waitUntil(`process group ${pgid} to go`, () => !groupAlive(pgid) && !alive(pgid), 5_000);
+      await assertSlotFree(f);
+    });
+  }
+
+  it('takes the budget from TMB_TEST_RUN_BUDGET_S and refuses one that is not a positive integer', async () => {
+    const f = fixture({ TMB_TEST_RUN_BUDGET_S: '2' });
+    const res = spawnSync(process.execPath, wrapperArgs(f), { cwd: f.work, env: f.env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(res.status, 124, res.stdout + res.stderr);
+    assert.match(res.stdout, new RegExp(`^test-run: budget 2s exceeded; killed process group ${await suiteGroup(f)}$`, 'm'));
+    await assertSlotFree(f);
+    for (const bad of ['0', 'x', '-1']) {
+      const r = spawnSync(process.execPath, [WRAPPER, '--', 'true'], { cwd: f.work, env: { ...f.env, TMB_TEST_RUN_BUDGET_S: bad }, encoding: 'utf8' });
+      assert.equal(r.status, 2, `TMB_TEST_RUN_BUDGET_S=${bad}`);
+      assert.match(r.stderr, /TMB_TEST_RUN_BUDGET_S must be a positive integer/);
+    }
+    const r = spawnSync(process.execPath, [WRAPPER, '--budget-s', '0', '--', 'true'], { cwd: f.work, env: f.env, encoding: 'utf8' });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /^usage: /);
+  });
+
+  it('stops the group and frees the slot on SIGTERM to test-run, exiting 143', async () => {
+    const f = fixture({ HANG: 'ignore-term' });
+    const child = spawn(process.execPath, wrapperArgs(f), { cwd: f.work, env: f.env, stdio: 'ignore' });
+    leftovers.children.push(child);
+    const exited = new Promise<number | null>((ok) => child.on('exit', (code) => ok(code)));
+    const pgid = await suiteGroup(f);
+    assert.ok(groupAlive(pgid), `the suite, pid ${pgid}, leads a process group of its own`);
+    child.kill('SIGTERM');
+    assert.equal(await exited, 143);
+    await waitUntil(`process group ${pgid} to go`, () => !groupAlive(pgid), 10_000);
+    assert.match(readFileSync(join(f.work, 'run.log'), 'utf8'), new RegExp(`test-run: received SIGTERM; killed process group ${pgid}\\n`));
+    await assertSlotFree(f);
+  });
+
+  it('stops the group and frees the slot once its parent dies', async () => {
+    const f = fixture();
+    const pidFile = join(f.work, 'test-run.pid');
+    const parent = spawn('bash', ['-c', '"$@" & printf %s "$!" > "$TEST_RUN_PID"; wait', 'bash', process.execPath, ...wrapperArgs(f)], {
+      cwd: f.work,
+      env: { ...f.env, TEST_RUN_PID: pidFile },
+      stdio: 'ignore',
+    });
+    leftovers.children.push(parent);
+    const pgid = await suiteGroup(f);
+    assert.ok(groupAlive(pgid), `the suite, pid ${pgid}, leads a process group of its own`);
+    await waitUntil('the parent to record the test-run pid', () => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 5_000);
+    const testRun = Number(readFileSync(pidFile, 'utf8'));
+    parent.kill('SIGKILL');
+    await waitUntil('the orphaned test-run to exit', () => !alive(testRun), 15_000);
+    await waitUntil(`process group ${pgid} to go`, () => !groupAlive(pgid), 5_000);
+    assert.match(readFileSync(join(f.work, 'run.log'), 'utf8'), new RegExp(`test-run: parent pid \\d+ is gone; killed process group ${pgid}\\n`));
+    await assertSlotFree(f);
+  });
+});
+
+describe('benches under a bare node --test (GH 3249)', { timeout: 120_000 }, () => {
+  // `node --test` with no file collects every .js under a test/ dir; a bench run there used to hold a suite slot for 20+ minutes.
+  for (const bench of ['router-p99.bench.js', 'router-overhead.bench.js', 'hot-path.bench.js']) {
+    it(`${bench} ends at once as a passing file`, () => {
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      delete env.NODE_TEST_CONTEXT;
+      const res = spawnSync(process.execPath, ['--experimental-sqlite', '--test', '--test-reporter=tap', join(HERE, bench)], { env, encoding: 'utf8', timeout: 60_000 });
+      assert.equal(res.status, 0, res.stdout + res.stderr);
+      assert.match(res.stdout, /^# pass 1$/m);
+    });
+  }
 });
