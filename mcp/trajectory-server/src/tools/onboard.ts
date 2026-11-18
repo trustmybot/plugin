@@ -14,9 +14,9 @@
 // rules live here, not in the skill.
 
 import { findOnPath } from './cheatcode-runtime.js';
-import { runGitAsync } from '../utils/git-run.js';
+import { runGitAsync, type GitAsyncResult } from '../utils/git-run.js';
 import { spawnAsync } from '../utils/spawn-async.js';
-import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -32,7 +32,15 @@ import {
   type OtherClaudeDb,
 } from '../platform.js';
 import { insertAudit } from './audit.js';
-import { WORKFLOW_MODES, WORKFLOW_MODE_KEY, isWorkflowMode, writeConfigValueJson, type WorkflowMode } from './config.js';
+import {
+  WORKFLOW_MODES,
+  WORKFLOW_MODE_KEY,
+  isRepoMode,
+  isWorkflowMode,
+  writeConfigValueJson,
+  type RepoMode,
+  type WorkflowMode,
+} from './config.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -127,13 +135,15 @@ interface DetectedRemote {
 
 const GIT_PROBE_TIMEOUT_MS = 3000;
 
-// The Human confirming a repo's policy through /onboard gives it the
-// project's mode, so an exempt repo is cleared to NULL; truest and agile
-// stay (GH 3279).
+// The policy write leaves repos.mode alone, so a re-run's repo_mode round
+// still shows a stored exempt as current; only the final apply writes modes.
 const WRITE_REPO_POLICY_SQL =
-  `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?,
-     mode = CASE WHEN mode = 'exempt' THEN NULL ELSE mode END
+  `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?
    WHERE name = ?`;
+
+// The final apply puts a repo with no repo_mode answer on the project's mode
+// when it is exempt; truest and agile stay (GH 3279).
+const CLEAR_UNANSWERED_EXEMPT_SQL = `UPDATE repos SET mode = NULL WHERE name = ? AND mode = 'exempt'`;
 
 async function probeGit(cwd: string): Promise<{
   in_git: boolean;
@@ -659,6 +669,134 @@ function reviewModeQuestion(current: WorkflowMode | null): BuiltQuestion {
   };
 }
 
+// The answer that leaves a repo on the project's mode, stored as a NULL repos.mode.
+const REPO_MODE_PROJECT = 'project';
+const CURRENT_SUFFIX = ' (current)';
+const CURRENT_SUFFIX_RE = /\s*\(current\)$/i;
+// One author at or under this many commits reads as a project still taking shape.
+const FEW_COMMITS = 50;
+
+// What a repo shows that the mode recommendation weighs (GIT.md "Onboarding
+// asks one mode per repo"): signals, not thresholds. A null git signal is a
+// probe that failed or timed out, so it is no evidence either way.
+interface RepoModeSignals {
+  commits: number | null;
+  authors: number | null;
+  remote: boolean | null;
+  tags: string[] | null;
+  ci: boolean;
+  protectedBranches: string[];
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// null when git did not answer 0: it failed, timed out or found no repo.
+function outputLines(r: GitAsyncResult): string[] | null {
+  return r.status === 0 ? r.stdout.split('\n').map((l) => l.trim()).filter((l) => l !== '') : null;
+}
+
+function commitCount(lines: string[] | null, unborn: boolean): number | null {
+  if (lines === null) return unborn ? 0 : null;
+  const count = Number.parseInt(lines[0] ?? '', 10);
+  return Number.isNaN(count) ? null : count;
+}
+
+// rev-list and shortlog fail on an unborn HEAD as well as on a failed probe;
+// `rev-parse --verify --quiet HEAD` exits 1 only for the unborn HEAD of a
+// repo with no commits (128 outside a repo, no status on a timeout).
+async function readRepoModeSignals(path: string, protectedBranches: unknown): Promise<RepoModeSignals> {
+  const opts = { timeout: GIT_PROBE_TIMEOUT_MS };
+  const [head, count, authors, remotes, tags] = await Promise.all([
+    runGitAsync(path, ['rev-parse', '--verify', '--quiet', 'HEAD'], opts),
+    runGitAsync(path, ['rev-list', '--count', 'HEAD'], opts),
+    runGitAsync(path, ['shortlog', '--summary', '--email', 'HEAD'], opts),
+    runGitAsync(path, ['remote'], opts),
+    runGitAsync(path, ['for-each-ref', '--count=1', '--format=%(refname:short)', 'refs/tags'], opts),
+  ]);
+  const unborn = head.status === 1;
+  const remoteNames = outputLines(remotes);
+  return {
+    commits: commitCount(outputLines(count), unborn),
+    authors: outputLines(authors)?.length ?? (unborn ? 0 : null),
+    remote: remoteNames === null ? null : remoteNames.length > 0,
+    tags: outputLines(tags),
+    ci: isDirectory(join(path, '.github', 'workflows')),
+    protectedBranches: Array.isArray(protectedBranches)
+      ? protectedBranches.filter((b): b is string => typeof b === 'string')
+      : [],
+  };
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function listPhrase(items: string[]): string {
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+// The GIT.md signal table, first matching row wins: empty or no remote →
+// exempt; one author, few commits, no tag → agile; a protected branch, CI,
+// several authors or a tag → truest; otherwise agile.
+// A failed probe reads as no evidence, never as no commits, no remote or no tag.
+function repoModeAdvice(s: RepoModeSignals): Advice {
+  const probeFailed = (what: string): string => `The git probe for ${what} failed or timed out, so it is no evidence.`;
+  const history = (commits: number): string =>
+    s.authors === null
+      ? `${plural(commits, 'commit', 'commits')}. ${probeFailed('authors')}`
+      : `${plural(commits, 'commit', 'commits')} by ${plural(s.authors, 'author', 'authors')}.`;
+  const evidence = [
+    s.commits === null ? probeFailed('commits') : s.commits === 0 ? 'No commits yet.' : history(s.commits),
+    s.remote === null ? probeFailed('remotes') : s.remote ? 'Has a git remote.' : 'No git remote.',
+    s.tags === null ? probeFailed('tags') : s.tags.length === 0 ? 'No tags.' : `Tagged, e.g. ${s.tags[0]}.`,
+    s.ci ? 'Has a .github/workflows folder.' : 'No .github/workflows folder.',
+    s.protectedBranches.length > 0 ? `Protected branches: ${s.protectedBranches.join(', ')}.` : 'No protected branch.',
+  ];
+  if (s.commits === 0) return { evidence, reason: 'the repository has no commits yet', wire: 'exempt' };
+  if (s.remote === false) return { evidence, reason: 'the repository has no remote, so its work never leaves this computer', wire: 'exempt' };
+  if (s.authors !== null && s.authors <= 1 && s.commits !== null && s.commits <= FEW_COMMITS && s.tags?.length === 0) {
+    return { evidence, reason: 'one author, few commits and no release', wire: 'agile' };
+  }
+  const strict = [
+    ...(s.protectedBranches.length > 0 ? ['a protected branch'] : []),
+    ...(s.ci ? ['CI'] : []),
+    ...(s.authors !== null && s.authors > 1 ? ['several authors'] : []),
+    ...(s.tags !== null && s.tags.length > 0 ? ['releases'] : []),
+  ];
+  if (strict.length > 0) return { evidence, reason: `the repository has ${listPhrase(strict)}`, wire: 'truest' };
+  if ([s.commits, s.authors, s.remote, s.tags].includes(null)) {
+    return { evidence, reason: 'a git probe failed and nothing else points either way, so agile, the default', wire: 'agile' };
+  }
+  return { evidence, reason: 'nothing in the repository points either way, so agile, the default', wire: 'agile' };
+}
+
+// The stored mode is marked current; a NULL mode marks the project's option.
+function repoModeQuestion(
+  repo: string,
+  stored: RepoMode | null,
+  projectMode: WorkflowMode,
+  advice: Advice,
+  header: string,
+): BuiltQuestion {
+  const current = stored ?? REPO_MODE_PROJECT;
+  const choices = REPO_MODE_OPTIONS.map((o) => {
+    const option = o.wire === REPO_MODE_PROJECT ? { ...o, description: `Follows the project's review mode, now ${projectMode}.` } : o;
+    return o.wire === current ? { ...option, label: `${o.label}${CURRENT_SUFFIX}` } : option;
+  });
+  return {
+    question: `Which rules should ${repo} follow?`,
+    header,
+    multiSelect: false,
+    ...assemble(null, choices, advice, null),
+  };
+}
+
 // AskUserQuestion takes 2-4 options per question and at most 4 questions.
 const AUQ_MAX_OPTIONS = 4;
 const AUQ_MAX_QUESTIONS = 4;
@@ -813,6 +951,12 @@ const REVIEW_MODE_OPTIONS: QuestionOption[] = [
   { label: 'Agile', description: 'Tasks close unreviewed; the work is reviewed as a whole before it merges.', wire: 'agile' },
 ];
 
+const REPO_MODE_OPTIONS: QuestionOption[] = [
+  ...REVIEW_MODE_OPTIONS,
+  { label: 'Exempt', description: 'No task, review or push check is required in this repository.', wire: 'exempt' },
+  { label: "The project's", description: "Follows the project's review mode.", wire: REPO_MODE_PROJECT },
+];
+
 const ALONE_APPLY_KEYS = ['headless_enforcement', 'bug_report_consent'] as const;
 
 const SANDBOX_YES_RECOMMENDED = 'Yes (Recommended)';
@@ -865,15 +1009,16 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           },
           round: {
             type: 'string',
-            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'verification_defaults', 'path_classes'],
+            enum: ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report', 'review_mode', 'repo_mode', 'verification_defaults', 'path_classes'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep). 'review_mode' = the project review mode (any shape): truest (recommended, the default) or agile, plus Keep first when a mode is stored. 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record). 'path_classes' = one repo's no-code path classes (any shape): one question whose evidence[] lists the docs and prompts globs detected from the files on its PR target, with options proposed (recommended), code (every path stays code) and Keep when the PR target already has " + PATH_CLASSES_FILE + "; nothing detected, an invalid file or an unresolvable PR target gives no questions and notes[] says why.",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only where the recorded sandbox network probe passed and no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; fresh defaults to No, re-onboard to Keep). 'review_mode' = the project review mode (any shape): truest (recommended, the default) or agile, plus Keep first when a mode is stored. 'repo_mode' = one question per repo (any shape): truest, agile, exempt or project, the recommended first, the stored one marked (current); at most 4 per call, pass next_offset back as offset for the rest. 'verification_defaults' = one repo's verification defaults (any shape): multiSelect questions over the lint, typecheck and test commands of its recorded root env profile, asked only when its PR target has no " + VERIFICATION_DEFAULTS_FILE + "; otherwise no questions and notes[] says why (no profile: run env_detect, then env_record). 'path_classes' = one repo's no-code path classes (any shape): one question whose evidence[] lists the docs and prompts globs detected from the files on its PR target, with options proposed (recommended), code (every path stays code) and Keep when the PR target already has " + PATH_CLASSES_FILE + "; nothing detected, an invalid file or an unresolvable PR target gives no questions and notes[] says why.",
           },
           repo: {
             type: 'string',
             description:
-              "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Valid with round='main', for either shape, and with round='verification_defaults' or 'path_classes' (required there when the workspace has several repos). Must match an existing repos.name. Omit for workspace-wide questions.",
+              "Optional. Scope the branching + pr_target questions to a single repos row. Valid with round='main', for either shape, and with round='verification_defaults' or 'path_classes' (required there when the workspace has several repos). Must match an existing repos.name. Omit for workspace-wide questions.",
           },
+          offset: { type: 'integer', minimum: 0 },
         },
         required: ['round'],
       },
@@ -912,7 +1057,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           remote: {
             type: 'array',
             items: { type: 'string', enum: ['github', 'gitlab'] },
-            description: 'The Remote answer when shape=remote: array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Issue and milestone sync reach only the chosen providers: per repo, one remote of each (the primary when it has that provider) is marked sync and every other remote is not, with a warning for a chosen provider a repo has no remote for. With repo: recorded on that repo only. Omitted or empty: each repo\'s git remotes are still recorded and its sync choice is left as it is. Ignored on local.',
+            description: 'The Remote answer when shape=remote: array of provider IDs (multiSelect AUQ answer). Issue and milestone sync reach only the chosen providers: per repo, one remote of each (the primary when it has that provider) is marked sync and every other remote is not, with a warning for a chosen provider a repo has no remote for. With repo: recorded on that repo only. Omitted or empty: each repo\'s git remotes are still recorded and its sync choice is left as it is. Ignored on local.',
           },
           issue_sync: {
             type: 'string',
@@ -941,7 +1086,13 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: [...WORKFLOW_MODES, KEEP_SENTINEL],
             description:
-              "Optional. The 'review_mode' round answer, stored as the project's workflow_mode in the same transaction as the other answers: 'truest' reviews each task before it is pushed, 'agile' closes tasks without the per-task review and reviews the work as a whole before it merges. Omit (or '__keep__') to keep the stored mode (unset reads as truest). Only with shape; /onboard is the only path that sets it.",
+              "Optional. The 'review_mode' round answer, stored as the project's workflow_mode in the same transaction as the other answers. Omit (or '__keep__') to keep the stored mode (unset reads as truest). Only with shape; /onboard is the only path that sets it.",
+          },
+          repo_modes: {
+            type: 'object',
+            additionalProperties: { type: 'string', enum: [...REPO_MODE_OPTIONS.map((o) => o.wire)] },
+            description:
+              "Optional, no repo. The 'repo_mode' answers {<repo>: truest|agile|exempt|project}, written to repos.mode; project stores NULL, an unanswered exempt repo too. An unknown repo or value is refused.",
           },
           verification_defaults: {
             type: 'array',
@@ -1046,6 +1197,54 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
   const storedReviewMode = (): WorkflowMode | null => {
     const stored = readConfig(db, WORKFLOW_MODE_KEY);
     return isWorkflowMode(stored) ? stored : null;
+  };
+
+  // One question per repo in name order, AUQ_MAX_QUESTIONS per call; next_offset pages through the rest.
+  const repoModeRound = async (rawOffset: unknown): Promise<Record<string, unknown>> => {
+    const offset = rawOffset ?? 0;
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+      throw new Error(`offset must be a non-negative integer (got ${JSON.stringify(rawOffset)})`);
+    }
+    const rows = db.all<{ name: string; path: string; mode: string | null; protected_branches: string | null }>(
+      `SELECT name, path, mode, protected_branches FROM repos ORDER BY name`,
+    );
+    const page = rows.slice(offset, offset + AUQ_MAX_QUESTIONS);
+    const projectMode = storedReviewMode() ?? 'truest';
+    const questions = await Promise.all(
+      page.map(async (row, i) => {
+        const signals = await readRepoModeSignals(repoRowPath(db, row.path), parseJsonColumn(row.protected_branches));
+        const stored = isRepoMode(row.mode) ? row.mode : null;
+        return repoModeQuestion(row.name, stored, projectMode, repoModeAdvice(signals), `Mode ${offset + i + 1}/${rows.length}`);
+      }),
+    );
+    const next = offset + page.length;
+    return { questions, ...(next < rows.length ? { next_offset: next } : {}) };
+  };
+
+  // Every answer is checked before anything is written; 'project' stores NULL.
+  // null means the round was not answered.
+  const resolveRepoModes = (raw: unknown): Map<string, RepoMode | null> | null => {
+    if (raw === undefined) return null;
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`repo_modes must be an object mapping a repo name to a mode (got ${JSON.stringify(raw)})`);
+    }
+    const known = new Set(db.all<{ name: string }>(`SELECT name FROM repos`).map((r) => r.name));
+    const modes = new Map<string, RepoMode | null>();
+    for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!known.has(name)) throw new Error(`repo_modes: unknown repo '${name}' — no matching repos row`);
+      const wire = typeof value === 'string' ? resolveOption(value.replace(CURRENT_SUFFIX_RE, ''), REPO_MODE_OPTIONS) : null;
+      if (wire === REPO_MODE_PROJECT) {
+        modes.set(name, null);
+        continue;
+      }
+      if (!isRepoMode(wire)) {
+        throw new Error(
+          `repo_modes: '${name}' must be 'truest', 'agile', 'exempt' or '${REPO_MODE_PROJECT}' (got ${JSON.stringify(value)})`,
+        );
+      }
+      modes.set(name, wire);
+    }
+    return modes;
   };
 
   // Headless enforcement is opt-in: 'yes' writes the shim into the project's
@@ -1306,12 +1505,14 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           | 'sandbox'
           | 'bug_report'
           | 'review_mode'
+          | 'repo_mode'
           | 'verification_defaults'
           | 'path_classes';
         const repo = args['repo'] as string | undefined;
 
         if (round === 'verification_defaults') return ok(verificationDefaultsRound(repo));
         if (round === 'path_classes') return ok(pathClassesRound(repo));
+        if (round === 'repo_mode') return ok(await repoModeRound(args['offset']));
 
         const git = await probeGit(probeDir());
 
@@ -1487,6 +1688,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           if (!repoRow) {
             throw new Error(`unknown repo '${repo}' — no matching repos row`);
           }
+          if (args['repo_modes'] !== undefined) {
+            throw new Error('repo_modes goes on the final workspace apply — drop repo, or drop repo_modes from this per-repo apply');
+          }
 
           const rawBranchingRepo = args['branching_model'] as string | undefined;
           let branchingRepo: string | undefined;
@@ -1619,6 +1823,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
 
         const bug_report_consent = resolveBugReportConsent(args['bug_report_consent'] as string | undefined);
         const reviewModeAnswer = resolveReviewMode(args['review_mode']);
+        const repoModes = resolveRepoModes(args['repo_modes']);
 
         // A NULL row gets the explicit answers, reconciled against its own git
         // tree (#13: a repo without the gitflow target branch falls back to
@@ -1696,6 +1901,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             upsertRepoRemotes(db, name, effRemotes);
             if (remoteList.length > 0) remoteWarnings.push(...applyRemoteChoice(db, name, remoteList));
           }
+          for (const { name } of probed) {
+            const answer = repoModes?.get(name);
+            if (answer === undefined) db.run(CLEAR_UNANSWERED_EXEMPT_SQL, [name]);
+            else db.run(`UPDATE repos SET mode = ? WHERE name = ?`, [answer, name]);
+          }
         });
 
         let warning: string | undefined;
@@ -1769,6 +1979,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             sandbox,
             bug_report_consent,
             review_mode: storedReviewMode() ?? 'truest',
+            ...(repoModes ? { repo_modes: Object.fromEntries([...repoModes].map(([name, mode]) => [name, mode ?? REPO_MODE_PROJECT])) } : {}),
             ...(warning ? { warning } : {}),
           },
           ...repoFileFields(),

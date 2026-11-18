@@ -1,12 +1,12 @@
 ---
-description: Configure or change identity, branching model, PR target, remotes, issue-sync, the Bash sandbox, the review mode (truest or agile), and verification defaults. Server-driven — bro orchestrates AskUserQuestion rounds.
+description: Configure or change identity, branching model, PR target, remotes, issue-sync, the Bash sandbox, the review mode (truest or agile), each repo's mode, and verification defaults. Server-driven — bro orchestrates AskUserQuestion rounds.
 argument-hint: (none)
 allowed-tools: AskUserQuestion, mcp__plugin_tmb_trajectory-server__onboard_state_get, mcp__plugin_tmb_trajectory-server__onboard_get_questions, mcp__plugin_tmb_trajectory-server__onboard_apply, mcp__plugin_tmb_trajectory-server__repos_list, mcp__plugin_tmb_trajectory-server__audit_append, mcp__plugin_tmb_trajectory-server__env_get, mcp__plugin_tmb_trajectory-server__env_detect, mcp__plugin_tmb_trajectory-server__env_record
 ---
 
 # Onboard / Re-onboard
 
-Bro orchestrates an AskUserQuestion ceremony in 7-9 rounds — Round 0 runs only when the session is nested below the project or another trajectory DB exists, Round 3 only when `shape == 'remote'`. Pass answers between AUQ and the server; all deterministic logic lives in the `onboard_*` MCP tools.
+Bro orchestrates an AskUserQuestion ceremony in 8-10 rounds — Round 0 runs only when the session is nested below the project or another trajectory DB exists, Round 3 only when `shape == 'remote'`. Pass answers between AUQ and the server; all deterministic logic lives in the `onboard_*` MCP tools.
 
 ## 1. Read state (one MCP call)
 
@@ -14,7 +14,7 @@ Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe, nes
 
 ## 2. Ask the questions
 
-Run the AskUserQuestion ceremony in up to nine rounds.
+Run the AskUserQuestion ceremony in up to ten rounds.
 
 Every question from `onboard_get_questions` carries `evidence` (short facts from the scan) and `recommended_reason` (why the option marked `recommended: true` comes first, or `null` when the evidence picks none). Before each AskUserQuestion, write that round's `evidence` lines in chat as a short list, each line once, then each question's `recommended_reason` as one sentence. They stay in chat prose: feed the option labels and descriptions to AskUserQuestion exactly as the server built them. The Human confirms what the scan found instead of guessing.
 
@@ -76,6 +76,10 @@ Call `onboard_get_questions(agent='bro', round='bug_report')` and feed the retur
 
 Call `onboard_get_questions(agent='bro', round='review_mode')` and feed the returned question into `AskUserQuestion` as the server built it. Store the answer as `review_mode` (default: the question's first option, `truest` on a fresh onboard and `Keep` when a mode is stored). Only the Human switches the mode, through this round: `config_set` refuses `workflow_mode`, so when the Human asks bro to change it, point them to `/onboard`.
 
+### Round 5c — Repo modes
+
+Call `onboard_get_questions(agent='bro', round='repo_mode')`. It returns one question per registered repo, at most four per call, each offering truest, agile, exempt and the project's mode, with the recommended option first and the repo's stored choice marked `(current)`. Feed the questions into `AskUserQuestion` as the server built them. When the result carries `next_offset`, call the round again with `offset=<next_offset>` and ask the next questions, until a result carries none. Store the answers as `repo_modes`, `{<repo>: <answer>}`.
+
 ### Round 6 — Verification defaults (per repo)
 
 `.config/tmb/verification-defaults.json` holds the repo checks `task_provision` appends to a code task's verification; it is read from the PR target branch. For each repo `<name>`, before this round, record its env profile: call `env_get(agent='bro', repo=<name>)`, and when it has no root profile (`package_path` `.`) run `env_detect`, resolve the lint, typecheck and test commands from its evidence, and record them with `env_record`.
@@ -94,11 +98,11 @@ The apply writes the file to the repo's working tree only, never commits, and ne
 
 Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(shape=<shape>, repo=<name>, ...)` per repo, each writing only that repo's row).
 
-The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write `remote` (the Remote answer; always pass it on remote shape — issue and milestone sync reach only the chosen providers, and the server warns about a repo with no remote of a chosen one), the global `issue_sync` answer, `sandbox_enforcement`, `bug_report_consent`, `review_mode`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on the onboarding-answer applies (each Round 2 per-repo apply and this final apply); every other `onboard_apply` call in this file goes without it. Omit `branching_model` / `pr_target` on this call: it sets only these workspace answers, never changes a repo's Round 2 policy, and gives a repo that has none yet GitHub Flow and its default branch.
+The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write `remote` (the Remote answer; always pass it on remote shape — issue and milestone sync reach only the chosen providers, and the server warns about a repo with no remote of a chosen one), the global `issue_sync` answer, `sandbox_enforcement`, `bug_report_consent`, `review_mode`, `repo_modes`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on the onboarding-answer applies (each Round 2 per-repo apply and this final apply); every other `onboard_apply` call in this file goes without it. Omit `branching_model` / `pr_target` on this call: it sets only these workspace answers, never changes a repo's Round 2 policy, and gives a repo that has none yet GitHub Flow and its default branch.
 
 The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". Each apply recomputes protected branches and wraps its writes in a transaction.
 
-Returns `{ ok: true, stray_dbs?: { removed, refused }, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync, headless_enforcement, headless_shim, sandbox_enforcement, sandbox, bug_report_consent, review_mode } }`. `headless_enforcement` is not asked during onboarding and stays `no` unless enabled on request (see below).
+Returns `{ ok: true, stray_dbs?: { removed, refused }, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync, headless_enforcement, headless_shim, sandbox_enforcement, sandbox, bug_report_consent, review_mode, repo_modes? } }`. `headless_enforcement` is not asked during onboarding and stays `no` unless enabled on request (see below).
 
 The apply never touches the project's `CLAUDE.md`: bro's persona loads from the plugin through its persona hooks. `onboard_apply` takes no `persona` argument and rejects one with `persona_input_removed`.
 
@@ -117,7 +121,7 @@ When the Human asks bro to stop offering TMB bug reports, call `onboard_apply(ag
 
 ## 4. Confirm to the Human
 
-Render a short summary — project shape, then per repo its branching model, PR target, protected branches, and verification defaults (with any file still to commit), plus the workspace remotes, the global issue sync, the Bash sandbox, whether bro offers bug reports, and the review mode — then close with "Tell me what you want to work on."
+Render a short summary — project shape, then per repo its branching model, PR target, protected branches, and verification defaults (with any file still to commit), plus the workspace remotes, the global issue sync, the Bash sandbox, whether bro offers bug reports, the review mode, and each repo's mode — then close with "Tell me what you want to work on."
 
 ## Error handling
 

@@ -304,4 +304,75 @@ describe('cleanup-worktree-on-task-close l3', () => {
       assert.ok(!existsSync(wt('provisioned-2032')), 'provisioned worktree still present');
     });
   });
+
+  describe('GH 3281: a task closed in an exempt repo owes no review, so its close removes the worktree', () => {
+    const ATOMIC_CLOSE = 'mcp__plugin_tmb_trajectory-server__bro_atomic_close';
+    let exemptRepo: string;
+    let exemptDb: string;
+
+    const hook = (payload: object) => runHook(payload, { TRAJECTORY_DB_PATH: exemptDb, TMB_KEEP_HEAD_ON_CLOSE: '1' }, exemptRepo);
+    const exemptWt = (slug: string) => join(exemptRepo, '.claude/worktrees', slug);
+
+    function closedTask(id: number, branch: string): void {
+      git(sb.env, exemptRepo, 'branch', branch, 'HEAD');
+      git(sb.env, exemptRepo, 'worktree', 'add', '-q', `.claude/worktrees/${branch.slice(branch.indexOf('/') + 1)}`, branch);
+      sql(exemptDb, "INSERT INTO tasks (id, branch_id, repo, status, commit_sha) VALUES (?, ?, 'solo', 'closed', 'abc1234')", id, branch);
+    }
+
+    const setMode = (mode: string | null) => sql(exemptDb, "UPDATE repos SET mode = ? WHERE name = 'solo'", mode);
+
+    before(() => {
+      exemptRepo = join(sb.dir, 'exempt-repo');
+      mkdirSync(exemptRepo);
+      git(sb.env, exemptRepo, 'init', '-q', '-b', 'main');
+      writeFileSync(join(exemptRepo, 'README.md'), 'init\n');
+      git(sb.env, exemptRepo, 'add', '.');
+      git(sb.env, exemptRepo, 'commit', '-qm', 'init');
+      exemptDb = join(exemptRepo, '.claude/tmb/trajectory.db');
+      mkdirSync(dirname(exemptDb), { recursive: true });
+      execDb(
+        exemptDb,
+        `CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, repo TEXT, status TEXT, commit_sha TEXT);
+         CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
+         CREATE TABLE audit (id INTEGER PRIMARY KEY, from_node TEXT, event_type TEXT, content_json TEXT, created_at TEXT);
+         CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, protected_branches TEXT, mode TEXT);`,
+      );
+      sql(exemptDb, "INSERT INTO repos (name, path, mode) VALUES ('solo', ?, 'exempt')", git(sb.env, exemptRepo, 'rev-parse', '--show-toplevel'));
+    });
+
+    it('bro_atomic_close on an exempt task with no pass: worktree removed', () => {
+      closedTask(70, 'fix/exempt-close');
+      has(hook(atomicClose(ATOMIC_CLOSE, 'bro', 70)), CLEANED, 'the exempt close triggers cleanup');
+      assert.ok(!existsSync(exemptWt('exempt-close')), 'exempt worktree still present');
+    });
+
+    it('a non-exempt task with no pass keeps its worktree', () => {
+      for (const mode of ['truest', 'agile', null]) {
+        setMode(mode);
+        const id = mode === 'truest' ? 71 : mode === 'agile' ? 72 : 73;
+        closedTask(id, `fix/kept-${id}`);
+        assert.equal(hook(atomicClose(ATOMIC_CLOSE, 'bro', id)), '', `mode ${String(mode)} must wait for a pass`);
+        assert.ok(existsSync(exemptWt(`kept-${id}`)), `mode ${String(mode)}: worktree removed without a pass`);
+      }
+      setMode('exempt');
+    });
+
+    it('an exempt task that is not closed keeps its worktree', () => {
+      closedTask(74, 'fix/exempt-open');
+      sql(exemptDb, "UPDATE tasks SET status = 'running' WHERE id = 74");
+      assert.equal(hook(validation('pass', 74)), '', 'a running exempt task keeps its worktree');
+      assert.ok(existsSync(exemptWt('exempt-open')), 'worktree removed from a running exempt task');
+    });
+
+    it('a DB whose repo mode does not read keeps the worktree until a pass exists', () => {
+      closedTask(75, 'fix/exempt-unread');
+      execDb(exemptDb, 'ALTER TABLE repos DROP COLUMN mode;');
+      try {
+        assert.equal(hook(atomicClose(ATOMIC_CLOSE, 'bro', 75)), '', 'an unreadable mode must not trigger cleanup');
+        assert.ok(existsSync(exemptWt('exempt-unread')), 'worktree removed on a DB read error');
+      } finally {
+        execDb(exemptDb, "ALTER TABLE repos ADD COLUMN mode TEXT; UPDATE repos SET mode = 'exempt';");
+      }
+    });
+  });
 });
