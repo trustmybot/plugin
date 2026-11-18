@@ -976,8 +976,8 @@ export function reviewQueueTools(db: TrajectoryDB): {
     {
       name: 'review_waive_record',
       description:
-        'bro only. Call only after the Human answered Yes to your AskUserQuestion asking to merge feature_branch without the grouped review. ' +
-        'Waives every queued agile task of that branch at its current commit; refused, writing nothing, when none is queued.',
+        'bro only. Call only after the Human answered Yes to your AskUserQuestion to merge feature_branch without grouped review. ' +
+        'Waives its queued agile tasks in one repo; refused, writing nothing, if none is queued or repo is omitted and they span repos.',
       inputSchema: {
         type: 'object',
         properties: {
