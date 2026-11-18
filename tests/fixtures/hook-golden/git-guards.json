@@ -194,163 +194,163 @@
   "deny-checkout-b-behind-origin.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Local main is behind origin/main. Allowed form: git pull origin main, then the same branch command\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Local main is behind origin/main. (repo behind, mode truest) Allowed form: git pull origin main, then the same branch command\"}}\n"
     }
   },
   "deny-checkout-b-detached.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Detached HEAD detected; reattach before creating your feature branch. Allowed form: git checkout -B main origin/main, then the same branch command\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Detached HEAD detected; reattach before creating your feature branch. (repo det2, mode truest) Allowed form: git checkout -B main origin/main, then the same branch command\"}}\n"
     }
   },
   "deny-checkout-b-gitflow-from-main.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: New branches must be created from dev. Currently on 'main'. Allowed form: git checkout dev && git pull origin dev, then the same branch command\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: New branches must be created from dev. Currently on 'main'. (repo gfl2, mode truest) Allowed form: git checkout dev && git pull origin dev, then the same branch command\"}}\n"
     }
   },
   "deny-cherry-pick-no-remote.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. This repo has no remote — leave the branch unmerged and surface it to the Human for integration. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. This repo has no remote — leave the branch unmerged and surface it to the Human for integration. (repo norem, mode truest) This is policy: stop and report.\"}}\n"
     }
   },
   "deny-commit-gitflow-dev.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: dev is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into dev. Allowed form: git push origin <branch> && gh pr create --base dev --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: dev is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into dev. (repo gfl, mode truest) Allowed form: git push origin <branch> && gh pr create --base dev --head <branch>\"}}\n"
     }
   },
   "deny-commit-in-bash-c.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-commit-inline-landing-pr-target-column.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: release is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: release is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-commit-main-cwd.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-commit-main-git-c.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-commit-main-no-db.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-commit-no-remote-recovery.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. This repo has no remote — leave the branch unmerged and surface it to the Human for integration. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. This repo has no remote — leave the branch unmerged and surface it to the Human for integration. (repo norem, mode truest) This is policy: stop and report.\"}}\n"
     }
   },
   "deny-commit-registered-no-policy.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. (repo nopol, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-ff-sync-extra-statement.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-ff-sync-other-upstream.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-ff-sync-switch-or.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-force-push-current-main.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to main is forbidden. This is destructive and irreversible. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to main is forbidden. This is destructive and irreversible. (repo ghf, mode truest) This is policy: stop and report.\"}}\n"
     }
   },
   "deny-force-push-gitflow-dev.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to dev is forbidden. This is destructive and irreversible. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to dev is forbidden. This is destructive and irreversible. (repo gfl, mode truest) This is policy: stop and report.\"}}\n"
     }
   },
   "deny-force-push-lease-origin-main.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to main is forbidden. This is destructive and irreversible. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to main is forbidden. This is destructive and irreversible. (repo ghf, mode truest) This is policy: stop and report.\"}}\n"
     }
   },
   "deny-gh-pr-no-base.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch. (Dev → main release merges are allowed when PR_TARGET=dev.) Allowed form: gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch in repo ghf. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-gh-pr-release-merge-feature-head.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to dev. Got --head=feat/y. Allowed form: gh pr create --base dev --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to dev in repo gfl. Got --head=feat/y. (repo gfl, mode truest) Allowed form: gh pr create --base dev --head <branch>\"}}\n"
     }
   },
   "deny-gh-pr-wrong-base.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch. (Dev → main release merges are allowed when PR_TARGET=dev.) Allowed form: gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch in repo ghf. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-glab-mr-release-merge-feature.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to dev. Got --source-branch=feat/z. Allowed form: glab mr create --target-branch dev --source-branch <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to dev in repo gfl. Got --source-branch=feat/z. (repo gfl, mode truest) Allowed form: glab mr create --target-branch dev --source-branch <branch>\"}}\n"
     }
   },
   "deny-glab-mr-wrong-target.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: MRs must target main branch. (Dev → main release merges are allowed when PR_TARGET=dev.) Allowed form: glab mr create --target-branch main --source-branch <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: MRs must target main branch in repo ghf. (Dev → main release merges are allowed when PR_TARGET=dev.) (repo ghf, mode truest) Allowed form: glab mr create --target-branch main --source-branch <branch>\"}}\n"
     }
   },
   "deny-heredoc-commit-message-on-main.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-malformed-protected-branches.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this repo's protected_branches is malformed JSON; the repos row needs fixing or onboarding re-run. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this repo's protected_branches is malformed JSON; the repos row needs fixing or onboarding re-run. (repo bad, mode truest) This is policy: stop and report.\"}}\n"
     }
   },
   "deny-merge-main-checkout.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Syncing a branch with its own upstream (git pull --ff-only, or git merge --ff-only @{u}, on that branch) is allowed. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-rebase-main-checkout.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main. (repo ghf, mode truest) Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
     }
   },
   "deny-unresolved-variable-dir.json": {

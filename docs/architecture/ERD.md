@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 75`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 76`). One DB per project at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per user, gitignored; [Where the trajectory DB lives](MEMORY.md#where-the-trajectory-db-lives) gives the lookup rule, and `TRAJECTORY_DB_PATH` overrides it for CI and ephemeral runs.
 
 ## Overview
 
@@ -22,7 +22,7 @@ Every table, and every change to one, meets these two requirements. The Human se
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written and stays at the level of groups and rules: what a column means is in `schema.sql`, and the world model finds the tool that writes it.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 75`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 76`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -88,6 +88,7 @@ erDiagram
         TEXT onboard_scan
         TEXT indexed_commit
         TEXT indexed_stamp
+        TEXT mode "CHECK mode IS NULL OR mode IN ('truest','agile','exempt')"
     }
 
     repo_remotes {
@@ -179,7 +180,7 @@ erDiagram
         TEXT checkpoint
         TEXT worktree_path
         INTEGER worktree_adopted "NOT NULL; CHECK worktree_adopted IN (0,1)"
-        TEXT workflow_mode "CHECK workflow_mode IS NULL OR workflow_mode IN ('truest','agile')"
+        TEXT workflow_mode "CHECK workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')"
         TEXT base_sha
         TEXT wm_commit
         TEXT no_code_class "CHECK no_code_class IS NULL OR no_code_class IN ('docs','prompts')"
@@ -624,6 +625,7 @@ erDiagram
 | `onboard_scan` | TEXT | nullable |  |  |
 | `indexed_commit` | TEXT | nullable |  |  |
 | `indexed_stamp` | TEXT | nullable |  |  |
+| `mode` | TEXT | nullable |  | CHECK `mode IS NULL OR mode IN ('truest','agile','exempt')` |
 
 ### `repo_remotes`
 
@@ -743,7 +745,7 @@ Table constraints:
 | `checkpoint` | TEXT | nullable |  |  |
 | `worktree_path` | TEXT | nullable |  |  |
 | `worktree_adopted` | INTEGER | NOT NULL | `0` | CHECK `worktree_adopted IN (0,1)` |
-| `workflow_mode` | TEXT | nullable |  | CHECK `workflow_mode IS NULL OR workflow_mode IN ('truest','agile')` |
+| `workflow_mode` | TEXT | nullable |  | CHECK `workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')` |
 | `base_sha` | TEXT | nullable |  |  |
 | `wm_commit` | TEXT | nullable |  |  |
 | `no_code_class` | TEXT | nullable |  | CHECK `no_code_class IS NULL OR no_code_class IN ('docs','prompts')` |
@@ -1493,15 +1495,15 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `idx_eval_results_flow` | `eval_results` | `flow_name, created_at` |  |  |
 <!-- erd:generated:end -->
 
-## Planned for schema v75
+## Planned: the lifecycle schema
 
-Schema v75 (GH 3224) records each task's lifecycle as events. Its code hasn't merged, so the generated tables above don't show it yet. When v75 lands, its regenerated tables replace this section. [`TASKS.md`](./TASKS.md) holds the lifecycle these tables enforce.
+The lifecycle schema (GH 3224) records each task's lifecycle as events. It has no schema version yet: version 75 went to the task overlay, and a version is fixed only when a migration merges. Its code hasn't merged, so the generated tables above don't show it yet. When it lands, its regenerated tables replace this section. [`TASKS.md`](./TASKS.md) holds the lifecycle these tables enforce.
 
 - **`task_event_types`** lists every lifecycle event type: its code, a description, and when it went out of use.
 - **`task_event_causes`** lists every cause a move can carry: its code, a description, and when it went out of use. Causes are codes, never free text, so they can be counted.
 - **`task_status_edges`** lists the allowed moves. Each row is one move from a state to a state, the event type that makes it, and the kind of record the move must rest on. A row whose two states are the same admits a fact that changes no state. Only a seeded move can happen.
 - **`task_events`** holds one row per move a task makes, and one per task fact that changes no state: the task, its per-task sequence number, the event type, the from and to states, the role that acted and its agent run (empty for the Human or a hook), a cause code with an optional note, the kind and id of the record behind it, an optional idempotency key, whether a migration backfilled it, when the move happened and when it was recorded. A task's sequence numbers are unique.
-- **`tasks.status`** becomes a cache of the task's latest event and changes only through one. It gains `in_review`, `reviewed`, `review_deferred`, `batch_reviewed` and `waived`. It renames `completed` to `submitted`, because the task still awaits review, and drops `needs_validation`; v75 moves every such task to `submitted`. It also splits `escalated` into `superseded` and `cancelled`; v75 moves each escalated task to `superseded` when another task retries it, and to `cancelled` otherwise.
+- **`tasks.status`** becomes a cache of the task's latest event and changes only through one. It gains `in_review`, `reviewed`, `review_deferred`, `batch_reviewed` and `waived`. It renames `completed` to `submitted`, because the task still awaits review, and drops `needs_validation`; the migration moves every such task to `submitted`. It also splits `escalated` into `superseded` and `cancelled`; the migration moves each escalated task to `superseded` when another task retries it, and to `cancelled` otherwise.
 - **`tasks.retry_of`** points a retry at the task it retries.
 - **`review_batches`** records one grouped review of review-deferred tasks; those tasks' events point at the batch.
 
@@ -1511,7 +1513,7 @@ Sessions, agent runs, hook runs and verification runs each record a start, an en
 
 - **`sessions`** holds one row per session, lanes included: its stable id, the session that started it, and the project. **`session_events`** holds its start, each compaction, clear and resume, and its end with an outcome.
 - **`agent_run_events`** holds each agent run's start and its end with an outcome and a cause. `agent_runs` keeps the run's identity and gains the session it ran in; its end fields become a cache of the end event.
-- **`hook_run_events`** holds each hook run's start and end. A hook run has no row of its own: it is the pair of events that share its id, which keeps a call on every tool use to two inserts. The end keeps its detail only for a deny, a timeout or a crash. The hook rows now in `audit` move here (GH 3229).
+- **`hook_run_events`** holds each hook run's start and end. A hook run has no row of its own: it is the pair of events that share its id, which keeps a call on every tool use to two inserts. SQLite takes one writer at a time, so the trajectory's detail is weighed against what each write costs the session. The end keeps its detail only for a deny, a timeout or a crash. The hook rows now in `audit` move here (GH 3229).
 - **`verification_run_events`** holds each verification run's start and end; `verification_runs` keeps the run's identity and commands.
 - Each end names an outcome from a lookup table and, when it is not a clean finish, a cause from one, as task events do.
 
@@ -1534,7 +1536,7 @@ The world model leaves `trajectory.db` for its own file, `world_model.db`, besid
 - **No link across the two files.** A foreign key cannot cross files, so a world-model row holds a repo name, a task id or a commit as a plain value. `wm_freshness` loses its link to `repos`; a repo rename or removal updates both files in the same step, trajectory DB first.
 - **Facts stay in the trajectory DB.** Three kinds of fact about the world model are trajectory, and stay there:
   - each scan and reindex, as a start and an end with its trigger, mode and outcome (`wm_freshness` keeps only a copy of the latest);
-  - each concept write, whoever made it, with the concept's full content, so the concepts can be replayed into a fresh file. Today only a concept a task proposed leaves such a record; a concept bro or a consultant writes directly leaves none. A concept's identity is its first write, so a rename is one more write under the same identity. A concept is marked `retired` by a write too, never deleted, so a replay cannot bring one back. The replay takes the newest write of each concept;
+  - each concept write, whoever made it, with the concept's full content, so the concepts can be replayed into a fresh file. A concept marked `retired` is left out of search and of every read that does not ask for it. Today only a concept a task proposed leaves such a record; a concept bro or a consultant writes directly leaves none. A concept's identity is its first write, so a rename is one more write under the same identity. A concept is marked `retired` by a write too, never deleted, so a replay cannot bring one back. The replay takes the newest write of each concept;
   - each file purpose an author wrote, which the completion report already holds, so it needs no new record.
 - **A write to both files is not one transaction.** The trajectory fact is written first and the cache second. A crash between the two leaves the cache behind, and the next read or scan brings it forward.
 - **`wm_overlays`** holds one row per task overlay: the task id and commit as plain values, the repo, and when it was built. The three overlay tables mirror the map tables and belong to an overlay, so dropping an overlay is one delete.
@@ -1554,7 +1556,7 @@ The world model leaves `trajectory.db` for its own file, `world_model.db`, besid
 - **Verdicts are append-only.** A re-recorded review attempt adds a row instead of replacing one; a finding's status moves from open to fixed or won't-fix, and the finding stays.
 - **Verification is recorded, not re-run.** Each run of a task's checks, and each run of its close lints, is a row with its commands or lints, so bro, code-reviewer and the reviewer preflight read the result for an exact commit.
 - **Cost is metered, not stored as totals.** Agent runs carry measured token counts; task cost and rework are computed from them at read time.
-- **Task history is append-only.** A task row is the task's identity: its issue, branch, base, kind and the task it retries. Every change of state after that is a new lifecycle event. Events are ordered per task by a sequence number, never by timestamp, because two events can share a millisecond. Each event names its from-state and to-state, the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The state graph in [TASKS.md](TASKS.md#task-lifecycle) names the kind of record each move requires, so no move is taken on someone's word. Each event keeps two times, when the move happened and when it was recorded, which differ only for backfilled history. The DB refuses four kinds of event: one whose from-state is not the task's current state, a move the state graph does not allow, one without the record its move requires, and a repeat of an event already recorded, so a retried hook cannot write twice. A task's current state is its newest event. The task row keeps a copy of that state for fast reads, and only the event insert writes it, in the same transaction. History rebuilt from older records when the table arrived is marked backfilled. Planned, GH 3224. A task fact that changes no state is an event too, with the same from-state and to-state: an amended spec, a commit changed by a rebase, a checkpoint. The task's spec, files, checks and commit still change in place, but each change writes such an event naming what changed, so the history is kept; a later step versions the values themselves.
+- **Task history is append-only.** A task row is the task's identity: its issue, branch, base, kind and the task it retries. Every change of state after that is a new lifecycle event. Events are ordered per task by a sequence number, never by timestamp, because two events can share a millisecond. Each event names its from-state and to-state, the role that made the move and the agent run it happened in, a cause from a fixed list, and the record it rests on. The state graph in [TASKS.md](TASKS.md#task-lifecycle) names the kind of record each move requires, so no move is taken on someone's word. A move bro takes by hand rests on bro's recorded decision and must carry a note, so no bypass is silent. Each event keeps two times, when the move happened and when it was recorded, which differ only for backfilled history. The DB refuses four kinds of event: one whose from-state is not the task's current state, a move the state graph does not allow, one without the record its move requires, and a repeat of an event already recorded, so a retried hook cannot write twice. A task's current state is its newest event. The task row keeps a copy of that state for fast reads, and only the event insert writes it, in the same transaction. History rebuilt from older records when the table arrived is marked backfilled. Planned, GH 3224. A task fact that changes no state is an event too, with the same from-state and to-state: an amended spec, a commit changed by a rebase, a checkpoint. The task's spec, files, checks and commit still change in place, but each change writes such an event naming what changed, so the history is kept; a later step versions the values themselves.
 - **Audit is event-only.** Each audit row is one lifecycle event; tool-call capture lives in the eval-mode tables. Drift: hook-call telemetry is still written to audit today and makes up most of its rows; GH 3229 moves it out, into the hook run events of [`TRAJECTORY.md`](./TRAJECTORY.md).
 - **Roles are enforced by the server, not the schema.** Which agent may write which table follows each tool's role check ([`RESPONSIBILITIES.md`](./RESPONSIBILITIES.md)).
 

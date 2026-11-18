@@ -5,7 +5,8 @@
  * take the gate's env and no timeout of their own, since the gate's deadline
  * bounds them.
  */
-import { parseWorkflowMode, WORKFLOW_MODE_KEY, type WorkflowMode } from '../../tools/config.js';
+import { isRepoMode, parseWorkflowMode, WORKFLOW_MODE_KEY, type RepoMode, type WorkflowMode } from '../../tools/config.js';
+import { storedAgileSql } from '../../stored-mode.js';
 import { GATE_READ_ERROR, gateRead, sqlQuote } from './db.js';
 import { gitOk, gitRun } from './git.js';
 
@@ -50,6 +51,28 @@ export function gateWorkflowMode(db: string, env: NodeJS.ProcessEnv): WorkflowMo
 }
 
 /**
+ * The mode in effect for a task of <repo> as resolveWorkflowMode reads it, in one read: exempt
+ * first, then the repo's truest|agile, then the project's workflow_mode (unset reads as truest).
+ * An empty <repo> stands for the sole registered repo. GATE_READ_ERROR when the DB does not read.
+ */
+export function gateResolveWorkflowMode(db: string, repo: string, env: NodeJS.ProcessEnv): RepoMode | typeof GATE_READ_ERROR {
+  const name = sqlQuote(repo);
+  const out = gateRead(
+    db,
+    `SELECT CASE WHEN r.mode = 'exempt' THEN 'repo|exempt'
+                 WHEN r.mode IN ('truest', 'agile') THEN 'repo|' || r.mode
+                 ELSE 'project|' || COALESCE((SELECT value_json FROM plugin_config WHERE key = '${WORKFLOW_MODE_KEY}'), '') END
+       FROM (SELECT (SELECT mode FROM repos
+                      WHERE name = '${name}' OR ('${name}' = '' AND (SELECT COUNT(*) FROM repos) = 1) LIMIT 1) AS mode) r;`,
+    env,
+  );
+  if (out === GATE_READ_ERROR) return GATE_READ_ERROR;
+  const line = out.split('\n')[0];
+  const repoMode = line.startsWith('repo|') ? line.slice('repo|'.length) : null;
+  return isRepoMode(repoMode) ? repoMode : parseWorkflowMode(line.slice('project|'.length));
+}
+
+/**
  * Whether the DB records <branch> as an agile feature branch of the repo <quotedRepo> (GH 2225):
  * an agile task's parent_branch_id, or the feature_branch of a bro feature_branch_merged row,
  * either written as <branch> or origin/<branch>. GATE_READ_ERROR when the DB does not read.
@@ -59,7 +82,7 @@ export function recordedFeatureBranch(db: string, quotedRepo: string, branch: st
   const out = gateRead(
     db,
     `SELECT EXISTS (SELECT 1 FROM tasks
-        WHERE workflow_mode = 'agile' AND parent_branch_id IN ${names} AND (repo = '${quotedRepo}' OR COALESCE(repo, '') = ''))
+        WHERE ${storedAgileSql('')} AND parent_branch_id IN ${names} AND (repo = '${quotedRepo}' OR COALESCE(repo, '') = ''))
       OR EXISTS (SELECT 1 FROM audit
         WHERE event_type = 'feature_branch_merged' AND from_node = 'bro' AND (repo = '${quotedRepo}' OR COALESCE(repo, '') = '')
           AND CASE WHEN json_valid(content_json) THEN json_extract(content_json, '$.feature_branch') END IN ${names});`,
@@ -77,7 +100,7 @@ export async function agileParentRef(
   repoPath: string,
   targetBranch: string,
   parentBranch: string,
-  workflowMode: WorkflowMode,
+  workflowMode: RepoMode,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
   if (workflowMode !== 'agile' || parentBranch === '') return null;
@@ -95,7 +118,7 @@ export async function prTargetRef(
   repoPath: string,
   targetBranch: string,
   parentBranch: string,
-  workflowMode: WorkflowMode,
+  workflowMode: RepoMode,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
   const agileBase = await agileParentRef(repoPath, targetBranch, parentBranch, workflowMode, env);

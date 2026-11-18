@@ -5822,11 +5822,11 @@ describe('bro_atomic_close under agile review mode (GH 2225)', () => {
     db.close();
   });
 
-  it('SC2: the queued task is in review_queue and agile_review_queued once past the grace window, not in closed_tasks_reviewed', async () => {
+  it('SC2: the queued task is in review_queue, and in agile_review_queued once past the grace window, not in closed_tasks_reviewed', async () => {
     const { db, task, close } = seed('agile');
     assert.ok(!(await close()).isError);
     db.run('UPDATE tasks SET updated_at = ? WHERE id = ?', [at(-25 * HOUR), task]);
-    const queue = JSON.parse(((await reviewQueueTools(db).handlers['review_queue']({ agent: 'bro', grace_hours: 24 })) as RawResult).content[0].text) as {
+    const queue = JSON.parse(((await reviewQueueTools(db).handlers['review_queue']({ agent: 'bro' })) as RawResult).content[0].text) as {
       groups: Array<{ tasks: Array<{ id: number }> }>;
     };
     assert.deepEqual(queue.groups.flatMap((g) => g.tasks.map((t) => t.id)), [task]);

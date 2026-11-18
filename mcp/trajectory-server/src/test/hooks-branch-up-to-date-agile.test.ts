@@ -209,6 +209,14 @@ describe('branch-up-to-date-with-remote measures an agile task against its paren
   );
 
   it(
+    'a parent_branch_id on an exempt task records no feature branch (GH 3281)',
+    withDb("UPDATE tasks SET workflow_mode = 'exempt' WHERE id = 1", async () => {
+      setMode('truest');
+      assert.ok(denyReason(await attach(FEATURE)).includes(`git branch -D ${FEATURE}`));
+    }),
+  );
+
+  it(
     'the target branch stays denied when behind, even when an agile task names it as parent',
     withDb(
       `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, workflow_mode, created_at, updated_at)

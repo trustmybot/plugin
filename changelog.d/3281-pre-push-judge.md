@@ -1,0 +1,2 @@
+### Added
+- **A push gate judge for git's own pre-push hook** (GH 3281): `cli.js pre-push` reads the refs git says a push sends and judges a task branch by its net diff against its base, so a reviewed branch rebased onto a moved base (GH 3227) or a retry carrying its failed task's commit (GH 3187) is no longer denied. A push from the Human's own terminal is always admitted, and an agent's push to a protected branch is denied. Nothing installs the hook yet; the existing push guard still decides every push.

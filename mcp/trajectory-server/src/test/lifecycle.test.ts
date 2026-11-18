@@ -573,7 +573,7 @@ describe('GH 2225 T5: task_update_status under workflow_mode agile queues the cl
   });
 
   for (const mode of ['truest', null]) {
-    it(`with workflow_mode ${mode ?? 'unset'} a close without a pass still writes review_gate_bypassed and no review_queued row`, async () => {
+    it(`with workflow_mode ${mode ?? 'unset'} a close without a pass still writes review_gate_bypassed and no review_queued row, and stamps truest`, async () => {
       const db = tempDB();
       if (mode !== null) setMode(db, mode);
       const issue = seedIssue(db);
@@ -581,7 +581,7 @@ describe('GH 2225 T5: task_update_status under workflow_mode agile queues the cl
       await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(t), status: 'closed' });
       assert.deepEqual(auditRows(db, 'review_gate_bypassed').map((r) => r.content), [{ task_id: t, commit_sha: 'abc1234', closed_by: 'task_update_status' }]);
       assert.equal(auditRows(db, 'review_queued').length, 0);
-      assert.equal(modeOf(db, t), null);
+      assert.equal(modeOf(db, t), 'truest', 'the close stamps the mode it resolved (GH 3281)');
       db.close();
     });
   }

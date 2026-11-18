@@ -3,6 +3,7 @@
  * contracts: plain SQL text over `tasks t`, in a module the hook bundle can
  * import without the tool layer.
  */
+import { storedAgileSql } from './stored-mode.js';
 
 // The review anchor of a task's current commit: the earliest of the
 // review_handoff, bro_verification_pass and task_integrated audit rows naming
@@ -100,7 +101,7 @@ export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
 // the repo's pr_target. As with skips, only bro's rows count. A batch-reviewed
 // or waived task (batchReviewedSql, waivedSql) keeps its row, so the push
 // guard still admits it.
-export const AGILE_QUEUED_SQL = `(t.status = 'closed' AND t.workflow_mode = 'agile' AND EXISTS (SELECT 1 FROM audit q
+export const AGILE_QUEUED_SQL = `(t.status = 'closed' AND ${storedAgileSql('t')} AND EXISTS (SELECT 1 FROM audit q
   WHERE q.event_type = 'review_queued' AND q.from_node = 'bro'
     AND json_valid(q.content_json)
     AND json_extract(q.content_json, '$.task_id') = t.id
@@ -137,18 +138,35 @@ export const waivedSql = (alias: string): string => `EXISTS (SELECT 1 FROM audit
     AND wt.value = ${alias}.id
     AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.commit_shas[' || wt.key || ']') END = ${alias}.commit_sha)`;
 
-// A queued agile task that no review has settled yet: neither batch-reviewed
-// nor waived at its current commit, and without a per-task pass (HAS_PASS_SQL:
-// a code-reviewer pass after review_handoff handed that commit over).
-export const AGILE_PENDING_REVIEW_SQL = `(${AGILE_QUEUED_SQL} AND NOT ${batchReviewedSql('t')} AND NOT ${waivedSql('t')} AND NOT ${HAS_PASS_SQL})`;
+// An agile task cli.js feature-merge folded onto a feature branch (a bro
+// feature_branch_merged row names it) and later reopened for rework: its fold
+// no longer holds the commit the feature branch will ship, so no earlier
+// review, waiver or pass settles it until it closes and is queued again.
+const AGILE_REOPENED_SQL = `(${storedAgileSql('t')} AND t.status IN ('pending', 'running', 'needs_validation', 'completed')
+  AND EXISTS (SELECT 1 FROM audit f
+    WHERE f.event_type = 'feature_branch_merged' AND f.from_node = 'bro'
+      AND ${jsonSql('json_extract', 'f', '$.task_id')} = t.id))`;
 
-// The tasks a feature branch carries: those cli.js feature-merge moved onto
-// it, each named by a bro feature_branch_merged row. branchSql is a SQL
-// expression for the branch name, already quoted.
-export const featureBranchTaskSql = (alias: string, branchSql: string): string => `EXISTS (SELECT 1 FROM audit m
+// The one set of agile tasks still awaiting review, which review_queue, the
+// batch hand-off and record, the waiver and the feature-branch merge gate all
+// select: a queued agile task neither batch-reviewed nor waived at its current
+// commit and without a per-task pass (HAS_PASS_SQL: a code-reviewer pass after
+// review_handoff handed that commit over), or a folded task reopened since.
+export const AGILE_PENDING_REVIEW_SQL = `((${AGILE_QUEUED_SQL} AND NOT ${batchReviewedSql('t')} AND NOT ${waivedSql('t')} AND NOT ${HAS_PASS_SQL})
+  OR ${AGILE_REOPENED_SQL})`;
+
+// The tasks a feature branch of one repo carries: those cli.js feature-merge
+// moved onto it, each named by a bro feature_branch_merged row, whose repo
+// (the task's, else its issue's, as review_queue places it, else the row's) is
+// repoSql. Two repos may hold a same-named feature branch. branchSql and
+// repoSql are SQL expressions, already quoted; a NULL repoSql matches every
+// repo, and a task none of the three places matches every repoSql, so no
+// reader loses a task it cannot place.
+export const featureBranchTaskSql = (alias: string, branchSql: string, repoSql: string): string => `EXISTS (SELECT 1 FROM audit m
   WHERE m.event_type = 'feature_branch_merged' AND m.from_node = 'bro'
     AND ${jsonSql('json_extract', 'm', '$.task_id')} = ${alias}.id
-    AND ${jsonSql('json_extract', 'm', '$.feature_branch')} = ${branchSql})`;
+    AND ${jsonSql('json_extract', 'm', '$.feature_branch')} = ${branchSql}
+    AND (${repoSql} IS NULL OR COALESCE(${alias}.repo, (SELECT i.repo FROM issues i WHERE i.id = ${alias}.issue_id), m.repo, ${repoSql}) = ${repoSql}))`;
 
 // validation_attempts is append-only, so a task's verdict is its newest row
 // (highest id): an older pass under a newer fail or escalate does not count,

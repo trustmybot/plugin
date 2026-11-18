@@ -4,7 +4,8 @@
  * transaction closes the merged head branch's live tasks and their open
  * agent_runs, writes review_gate_bypassed for each of its tasks with no
  * passing review and no recorded skip (a task closed under workflow_mode
- * 'agile' is queued instead and gets none), and closes each issue the PR names by
+ * 'agile' is queued instead and one closed under 'exempt' owes no review, so
+ * neither gets one), and closes each issue the PR names by
  * an explicit closing ref when no other task of it is live (else
  * issue_auto_close_deferred). Each closed issue's remote twin is then closed
  * while the sync gate is on; with it off, issue_auto_close_remote_skipped is
@@ -14,10 +15,14 @@
  * Advisory: it prints nothing on stdout and always exits 0. Bypasses:
  * TMB_DISABLE_CLOSE_ISSUE_ON_MERGE=1, and TMB_DISABLE_REMOTE_SYNC for the
  * remote close. It needs neither jq nor the sqlite3 CLI.
+ *
+ * recordMerge is the one writer of those closes: close-forge-merged runs it
+ * for a PR merged on the forge, outside any Bash call.
  */
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL } from '../review-sql.js';
+import { storedReviewOwedSql } from '../stored-mode.js';
 import { stripLiterals } from './cmd-analysis/strip-literals.js';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { auditSql, dbWrite, nowIso, type AuditRow } from './lib/audit.js';
@@ -171,6 +176,7 @@ class Merge {
     private readonly syncOn: boolean,
     private readonly repoDir: string,
     private readonly env: NodeJS.ProcessEnv,
+    private readonly closedBy: string,
   ) {}
 
   private read(sql: string): string {
@@ -179,7 +185,7 @@ class Merge {
 
   private audit(row: Omit<AuditRow, 'fromNode'>): string | null {
     const r = auditSql({ ...row, fromNode: FROM }, '', {
-      caller: GATE_NAME,
+      caller: this.closedBy,
       env: this.env,
     });
     if (r.code === 0) return r.sql;
@@ -190,7 +196,7 @@ class Merge {
   /**
    * _cim_tasks_sql: a bypass row per unreviewed task of the branch, its open runs and live tasks closed.
    * A task closed under workflow_mode 'agile' is already queued for the grouped
-   * review, so it gets no bypass row.
+   * review, and one closed under 'exempt' owes none, so neither gets a bypass row.
    */
   private tasksSql(): string {
     const branch = sqlQuote(this.head);
@@ -198,7 +204,7 @@ class Merge {
     const out: string[] = [];
     const rows = this.read(`SELECT t.id || '|' || t.issue_id || '|' || COALESCE(t.commit_sha, '') FROM tasks t
      WHERE t.branch_id = '${branch}' AND t.status IN (${LIVE}, 'closed')
-       AND COALESCE(t.workflow_mode, '') <> 'agile'
+       AND ${storedReviewOwedSql('t')}
        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL} ORDER BY t.id;`);
     for (const row of rows.split('\n')) {
       if (row === '') continue;
@@ -213,7 +219,7 @@ class Merge {
         branchId: this.head,
         eventType: 'review_gate_bypassed',
         summary: `Task ${tid} merged without a passing review`,
-        contentJson: `{"task_id":${tid},"commit_sha":${shaJson},"closed_by":"close-issue-on-merge"}`,
+        contentJson: `{"task_id":${tid},"commit_sha":${shaJson},"closed_by":"${this.closedBy}"}`,
       });
       if (audit !== null) out.push(audit);
     }
@@ -391,16 +397,40 @@ async function close(payload: string, env: NodeJS.ProcessEnv): Promise<void> {
   let head = commandSubstitution(jqFieldOr(prJson, 'headRefName'));
   if (head === '' && /[^0-9]/.test(ref) && !ref.includes('://')) head = ref;
 
-  const merge = new Merge(db, head, syncOn(db, env), repoDir, env);
-  const sql = merge.build(prJson);
+  recordMerge({ db, head, prJson, repoDir, env, closedBy: GATE_NAME });
+}
+
+export interface MergeRecord {
+  db: string;
+  /** The merged head branch; "" closes only the issues <prJson> names. */
+  head: string;
+  /** The PR's JSON, with at least its body and closingIssuesReferences. */
+  prJson: string;
+  /** The checkout gh runs in for the remote issue closes. */
+  repoDir: string;
+  env: NodeJS.ProcessEnv;
+  /** The gate recording the merge: the bypass rows' closed_by and the error label. */
+  closedBy: string;
+}
+
+/**
+ * One merged PR's closes, shared by every gate that sees a merge: one
+ * transaction closes the head branch's live tasks with their bypass rows and
+ * the issues the PR names, then the remote issue closes run. False when the
+ * write failed, its error on stderr.
+ */
+export function recordMerge(pr: MergeRecord): boolean {
+  const merge = new Merge(pr.db, pr.head, syncOn(pr.db, pr.env), pr.repoDir, pr.env, pr.closedBy);
+  const sql = merge.build(pr.prJson);
   if (sql !== '') {
-    const w = dbWrite(db, sql, { caller: GATE_NAME, env });
+    const w = dbWrite(pr.db, sql, { caller: pr.closedBy, env: pr.env });
     if (!w.ok) {
       process.stderr.write(`${w.error}\n`);
-      return;
+      return false;
     }
   }
   merge.closeRemotes();
+  return true;
 }
 
 export const closeIssueOnMerge: Gate = async (payload, env): Promise<GateResult> => {

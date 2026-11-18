@@ -307,6 +307,37 @@ export function parseWorkflowMode(valueJson: string | null | undefined): Workflo
   return 'truest';
 }
 
+/** A repo's rules (GH 3279): the workflow modes, plus exempt, under which the git guards stand down. */
+export const REPO_MODES = [...WORKFLOW_MODES, 'exempt'] as const;
+export type RepoMode = (typeof REPO_MODES)[number];
+
+export function isRepoMode(value: unknown): value is RepoMode {
+  return typeof value === 'string' && (REPO_MODES as readonly string[]).includes(value);
+}
+
+/** A repo's effective mode: its stored repos.mode, else the project's workflow_mode. */
+export function effectiveRepoMode(db: Pick<TrajectoryDB, 'get'>, stored: string | null | undefined): RepoMode {
+  return isRepoMode(stored) ? stored : readWorkflowMode(db);
+}
+
+/**
+ * The mode in effect for a task of <repo> (GH 3281): an exempt repo is exempt
+ * before anything else is read, else the repo's truest|agile, else the
+ * project's workflow_mode. A NULL or empty <repo> stands for the sole
+ * registered repo; with none or several, and for a name no row holds, the
+ * project's mode decides.
+ */
+export function resolveWorkflowMode(db: Pick<TrajectoryDB, 'get'>, repo: string | null | undefined): RepoMode {
+  const name = repo ?? '';
+  const row = db.get<{ mode: string | null }>(
+    `SELECT mode FROM repos WHERE name = ? OR (? = '' AND (SELECT COUNT(*) FROM repos) = 1) LIMIT 1`,
+    [name, name],
+  );
+  if (row?.mode === 'exempt') return 'exempt';
+  // The lane step (GH 3025) goes here: after exempt, before the repo's mode.
+  return effectiveRepoMode(db, row?.mode);
+}
+
 export const WORLD_MODEL_TEST_LANE_KEY = 'world_model_test_lane';
 
 /**

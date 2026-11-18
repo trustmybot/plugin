@@ -14,6 +14,9 @@ PRAGMA journal_mode = WAL;
 -- it at a commit. world_model_* and task_brief compare it with their target.
 -- indexed_stamp: '<EXTRACTOR_VERSION>:<schema version>' the index was built
 -- with; a mismatch forces a full rebuild of the repo.
+-- mode (v76, GH 3279): the rules the repo runs under. NULL takes the project's
+-- workflow_mode; exempt stands the git guards and the push gate down. A repo
+-- scan_run newly registers starts exempt until the Human sets it via /onboard.
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
@@ -24,7 +27,8 @@ CREATE TABLE IF NOT EXISTS repos (
     protected_branches TEXT,
     onboard_scan      TEXT,
     indexed_commit    TEXT,
-    indexed_stamp     TEXT
+    indexed_stamp     TEXT,
+    mode              TEXT CHECK (mode IS NULL OR mode IN ('truest','agile','exempt'))
 );
 
 -- repo_remotes: a repo's git remotes, the sole source of truth for them.
@@ -209,9 +213,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1)),
     -- workflow_mode (v66 GH 2225): plugin_config.workflow_mode as the shared
     -- close path read it when the task closed. NULL for open tasks and for
-    -- tasks closed before v66. Keep this comment comma-free for the same DROP
-    -- COLUMN reason.
-    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile')),
+    -- tasks closed before v66. v76 (GH 3281) also admits exempt: the stamp
+    -- may carry the repo's mode while the project key stays truest or agile.
+    -- Keep this comment comma-free for the same DROP COLUMN reason.
+    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile','exempt')),
     -- base_sha (v67 GH 2866): the base commit the task worktree was cut from
     -- as the environment gate of task_provision / task_reopen / task_retry
     -- resolved it after its fetch. NULL for tasks created before v67.
@@ -468,7 +473,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 75, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 76, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

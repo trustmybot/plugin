@@ -4,7 +4,9 @@
  * needs a working SQLite (haveSqlite), node:sqlite or the sqlite3 CLI.
  */
 import { payloadCwd } from '../cmd-analysis/path.js';
-import { haveSqlite, realdir, repoPathAbs, sqliteRo, sqlQuote } from './db.js';
+import { isRepoMode, type RepoMode } from '../../tools/config.js';
+import { GATE_READ_ERROR, haveSqlite, realdir, repoPathAbs, sqliteRo, sqlQuote } from './db.js';
+import { gateWorkflowMode } from './git-refs.js';
 import { cdPwd, gitOk, gitOut, isDir } from './git.js';
 import { posixDirname, shellPwd } from './project-env.js';
 import { statSync } from 'node:fs';
@@ -166,6 +168,46 @@ export function repoResolve(db: string, root: string, env: NodeJS.ProcessEnv = p
   );
 }
 
+/** The repos row naming <root> and its stored mode: "" for NULL, an unregistered <root> or an unreadable DB. */
+function storedRepoMode(db: string, root: string, env: NodeJS.ProcessEnv): { name: string; stored: string } {
+  if (!readable(db, env) || root === '') return { name: '', stored: '' };
+  const name = repoNameForRoot(db, root, env);
+  if (name === '') return { name, stored: '' };
+  const stored = firstLine(sqliteRo(db, `SELECT COALESCE(mode,'') FROM repos WHERE name = '${sqlQuote(name)}' LIMIT 1;`, env));
+  return { name, stored };
+}
+
+function effectiveMode(db: string, stored: string, env: NodeJS.ProcessEnv): RepoMode {
+  if (isRepoMode(stored)) return stored;
+  const project = gateWorkflowMode(db, env);
+  return project === GATE_READ_ERROR ? 'truest' : project;
+}
+
+/**
+ * Whether <root>'s repo stands the git guards and the push gate down (GH 3279).
+ * An allowlist: only a stored exempt does; NULL, truest, agile, an unknown
+ * value, an unregistered repo or a DB that does not read keep them on.
+ */
+export function isExempt(db: string, root: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return storedRepoMode(db, root, env).stored === 'exempt';
+}
+
+/** <root>'s effective mode: its repos.mode, else the project's workflow_mode (unset or unreadable reads as truest). */
+export function repoMode(db: string, root: string, env: NodeJS.ProcessEnv = process.env): RepoMode {
+  return effectiveMode(db, storedRepoMode(db, root, env).stored, env);
+}
+
+/** `(repo <name>, mode <mode>)`, the suffix a git deny names its repo's rules by; an unregistered root goes by its dir name. */
+export function repoModeLabel(db: string, root: string, env: NodeJS.ProcessEnv = process.env): string {
+  const { name, stored } = storedRepoMode(db, root, env);
+  return `(repo ${name || basename(root)}, mode ${effectiveMode(db, stored, env)})`;
+}
+
+/** <reason> with <root>'s repoModeLabel appended, for a git deny to name the rules it applied. */
+export function withRepoMode(reason: string, db: string, root: string, env: NodeJS.ProcessEnv = process.env): string {
+  return `${reason.replace(/\s+$/, '')} ${repoModeLabel(db, root, env)}`;
+}
+
 /** tmb_repo_is_registered <db> <root>. */
 export function repoIsRegistered(db: string, root: string, env: NodeJS.ProcessEnv = process.env): boolean {
   return readable(db, env) && root !== '' && repoNameForRoot(db, root, env) !== '';
@@ -187,6 +229,69 @@ export function repoPathByName(db: string, name: string, env: NodeJS.ProcessEnv 
 /** tmb_repo_resolve_path <db> <name>: the path of the repo named <name>, else of the sole registered repo, else "". */
 export function repoResolvePath(db: string, name: string, env: NodeJS.ProcessEnv = process.env): string {
   return (name === '' ? '' : repoPathByName(db, name, env)) || repoSinglePath(db, env);
+}
+
+interface ForgeLocation {
+  /** The host as written, port dropped, lowercased; "" when the text names none. */
+  host: string;
+  /** The owner/namespace/name path, lowercased, with no scheme, `user@`, `.git` or edge slashes. */
+  path: string;
+}
+
+/** A forge repo spec or remote URL (`OWNER/REPO`, `HOST/OWNER/REPO`, `scheme://[user@]host[:port]/path`, `[user@]host:path`), split into host and path. */
+function forgeLocation(text: string): ForgeLocation {
+  let s = text.trim().toLowerCase();
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//.exec(s);
+  let host = '';
+  if (scheme) {
+    s = s.slice(scheme[0].length).replace(/^[^@/]*@/, '');
+    const slash = s.indexOf('/');
+    host = (slash < 0 ? s : s.slice(0, slash)).replace(/:[0-9]*$/, '');
+    s = slash < 0 ? '' : s.slice(slash);
+  } else {
+    const scp = /^(?:[^@/:]+@)?([^/:]+):(?!\/\/)/.exec(s);
+    if (scp) {
+      host = scp[1];
+      s = s.slice(scp[0].length);
+    }
+  }
+  const path = s.replace(/\/+$/, '').replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+  return { host, path };
+}
+
+/**
+ * <spec> (a `gh --repo` / `glab -R` value) names the repo <remoteUrl> points
+ * at: equal paths, and equal hosts when the spec carries one. A bare path of
+ * three or more segments is read both as a namespace path and as HOST/PATH.
+ */
+export function forgeSpecMatchesRemote(spec: string, remoteUrl: string): boolean {
+  const remote = forgeLocation(remoteUrl);
+  const want = forgeLocation(spec);
+  if (remote.path === '' || want.path === '') return false;
+  if (want.host !== '') return want.host === remote.host && want.path === remote.path;
+  if (want.path === remote.path) return true;
+  const slash = want.path.indexOf('/');
+  return want.path.split('/').length >= 3 && want.path.slice(0, slash) === remote.host && want.path.slice(slash + 1) === remote.path;
+}
+
+/**
+ * The root of the registered repo whose `origin` remote <spec> names, "" when
+ * none does: <ownRoot> (the statement's own git root) when it matches, else the
+ * first match by repos.name.
+ */
+export async function repoRootForForgeSpec(db: string, spec: string, ownRoot: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  if (!readable(db, env) || spec === '') return '';
+  const own = ownRoot === '' ? '' : realdir(ownRoot);
+  let first = '';
+  for (const row of sqliteRo(db, "SELECT path FROM repos WHERE path IS NOT NULL AND path != '' ORDER BY name;", env).split('\n')) {
+    if (row === '') continue;
+    const root = repoPathAbs(db, row);
+    if (!isDir(root)) continue;
+    if (!forgeSpecMatchesRemote(spec, await gitOut(root, ['remote', 'get-url', 'origin'], env))) continue;
+    if (own !== '' && realdir(root) === own) return root;
+    first ||= root;
+  }
+  return first;
 }
 
 const REMOTES_SQL =

@@ -124,6 +124,15 @@ describe('selectL1Steps', () => {
     assert.ok(!selected.includes(l1TailSteps(HERE).equivalence[0]), 'wm-equivalence is skipped');
     assert.ok(selected.length < table.length);
   });
+  test('a no-code docs close keeps the EVERY lints and drops every slow step its paths miss (GH 3160)', () => {
+    const selected = selectL1Steps(table, ['docs/x.md']);
+    const kept = names(selected);
+    for (const file of ['link-check.test.mjs', 'changelog-current.test.mjs']) assert.ok(kept.includes(labelOf(file)), `${file} runs`);
+    const slow = table.filter(([, , , isSlow]) => isSlow === true);
+    assert.deepEqual(names(slow).sort(), [labelOf('no-tmp-writes.test.mjs'), l1TailSteps(HERE).equivalence[0]].sort(), 'no-tmp-writes and wm-equivalence are the slow steps');
+    for (const [label] of slow) assert.ok(!kept.includes(label), `${label} is skipped`);
+    assert.ok(selected.length < table.length);
+  });
   test('a server source change selects tsc, eslint and wm-equivalence', () => {
     const selected = names(selectL1Steps(table, ['mcp/trajectory-server/src/db.ts']));
     for (const file of ['tsc-noemit.test.mjs', 'eslint.test.mjs', 'no-destructive-sql.test.mjs']) assert.ok(selected.includes(labelOf(file)), file);

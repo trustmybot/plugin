@@ -37,6 +37,7 @@ const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const REQUIRED_LOCALES = ['C', 'en_US.UTF-8'];
 const TS_BORN_GATES: ReadonlySet<string> = new Set([
   'bash-output-trim',
+  'close-forge-merged',
   'code-reviewer-preflight',
   'code-reviewer-spawn-note',
   'feature-branch-merge-gate',

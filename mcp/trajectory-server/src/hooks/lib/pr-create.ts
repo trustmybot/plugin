@@ -15,6 +15,8 @@ export interface PrCreate {
   head: string;
   /** The base (target) branch as written, "" when the statement names none. */
   base: string;
+  /** The `-R`/`--repo` value as written, "" when the statement names none (a `gh api` create always). */
+  repo: string;
 }
 
 /** The value-taking flags gh accepts before and between `pr` and `create`, and glab before `mr` and `create`. */
@@ -110,13 +112,14 @@ function ghApiCreate(stmt: string, w: readonly string[]): PrCreate | null {
   if (api < 0 || w[api] !== 'api') return null;
   const call = apiCall(w.slice(api + 1));
   if (call.method === 'POST' && PULLS_ENDPOINT.test(call.endpoint)) {
-    return { forge: 'gh', head: call.fields.get('head') ?? '', base: call.fields.get('base') ?? '' };
+    return { forge: 'gh', head: call.fields.get('head') ?? '', base: call.fields.get('base') ?? '', repo: '' };
   }
   if (call.endpoint === 'graphql' && stmt.includes('createPullRequest')) {
     return {
       forge: 'gh',
       head: call.fields.get('headRefName') ?? graphqlLiteral(stmt, 'headRefName'),
       base: call.fields.get('baseRefName') ?? graphqlLiteral(stmt, 'baseRefName'),
+      repo: '',
     };
   }
   return null;
@@ -132,11 +135,18 @@ export function prCreateOf(stmt: string): PrCreate | null {
   const w = words(stmt);
   const program = programOf(w[0] ?? '');
   if (program === 'gh') {
-    if (isGroupCreate(w, 'pr')) return { forge: 'gh', head: optionValue(w, 'head', 'H'), base: optionValue(w, 'base', 'B') };
+    if (isGroupCreate(w, 'pr')) {
+      return { forge: 'gh', head: optionValue(w, 'head', 'H'), base: optionValue(w, 'base', 'B'), repo: optionValue(w, 'repo', 'R') };
+    }
     return ghApiCreate(stmt, w);
   }
   if (program === 'glab' && isGroupCreate(w, 'mr')) {
-    return { forge: 'glab', head: optionValue(w, 'source-branch', 's'), base: optionValue(w, 'target-branch', 'b') };
+    return {
+      forge: 'glab',
+      head: optionValue(w, 'source-branch', 's'),
+      base: optionValue(w, 'target-branch', 'b'),
+      repo: optionValue(w, 'repo', 'R'),
+    };
   }
   return null;
 }

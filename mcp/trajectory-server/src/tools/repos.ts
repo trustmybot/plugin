@@ -135,8 +135,8 @@ export function renameRepo(
     return db.transaction(() => {
       const rows_by_table: Record<string, number> = {};
       db.run(
-        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, indexed_commit, indexed_stamp)
-         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, indexed_commit, indexed_stamp
+        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, indexed_commit, indexed_stamp, mode)
+         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, indexed_commit, indexed_stamp, mode
            FROM repos WHERE name = ?`,
         [next, old],
       );

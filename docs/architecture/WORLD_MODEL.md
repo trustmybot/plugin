@@ -8,7 +8,7 @@ This page covers purpose, boundaries and the reasons behind the design. Its tabl
 
 The world model lives in the trajectory DB, beside the workflow audit but with no link into it. It is a derived cache: every row can be rebuilt from git, so a scan can always start over. Because it is a cache and not part of the trajectory, it moves to its own file beside the trajectory DB (planned, GH 3225); deleting that file and scanning again restores it. [ERD.md](ERD.md#planned-for-the-world-model-file) lists what moves.
 
-- **The file holds no fact of its own.** The map is derived from git. Concepts and author-written file purposes are written by agents, so each such write is recorded in the trajectory DB as a fact, and the world-model file holds only their current state. A scan of an empty file replays the newest write of each concept. Renaming a concept is one more write under the same identity, and a concept is marked `retired` by a write, never deleted, so a replay cannot bring one back.
+- **The file holds no fact of its own.** The map is derived from git. Concepts and author-written file purposes are written by agents, so each such write is recorded in the trajectory DB as a fact, and the world-model file holds only their current state. A scan of an empty file replays the newest write of each concept. Renaming a concept is one more write under the same identity, and a concept is marked `retired` by a write, never deleted, so a replay cannot bring one back. A `retired` concept is left out of search and of every read that does not ask for it, so it never crowds a live answer.
 - **Scans and reindexes are trajectory.** That a scan ran, when, why and how it ended is a fact about the work, so it is recorded in the trajectory DB. The world-model file keeps only the latest state per repo.
 - **Two files, no shared transaction.** A fact is written to the trajectory DB first and the cache second. When the two disagree after a crash, the trajectory DB is right and the next read or scan repairs the cache.
 
@@ -29,6 +29,7 @@ The world model lives in the trajectory DB, beside the workflow audit but with n
 - **Anchors are stable keys.** A concept step stores the symbol's identity (repo, path, kind and qualified name), not a row id, and resolves it at read time. A re-parse never orphans a step; a rename breaks the anchor by design, so the concept is flagged for review instead of silently following the wrong code.
 - **swe proposes, review admits.** The swe that built a flow proposes its concepts in the completion report. A scan applies a proposal only once its task has a passing code-reviewer verdict and every anchor and claim checks out. Bro and consultants write concepts directly.
 - **Indexed from git, never the working tree.** Each repo is indexed from its target commit, the fetched target branch or else `HEAD`, so every session and worktree reads the same map. Reads, spawns and commands that move refs bring the index forward incrementally; a full rebuild is the fallback. A task's own commit is indexed too, from git, into its [task overlay](#task-overlay).
+- **One snapshot per repo, not history.** The index holds each repo at one commit, its target commit, plus one overlay per open task. Every row can be traced to a commit: the repo's indexed commit, each file's last commit and content hash, each symbol's body hash, and each overlay's base and commit. A read compares the indexed commit with the target branch and brings the index forward first, so a node is never served stale. Git is the history store: what changed between two commits is a diff, and the index can be rebuilt at any commit. Keeping a graph per commit would multiply the file's size and its writes for a question git already answers.
 - **One transaction per write.** A scan reads and parses first, then applies everything at once, so a reader sees the old map or the new one, never a mix.
 
 ## Scan
@@ -55,14 +56,14 @@ flowchart TD
 A capability or a repo added out of band shows up at the next full scan, so the [cheatcode lifecycle](CHEATCODES.md) sees it. A server reconnect on a built map only brings each known repo forward; it discovers nothing new.
 
 - **One writer per repo.** A second full scan is refused while one runs. A read that arrives during another session's reindex is answered at once from the current map, with the changed paths marked stale. A task spawn waits for the reindex, up to a fixed limit.
-- **A failed or killed scan changes nothing.** The old map stays. A scan that passes its time limit stops and releases its lock, a reindex killed midway is marked failed at the next server connect, and the next trigger retries.
+- **A failed or killed scan changes nothing.** The old map stays. A full rebuild is the exception today: it keeps the stages that succeeded, records the one that failed and still marks the map current, where an incremental reindex rolls back whole. A scan that passes its time limit stops and releases its lock, a reindex killed midway is marked failed at the next server connect, and the next trigger retries.
 - **Offline.** The target branch is fetched at most once per fixed interval per repo, and always at a task provision. When the fetch fails, the last fetched commit is the target.
 - **Full rebuild of one repo.** Besides a failed incremental reindex, a repo is rebuilt in full when its recorded commit is gone, when its index was built by an older indexer, or when the daily comparison against a clean rebuild finds a difference.
 - **A renamed repo is recognized.** A repo directory renamed since the last scan is recorded as a rename, not registered as a new repo.
 
 ## Task overlay
 
-Planned (GH 2957). The shared index holds only what has merged into the target branch, so a task's own code is invisible to it until the PR merges. The overlay makes the task's commit readable through the world model for the agents working on that task, without touching the shared index.
+The shared index holds only what has merged into the target branch, so a task's own code is invisible to it until the PR merges. The overlay makes the task's commit readable through the world model for the agents working on that task, without touching the shared index.
 
 ```mermaid
 flowchart TD
@@ -73,17 +74,20 @@ flowchart TD
     O -- no --> S[Answer from the shared index]
     N[A read with no task] --> S
     C --> D{What happens to the task?}
-    D -- closes again, or its commit moves in a rebase --> B
-    D -- its PR merges --> X[Overlay dropped; the shared index now holds the code]
-    D -- superseded or cancelled --> X
-    B -- the build fails --> F[No overlay; the failure is recorded, and the reads fall back to the shared index]
+    D -- "closes again; or its commit moved, seen at the next read" --> B
+    D -- the shared index reaches a commit that contains the task's work --> X[Overlay dropped; the shared index now holds the code]
+    D -- escalated, retried, or its issue closes --> X
+    B -- the build fails --> F[No overlay; the failure is logged, and the reads fall back to the shared index]
 ```
 
 - **Built at the close, not at provision.** Provision brings the shared index forward at the task's base. The overlay is built when the author closes the task, from the commit, so it is indexed from git like everything else.
 - **Sized by the diff.** Only the paths the commit changed are indexed, so the cost grows with the diff, not the repo.
 - **Scoped to its task.** A symbol that exists only on one task's branch resolves for reads that carry that task and for no other task.
-- **One overlay per task.** Each close replaces it with one for the new commit, and a rebase that moves the task's commit rebuilds it.
-- **Both task kinds.** A non-code task's overlay holds its files, with no symbols.
+- **One overlay per task.** Each close replaces it with one for the new commit. A rebase that moves the task's commit rebuilds it at the next read that carries the task, not at the rebase.
+- **Dropped at a reindex, not at the merge.** No step watches the PR. The overlay goes at the first reindex whose commit contains the task's work, and when the task is escalated, retried or closed with its issue.
+- **A read finds its task from the agent's open run.** An agent with exactly one open run reads through that task's overlay. With two open runs of the same agent kind, as in parallel lanes, the read is answered from the shared index and nothing says so; naming the task on the read is an open gap.
+- **Only a symbol read uses the overlay.** The map, search, concepts and the task brief answer from the shared index alone.
+- **Both task kinds.** A non-code task's overlay holds its files, with no symbols. No read uses those file rows yet.
 - **A failed build never blocks the close.** The reviewer then reads the diff from git, as it does today.
 - **It is cache.** The overlay holds no link into the workflow records, so it moves with the rest of the world model and can be rebuilt from the task's commit.
 

@@ -22,7 +22,7 @@ import { denyResult } from './lib/deny.js';
 import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
-import { agileParentRef, gateWorkflowMode, normalizeBase, recordedFeatureBranch } from './lib/git-refs.js';
+import { agileParentRef, gateResolveWorkflowMode, normalizeBase, recordedFeatureBranch } from './lib/git-refs.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { repoNameForRoot } from './lib/repo.js';
 import { payloadCwdOf, statementRows } from './lib/statement-rows.js';
@@ -77,7 +77,8 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
   if (db === null) return ALLOW;
   if (!haveSqlite(env)) return ALLOW;
 
-  const repo = sqlQuote(repoNameForRoot(db, root, env));
+  const repoName = repoNameForRoot(db, root, env);
+  const repo = sqlQuote(repoName);
   const row = gateRead(db, `SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '${repo}' LIMIT 1;`, env);
   if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
   if (row === '') return ALLOW;
@@ -91,7 +92,7 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
     if (featureBranch) return ALLOW;
   }
   const hasOrigin = await gitOut(root, ['remote', 'get-url', 'origin'], env) !== '';
-  const agileBase = await agileTaskBase(db, root, repo, branch, targetBranch, hasOrigin, env);
+  const agileBase = await agileTaskBase(db, root, repoName, branch, targetBranch, hasOrigin, env);
   if (agileBase === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
   if (agileBase !== null) return await behindDeny(root, branch, agileBase, env);
   if (!hasOrigin) return ALLOW;
@@ -113,19 +114,19 @@ async function fetchBounded(root: string, branch: string, env: NodeJS.ProcessEnv
 async function agileTaskBase(
   db: string,
   root: string,
-  quotedRepo: string,
+  repoName: string,
   branch: string,
   targetBranch: string,
   hasOrigin: boolean,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
-  const workflowMode = gateWorkflowMode(db, env);
+  const workflowMode = gateResolveWorkflowMode(db, repoName, env);
   if (workflowMode === GATE_READ_ERROR) return GATE_READ_ERROR;
   if (workflowMode !== 'agile') return null;
   const parent = gateRead(
     db,
     `SELECT COALESCE(parent_branch_id, '') FROM tasks
-      WHERE branch_id = '${sqlQuote(branch)}' AND (repo = '${quotedRepo}' OR COALESCE(repo, '') = '')
+      WHERE branch_id = '${sqlQuote(branch)}' AND (repo = '${sqlQuote(repoName)}' OR COALESCE(repo, '') = '')
       ORDER BY id DESC LIMIT 1;`,
     env,
   );

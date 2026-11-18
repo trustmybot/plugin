@@ -13,7 +13,7 @@ import { tempDB } from './helpers.js';
 import { DATA_CONTRACTS, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { groupQueuedTasks, pathsOverlap, reviewQueueTools } from '../tools/review-queue.js';
-import { AGILE_QUEUED_SQL, reviewBatchKey } from '../review-sql.js';
+import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, featureBranchTaskSql, reviewBatchKey } from '../review-sql.js';
 import { closedTasksWithoutReview } from '../tools/lifecycle.js';
 import { SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { issueTools } from '../tools/issues.js';
@@ -33,13 +33,36 @@ function seedIssue(db: TrajectoryDB): number {
 }
 
 interface SeedOpts {
-  mode?: 'agile' | 'truest' | null;
+  mode?: 'agile' | 'truest' | 'exempt' | null;
   status?: string;
   files?: string[];
   updatedAt?: string;
   commit?: string | null;
   base?: string | null;
   repo?: string | null;
+  /** Write bro's review_queued row for the commit, as bro_atomic_close does for an agile close. Default true. */
+  queued?: boolean;
+}
+
+const auditRow = (db: TrajectoryDB, issueId: number, fromNode: string, eventType: string, content: Record<string, unknown>): void => {
+  db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, ?, ?, 's', ?, ?)`, [
+    issueId,
+    fromNode,
+    eventType,
+    JSON.stringify(content),
+    iso(),
+  ]);
+};
+
+// A per-task code-reviewer pass of the task's current commit: bro's review_handoff anchors it, then the pass (HAS_PASS_SQL).
+function seedTaskPass(db: TrajectoryDB, issueId: number, taskId: number): void {
+  const commit = db.get<{ commit_sha: string }>('SELECT commit_sha FROM tasks WHERE id = ?', [taskId])!.commit_sha;
+  db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_handoff', 'h', ?, ?)`, [
+    issueId,
+    JSON.stringify({ task_id: taskId, commit_sha: commit }),
+    iso(-60_000),
+  ]);
+  db.run(`INSERT INTO validation_attempts (task_id, attempt_n, verdict, mcp_available, created_at) VALUES (?, 1, 'pass', 1, ?)`, [taskId, iso()]);
 }
 
 function seedTask(db: TrajectoryDB, issueId: number, opts: SeedOpts = {}): number {
@@ -59,7 +82,10 @@ function seedTask(db: TrajectoryDB, issueId: number, opts: SeedOpts = {}): numbe
       opts.updatedAt ?? iso(-HOUR),
     ],
   );
-  return db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+  const id = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+  const commit = opts.commit === undefined ? 'c0ffee1' : opts.commit;
+  if (opts.queued ?? true) auditRow(db, issueId, 'bro', 'review_queued', { task_id: id, commit_sha: commit });
+  return id;
 }
 
 async function queue(db: TrajectoryDB, args: Record<string, unknown> = {}): Promise<RawResult> {
@@ -74,23 +100,20 @@ async function queueOk(db: TrajectoryDB, args: Record<string, unknown> = {}): Pr
 
 const ids = (q: Queue): number[] => q.groups.flatMap((g) => g.tasks.map((t) => t.id)).sort((a, b) => a - b);
 
-describe('SC1: membership is the unreviewed closed agile tasks', () => {
-  it('lists an unreviewed agile close and leaves out a passed, waived, truest, NULL-mode, open or 31-day-old task', async () => {
+describe('SC1: membership is the agile tasks pending review', () => {
+  it('lists a queued agile close and leaves out a passed, waived, truest, exempt, NULL-mode, open or unqueued task', async () => {
     const db = tempDB();
     try {
       const issue = seedIssue(db);
       const queued = seedTask(db, issue);
-      const passed = seedTask(db, issue);
-      db.run(`INSERT INTO validation_attempts (task_id, attempt_n, verdict, mcp_available, created_at) VALUES (?, 1, 'pass', 1, ?)`, [passed, iso()]);
+      seedTaskPass(db, issue, seedTask(db, issue));
       const waived = seedTask(db, issue);
-      db.run(
-        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_gate_waived', 'w', ?, ?)`,
-        [issue, JSON.stringify({ task_id: waived }), iso()],
-      );
+      auditRow(db, issue, 'bro', 'review_waived', { feature_branch: 'feat/x', task_ids: [waived], commit_shas: ['c0ffee1'], human_answer: 'Yes' });
       seedTask(db, issue, { mode: 'truest' });
+      seedTask(db, issue, { mode: 'exempt' });
       seedTask(db, issue, { mode: null });
       seedTask(db, issue, { status: 'completed' });
-      seedTask(db, issue, { updatedAt: iso(-31 * 24 * HOUR) });
+      seedTask(db, issue, { queued: false });
       const q = await queueOk(db);
       assert.deepEqual(ids(q), [queued]);
       assert.equal(q.total, 1);
@@ -105,9 +128,11 @@ describe('SC1: membership is the unreviewed closed agile tasks', () => {
       db.run(`INSERT INTO repos (name, path) VALUES ('app', '/app'), ('lib', '/lib')`);
       const issue = seedIssue(db);
       const inApp = seedTask(db, issue, { repo: 'app' });
-      seedTask(db, issue, { repo: 'lib' });
-      assert.deepEqual(ids(await queueOk(db, { repo: 'app' })), [inApp]);
-      assert.equal((await queueOk(db)).total, 2);
+      const inLib = seedTask(db, issue, { repo: 'lib' });
+      const repoless = seedTask(db, issue, { repo: null });
+      assert.deepEqual(ids(await queueOk(db, { repo: 'app' })), [inApp, repoless], 'a task with no repo on record is listed under every repo');
+      assert.deepEqual(ids(await queueOk(db, { repo: 'lib' })), [inLib, repoless]);
+      assert.equal((await queueOk(db)).total, 3);
     } finally {
       db.close();
     }
@@ -133,8 +158,8 @@ describe('GH 2225 T2: the review_queued row of an agile close keeps the task que
     const db = tempDB();
     try {
       const issue = seedIssue(db);
-      const queued = seedTask(db, issue);
-      const bypassed = seedTask(db, issue);
+      const queued = seedTask(db, issue, { queued: false });
+      const bypassed = seedTask(db, issue, { queued: false });
       const row = (taskId: number, eventType: string) =>
         db.run(
           `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 'r', ?, ?)`,
@@ -196,36 +221,94 @@ describe('SC3: groups are disjoint connected components of files[] overlap', () 
   });
 });
 
-describe('SC4: parity with the doctor', () => {
-  it('total under grace_hours 24 equals agile_review_queued\'s observed value, both leaving out a task inside the grace window', async () => {
+// The bro feature_branch_merged row cli.js feature-merge writes when it folds a task onto <branch>.
+function foldOnto(db: TrajectoryDB, issueId: number, taskId: number, branch: string): void {
+  const commit = db.get<{ commit_sha: string }>('SELECT commit_sha FROM tasks WHERE id = ?', [taskId])!.commit_sha;
+  auditRow(db, issueId, 'bro', 'feature_branch_merged', { task_id: taskId, feature_branch: branch, commit_sha: commit, rebased: false });
+}
+
+describe('GH 2225 one pending-review set: review_queue selects AGILE_PENDING_REVIEW_SQL', () => {
+  it('SC4: lists a task past the old 30-day window or inside the old grace hours, and leaves out one with a per-task pass', async () => {
     const db = tempDB();
     try {
       const issue = seedIssue(db);
-      seedTask(db, issue, { updatedAt: iso(-25 * HOUR), files: ['a'] });
-      seedTask(db, issue, { updatedAt: iso(-30 * HOUR), files: ['b'] });
-      const inGrace = seedTask(db, issue, { updatedAt: iso(-2 * HOUR), files: ['a'] });
-      seedTask(db, issue, { updatedAt: iso(-25 * HOUR), mode: 'truest' });
-      const contract = DATA_CONTRACTS.filter(isSqlContract).find((c): c is SqlContract => c.id === 'agile_review_queued')!;
-      const report = runDataContracts(trajectoryDbReader(db), [contract], { env: {} });
-      const observed = report.violations.find((v) => v.id === 'agile_review_queued')?.actual;
-      const q = await queueOk(db, { grace_hours: 24 });
-      assert.ok(q.total > 0);
-      assert.equal(q.total, observed);
-      assert.equal(q.groups.reduce((n, g) => n + g.tasks.length, 0), q.total);
-      assert.ok(!ids(q).includes(inGrace), 'the in-grace task is left out');
-      assert.ok(ids(await queueOk(db)).includes(inGrace), 'the default grace of 0 lists it');
+      const old = seedTask(db, issue, { updatedAt: iso(-31 * 24 * HOUR) });
+      const fresh = seedTask(db, issue, { updatedAt: iso() });
+      const passed = seedTask(db, issue);
+      seedTaskPass(db, issue, passed);
+      assert.deepEqual(ids(await queueOk(db)), [old, fresh]);
+      assert.equal(
+        db.get<{ ok: number }>(`SELECT ${AGILE_PENDING_REVIEW_SQL} AS ok FROM tasks t WHERE t.id = ?`, [passed])!.ok,
+        0,
+        'the per-task pass settles it in the shared predicate too',
+      );
     } finally {
       db.close();
     }
   });
 
-  it('a negative or non-numeric grace_hours is refused', async () => {
+  it('SC1: a folded agile task reopened for rework is listed whatever settled its old commit; an unfolded or truest one is not', async () => {
     const db = tempDB();
     try {
-      for (const bad of [-1, '24', Number.NaN]) {
-        const r = await queue(db, { grace_hours: bad });
-        assert.equal(r.isError, true, String(bad));
+      const issue = seedIssue(db);
+      const reopened: number[] = [];
+      for (const status of ['pending', 'running', 'needs_validation', 'completed']) {
+        const id = seedTask(db, issue);
+        foldOnto(db, issue, id, 'feat/agile');
+        auditRow(db, issue, 'code-reviewer', 'review_batch_recorded', { task_ids: [id], commit_shas: ['c0ffee1'], verdict: 'pass' });
+        auditRow(db, issue, 'bro', 'review_waived', { feature_branch: 'feat/agile', task_ids: [id], commit_shas: ['c0ffee1'], human_answer: 'Yes' });
+        seedTaskPass(db, issue, id);
+        assert.deepEqual(ids(await queueOk(db)), reopened, `task ${id} is settled while closed`);
+        db.run('UPDATE tasks SET status = ? WHERE id = ?', [status, id]);
+        reopened.push(id);
       }
+      const unfolded = seedTask(db, issue);
+      db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [unfolded]);
+      const truest = seedTask(db, issue, { mode: 'truest' });
+      foldOnto(db, issue, truest, 'feat/agile');
+      db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [truest]);
+      assert.deepEqual(ids(await queueOk(db)), reopened);
+      assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile' })), reopened);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SC3: a same-named feature branch in two repos: the repo filter keeps them apart and no group spans repos', async () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO repos (name, path) VALUES ('app', '/app'), ('lib', '/lib')`);
+      const issue = seedIssue(db);
+      const inApp = seedTask(db, issue, { repo: 'app', files: ['src'] });
+      const inLib = seedTask(db, issue, { repo: 'lib', files: ['src'] });
+      foldOnto(db, issue, inApp, 'feat/agile');
+      foldOnto(db, issue, inLib, 'feat/agile');
+      assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile', repo: 'app' })), [inApp]);
+      assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile', repo: 'lib' })), [inLib]);
+      const both = await queueOk(db, { feature_branch: 'feat/agile' });
+      assert.deepEqual(both.groups.map((g) => g.tasks.map((t) => t.id)), [[inApp], [inLib]], 'overlapping files[] in two repos stay two groups');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a task with no repo is placed in its issue repo, before the feature_branch_merged row repo', async () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO repos (name, path) VALUES ('app', '/app'), ('lib', '/lib')`);
+      const issue = seedIssue(db);
+      db.run(`UPDATE issues SET repo = 'app' WHERE id = ?`, [issue]);
+      const repoless = seedTask(db, issue, { repo: null });
+      foldOnto(db, issue, repoless, 'feat/agile');
+      db.run(`UPDATE audit SET repo = 'lib' WHERE event_type = 'feature_branch_merged'`);
+      const onBranchSql = `SELECT COUNT(*) AS n FROM tasks t WHERE ${featureBranchTaskSql('t', ':branch', ':repo')}`;
+      const onBranch = (repo: string): number => db.get<{ n: number }>(onBranchSql, [{ branch: 'feat/agile', repo }])!.n;
+      assert.deepEqual(ids(await queueOk(db, { repo: 'app' })), [repoless]);
+      assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile', repo: 'app' })), [repoless]);
+      assert.equal(onBranch('app'), 1, 'the merge gate reads the issue repo');
+      assert.deepEqual(ids(await queueOk(db, { repo: 'lib' })), []);
+      assert.deepEqual(ids(await queueOk(db, { feature_branch: 'feat/agile', repo: 'lib' })), []);
+      assert.equal(onBranch('lib'), 0, 'the merge row repo is only the last fallback');
     } finally {
       db.close();
     }
@@ -262,7 +345,8 @@ describe('SC5: bro only, and no write', () => {
 // queued agile tasks at a feature-branch head.
 describe('GH 2225 T4: review_batch_record', () => {
   // main: base -> head; side branches off base, so it is no ancestor of head.
-  let repo: { root: string; base: string; head: string; side: string };
+  // feat/agile, the feature branch every hand-off names by default, is at head; feat/at-base at base.
+  let repo: { root: string; base: string; head: string; side: string; git: (...a: string[]) => string };
 
   before(() => {
     const root = mkdtempSync(join(tmpdir(), 'batch-review-'));
@@ -282,7 +366,9 @@ describe('GH 2225 T4: review_batch_record', () => {
     git('checkout', '-q', '-b', 'side', base);
     const side = commit('side.txt');
     git('checkout', '-q', 'main');
-    repo = { root, base, head, side };
+    git('branch', 'feat/agile', head);
+    git('branch', 'feat/at-base', base);
+    repo = { root, base, head, side, git };
   });
 
   after(() => rmSync(repo.root, { recursive: true, force: true }));
@@ -295,25 +381,25 @@ describe('GH 2225 T4: review_batch_record', () => {
     return { db, issue: seedIssue(db) };
   }
 
-  // A closed agile task with bro's review_queued row for its commit, as bro_atomic_close leaves it.
+  // A closed agile task of repo app with bro's review_queued row for its commit, as bro_atomic_close leaves it.
   function seedQueued(db: TrajectoryDB, issue: number, commit: string, opts: SeedOpts = {}): number {
-    const id = seedTask(db, issue, { repo: 'app', commit, ...opts });
-    db.run(
-      `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'review_queued', 'q', ?, ?)`,
-      [issue, JSON.stringify({ task_id: id, commit_sha: commit }), iso()],
-    );
-    return id;
+    return seedTask(db, issue, { repo: 'app', commit, ...opts });
   }
 
   // The bro review_batch_handoff row a review_batch_record call cites, as review_batch_handoff writes it.
-  function handOff(db: TrajectoryDB, taskIds: number[], headSha: string, opts: { fromNode?: string; featureBranch?: string } = {}): number {
+  function handOff(db: TrajectoryDB, taskIds: number[], headSha: string, opts: { fromNode?: string; featureBranch?: string; repo?: string } = {}): number {
     const res = db.run(
       `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
        VALUES (-1, ?, ?, 'review_batch_handoff', 'handoff', ?, ?)`,
       [
         opts.featureBranch ?? 'feat/agile',
         opts.fromNode ?? 'bro',
-        JSON.stringify({ feature_branch: opts.featureBranch ?? 'feat/agile', head_sha: headSha.toLowerCase(), task_ids: [...new Set(taskIds)].sort((a, b) => a - b) }),
+        JSON.stringify({
+          feature_branch: opts.featureBranch ?? 'feat/agile',
+          head_sha: headSha.toLowerCase(),
+          task_ids: [...new Set(taskIds)].sort((a, b) => a - b),
+          repo: opts.repo ?? 'app',
+        }),
         iso(),
       ],
     );
@@ -324,8 +410,8 @@ describe('GH 2225 T4: review_batch_record', () => {
     db.get<{ id: number | null }>(`SELECT MAX(id) AS id FROM audit WHERE event_type = 'review_batch_handoff'`)?.id ?? undefined;
 
   // The row the reviewer-identity-observe hook writes for a review_batch_record call, after bro's hand-off of the same group.
-  function observe(db: TrajectoryDB, taskIds: number[], headSha: string, opts: { agentId?: string; observedAt?: string } = {}): number {
-    handOff(db, taskIds, headSha);
+  function observe(db: TrajectoryDB, taskIds: number[], headSha: string, opts: { agentId?: string; observedAt?: string; featureBranch?: string } = {}): number {
+    handOff(db, taskIds, headSha, { featureBranch: opts.featureBranch });
     const sorted = [...new Set(taskIds)].sort((a, b) => a - b);
     const content = {
       tool: 'review_batch_record',
@@ -592,14 +678,15 @@ describe('GH 2225 T4: review_batch_record', () => {
         const good = seedQueued(db, issue, repo.base);
         const open = seedQueued(db, issue, repo.base, { status: 'completed' });
         const truest = seedQueued(db, issue, repo.base, { mode: 'truest' });
-        const unqueued = seedTask(db, issue, { repo: 'app', commit: repo.base });
+        const exempt = seedQueued(db, issue, repo.base, { mode: 'exempt' });
+        const unqueued = seedTask(db, issue, { repo: 'app', commit: repo.base, queued: false });
         const reviewed = seedQueued(db, issue, repo.base);
         assert.ok(!(await observedBatch(db, [reviewed], repo.head, 'pass')).isError);
         const offHead = seedQueued(db, issue, repo.side);
         // tasks.repo references repos.name, so an unresolvable repo is a task and issue with none.
         const repoless = seedQueued(db, issue, repo.base, { repo: null });
         const missing = 999_999;
-        const group = [good, open, truest, unqueued, reviewed, offHead, repoless, missing];
+        const group = [good, open, truest, exempt, unqueued, reviewed, offHead, repoless, missing];
         observe(db, group, repo.head);
         const before = snapshot(db);
         const body = refusedWith(await batch(db, { task_ids: group, head_sha: repo.head, verdict: 'pass' }), 'task_not_batchable');
@@ -607,6 +694,7 @@ describe('GH 2225 T4: review_batch_record', () => {
         assert.deepEqual(reasons, {
           [open]: 'not_closed',
           [truest]: 'not_agile',
+          [exempt]: 'not_agile',
           [unqueued]: 'not_queued',
           [reviewed]: 'already_batch_reviewed',
           [offHead]: 'not_ancestor',
@@ -630,8 +718,11 @@ describe('GH 2225 T4: review_batch_record', () => {
         assert.deepEqual(body.tasks?.map((t) => t.task_id), [foreign]);
         assert.match(body.tasks[0].reason, /^not_ancestor/);
         const later = seedQueued(db, issue, repo.head);
-        observe(db, [later], repo.base);
-        const behind = refusedWith(await batch(db, { task_ids: [later], head_sha: repo.base, verdict: 'pass' }), 'task_not_batchable');
+        observe(db, [later], repo.base, { featureBranch: 'feat/at-base' });
+        const behind = refusedWith(
+          await batch(db, { task_ids: [later], head_sha: repo.base, feature_branch: 'feat/at-base', verdict: 'pass' }),
+          'task_not_batchable',
+        );
         assert.match(behind.tasks![0].reason, /^not_ancestor/, 'a head that predates the task\'s commit does not contain it');
         assert.equal(batchRows(db).length, 0);
       } finally {
@@ -702,6 +793,76 @@ describe('GH 2225 T4: review_batch_record', () => {
           `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'code-reviewer', 'review_batch_recorded', 'bad', 'not json', ?)`,
           [issue, iso()],
         );
+        assert.deepEqual(ids(await queueOk(db)), [a]);
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  describe('GH 2225 one pending-review set: review_batch_record', () => {
+    const reasonsOf = (body: { tasks?: Array<{ task_id: number; reason: string }> }) => body.tasks?.map((t) => [t.task_id, t.reason.split(/[\s:]/)[0]]);
+
+    it('SC2: refuses head_moved, writing nothing, once the feature branch tip in the repo is no longer head_sha', async () => {
+      const { db, issue } = batchDb();
+      try {
+        const a = seedQueued(db, issue, repo.base);
+        observe(db, [a], repo.head);
+        const before = snapshot(db);
+        repo.git('branch', '-f', 'feat/agile', repo.side);
+        try {
+          const body = refusedWith(await batch(db, { task_ids: [a], head_sha: repo.head, verdict: 'pass' }), 'head_moved') as { message?: string };
+          assert.match(body.message ?? '', new RegExp(`refs/heads/feat/agile in .* is ${repo.side}, not head_sha ${repo.head}`));
+        } finally {
+          repo.git('branch', '-f', 'feat/agile', repo.head);
+        }
+        assert.deepEqual(snapshot(db), before, 'nothing is written, the observation included');
+        assert.ok(!(await batch(db, { task_ids: [a], head_sha: repo.head, verdict: 'pass' })).isError, 'back at the tip, the same call records');
+      } finally {
+        db.close();
+      }
+    });
+
+    it('SC2: refuses head_moved when the branch does not resolve or the hand-off names no registered repo', async () => {
+      const { db, issue } = batchDb();
+      try {
+        const a = seedQueued(db, issue, repo.base);
+        observe(db, [a], repo.head, { featureBranch: 'feat/gone' });
+        refusedWith(await batch(db, { task_ids: [a], head_sha: repo.head, feature_branch: 'feat/gone', verdict: 'pass' }), 'head_moved');
+        observe(db, [a], repo.head);
+        const ghost = handOff(db, [a], repo.head, { repo: 'ghost' });
+        const body = refusedWith(await batch(db, { task_ids: [a], head_sha: repo.head, verdict: 'pass', batch_handoff_id: ghost }), 'head_moved') as { message?: string };
+        assert.match(body.message ?? '', /repo "ghost" has no repos row/);
+        assert.equal(batchRows(db).length, 0);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('SC4: refuses a task whose current commit a per-task pass already covers (already_passed)', async () => {
+      const { db, issue } = batchDb();
+      try {
+        const a = seedQueued(db, issue, repo.base);
+        const passed = seedQueued(db, issue, repo.base);
+        seedTaskPass(db, issue, passed);
+        observe(db, [a, passed], repo.head);
+        const body = refusedWith(await batch(db, { task_ids: [a, passed], head_sha: repo.head, verdict: 'pass' }), 'task_not_batchable');
+        assert.deepEqual(reasonsOf(body), [[passed, 'already_passed']]);
+        assert.equal(batchRows(db).length, 0);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('SC1: refuses a folded task reopened for rework (not_closed), which stays pending', async () => {
+      const { db, issue } = batchDb();
+      try {
+        const a = seedQueued(db, issue, repo.base);
+        foldOnto(db, issue, a, 'feat/agile');
+        db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [a]);
+        observe(db, [a], repo.head);
+        const body = refusedWith(await batch(db, { task_ids: [a], head_sha: repo.head, verdict: 'pass' }), 'task_not_batchable');
+        assert.deepEqual(reasonsOf(body), [[a, 'not_closed']]);
         assert.deepEqual(ids(await queueOk(db)), [a]);
       } finally {
         db.close();
@@ -850,6 +1011,49 @@ describe('GH 2225 T4: review_batch_record', () => {
       });
     });
 
+    describe('GH 2225 one pending-review set: the waiver', () => {
+      it('SC1: does not waive a folded task reopened for rework, which stays pending', async () => {
+        const { db, issue } = batchDb();
+        try {
+          const reopened = seedMerged(db, issue, repo.base);
+          db.run(`UPDATE tasks SET status = 'needs_validation' WHERE id = ?`, [reopened]);
+          const before = auditCount(db);
+          refusedWith(await waive(db), 'no_queued_task');
+          assert.equal(auditCount(db), before, 'only a reopened task: nothing is written');
+          const closed = seedMerged(db, issue, repo.head);
+          const r = await waive(db);
+          assert.ok(!r.isError, r.content[0].text);
+          assert.deepEqual(waiverRows(db).map((w) => w.content['task_ids']), [[closed]]);
+          assert.deepEqual(ids(await queueOk(db)), [reopened]);
+        } finally {
+          db.close();
+        }
+      });
+
+      it('SC3: a same-named feature branch in two repos needs repo, and waives only that repo\'s tasks', async () => {
+        const { db, issue } = batchDb();
+        try {
+          db.run(`INSERT INTO repos (name, path) VALUES ('lib', ?)`, [join(repo.root, 'no-such-lib')]);
+          const inApp = seedMerged(db, issue, repo.base);
+          const inLib = seedMerged(db, issue, repo.head, FEATURE, { repo: 'lib' });
+          // No repo on record (task or issue): it goes with whichever repo is named, and does not count as a third one.
+          const repoless = seedMerged(db, issue, repo.base, FEATURE, { repo: null });
+          const before = auditCount(db);
+          const body = refusedWith(await waive(db), 'mixed_repos') as { message?: string };
+          assert.match(body.message ?? '', /in repos "app", "lib";/);
+          for (const bad of ['', ' ', 42]) refusedWith(await waive(db, { repo: bad }), 'invalid_args');
+          assert.equal(auditCount(db), before, 'nothing is written');
+          assert.ok(!(await waive(db, { repo: 'app' })).isError);
+          assert.deepEqual(waiverRows(db).map((w) => w.content['task_ids']), [[inApp, repoless]]);
+          assert.deepEqual(ids(await queueOk(db, { feature_branch: FEATURE })), [inLib], 'the lib task stays queued');
+          assert.ok(!(await waive(db)).isError, 'one repo left: repo may be omitted');
+          assert.deepEqual(waiverRows(db).map((w) => w.content['task_ids']), [[inApp, repoless], [inLib]]);
+        } finally {
+          db.close();
+        }
+      });
+    });
+
     describe('F39-1: the ancestor checks run before the write transaction', () => {
       it('runs every git merge-base before the transaction opens, with refusals and the pass unchanged', async () => {
         const { db, issue } = batchDb();
@@ -978,9 +1182,7 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
   // A queued agile task cli.js feature-merge moved onto <branch> (null: never merged onto one).
   function seedMerged(db: TrajectoryDB, issue: number, base: string, commit: string, branch: string | null = FEATURE): number {
     const id = seedTask(db, issue, { repo: 'app', base, commit });
-    const row = `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 's', ?, ?)`;
-    db.run(row, [issue, 'review_queued', JSON.stringify({ task_id: id, commit_sha: commit }), iso()]);
-    if (branch !== null) db.run(row, [issue, 'feature_branch_merged', JSON.stringify({ task_id: id, feature_branch: branch, commit_sha: commit, rebased: false }), iso()]);
+    if (branch !== null) foldOnto(db, issue, id, branch);
     return id;
   }
 
@@ -1144,6 +1346,46 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
         const body = refused(await handoff(db, { task_ids: [t1, unmerged, elsewhere, 999_999] }), 'task_not_queued');
         assert.deepEqual(body.tasks?.map((t) => t.task_id), [unmerged, elsewhere, 999_999]);
         assert.equal(auditCount(db), before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('SC1/SC4: refuses a folded task reopened for rework, or one a per-task pass covers, as not queued', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        const [t1, t2] = seedBranch(db, issue);
+        db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [t1]);
+        seedTaskPass(db, issue, t2);
+        const before = auditCount(db);
+        const body = refused(await handoff(db, { task_ids: [t1, t2] }), 'task_not_queued');
+        assert.deepEqual(
+          body.tasks?.map((t) => [t.task_id, t.reason.split(':')[0]]),
+          [
+            [t1, 'reopened'],
+            [t2, `not a queued agile task of ${FEATURE} awaiting review`],
+          ],
+        );
+        assert.equal(auditCount(db), before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('SC3: a same-named feature branch in another repo neither joins the group nor splits it', async () => {
+      const { db, issue } = handoffDb();
+      try {
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('lib', ?, 'main')`, [repo.root]);
+        const tasks = seedBranch(db, issue);
+        // Its commit changes a.txt, as t1 and t3 do: counted as a left-out task of this repo it would split the group.
+        const inLib = seedTask(db, issue, { repo: 'lib', base: repo.base, commit: repo.c[0] });
+        foldOnto(db, issue, inLib, FEATURE);
+        const body = refused(await handoff(db, { task_ids: [...tasks, inLib] }), 'mixed_repos');
+        assert.equal(body.error, 'mixed_repos');
+        const r = await handoff(db, { task_ids: tasks });
+        assert.ok(!r.isError, r.content[0].text);
+        const row = db.get<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'review_batch_handoff'`)!;
+        assert.equal((JSON.parse(row.content_json) as { repo: string }).repo, 'app');
       } finally {
         db.close();
       }

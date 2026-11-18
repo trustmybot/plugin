@@ -47,7 +47,7 @@ Work always starts from the latest `<base>`, so a task never builds on stale cod
 
 ## Git guards
 
-Hooks hold the rest of this model in place, each enforcing the policy of the repo the command runs in:
+Hooks hold the rest of this model in place, each enforcing the policy of the repo the command runs in, or, for the PR-target guard, of the repo the command names ([multi-repo workspaces](#multi-repo-workspaces)):
 
 - **Destructive commands.** Force-pushes to protected branches are denied, as are direct commits, merges and rebases on a shared base. Denying hard resets and forced cleans is planned (GH 3260).
 - **The main checkout stays on `<base>`.** Checking out a branch that belongs to an open task is denied; the task's worktree is the place to work on it.
@@ -84,6 +84,49 @@ flowchart TD
 - **The gate checks only what the push adds.** That is the commits reachable from the new tip and not from the base. A commit already on the base passed its own gate when it merged, and needs no new verification.
 - **The PR is kept.** A rebase never opens a new branch or a new PR, so the review thread and history stay in one place.
 
+## The push gate at git's own hook
+
+Planned (GH 3281). A prototype proved the hook mechanism; the list under the bullets says what is still open. Today the push gate runs before a Bash command, reads its text to decide whether it is a push and what it sends, looks up each pushed commit on its own, and takes its policy from the working directory. Each of the three is a steady source of bugs: a shell form nobody foresaw, a commit whose id changed in a rebase or that two tasks share, and a command aimed at another repo. The design below removes the causes.
+
+```mermaid
+flowchart TD
+    A[Any command that ends in a push, in any shell form] --> B[git runs the repo's pre-push hook and hands it the exact refs and commits]
+    B --> C{Pushed from an agent session?}
+    C -- no --> OK[Admitted: the Human's own push]
+    C -- yes --> D{Is this repo exempt?}
+    D -- yes --> N[Admitted: an exempt repo is excused from TMB's workflow rules]
+    D -- no --> E{Protected branch?}
+    E -- yes --> X[Denied]
+    E -- no --> F{Whose branch is it?}
+    F -- a task's --> G[Net diff between the base and the pushed tip]
+    F -- an agile feature branch --> FB[Admitted as a backup; its gate is the merge gate]
+    F -- "nobody's" --> H{Does it hold a task's commit, by id or by patch?}
+    H -- no --> OK2[Admitted]
+    H -- yes --> G
+    G --> I{Is the newest verdict for this net diff a pass?}
+    I -- yes --> OK3[Admitted]
+    I -- no --> X2[Denied, naming the task and what is missing]
+```
+
+- **Git says what is pushed.** The hook receives each ref and commit the push sends, so the gate reads no command text and no shell form can hide a push from it. It runs inside the repo being pushed, so the policy is that repo's.
+- **The text guard keeps one job.** It denies an agent's command that would skip, disable or replace TMB's hook, or strip the mark of an agent's shell. That is a short, closed list, where "every way to write a push" is an open one.
+- **Every push checks the hook is live.** Before an agent's push, the guard confirms three things in the worktree that pushes: git will run TMB's hook for a push and it is enabled, the hook's command is TMB's script, and the script is intact. Git still lists a hook whose command was swapped, and the text guard sees only an agent's command, so a change made any other way would leave a hook that is listed and judges nothing. When one of the three fails, today's command-text judge stays on for that push and the next session start repairs the hook. The judge steps aside only when all three pass.
+- **The hook observes before it enforces.** It is first installed in observe mode: it admits every push, and each agent push leaves one record of what the hook would have decided, what today's judge decided and whether the two agree. Today's judge runs before the command, so a push it denies never reaches git or the hook; on that path the judge itself asks the new judge for its verdict and writes the record. That case, the old judge denying what the hook would admit, is the false block this work removes. Installing the hook adds one kind of deny only: the denies on skipping, disabling or replacing the hook and on stripping the agent mark start with the install, so no push goes around the record. They apply only where a hook is installed: in an exempt repo there is no hook, these denies stand down with every other guard, and the hook's own judge treats the repo as exempt from the first install. Each disagreement is a bug in the hook or a false block of the old judge, and bro explains every one before the switch. The hook starts to enforce, and today's judge steps aside, in one later step that needs both: the agent mark proven, and no disagreement left unexplained.
+- **The Human is not gated.** The hook acts only on a push from an agent session. The Human's own push from a terminal passes, as it does today. TMB marks an agent's shell itself, at session start, with a mark no terminal the Human opens carries; it does not rely on the host's own mark, which the Human's terminal may share.
+- **The gate judges the branch, not each commit.** A review is recorded against the net diff between the base and the reviewed tip. A push is admitted when the newest verdict for the pushed tip's net diff is a pass.
+  - A rebase that leaves the diff unchanged keeps its pass with no extra record.
+  - Commits already on the base are never in the diff, so a moved base adds nothing to check.
+  - A commit a retry inherited from the task it replaces is covered by the review of the whole diff.
+- **An unchanged diff is necessary, not enough.** Integrate still re-runs the task's verification on the rebased commit and checks that the base's changes touch nothing the diff depends on. When they do, the commit gets one new review, recorded against the new tip.
+- **Close follows integrate.** A task closes only once integrate succeeded, so a failed integrate always leaves an open task to rework or to review again. Today the task closes first, and a failed integrate leaves nothing to reopen (GH 3234).
+- **The hook is named in the repo's local git config, not placed in a hooks folder.** Git runs a hook named there in addition to the project's own, so TMB never touches the project's hooks folder or its hooks path, wraps no other hook, and a tool that manages the project's hooks, such as husky, cannot unhook it. The config is shared by every worktree of the repo by default. A repo that allows per-worktree config can switch the hook off in one worktree, which is why the check above runs in the worktree that pushes.
+- **The hook script is a stable local file.** It sits in the repo's git folder, is never committed, and only hands the push to the installed TMB. Session start refreshes it, so a plugin update never leaves it pointing at a version that is gone. An exempt repo gets none.
+- **A leftover hook never blocks anyone.** A hook whose script is missing fails every push, the Human's included, so the script always exists and admits the push once TMB is uninstalled. Removing the plugin runs no code, so the hook is then inert, and one cleanup command, named in [INSTALL.md](INSTALL.md), removes the config entry and the script. When TMB is installed and its judge fails to run, an agent's push is denied and the Human's passes.
+- **It needs a git that runs hooks from config** (2.54 or newer). On an older git TMB installs nothing, keeps today's command-text judge, and says so once at session start. A plain hook file for an older git, only in a repo with no hooks path and no pre-push hook of its own, is a later slice.
+- **The forge is the last line.** A protected branch's rules on the forge stay the Human's to set; TMB's hook does not replace them.
+
+Proven by the prototype, on git 2.56: the hook runs beside a project's own hooks path and in linked worktrees, a deny stops the push, the mark set at session start reaches the hook, and the net diff of a 1,339-file branch takes 0.22 s. Still to prove: that the mark reaches a subagent's shell and survives a compacted or resumed session. Until a live session shows it, the hook stays in observe mode and the command-text judge stays on.
+
 ## Agile feature branches
 
 Shipped for the project review mode; a lane's feature branch is planned (GH 3025). In agile review mode a long-lived feature branch stands between the task branches and `<base>`. Each `<feature>` is cut from the feature branch's tip instead of `<base>`, and bro merges it back into the feature branch locally once the task closes, with no PR. bro pushes the feature branch as a backup and brings `<base>` into it at the milestone, or earlier in an optional periodic sync. Only the feature branch itself reaches `<base>`, as one PR after its review passes or the Human waives it. [AGILE.md](AGILE.md) covers every case.
@@ -113,7 +156,30 @@ TMB then resolves "which repo does this operation belong to" by **path**, never 
 
 1. **Repos are identified by registration.** A repo takes part in TMB only once `/scan` has registered it. Registration is the same step that warms the world model, so the two stay aligned.
 2. **Resolution is path-keyed.** An operation belongs to the registered repo whose path contains it: the command's git root for a hook, the task's repo for a task. World-model paths are stored relative to their repo.
-3. **Branch policy is per repo.** Each repo's PR target, branching model and protected branches are recorded with its registration and nowhere else; there is no global fallback. The git guards enforce the policy of the repo the command runs in.
+3. **Branch policy is per repo.** Each repo's PR target, branching model and protected branches are recorded with its registration and nowhere else; there is no global fallback. The git guards enforce the policy of the repo the command runs in. The PR-target guard already follows the repo the command names (GH 3278): a repo named on the command line wins over the working directory, a name that matches no registered repo gets no verdict from this guard, and a name the guard cannot read literally falls back to the working directory. Planned (GH 3281): the other guards follow the targeted repo too, and a deny names the repo whose policy it applied.
 4. **Single-repo fallback.** When an operation names no repo and exactly one is registered, it resolves to that repo, so single-repo projects need no repo argument anywhere. With several repos registered, an operation that names none and has no path is refused.
+5. **Each repo has a mode.** Partly shipped (GH 3281); the bullets say which parts. A workspace holds repos that need different amounts of TMB: a product repo, and beside it a private test fixture that never ships. The repo's record says which, and the Human sets it.
+
+   | Repo mode | What applies in the repo |
+   |---|---|
+   | Truest | The full flow: tasks, a review of every task before its push, the git guards |
+   | Agile | The same, with the review deferred to the feature branch ([AGILE.md](AGILE.md)) |
+   | Exempt | Indexed for the world model, and excused from the workflow rules: no task is required, no review, no git guard and no push gate |
+
+   - **Onboarding asks one mode per repo.** /onboard lists every repo with the mode bro recommends and the reason, and the Human approves or changes the set in one round ([ONBOARD.md](ONBOARD.md)). bro weighs what the repo shows; these are signals, not thresholds:
+
+     | What the repo shows | bro recommends |
+     |---|---|
+     | Empty, or no remote | Exempt |
+     | One author, few commits, no release | Agile |
+     | A protected branch, CI, several authors or releases | Truest |
+     | Nothing clear | Agile, the default |
+
+   - **A scan only indexes.** A repo a scan finds after onboarding is exempt until the Human answers, and bro asks at its first contact with that repo. bro never enforces a guessed policy. Shipped: a scan registers a new repo as exempt and a later scan never changes its mode; at the upgrade, a repo with no confirmed policy became exempt and every onboarded repo kept its rules. The question at first contact is planned; until it ships, onboarding a repo puts it on the project's mode.
+   - **What exempt switches off today.** Shipped: the git guards and the push guard stand down in an exempt repo. Shipped too: a task in an exempt repo closes with no review and no hand-off, and records exempt as its mode. Planned: the other rules that still need a task there, such as the guard on editing outside a task.
+   - **A repo left on the project's mode takes it.** The Human can answer "the project's" for a repo, and it then follows the project's review mode, truest or agile; when the project has none stored that is truest today, and agile once the fallback changes ([AGILE.md](AGILE.md#where-the-review-mode-is-set)). The project's mode is never exempt, so one setting cannot switch the rules off in every repo. A lane's review mode still overrides both for a repo that is not exempt. Exempt is final: no lane and no project setting turns the rules back on.
+   - **Two things stay on in an exempt repo.** Containment still keeps every write inside the project, and the trajectory still records what ran there. They protect the Human's machine and the record, not the repo's workflow.
+   - **A task in an exempt repo is recorded, not gated.** Tasks are optional there. One that exists keeps its lifecycle events, its agent runs and its own checks, and it closes without a review, and the task records exempt as the mode it closed under, so the record says why no review ran (shipped). The close's cause naming the repo's mode comes with the lifecycle events (planned, GH 3224).
+   - **Its mode shows.** The repo list shows each repo's stored mode and the mode in effect, and a deny names the repo and the mode it applied (shipped). The dashboard showing it is planned.
 
 A global default repo would force one repo to be "the" repo and make the guards guess what to enforce; it breaks as soon as a second repo joins. Path-keyed resolution lets sibling repos coexist with none privileged.

@@ -40,7 +40,7 @@ import { closeLintsPlan, taskNoCodeClass } from './lib/close-lints.js';
 import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, realdir, repoPathAbs, sqlInt, sqlQuote } from './lib/db.js';
 import { gitText, listed, revParse } from './lib/doc-checks.js';
-import { gateWorkflowMode, prTargetRef } from './lib/git-refs.js';
+import { gateResolveWorkflowMode, prTargetRef } from './lib/git-refs.js';
 import { latestLintRun } from './lib/lint-runs.js';
 import { structuredDenyResult, type DenyFix } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
@@ -124,7 +124,7 @@ async function lintBaseFailure(
   }
   const targetRow = gateRead(db, `SELECT COALESCE(target_branch, '') FROM repos WHERE name = '${sqlQuote(repo.name)}';`, env);
   if (targetRow === GATE_READ_ERROR) return GATE_READ_ERROR;
-  const workflowMode = gateWorkflowMode(db, env);
+  const workflowMode = gateResolveWorkflowMode(db, repo.name, env);
   if (workflowMode === GATE_READ_ERROR) return GATE_READ_ERROR;
   const targetRef = await prTargetRef(repo.root, targetRow.split('\n')[0], task.parentBranch, workflowMode, env);
   const targetTip = targetRef === null ? null : await revParse(repo.root, targetRef, env);
@@ -317,7 +317,8 @@ function stringAt(list: readonly unknown[], i: number): string {
  * row exists (no_batch_handoff), the feature-branch tip is still its head_sha
  * (sha_mismatch), its close-lint run exited 0 (no_lint_record) under the
  * close-lints fingerprint of that head (stale_lint_record), and each task is
- * still queued on the branch at the commit handed off (task_not_queued).
+ * still closed and queued on the branch of the hand-off's repo at the commit
+ * handed off (task_not_queued).
  */
 async function batchPreflight(db: string, handoffId: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   const row = readBatchHandoff(db, handoffId, env);
@@ -361,7 +362,8 @@ async function batchPreflight(db: string, handoffId: string, env: NodeJS.Process
   const queued = gateRead(
     db,
     `SELECT t.id FROM tasks t WHERE (${pairs.map((p) => `(t.id = ${p.id} AND t.commit_sha = '${sqlQuote(p.commit)}')`).join(' OR ')})
-       AND ${featureBranchTaskSql('t', `'${sqlQuote(row.featureBranch)}'`)} AND ${AGILE_PENDING_REVIEW_SQL};`,
+       AND t.status = 'closed' AND ${featureBranchTaskSql('t', `'${sqlQuote(row.featureBranch)}'`, row.repo === '' ? 'NULL' : `'${sqlQuote(row.repo)}'`)}
+       AND ${AGILE_PENDING_REVIEW_SQL};`,
     env,
   );
   if (queued === GATE_READ_ERROR) return dbUnavailable(env);
