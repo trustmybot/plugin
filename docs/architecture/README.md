@@ -40,6 +40,7 @@ Looking for one answer instead?
 | Why is a session, an agent run or a hook still running? | [TRAJECTORY.md](TRAJECTORY.md) |
 | What does agile review mode skip, and when is the skipped review done? | [AGILE.md](AGILE.md) |
 | How does a project gain an agent, a skill or a second opinion? | [EXTENDING.md](EXTENDING.md) |
+| How are issues labelled, and how do I find what waits on me? | [ISSUES.md](ISSUES.md) |
 | Which agent may do Z? | [RESPONSIBILITIES.md](RESPONSIBILITIES.md) |
 | What does an agent see at the start of a turn? | [MEMORY.md](MEMORY.md) |
 | How does bro know where code lives? | [WORLD_MODEL.md](WORLD_MODEL.md) |
@@ -62,6 +63,7 @@ Looking for one answer instead?
 - [TRAJECTORY.md](TRAJECTORY.md) — Planned: how sessions, agent runs, hook runs and verification runs each record a start, an end and a parent, so a hang or a dead run can be found from the records.
 - [LANES.md](LANES.md) — Planned: every case of flow 3.8, how parallel lanes run as nested sessions, with issue ownership, conflict checks, the merge choice and the merge queue.
 - [AGILE.md](AGILE.md) — Agile review mode (shipped for the project; lane review modes planned): where the review mode is set, the long-lived feature branch agile tasks fold into without a per-task review, the grouped review of that branch, the gate on its one PR into the working branch, and how a mode switch treats tasks already closed.
+- [ISSUES.md](ISSUES.md) — Planned: the six groups of issue labels, the rules for each, and how a project makes the scheme its own.
 - [EXTENDING.md](EXTENDING.md) — How a project gains agents, skills, consultants and roundtables, and what each path refuses.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — What each shipped agent is for, what it may and may not do, and why the roles are split this way.
 - [MEMORY.md](MEMORY.md) — The memory model every agent follows: cold storage in the trajectory DB, hot session context, and pinned prompts, with the cost of each tier.
