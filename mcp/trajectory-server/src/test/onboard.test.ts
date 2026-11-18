@@ -3217,7 +3217,7 @@ describe('repo_mode round (GH 3281)', () => {
     }
   });
 
-  // Three repos with no stored policy: the final apply writes each one's policy and clears an unanswered exempt.
+  // Three repos with no stored policy: the final apply writes each one's policy and only the answered modes.
   function threeRepos(): TrajectoryDB {
     const db = tempDB();
     db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'a', 'exempt')`, [repoWithHistory(solo(1))]);
@@ -3226,12 +3226,14 @@ describe('repo_mode round (GH 3281)', () => {
     return db;
   }
 
-  it('SC2: apply writes each answer after the policy write; project stores NULL; an unanswered repo keeps the bridge', async () => {
+  it('SC2: apply writes each answer after the policy write; project stores NULL; an unanswered repo keeps its stored mode', async () => {
     const db = threeRepos();
     try {
+      db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'd', 'truest')`, [repoWithHistory(solo(1))]);
+      db.run(`INSERT INTO repos (path, name, mode) VALUES (?, 'e', 'agile')`, [repoWithHistory(solo(1))]);
       const data = parse(await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', repo_modes: { a: 'exempt', b: 'project' } }));
       assert.deepEqual((data.applied as Record<string, unknown>).repo_modes, { a: 'exempt', b: 'project' });
-      assert.deepEqual(modes(db), { a: 'exempt', b: null, c: null });
+      assert.deepEqual(modes(db), { a: 'exempt', b: null, c: 'exempt', d: 'truest', e: 'agile' });
       assert.ok(db.get(`SELECT 1 AS one FROM repos WHERE name = 'a' AND target_branch IS NOT NULL`), 'the policy was written too');
 
       const listed = parse(await call(scanTools(db, null).handlers, 'repos_list', {})).repos as Array<Record<string, unknown>>;
@@ -3240,7 +3242,9 @@ describe('repo_mode round (GH 3281)', () => {
         [
           { name: 'a', mode: 'exempt', effective_mode: 'exempt' },
           { name: 'b', mode: null, effective_mode: 'truest' },
-          { name: 'c', mode: null, effective_mode: 'truest' },
+          { name: 'c', mode: 'exempt', effective_mode: 'exempt' },
+          { name: 'd', mode: 'truest', effective_mode: 'truest' },
+          { name: 'e', mode: 'agile', effective_mode: 'agile' },
         ],
       );
     } finally {

@@ -326,13 +326,13 @@ describe('repo mode — scan_run, repos_list, repo_rename and onboard_apply', ()
     db.close();
   });
 
-  it('a workspace onboard_apply clears exempt on every repo it got no repo_modes answer for', async () => {
+  it('a workspace onboard_apply leaves the stored mode of every repo it got no repo_modes answer for', async () => {
     const db = tempDB();
     db.run(`INSERT INTO repos (name, path, mode, branching_model, target_branch) VALUES ('c', '/repo/c', 'exempt', 'github-flow', 'main')`);
-    db.run(`INSERT INTO repos (name, path, mode) VALUES ('a', '/repo/a', 'exempt'), ('b', '/repo/b', 'truest')`);
+    db.run(`INSERT INTO repos (name, path, mode) VALUES ('a', '/repo/a', 'exempt'), ('b', '/repo/b', 'truest'), ('d', '/repo/d', 'agile')`);
     const out = await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
     assert.equal(out.ok, true, JSON.stringify(out));
-    assert.deepEqual(modes(db), { a: null, b: 'truest', c: null });
+    assert.deepEqual(modes(db), { a: 'exempt', b: 'truest', c: 'exempt', d: 'agile' });
     db.close();
   });
 });

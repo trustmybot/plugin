@@ -141,10 +141,6 @@ const WRITE_REPO_POLICY_SQL =
   `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?
    WHERE name = ?`;
 
-// The final apply puts a repo with no repo_mode answer on the project's mode
-// when it is exempt; truest and agile stay (GH 3279).
-const CLEAR_UNANSWERED_EXEMPT_SQL = `UPDATE repos SET mode = NULL WHERE name = ? AND mode = 'exempt'`;
-
 async function probeGit(cwd: string): Promise<{
   in_git: boolean;
   detected_remotes: DetectedRemote[];
@@ -1101,7 +1097,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'object',
             additionalProperties: { type: 'string', enum: [...REPO_MODE_OPTIONS.map((o) => o.wire)] },
             description:
-              "Optional, no repo. The 'repo_mode' answers {<repo>: truest|agile|exempt|project}, written to repos.mode; project stores NULL, an unanswered exempt repo too. An unknown repo or value is refused.",
+              "Optional, no repo. The 'repo_mode' answers {<repo>: truest|agile|exempt|project}, written to repos.mode; project stores NULL. An unknown repo or value is refused.",
           },
           verification_defaults: {
             type: 'array',
@@ -1910,10 +1906,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             upsertRepoRemotes(db, name, effRemotes);
             if (remoteList.length > 0) remoteWarnings.push(...applyRemoteChoice(db, name, remoteList));
           }
+          // A repo with no repo_modes answer keeps its stored mode.
           for (const { name } of probed) {
             const answer = repoModes?.get(name);
-            if (answer === undefined) db.run(CLEAR_UNANSWERED_EXEMPT_SQL, [name]);
-            else db.run(`UPDATE repos SET mode = ? WHERE name = ?`, [answer, name]);
+            if (answer !== undefined) db.run(`UPDATE repos SET mode = ? WHERE name = ?`, [answer, name]);
           }
         });
 
