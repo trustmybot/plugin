@@ -79,6 +79,18 @@ describe('commit-msg-lint denies (GH 2582)', () => {
       assert.ok(reason.includes('Subject seen: "✨ bad subject"'), reason);
     });
   }
+
+  for (const command of ["git $'\\x63ommit' -m 'bad'", "git -C /tmp $'\\x63ommit' -m 'bad'", "git com\\\nmit -m 'bad'"]) {
+    it(`reads the commit keyword ${JSON.stringify(command)} spells as bash reads it (GH 2787)`, async () => {
+      const reason = await denyReason(command);
+      assert.ok(reason.includes('grammar rule'), reason);
+      assert.ok(reason.includes('Subject seen: "bad"'), reason);
+    });
+  }
+
+  it("still admits a $'…' command that is no commit (GH 2787)", async () => {
+    await assertAdmitted("echo $'bad subject'");
+  });
 });
 
 describe('commit-msg-lint on byte-escape subjects (GH 2765)', () => {

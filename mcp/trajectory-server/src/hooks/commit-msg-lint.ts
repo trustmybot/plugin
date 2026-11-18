@@ -5,13 +5,15 @@
  * `--fixup`, `--squash`, `--no-edit`, `--merge` and a commit with no visible message (`-F`, the editor) are admitted; `--amend`
  * with `-m` is linted. Bypass: TMB_SKIP_COMMIT_MSG_LINT=1.
  *
- * A command that names `commit` and that tree-sitter-bash cannot parse is
+ * A command that names `commit` (split by a line continuation or quotes, or
+ * holding a `$'…'` word, GH 2787) and that tree-sitter-bash cannot parse is
  * denied with git-guards' PARSE_REASON unless it holds `$(` or a backtick (a
  * message built that way is never linted).
  */
 import { EXPECTED_FORM, MAX_SUBJECT_CHARS, subjectViolation, TYPES } from '../commit-subject.js';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { gitCommitMessage } from './cmd-analysis/commit-message.js';
+import { prefilterPasses } from './cmd-analysis/index.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqPath, jqRawOr } from './lib/lint-shell.js';
@@ -35,7 +37,7 @@ export const commitMsgLint: Gate = async (payload, env) => {
   if ((env.TMB_SKIP_COMMIT_MSG_LINT ?? '0') === '1') return ALLOW;
   if (jqRawOr(payload, [jqPath('tool_name')]) !== 'Bash') return ALLOW;
   const command = jqRawOr(payload, [jqPath('tool_input', 'command')]);
-  if (!command.includes('commit')) return ALLOW;
+  if (!prefilterPasses(command, (text) => text.includes('commit'))) return ALLOW;
 
   const commit = await gitCommitMessage(command, env);
   if (!commit.ok) return BUILT_MESSAGE.test(command) ? ALLOW : denyResult(PARSE_REASON, PARSE_FIX);

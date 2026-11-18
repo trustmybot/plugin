@@ -7,12 +7,12 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { candidateTokens, deadlineSeconds, GATE_NAME, printfB } from '../hooks/remote-id-guard.js';
+import { candidateTokens, deadlineSeconds, GATE_NAME, printfB, remoteIdGuard, repoOption } from '../hooks/remote-id-guard.js';
 import { findGate } from '../hooks/registry.js';
 import { localIssuesDb } from './hooks-remote-id-guard-parity.suite.js';
 import { noCmdPath } from './hooks-swe-run-parity.suite.js';
@@ -154,5 +154,112 @@ describe('remote-id-guard: in-process deadline and decision-703 divergences', ()
 
   it('candidateTokens drops remote markers and sorts unique ids', () => {
     assert.deepEqual(candidateTokens('see #5 #5 #12 GH-7 gl-6 remote:8 o/r#9 #042'), ['042', '12', '5']);
+  });
+
+  it("GH 2787: reads a #N spelled in $'…' or split by a line continuation as the plain one", () => {
+    const plain = reason(run("gh issue comment 3116 --body 'Closes #10'").stdout);
+    assert.ok(plain.includes('#10 → #50 (GitHub)'), plain);
+    for (const command of [
+      "gh issue comment 3116 --body $'Closes \\x2310'",
+      'gh issue comment 3116 --body "Closes #1\\\n0"',
+      'gh issue comment 3116 --body Closes\\ #1\\\n0',
+      "gh issue comment 3116 --body $'Closes #\\x310'",
+    ]) {
+      assert.equal(reason(run(command).stdout), plain, command);
+    }
+    assert.equal(run("gh issue comment 3116 --body $'Closes \\x23x10'").stdout, '', 'no issue ref once decoded');
+  });
+
+  it('GH 2787: a #N only another statement holds still counts, a remote write in a quoted string does not', () => {
+    assert.ok(reason(run("B='Closes #10'; gh issue comment 1 --body \"$B\"").stdout).includes('#10 → #50 (GitHub)'));
+    assert.equal(run("echo \"gh issue comment 1 --body $'\\x2310'\"").stdout, '');
+  });
+});
+
+describe('remote-id-guard judges a #N against the repo the command targets (GH 2143)', () => {
+  let dir: string;
+  let first: string;
+  let other: string;
+  const gitIn = (cwd: string, ...args: string[]): void => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  /** A DB registering both repos and holding <issues>: [id, repo, gh_iid]. */
+  const twoRepoDb = (name: string, issues: ReadonlyArray<readonly [number, string | null, number]>): string => {
+    const path = join(dir, `${name}.db`);
+    localIssuesDb(path);
+    const db = new DatabaseSync(path);
+    try {
+      db.exec('DELETE FROM issues');
+      const repo = db.prepare('INSERT INTO repos (name, path) VALUES (?, ?)');
+      repo.run('first', first);
+      repo.run('other', other);
+      const issue = db.prepare("INSERT INTO issues (id, objective, status, repo, gh_iid, created_at, updated_at) VALUES (?, ?, 'open', ?, ?, datetime('now'), datetime('now'))");
+      for (const [id, repoName, gh] of issues) issue.run(id, `Local ${id}`, repoName, gh);
+    } finally {
+      db.close();
+    }
+    return path;
+  };
+  const verdict = async (db: string, command: string, cwd = first): Promise<string> => {
+    const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: dir, TRAJECTORY_DB_PATH: db, LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    const r = await remoteIdGuard(JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd }), env);
+    return reason(r.stdout);
+  };
+  const CREATE_OTHER = "gh pr create --repo owner/other --title t --body 'Closes #10'";
+
+  before(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-rig-repos-')));
+    first = join(dir, 'first');
+    other = join(dir, 'other');
+    for (const [root, name] of [
+      [first, 'first'],
+      [other, 'other'],
+    ]) {
+      mkdirSync(root);
+      gitIn(root, 'init', '-q');
+      gitIn(root, 'remote', 'add', 'origin', `https://github.com/owner/${name}.git`);
+    }
+  });
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('admits --repo <other> when local 10 belongs to the first repo', async () => {
+    const db = twoRepoDb('first-owns-ten', [[10, 'first', 3151]]);
+    assert.equal(await verdict(db, CREATE_OTHER), '');
+    assert.ok((await verdict(db, "gh pr create --title t --body 'Closes #10'")).includes('#10 → #3151 (GitHub)'), 'the cwd repo still judges a command with no --repo');
+  });
+
+  it("admits --repo <other> when 10 is the other repo's remote iid of one of its local issues", async () => {
+    const db = twoRepoDb('other-iid-ten', [
+      [10, 'other', 3151],
+      [20, 'other', 10],
+    ]);
+    assert.equal(await verdict(db, CREATE_OTHER), '');
+    assert.equal(await verdict(db, "gh pr create -R owner/other --title t --body 'Closes #10'"), '');
+  });
+
+  it('denies --repo <other> when a local issue of the other repo has id 10 and a different remote iid', async () => {
+    const db = twoRepoDb('other-owns-ten', [
+      [10, 'other', 3151],
+      [20, 'first', 10],
+    ]);
+    assert.ok((await verdict(db, CREATE_OTHER)).includes('#10 → #3151 (GitHub)'));
+    assert.ok((await verdict(db, "gh pr create --repo=owner/other --title t --body 'Closes #10'")).includes('#10 → #3151 (GitHub)'));
+    assert.ok((await verdict(db, "gh pr create --title t --body 'Closes #10'", other)).includes('#10 → #3151 (GitHub)'), 'run in the other repo');
+  });
+
+  it('repoOption reads -R/--repo in each spelling, never a text value', () => {
+    assert.equal(repoOption('gh pr create --repo o/r --body x'), 'o/r');
+    assert.equal(repoOption('gh pr create --repo=o/r'), 'o/r');
+    assert.equal(repoOption('gh issue comment 1 -R o/r -b x'), 'o/r');
+    assert.equal(repoOption('gh issue comment 1 -Ro/r'), 'o/r');
+    assert.equal(repoOption('gh pr create --body see_--repo_o/r'), '');
+  });
+
+  it('admits a --repo that names no registered repo', async () => {
+    const db = twoRepoDb('unregistered', [[10, 'other', 3151]]);
+    assert.equal(await verdict(db, "gh pr create --repo owner/elsewhere --title t --body 'Closes #10'"), '');
   });
 });
