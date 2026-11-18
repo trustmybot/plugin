@@ -30,7 +30,8 @@ CREATE TABLE repos (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   path TEXT NOT NULL,
-  target_branch TEXT
+  target_branch TEXT,
+  mode TEXT CHECK (mode IS NULL OR mode IN ('truest','agile','exempt'))
 );
 CREATE TABLE tasks (
   id INTEGER PRIMARY KEY,
