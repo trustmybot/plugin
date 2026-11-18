@@ -38,7 +38,7 @@ The first bro turn on a project that isn't onboarded runs `/onboard` before any 
 | 1 | Always | Project shape: Local-only or Remote-tracked | no value of its own: Remote-tracked keeps each repo's remotes and the sync choice, Local-only removes the recorded remotes and turns issue sync off |
 | 2 | Remote shape, a re-onboard, or a workspace whose repos differ | Branching model and PR target (once, or per repo when they differ); then remotes | each repo's branching, PR target and remotes |
 | 3 | Remote shape | Issue sync | the issue-sync setting |
-| 4 | Always | Bash sandbox. Planned (GH 3360): the round is cut, and onboarding sets up no sandbox | the sandbox setting |
+| 4 | Always | Bash sandbox. Planned (GH 3360): the round is cut, and onboarding sets up no sandbox. Where TMB set one up before, the run asks once whether to keep it on or remove TMB's settings ([CONTAINMENT.md](CONTAINMENT.md)) | the sandbox setting |
 | 5 | Always | Opt-in TMB bug reports (flow 5.1) | the consent, no by default |
 | 5b | Always | The project review mode: truest, or agile on a long-lived feature branch ([AGILE.md](AGILE.md)); a stored mode is offered as Keep. Planned (GH 3281): bro recommends the project's mode, and the round then asks one mode per repo, truest, agile, exempt or the project's, each with bro's recommendation | the review mode, truest by default and untouched when the round is skipped; planned, agile by default, and each repo's mode |
 | 5c | Always | Whether TMB's pre-push hook is on or off for the project ([INSTALL.md](INSTALL.md#session-start)); a stored setting is offered as Keep. Only the Human sets it, here; no agent tool can change it | the pre-push setting, on by default and untouched when the round is skipped |
