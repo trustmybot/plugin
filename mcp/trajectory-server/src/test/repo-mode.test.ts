@@ -397,12 +397,16 @@ describe('stored task mode — tasks.workflow_mode admits exempt, the project ke
     truest.close();
   });
 
-  it('an unreviewed exempt close reads as not agile: closed_tasks_reviewed counts it, agile_review_queued does not', () => {
-    const db = tempDB();
-    closedTask(db, 'exempt', false);
-    const found = violations(db);
-    assert.deepEqual(found.find((v) => v.id === 'closed_tasks_reviewed'), { id: 'closed_tasks_reviewed', actual: 1 });
+  it('an unreviewed exempt close owes no review: neither closed_tasks_reviewed nor agile_review_queued counts it (GH 3281)', () => {
+    const exempt = tempDB();
+    const truest = tempDB();
+    closedTask(exempt, 'exempt', false);
+    closedTask(truest, 'truest', false);
+    const found = violations(exempt);
+    assert.equal(found.find((v) => v.id === 'closed_tasks_reviewed'), undefined);
     assert.equal(found.find((v) => v.id === 'agile_review_queued'), undefined);
-    db.close();
+    assert.deepEqual(violations(truest).find((v) => v.id === 'closed_tasks_reviewed'), { id: 'closed_tasks_reviewed', actual: 1 }, 'the same task stored truest is counted');
+    exempt.close();
+    truest.close();
   });
 });

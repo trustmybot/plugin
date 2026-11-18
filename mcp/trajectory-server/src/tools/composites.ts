@@ -103,7 +103,7 @@ import {
   specCriterionIds,
   SPAWN_NOTE_MAX_CHARS,
 } from '../success-criteria.js';
-import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, readWorkflowMode, type Effort } from './config.js';
+import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, resolveWorkflowMode, type Effort } from './config.js';
 import {
   applyReopenInTx,
   hasFailSinceLastPass,
@@ -477,19 +477,20 @@ export interface CloseScope {
 
 // Shared close path for bro_atomic_close + task_recover: in the caller's
 // transaction, advance a task to closed (writing bro_verification_pass,
-// stamping tasks.workflow_mode from readWorkflowMode and closing the task's
+// stamping tasks.workflow_mode with the task's resolveWorkflowMode and closing the task's
 // open agent_runs rows) and optionally report whether the parent issue is
 // ready to close at merge under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
-// row. Under workflow_mode 'agile' any closer instead queues an unreviewed
+// row. Under the task's mode 'agile' any closer instead queues an unreviewed
 // task for the grouped review with one review_queued row: a bypass row would
-// take it out of the review queue. Returns issue_closed (always false: the
+// take it out of the review queue. Under 'exempt' no review is owed, so
+// neither row is written. Returns issue_closed (always false: the
 // issue closes at merge), issue_close_deferred 'merge' when nothing holds the
 // issue, else issue_left_open with why, and whether the task was queued.
 function closeTaskInTx(
   db: TrajectoryDB,
-  task: { id: number; issue_id: number; branch_id: string; status: string; commit_sha: string | null },
+  task: { id: number; issue_id: number; branch_id: string; status: string; commit_sha: string | null; repo: string | null },
   commitSha: string,
   verificationSummary: string,
   now: string,
@@ -503,7 +504,7 @@ function closeTaskInTx(
   review_gate_bypassed: boolean;
   review_queued: boolean;
 } {
-  const workflowMode = readWorkflowMode(db);
+  const workflowMode = resolveWorkflowMode(db, task.repo);
   // 1. bro_verification_pass audit row — the review anchor of this commit;
   // bro_atomic_close adds the close-time scope record task_brief reads.
   insertAudit(db, {
@@ -522,7 +523,7 @@ function closeTaskInTx(
   let reviewQueued = false;
   if (workflowMode === 'agile') {
     reviewQueued = recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha }, now);
-  } else if (bypassClosedBy !== null) {
+  } else if (workflowMode === 'truest' && bypassClosedBy !== null) {
     reviewGateBypassed = recordReviewBypassIfUnreviewed(
       db,
       { ...task, commit_sha: commitSha },
@@ -588,7 +589,7 @@ interface ScopedTask {
 function taskScopeCheck(db: TrajectoryDB, task: ScopedTask, commitSha: string): { scope: ScopeCheck; repoPath: string | null } {
   const repoPath = resolveRepoPath(db, task.repo);
   const repoTarget = readRepoTargetBranch(db, task.repo);
-  const parentFirst = readWorkflowMode(db) === 'agile' && !!task.parent_branch_id && task.parent_branch_id !== repoTarget;
+  const parentFirst = resolveWorkflowMode(db, task.repo) === 'agile' && !!task.parent_branch_id && task.parent_branch_id !== repoTarget;
   const ordered = parentFirst ? [task.parent_branch_id, repoTarget] : [repoTarget, task.parent_branch_id];
   const targetCandidates = [...ordered, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
     (b): b is string => typeof b === 'string' && b.length > 0,
@@ -3819,9 +3820,10 @@ export function compositeTools(
               `Close the commit code-reviewer passed; new work goes through swe, review_handoff and a fresh review first.`,
           );
         }
-        // Under agile review mode an unreviewed task closes and is queued for
-        // the grouped review; every other gate below still applies.
-        if (readWorkflowMode(db) !== 'agile' && !taskHasPassingReview(db, task.id)) {
+        // Under the task's mode agile an unreviewed task closes and is queued
+        // for the grouped review, and under exempt it owes no review; every
+        // other gate below still applies.
+        if (resolveWorkflowMode(db, task.repo) === 'truest' && !taskHasPassingReview(db, task.id)) {
           return err(
             `review_pass_missing: task ${task.id} has no passing code-reviewer verdict recorded after its review_handoff for commit ${commitSha}. ` +
               `Call review_handoff(task_id=${task.id}, session_id=...), spawn the reviewer_spawn it returns, and retry bro_atomic_close once the verdict is a pass; ` +
@@ -3959,7 +3961,8 @@ export function compositeTools(
               branch_id: string;
               status: string;
               commit_sha: string | null;
-            }>('SELECT id, issue_id, branch_id, status, commit_sha FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+              repo: string | null;
+            }>('SELECT id, issue_id, branch_id, status, commit_sha, repo FROM tasks WHERE id = ? LIMIT 1', [taskId]);
         if (taskId !== null && !task) return err(`No task with id=${taskId}`);
 
         const sweep = sweepStaleTasks(db, nowISO());

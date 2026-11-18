@@ -79,7 +79,7 @@ import { docChecks, type DocCheckFailure, gitText, nulFields, revParse } from '.
 import { classifyChange, classifyPath, PATH_CLASSES_FILE, readPathClasses } from '../path-classes.js';
 import { gitRun, isDir } from './lib/git.js';
 import { leakScan } from './lib/leak-scan.js';
-import { gateWorkflowMode, prTargetRef } from './lib/git-refs.js';
+import { gateResolveWorkflowMode, prTargetRef } from './lib/git-refs.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -701,13 +701,14 @@ async function taskPrTargetRef(db: string, taskId: string, worktree: string, env
     db,
     `SELECT 'row|' || COALESCE(t.parent_branch_id, '') || '|' || COALESCE((SELECT r.target_branch FROM repos r
               WHERE r.name = t.repo OR (COALESCE(t.repo, '') = '' AND (SELECT COUNT(*) FROM repos) = 1) LIMIT 1), '')
+              || '|' || COALESCE(t.repo, '')
        FROM tasks t WHERE t.id = ${taskId} LIMIT 1;`,
     env,
   );
   if (row === GATE_READ_ERROR) return GATE_READ_ERROR;
-  const workflowMode = gateWorkflowMode(db, env);
+  const [, parentBranch = '', targetBranch = '', taskRepo = ''] = row.split('|');
+  const workflowMode = gateResolveWorkflowMode(db, taskRepo, env);
   if (workflowMode === GATE_READ_ERROR) return GATE_READ_ERROR;
-  const [, parentBranch = '', targetBranch = ''] = row.split('|');
   return await prTargetRef(worktree, targetBranch, parentBranch, workflowMode, env);
 }
 

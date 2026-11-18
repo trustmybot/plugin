@@ -22,6 +22,7 @@ import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-veri
 import { requireRoles } from '../middleware/agent-scope.js';
 import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, batchReviewedSql, featureBranchTaskSql, reviewBatchKey, waivedSql } from '../review-sql.js';
 import { batchReviewerSpawn, type ReviewerSpawn } from '../reviewer-effort.js';
+import { isStoredAgile } from '../stored-mode.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { diffNameStatus, isAncestor, mergeBase, revParseCommit } from '../utils/git-objects.js';
 import { resolveBaseRef } from '../utils/git-refs.js';
@@ -354,7 +355,7 @@ const BATCH_TASK_SQL = `SELECT t.id, t.issue_id, t.status, t.workflow_mode, t.co
 // The allowlist checks that need no git: why <row> may not be batch-reviewed, or null.
 function batchTaskStateRefusal(row: BatchTaskRow): string | null {
   if (row.status !== 'closed') return `not_closed (status ${row.status})`;
-  if (row.workflow_mode !== 'agile') return `not_agile (workflow_mode ${row.workflow_mode ?? 'null'})`;
+  if (!isStoredAgile(row.workflow_mode)) return `not_agile (workflow_mode ${row.workflow_mode ?? 'null'})`;
   if (row.queued !== 1) return 'not_queued: no bro review_queued row names its current commit';
   if (row.batch_reviewed === 1) return 'already_batch_reviewed';
   if (row.waived === 1) return 'already_waived: a bro review_waived row names its current commit';

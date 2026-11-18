@@ -40,7 +40,7 @@ import { closeLintsPlan, taskNoCodeClass } from './lib/close-lints.js';
 import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, realdir, repoPathAbs, sqlInt, sqlQuote } from './lib/db.js';
 import { gitText, listed, revParse } from './lib/doc-checks.js';
-import { gateWorkflowMode, prTargetRef } from './lib/git-refs.js';
+import { gateResolveWorkflowMode, prTargetRef } from './lib/git-refs.js';
 import { latestLintRun } from './lib/lint-runs.js';
 import { structuredDenyResult, type DenyFix } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
@@ -124,7 +124,7 @@ async function lintBaseFailure(
   }
   const targetRow = gateRead(db, `SELECT COALESCE(target_branch, '') FROM repos WHERE name = '${sqlQuote(repo.name)}';`, env);
   if (targetRow === GATE_READ_ERROR) return GATE_READ_ERROR;
-  const workflowMode = gateWorkflowMode(db, env);
+  const workflowMode = gateResolveWorkflowMode(db, repo.name, env);
   if (workflowMode === GATE_READ_ERROR) return GATE_READ_ERROR;
   const targetRef = await prTargetRef(repo.root, targetRow.split('\n')[0], task.parentBranch, workflowMode, env);
   const targetTip = targetRef === null ? null : await revParse(repo.root, targetRef, env);

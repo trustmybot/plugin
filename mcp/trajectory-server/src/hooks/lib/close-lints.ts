@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { dbWrite, type WriteResult } from './audit.js';
 import { gateRead, GATE_READ_ERROR } from './db.js';
 import { gitText } from './doc-checks.js';
-import { gateWorkflowMode, prTargetRef } from './git-refs.js';
+import { gateResolveWorkflowMode, prTargetRef } from './git-refs.js';
 import { CLOSE_LINTS_PATH, lintFingerprint } from './lint-fingerprint.js';
 import { type CloseLint, type CloseLints, latestLintRun, lintRunFinishSql, lintRunResultSql, lintRunStartSql, type LintRunSource, parseCloseLints } from './lint-runs.js';
 
@@ -112,14 +112,13 @@ export async function lintBaseSha(repo: string, db: string, taskId: string, sha:
   if (!/^[0-9]+$/.test(taskId)) return '';
   const row = gateRead(
     db,
-    `SELECT COALESCE((SELECT target_branch FROM repos WHERE name = t.repo), '') || '|' || COALESCE(t.parent_branch_id, '') FROM tasks t WHERE t.id = ${taskId};`,
+    `SELECT COALESCE((SELECT target_branch FROM repos WHERE name = t.repo), '') || '|' || COALESCE(t.repo, '') || '|' || COALESCE(t.parent_branch_id, '') FROM tasks t WHERE t.id = ${taskId};`,
     env,
   );
   const line = row === GATE_READ_ERROR ? '' : row.split('\n')[0];
-  const bar = line.indexOf('|');
-  const target = bar < 0 ? '' : line.slice(0, bar);
-  const parent = bar < 0 ? '' : line.slice(bar + 1);
-  const workflowMode = gateWorkflowMode(db, env);
+  const [target = '', taskRepo = '', ...parentParts] = line.split('|');
+  const parent = parentParts.join('|');
+  const workflowMode = gateResolveWorkflowMode(db, taskRepo, env);
   if (workflowMode === GATE_READ_ERROR) return '';
   const ref = await prTargetRef(repo, target, parent, workflowMode, env);
   if (ref === null) return '';

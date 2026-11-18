@@ -18,7 +18,7 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
-import { EFFORT_LEVELS, computeEffort, isEffort, readWorkflowMode, type Effort, type EffortReason } from './config.js';
+import { EFFORT_LEVELS, computeEffort, isEffort, resolveWorkflowMode, type Effort, type EffortReason } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import {
@@ -1549,14 +1549,15 @@ export function taskTools(db: TrajectoryDB): {
           : task.checkpoint;
 
       db.transaction(() => {
-        // Under workflow_mode 'agile' an unreviewed close is queued for the
-        // grouped review, as bro_atomic_close does, and the task is stamped
-        // agile so the queue reads it; otherwise it is recorded as a bypass.
+        // Under the task's mode 'agile' an unreviewed close is queued for the
+        // grouped review, as bro_atomic_close does; an exempt task owes no
+        // review; under truest it is recorded as a bypass. The close stamps the
+        // mode it resolved, so the queue and the gates read it later.
         const closing = status === 'closed' && task.status !== 'closed';
-        const agileClose = closing && readWorkflowMode(db) === 'agile';
-        if (agileClose) {
+        const closeMode = closing ? resolveWorkflowMode(db, task.repo) : null;
+        if (closeMode === 'agile') {
           recordReviewQueuedIfUnreviewed(db, { ...task, commit_sha: commitSha ?? task.commit_sha ?? null }, now);
-        } else if (closing) {
+        } else if (closeMode === 'truest') {
           recordReviewBypassIfUnreviewed(
             db,
             { ...task, commit_sha: commitSha ?? task.commit_sha ?? null },
@@ -1576,7 +1577,7 @@ export function taskTools(db: TrajectoryDB): {
             [status, now, completedAt, completionReport, checkpoint, taskId],
           );
         }
-        if (agileClose) db.run(`UPDATE tasks SET workflow_mode = 'agile' WHERE id = ?`, [taskId]);
+        if (closeMode !== null) db.run(`UPDATE tasks SET workflow_mode = ? WHERE id = ?`, [closeMode, taskId]);
         if (TERMINAL_TASK_STATUSES.has(status)) {
           closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));
         }
