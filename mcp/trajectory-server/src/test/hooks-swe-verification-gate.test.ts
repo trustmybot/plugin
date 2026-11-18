@@ -18,7 +18,7 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -39,7 +39,7 @@ import {
   VERIFICATION_DEFAULT_S,
   VERIFICATION_MAX_S,
 } from '../hooks/swe-verification-gate.js';
-import { acquireSuiteSlot } from '../suite-lock.js';
+import { acquireSuiteSlot, groupAlive, readHolder } from '../suite-lock.js';
 import { buildVerificationSandbox } from './hooks-swe-verification-parity.suite.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -197,10 +197,12 @@ describe('swe-verification-gate suite-slot lock (GH 2092)', { timeout: 120_000 }
   const RUN_ALL = `#!/usr/bin/env bash
 stamp() { perl -MTime::HiRes=time -e 'printf "%d", time * 1000'; }
 printf 'start %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
+if [ -n "\${LEADER_FILE:-}" ]; then printf '%s' "$$" > "$LEADER_FILE.tmp" && mv "$LEADER_FILE.tmp" "$LEADER_FILE"; fi
 sleep "\${HOLD_S:-0}"
 printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
 `;
   const TASKS: { id: number; slug: string; verification: string[] }[] = [
+    { id: 55, slug: 'suite-signal', verification: ['bash tests/run-all.sh S'] },
     { id: 50, slug: 'suite-a', verification: ['bash tests/run-all.sh A'] },
     { id: 51, slug: 'suite-b', verification: ['bash tests/run-all.sh B'] },
     { id: 52, slug: 'suite-busy', verification: ['bash tests/run-all.sh C'] },
@@ -286,8 +288,9 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     }
   };
   interface GateChild {
+    child: ChildProcess;
     stderr: () => string;
-    done: Promise<{ stdout: string; stderr: string }>;
+    done: Promise<{ stdout: string; stderr: string; code: number | null }>;
   }
   const gateChild = (taskId: number, e: NodeJS.ProcessEnv): GateChild => {
     const script = `const { sweVerificationGate } = await import(process.argv[1]); const r = await sweVerificationGate(process.argv[2], process.env); process.stdout.write(r.stdout);`;
@@ -299,7 +302,7 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     let stderr = '';
     child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
     child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
-    return { stderr: () => stderr, done: new Promise((ok) => child.on('exit', () => ok({ stdout, stderr }))) };
+    return { child, stderr: () => stderr, done: new Promise((ok) => child.on('exit', (code) => ok({ stdout, stderr, code }))) };
   };
   const waitFor = async (what: string, ok: () => boolean): Promise<void> => {
     const deadline = Date.now() + 30_000;
@@ -368,6 +371,26 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
     assert.deepEqual(await sweVerificationGate(completion(53), env({ TMB_VERIFICATION_TIMEOUT_S: '60' })), ALLOWED);
     assert.deepEqual(runs(53), [{ exit_code: 0, timed_out: 0 }]);
     assert.equal(existsSync(join(lockRoot, 'slot-0')), false);
+  });
+  it('GH 3249: SIGTERM to the gate mid-command stops the command process group and releases the suite slot', async () => {
+    // The gate's `bash -c` execs the script, so the script's own pid leads the command's process group.
+    const leaderFile = join(base, 'leader-55');
+    const g = gateChild(55, env({ TMB_VERIFICATION_TIMEOUT_S: '300', HOLD_S: '300', LEADER_FILE: leaderFile }));
+    let pgid = 0;
+    try {
+      await waitFor('the command to start', () => existsSync(leaderFile));
+      pgid = Number(readFileSync(leaderFile, 'utf8'));
+      assert.ok(groupAlive(pgid), `pid ${pgid} leads a live process group`);
+      assert.equal(readHolder(join(lockRoot, 'slot-0'))?.pid, g.child.pid);
+      g.child.kill('SIGTERM');
+      const { code } = await g.done;
+      assert.equal(code, 143);
+      await waitFor(`process group ${pgid} to go`, () => !groupAlive(pgid));
+      assert.equal(existsSync(join(lockRoot, 'slot-0')), false);
+    } finally {
+      g.child.kill('SIGKILL');
+      if (pgid > 0 && groupAlive(pgid)) process.kill(-pgid, 'SIGKILL');
+    }
   });
   it('runs a targeted command with no wait while the slot is held', async () => {
     const held = await acquireSuiteSlot({ command: 'npm test', worktree: '/w/other', env: env() });

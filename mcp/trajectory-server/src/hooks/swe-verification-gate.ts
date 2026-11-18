@@ -54,7 +54,11 @@
  * writes have their own per-write and pooled budgets, and the finish write is
  * tried three times. timed_out is 1 only when the gate's own timer fired or
  * the budget was spent before a command started; a timed-out command's
- * process group is killed.
+ * process group is stopped (SIGTERM, then SIGKILL after a grace, so a nested
+ * test-run frees its own slot). While a command runs, SIGTERM, SIGINT or
+ * SIGHUP to the gate stops that command's group and releases the gate's
+ * suite slot before the gate exits 128 + the signal (GH 3249), so a killed
+ * hook leaves no orphaned suite holding the slot.
  *
  * When a command or probe is a full suite (isFullSuite), the run first takes a
  * suite slot (suite-lock.ts, GH 2092), exported to the commands as
@@ -90,7 +94,7 @@ import { normalizeRole } from './lib/role.js';
 import { planCarrySafe } from './lib/verification-carry.js';
 import { reusableRun, runCommandSql, runFinishSql, runStartSql, shellLength } from './lib/verification-runs.js';
 import { rawOrEmpty } from './swe-brief-gate.js';
-import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
+import { acquireSuiteSlot, describeHolder, isFullSuite, stopProcessGroup, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { describeSetupFailure, runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 
 export const GATE_NAME = 'swe-verification-gate';
@@ -134,6 +138,32 @@ const stderr = (text: string): void => {
 };
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+
+const GATE_STOP_SIGNALS: readonly NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
+/** What a stop signal to the gate cleans up before it exits: the running commands' process groups and the held suite slots. */
+const onStop = { groups: new Set<number>(), slotReleases: new Set<() => void>(), signal: null as NodeJS.Signals | null };
+
+async function stopOnSignal(signal: NodeJS.Signals): Promise<void> {
+  if (onStop.signal !== null) return;
+  onStop.signal = signal;
+  await Promise.all([...onStop.groups].map((pgid) => stopProcessGroup(pgid)));
+  for (const release of onStop.slotReleases) release();
+  process.exit(128 + (signals[signal] ?? 0));
+}
+
+const onGateSignal = (signal: NodeJS.Signals): void => {
+  void stopOnSignal(signal);
+};
+
+/** Tracks a running command's process group; the gate handles the stop signals while any group is tracked. Returns the untrack. */
+function trackGroup(pgid: number): () => void {
+  if (onStop.groups.size === 0) for (const s of GATE_STOP_SIGNALS) process.on(s, onGateSignal);
+  onStop.groups.add(pgid);
+  return () => {
+    onStop.groups.delete(pgid);
+    if (onStop.groups.size === 0) for (const s of GATE_STOP_SIGNALS) process.off(s, onGateSignal);
+  };
+}
 
 /** `${s%%|*}`. */
 function beforeBar(s: string): string {
@@ -434,13 +464,20 @@ class VerificationRun {
 
   private execute(command: string, seconds: number, outPath: string): Promise<{ rc: number; fired: boolean }> {
     return new Promise((done) => {
+      // A stop signal is ending the gate: start nothing it would leave behind.
+      if (onStop.signal !== null) {
+        done({ rc: 128 + (signals[onStop.signal] ?? 0), fired: false });
+        return;
+      }
       const fd = openSync(outPath, 'w');
       let fired = false;
       let settled = false;
+      let untrack = (): void => undefined;
       const finish = (rc: number): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        untrack();
         done({ rc, fired });
       };
       const child = spawn('bash', ['-c', command], {
@@ -450,13 +487,10 @@ class VerificationRun {
         detached: true,
       });
       closeSync(fd);
+      if (child.pid !== undefined) untrack = trackGroup(child.pid);
       const timer = setTimeout(() => {
         fired = true;
-        try {
-          if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          /* already gone */
-        }
+        if (child.pid !== undefined) void stopProcessGroup(child.pid);
       }, seconds * 1000);
       child.on('error', () => finish(127));
       child.on('exit', (code, signal) => {
@@ -934,13 +968,17 @@ async function verifyCompletion(payload: string, env: NodeJS.ProcessEnv, docNote
           { allowed: "task_update_status(status='completed', commit_sha, report) again once that suite finishes" },
         );
       }
+      if (slot.kind === 'held') onStop.slotReleases.add(slot.release);
       try {
         const reusedAfterSlot = reuse();
         if (reusedAfterSlot !== null) return reusedAfterSlot;
         const env = slot.kind === 'held' ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
         return await setupThenRun({ ...ctx, env });
       } finally {
-        if (slot.kind === 'held') slot.release();
+        if (slot.kind === 'held') {
+          onStop.slotReleases.delete(slot.release);
+          slot.release();
+        }
       }
     };
     const closeLints = async (verified: string): Promise<string> => {
