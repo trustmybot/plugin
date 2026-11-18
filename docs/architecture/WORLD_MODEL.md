@@ -56,14 +56,14 @@ flowchart TD
 A capability or a repo added out of band shows up at the next full scan, so the [cheatcode lifecycle](CHEATCODES.md) sees it. A server reconnect on a built map only brings each known repo forward; it discovers nothing new.
 
 - **One writer per repo.** A second full scan is refused while one runs. A read that arrives during another session's reindex is answered at once from the current map, with the changed paths marked stale. A task spawn waits for the reindex, up to a fixed limit.
-- **A failed or killed scan changes nothing.** The old map stays. A scan that passes its time limit stops and releases its lock, a reindex killed midway is marked failed at the next server connect, and the next trigger retries.
+- **A failed or killed scan changes nothing.** The old map stays. A full rebuild is the exception today: it keeps the stages that succeeded, records the one that failed and still marks the map current, where an incremental reindex rolls back whole. A scan that passes its time limit stops and releases its lock, a reindex killed midway is marked failed at the next server connect, and the next trigger retries.
 - **Offline.** The target branch is fetched at most once per fixed interval per repo, and always at a task provision. When the fetch fails, the last fetched commit is the target.
 - **Full rebuild of one repo.** Besides a failed incremental reindex, a repo is rebuilt in full when its recorded commit is gone, when its index was built by an older indexer, or when the daily comparison against a clean rebuild finds a difference.
 - **A renamed repo is recognized.** A repo directory renamed since the last scan is recorded as a rename, not registered as a new repo.
 
 ## Task overlay
 
-Planned (GH 2957). The shared index holds only what has merged into the target branch, so a task's own code is invisible to it until the PR merges. The overlay makes the task's commit readable through the world model for the agents working on that task, without touching the shared index.
+The shared index holds only what has merged into the target branch, so a task's own code is invisible to it until the PR merges. The overlay makes the task's commit readable through the world model for the agents working on that task, without touching the shared index.
 
 ```mermaid
 flowchart TD
@@ -74,17 +74,20 @@ flowchart TD
     O -- no --> S[Answer from the shared index]
     N[A read with no task] --> S
     C --> D{What happens to the task?}
-    D -- closes again, or its commit moves in a rebase --> B
-    D -- its PR merges --> X[Overlay dropped; the shared index now holds the code]
-    D -- superseded or cancelled --> X
-    B -- the build fails --> F[No overlay; the failure is recorded, and the reads fall back to the shared index]
+    D -- "closes again; or its commit moved, seen at the next read" --> B
+    D -- the shared index reaches a commit that contains the task's work --> X[Overlay dropped; the shared index now holds the code]
+    D -- escalated, retried, or its issue closes --> X
+    B -- the build fails --> F[No overlay; the failure is logged, and the reads fall back to the shared index]
 ```
 
 - **Built at the close, not at provision.** Provision brings the shared index forward at the task's base. The overlay is built when the author closes the task, from the commit, so it is indexed from git like everything else.
 - **Sized by the diff.** Only the paths the commit changed are indexed, so the cost grows with the diff, not the repo.
 - **Scoped to its task.** A symbol that exists only on one task's branch resolves for reads that carry that task and for no other task.
-- **One overlay per task.** Each close replaces it with one for the new commit, and a rebase that moves the task's commit rebuilds it.
-- **Both task kinds.** A non-code task's overlay holds its files, with no symbols.
+- **One overlay per task.** Each close replaces it with one for the new commit. A rebase that moves the task's commit rebuilds it at the next read that carries the task, not at the rebase.
+- **Dropped at a reindex, not at the merge.** No step watches the PR. The overlay goes at the first reindex whose commit contains the task's work, and when the task is escalated, retried or closed with its issue.
+- **A read finds its task from the agent's open run.** An agent with exactly one open run reads through that task's overlay. With two open runs of the same agent kind, as in parallel lanes, the read is answered from the shared index and nothing says so; naming the task on the read is an open gap.
+- **Only a symbol read uses the overlay.** The map, search, concepts and the task brief answer from the shared index alone.
+- **Both task kinds.** A non-code task's overlay holds its files, with no symbols. No read uses those file rows yet.
 - **A failed build never blocks the close.** The reviewer then reads the diff from git, as it does today.
 - **It is cache.** The overlay holds no link into the workflow records, so it moves with the rest of the world model and can be rebuilt from the task's commit.
 
