@@ -188,7 +188,7 @@ describe('swe-boundary l3: Bash write shapes', () => {
   });
 
   it('GH 1272 one shared write-shape list: neither guard carries its own copy', () => {
-    for (const guard of ['swe-boundary', 'no-source-edit-from-main']) {
+    for (const guard of ['swe-boundary']) {
       const body = readFileSync(join(PLUGIN_ROOT, `mcp/trajectory-server/src/hooks/${guard}.ts`), 'utf8');
       hasNot(body, 'sed -i', `${guard} names no write shape itself`);
       hasNot(body, 'function isPromptSurface', `${guard} keeps no surface predicate of its own`);

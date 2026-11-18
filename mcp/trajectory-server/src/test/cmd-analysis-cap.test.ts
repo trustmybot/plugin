@@ -2,8 +2,8 @@
  * The write-path analyzer's work cap (GH 2090): a command is judged only if
  * its analysis finishes inside the bound, and past it writePaths prints the
  * cap line alone. Node's stack limit decides where a deep shape overflows, so
- * each shape is judged by outcome, not by depth. The gates' side of the cap is
- * in hooks-no-source-edit-from-main.test.ts and hooks-swe-boundary.test.ts.
+ * each shape is judged by outcome, not by depth. The gate's side of the cap is
+ * in hooks-swe-boundary.test.ts.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
