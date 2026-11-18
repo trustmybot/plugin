@@ -34,6 +34,10 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'src/hooks/router/decide.ts::run',
   // A memo entry holds its run for every caller that awaits it.
   'src/hooks/lib/git.ts::entry',
+  // The per-env memo holds one shared snapshot promise that every caller on that env awaits.
+  'src/hooks/lib/proc-table.ts::processTable',
+  // A signal listener cannot await; stopOnSignal ends the process and never rejects.
+  'src/hooks/swe-verification-gate.ts::onGateSignal',
 ]);
 
 const PROMISE_COMBINATORS: ReadonlySet<string> = new Set(['all', 'allSettled', 'any', 'race']);

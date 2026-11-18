@@ -2,7 +2,7 @@
 
 Every case of flow 3.8 in [FLOWS.md](FLOWS.md): how TMB runs several independent streams of work as nested sessions, called lanes. Each lane runs its own bro, and a parent bro keeps the lanes from colliding and merges their PRs in order.
 
-One piece has shipped (GH 3020): every session that records an intent, creates or adopts an issue, or provisions a task is recorded as a lane with the issues it touched, and the restore after a compaction lists them. Today an issue may sit in several lanes. Everything else below is planned (epic GH 3024), and each step names the issue that builds it. Sessions as records of their own, with a start, an end and a parent, are planned in GH 3255; a lane is then a session with owned issues and a priority.
+One piece has shipped (GH 3020): every session that records an intent, creates or adopts an issue, or provisions a task is recorded as a lane with the issues it touched, and the restore after a compaction lists them. Today an issue may sit in several lanes. Everything else below is planned (epic GH 3024), and each step names the issue that builds it. Recording each session as its own record, with a start, an end and a parent, is planned in GH 3255. A lane is then a session with owned issues and a priority.
 
 ## Scope
 
@@ -40,7 +40,7 @@ flowchart LR
     E -. Human wants it permanent .-> G[Planned: a project merge-policy setting, GH 3148]
 ```
 
-- **No choice, no merge.** A lane PR whose run has no recorded merge choice is not merged; bro asks the Human. Planned: GH 3148.
+- **No choice, no merge.** When a lane run has no recorded merge choice, its PRs are not merged, and bro asks the Human. Planned: GH 3148.
 - **The choice is the parent's.** It counts only in the parent session that recorded it, so a lane can't merge by citing it. Planned: GH 3148, enforced by the per-session approval gate in GH 3028.
 
 ## 2. Split, check conflicts, set priority
@@ -65,12 +65,12 @@ flowchart LR
 ```
 
 - **One owner per issue.** Each issue belongs to at most one lane. Ownership always binds, and it lapses when the owner's lane is done or archived or its session has ended, so a frozen lane keeps its issues and a finished one frees them. An issue no lane owns is open to any session. When single ownership ships, an open issue that already sits in several lanes goes to the lane whose session most recently ran work on it, and a closed issue keeps no owner. Planned: GH 3025.
-- **An issue can be transferred.** The Human moves an issue from one lane to another in the hub; the record names both lanes and the request, and the losing lane keeps the issue in its history. A lane bro never takes an issue on its own.
+- **An issue can be transferred.** The Human moves an issue from one lane to another in the hub; the record names both lanes and the request, and the lane that gave up the issue keeps it in its history. A lane bro never takes an issue on its own.
 - **Two lanes can be merged.** The Human can fold one lane into another: its issues, its open tasks and its queue entries move to the lane that stays, the folded lane is archived with the merge as the cause, and its session stops taking tasks. When the two lanes have different review modes, bro asks the Human which one the merged lane keeps.
-- **Dependencies cross lanes.** An issue may be blocked by an issue another lane owns. A dependency that would close a cycle is refused and goes to the Human. Planned: GH 3026.
+- **Dependencies cross lanes.** An issue may be blocked by an issue another lane owns. A dependency that would make issues block each other in a circle is refused and goes to the Human. Planned: GH 3026.
 - **Schema versions are reserved up front**, in priority order, so two lanes never claim the same number. A lane that needs a migration nobody foresaw takes the next free version when it needs one. A version already used in a commit never moves when priorities change. Planned: GH 3027.
-- **Priority** is a tier, High, Medium or Low, plus an optional rank inside the tier when there are many lanes. The merge queue orders by tier, then rank, then the time a PR was queued. It also orders the schema reservations. Planned: GH 3025, or GH 3148 if GH 3025 ships without it.
-- **Review mode** is truest or agile per lane ([AGILE.md](AGILE.md)). The question opens with the default, such as "Default: truest (global review mode)". bro recommends a mode for each lane and shows the lanes it suggests for the other mode, already selected, with a one-line reason each: a prototype or MVP lane may go agile, while a bug-fix lane keeps truest. The Human accepts the set in one answer or edits it, and a lane left unselected takes the global mode. One question offers at most four choices, so with more than four lanes bro splits them across up to four questions, or asks with a checklist in prose. An agile lane builds on its own long-lived feature branch, and that branch enters the merge queue as one PR once its review passes or the Human waives it. Planned: GH 3025, with the lane lookup at the close and the lane's feature branch in GH 2225.
+- **Priority** is a tier, High, Medium or Low, plus an optional rank inside the tier when there are many lanes. The merge queue orders by tier, then rank, then the time a PR was queued. Priority also sets the order of the schema reservations. Planned: GH 3025, or GH 3148 if GH 3025 ships without it.
+- **Review mode** is truest or agile per lane ([AGILE.md](AGILE.md)). The question opens with the default, such as "Default: truest (global review mode)". bro recommends a mode for each lane. In the question, the lanes it suggests for the other mode come already selected, each with a one-line reason: a prototype or MVP lane may go agile, while a bug-fix lane keeps truest. The Human accepts the set in one answer or edits it, and a lane left unselected takes the global mode. One question offers at most four choices, so with more than four lanes bro splits them across up to four questions, or asks with a checklist in prose. An agile lane builds on its own long-lived feature branch, and that branch enters the merge queue as one PR once its review passes or the Human waives it. Planned: GH 3025, with the lane lookup at the close and the lane's feature branch in GH 2225.
 
 ## 3. Start the lanes
 
@@ -91,7 +91,7 @@ flowchart LR
 
 - **The brief** holds the lane's owned issues, its priority, its review mode, its feature branch when the lane is agile, the merge choice, its branch naming and any reviewer rule that applies to its PRs.
 - **Where a lane session runs.** Each lane session starts in the shared main checkout, which stays on the working branch. Only its tasks' worktrees hold changes, so lanes never switch the checkout under each other.
-- **One hub.** bro in a main session is the hub of a lane run: any session started directly under the project's root, not one particular session. It holds the merge choice and the one merge queue, and every lane reports to it, as nested sessions report to the session that started them. When the hub session is gone, the next main session under the root is the hub: it reads the run and its queue from the record and asks the Human for the merge choice once more, because an approval does not carry from one session to another, and showing what it restored tells the Human nothing was lost.
+- **One hub.** The hub of a lane run is bro in a main session. A main session is any session started directly under the project's root, so the hub is not one particular session. It holds the merge choice and the one merge queue, and every lane reports to it, as nested sessions report to the session that started them. When the hub session is gone, the next main session under the root is the hub: it reads the run and its queue from the record and asks the Human for the merge choice once more, because an approval does not carry from one session to another, and showing what it restored tells the Human nothing was lost.
 - **Nesting is the host's call.** TMB neither allows nor forbids a lane starting a session of its own: Claude Code decides, and asks the Human. A session started under a lane is recorded with its parent and works inside its parent's lane: it shares that lane's issues, review mode and priority, and its PRs still go to the hub's queue.
 - **Lanes need a stable session id and the hub's project.** bro proposes lanes only where the host gives each session an id that survives a rename, a clear and a compaction, which the desktop app does. A lane's name is a label looked up by that id, so a rename shows everywhere the name is read. A lane also runs only where it shares the hub's project folder and trajectory DB, so bro never proposes a cloud or remote-host lane.
 - **Lanes do not wait for file leases.** Until leases ship, the only guard against two lanes editing one file is how bro groups the issues, so bro arranges lanes for the fewest conflicts: it reads each issue's likely files from the world model, keeps issues that touch the same files in one lane, and tells the Human which overlaps it could not remove. The procedure for this is not in bro's prompts yet (GH 3307).
@@ -101,7 +101,7 @@ flowchart LR
 
 ## 4. Inside a lane
 
-A lane is a normal 3.1, 3.2 or 3.9 run, except that setting up a task respects other lanes' claims. A refusal becomes a recorded blocker, and the lane moves on to other work rather than negotiating over messages.
+A lane runs flow 3.1, 3.2 or 3.9 as usual, with one difference: when it sets up a task, it respects what other lanes have claimed. When a claim blocks a task, the lane records the blocker and moves on to other work instead of negotiating over messages.
 
 ```mermaid
 flowchart LR
@@ -150,9 +150,9 @@ flowchart LR
 
 - **The queue** records each lane PR with its lane, priority and state: queued, held, returned, awaiting the Human or merged. A returned PR keeps its priority. Planned: GH 3148.
 - **A conflict is rework, not a rebase.** bro rebases a reviewed commit only when the patch stays the same ([GIT.md](GIT.md#rebasing-a-reviewed-task)). A PR that conflicts goes back to its lane as rework and is reviewed again.
-- **This queue is TMB's.** It orders lane PRs before they merge. Where the repo also uses the forge's merge queue, that queue runs after this one.
+- **This queue is TMB's.** It orders lane PRs before they merge. Where the repo also uses the merge queue of its hosting service, such as GitHub, that queue runs after this one.
 - **One queue per repo.** A lane's issues may sit in several repos, and each repo's PRs are ordered on their own.
-- **No remote, no queue entry.** In a repo with no remote a lane's reviewed branch stops ready, the Human merges it locally, and the queue records it as handed over.
+- **No remote, no queue entry.** In a repo with no remote, a lane's reviewed branch stays local and ready to merge. The Human merges it locally, and the queue records it as handed over.
 - **A merge closes the PR's issues**, which unblocks their dependents in other lanes. Planned: GH 3026.
 - **The queue is visible** on the dashboard's Lanes page, with lanes nested under their parent session. Planned: GH 3041 and GH 3028.
 

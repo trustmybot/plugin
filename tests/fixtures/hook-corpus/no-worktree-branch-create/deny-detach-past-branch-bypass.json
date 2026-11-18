@@ -3,6 +3,7 @@
   "tool_input": {
     "command": "git worktree add -b feat/x --detach ../x"
   },
+  "agent_type": "code-reviewer",
   "corpus_cwd": "project",
   "corpus_env": {
     "TMB_ALLOW_WORKTREE_BRANCH_CREATE": "1"

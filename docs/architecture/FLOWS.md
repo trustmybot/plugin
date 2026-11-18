@@ -1,8 +1,8 @@
 # TMB Workflows
 
-This file is the starting point for every flow: one chart each for its ideal case, a short description, and a link to the detail page that holds every other case, failures included, and how to debug them. A flow whose chart says everything has no detail page. Who owns each quality check, and how a task hands from one owner to the next, is in [TASKS.md](TASKS.md#quality-layers).
+This file is the starting point for every flow. Each flow gets one chart of its ideal case, a short description, and a link to its detail page. The detail page holds every other case, failures included, and how to debug them. A flow whose chart says everything has no detail page. Who owns each quality check, and how a task hands from one owner to the next, is in [TASKS.md](TASKS.md#quality-layers).
 
-It is the ground truth for the workflow: it describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its chart here, and its detail page, in the same PR. Neither names a hook, gate, tool or symbol: what enforces a step is the world model's answer, and the logic is the code's.
+It is the ground truth for the workflow: it describes what ships and marks unshipped behaviour as planned, with its GitHub issue. A PR that changes a flow updates its chart here, and its detail page, in the same PR. Neither names a hook, gate, tool or symbol. The world model says what enforces a step, and the code holds the logic.
 
 Flows are grouped by when they run, and numbered within their group.
 
@@ -48,7 +48,7 @@ On a new project the server's first connect starts the scan (2.2) in the backgro
 
 ### 2.1 First contact
 
-The first bro turn on a project that isn't onboarded runs `/onboard` before any reply. bro asks in rounds, and the workspace answers land in one transaction with the onboarded marker; each repo's verification defaults and path classes are written as files for the Human to commit. [ONBOARD.md](ONBOARD.md) covers each round and when it runs.
+The first bro turn on a project that isn't onboarded runs `/onboard` before any reply. bro asks in rounds. The workspace answers and the onboarded marker are saved together, in one transaction. Each repo's verification defaults and path classes are written as files for the Human to commit. [ONBOARD.md](ONBOARD.md) covers each round and when it runs.
 
 ```mermaid
 flowchart LR
@@ -102,7 +102,7 @@ flowchart LR
 
 ### 3.2 Non-code task
 
-A docs or prompts change bro writes itself, in a task worktree marked with that kind; code-reviewer grades it with the doc-review skill; bro self-checks with the same skill before review.
+bro writes a docs or prompts change itself, in a task worktree marked with that kind. bro self-checks it with the doc-review skill before review, and code-reviewer then grades it with the same skill.
 
 ```mermaid
 flowchart LR
@@ -159,7 +159,7 @@ flowchart LR
 
 ### 3.7 Bulk cleanup
 
-When the Human's prompt names what to delete, bro does it in one step with no re-confirmation: defensive checks belong before the Human authorizes, and re-asking treats a standing directive as a question. It covers what no task owns: untracked files, merged branches and stale worktrees. A tracked repo file is deleted through a task like any other change. bro audits what it deleted and the Human's words that authorized it.
+When the Human's prompt names what to delete, bro deletes it in one step and does not ask again. Any safety check belongs before the Human authorizes, and asking again would treat an instruction the Human already gave as a question. It covers what no task owns: untracked files, merged branches and stale worktrees. A tracked repo file is deleted through a task like any other change. bro records in the audit log what it deleted and the Human's words that authorized it.
 
 ```mermaid
 flowchart LR
@@ -187,7 +187,7 @@ flowchart LR
 
 ### 3.9 Agile mode
 
-Shipped for the project review mode; lane review modes are planned (GH 3025). The review mode, truest or agile, decides who reviews a task and when. /onboard sets it for the project, and a lane may take its own at its start. Agile work builds up on one long-lived feature branch per milestone, such as an MVP, pushed to origin only as a backup, with no PR, so no CI or review runs on it. The Human tries it in a separate worktree, never by switching the shared checkout, which every lane reads on the working branch. bro closes each task without a code-reviewer pass, still judging swe's report and the architecture fit, folds it into the feature branch locally and deletes the task branch; the task is queued for review. An agile task's freshness, merge-base and scope checks use its feature branch as the base; the working branch is the base only for the milestone PR. At the milestone, bro syncs the working branch into the feature branch and fixes its conflicts once, and an optional periodic sync keeps that fix small. Then one batch review runs on the net diff against the working branch, in groups of tasks that changed overlapping files, and a passing group's tasks become batch-reviewed together. Only then does the branch go to the working branch as one PR, with one CI run and one merge-queue run, unless the Human waives the review. After the merge, TMB deletes the local branch, and the remote copy is deleted on merge. Truest is the default today; agile becomes the default, and onboarding will recommend a mode and ask one per repo (planned, GH 3281). [AGILE.md](AGILE.md) holds every case.
+Shipped for the project review mode; lane review modes are planned (GH 3025). The review mode, truest or agile, decides who reviews a task and when. /onboard sets it for the project, and a lane may take its own at its start. Agile work builds up on one long-lived feature branch per milestone, such as an MVP, pushed to origin only as a backup, with no PR, so no CI or review runs on it. The Human tries it in a separate worktree, never by switching the shared checkout, which every lane reads on the working branch. bro closes each task without a code-reviewer pass, though it still judges swe's report and the architecture fit. It then folds the task into the feature branch locally and deletes the task branch, and the task is queued for review. An agile task's freshness, merge-base and scope checks use its feature branch as the base; the working branch is the base only for the milestone PR. At the milestone, bro syncs the working branch into the feature branch and fixes its conflicts once, and an optional periodic sync keeps that fix small. Then one batch review runs on the net diff against the working branch, in groups of tasks that changed overlapping files, and a passing group's tasks become batch-reviewed together. Only then does the branch go to the working branch as one PR, with one CI run and one merge-queue run, unless the Human waives the review. After the merge, TMB deletes the local branch, and the remote copy is deleted on merge. Truest is the default today; agile becomes the default, and onboarding will recommend a mode and ask one per repo (planned, GH 3281). [AGILE.md](AGILE.md) holds every case.
 
 ```mermaid
 flowchart LR

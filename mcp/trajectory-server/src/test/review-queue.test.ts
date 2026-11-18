@@ -12,7 +12,9 @@ import { VERIFICATION_DEFAULTS_FILE } from '../tools/verification-defaults.js';
 import { tempDB } from './helpers.js';
 import { DATA_CONTRACTS, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
-import { groupQueuedTasks, pathsOverlap, reviewQueueTools } from '../tools/review-queue.js';
+import { groupQueuedTasks, handoffDeadlineS, MCP_TOOL_CEILING_S, pathsOverlap, reviewQueueTools } from '../tools/review-queue.js';
+import { parseBudget } from '../hooks/swe-verification-gate.js';
+import { WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 import { AGILE_PENDING_REVIEW_SQL, AGILE_QUEUED_SQL, featureBranchTaskSql, reviewBatchKey } from '../review-sql.js';
 import { closedTasksWithoutReview } from '../tools/lifecycle.js';
 import { SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
@@ -1100,7 +1102,17 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
   // main: base (a.txt, b.txt, c.txt, the close lints). feat/agile: c1 (a.txt), c2 (b.txt), c3 (a.txt), c4 (c.txt).
   // side: off base, no ancestor of feat/agile. feat/bad: off base, its close lint fails.
   // feat/suite-*: off base, a passing close lint and a stub verification-defaults suite each (feat/suite-lint-bad: a failing lint).
-  const SUITE_BRANCHES = ['feat/suite-ok', 'feat/suite-bad', 'feat/suite-lint-bad', 'feat/suite-full', 'feat/suite-invalid'] as const;
+  // feat/slow-*: setup or a close lint that outlives any short deadline (GH 3249).
+  const SUITE_BRANCHES = [
+    'feat/suite-ok',
+    'feat/suite-bad',
+    'feat/suite-lint-bad',
+    'feat/suite-full',
+    'feat/suite-invalid',
+    'feat/slow-setup-full',
+    'feat/slow-setup',
+    'feat/slow-lint',
+  ] as const;
   type SuiteBranch = (typeof SUITE_BRANCHES)[number];
   let repo: {
     root: string;
@@ -1158,6 +1170,21 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
         [VERIFICATION_DEFAULTS_FILE]: defaults(['bash tests/run-all.sh']),
       },
       'feat/suite-invalid': { [CLOSE_LINTS_PATH]: passingLint, [VERIFICATION_DEFAULTS_FILE]: JSON.stringify({ version: 2, commands: ['true'] }) },
+      'feat/slow-setup-full': {
+        'tests/run-all.sh': 'true\n',
+        [WORKTREE_SETUP_FILE]: defaults(['sleep 2']),
+        [CLOSE_LINTS_PATH]: passingLint,
+        [VERIFICATION_DEFAULTS_FILE]: defaults(['bash tests/run-all.sh']),
+      },
+      'feat/slow-setup': {
+        [WORKTREE_SETUP_FILE]: defaults(['sleep 30']),
+        [CLOSE_LINTS_PATH]: lints({ name: 'marks', command: `touch '${join(markers, 'slow-setup-lint')}'` }),
+        [VERIFICATION_DEFAULTS_FILE]: defaults([`touch '${join(markers, 'slow-setup-suite')}'`]),
+      },
+      'feat/slow-lint': {
+        [CLOSE_LINTS_PATH]: lints({ name: 'slow', command: 'sleep 30' }),
+        [VERIFICATION_DEFAULTS_FILE]: defaults([`touch '${join(markers, 'slow-lint-suite')}'`]),
+      },
     };
     const suite = {} as Record<SuiteBranch, string>;
     for (const branch of SUITE_BRANCHES) {
@@ -1459,6 +1486,15 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
     }
   }
 
+  // A lock dir whose one slot this test process holds, so a full suite finds every slot busy.
+  function heldLockDir(): string {
+    const lockDir = mkdtempSync(join(tmpdir(), 'batch-handoff-lock-'));
+    mkdirSync(join(lockDir, 'slot-0'));
+    const holder = { pid: process.pid, pgid: null, worktree: '/elsewhere', command: 'bash tests/run-all.sh', started: iso() };
+    writeFileSync(join(lockDir, 'slot-0', 'holder'), JSON.stringify(holder));
+    return lockDir;
+  }
+
   async function suiteHandoff(db: TrajectoryDB, issue: number, branch: SuiteBranch): Promise<RawResult> {
     const t = seedMerged(db, issue, repo.base, repo.suite[branch], branch);
     return handoff(db, { feature_branch: branch, task_ids: [t] });
@@ -1529,12 +1565,10 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
 
     it('refuses suite_slot_busy when every suite slot stays held, and writes nothing', async () => {
       const { db, issue } = handoffDb();
-      const lockDir = mkdtempSync(join(tmpdir(), 'batch-handoff-lock-'));
+      const lockDir = heldLockDir();
       try {
-        mkdirSync(join(lockDir, 'slot-0'));
-        const holder = { pid: process.pid, pgid: null, worktree: '/elsewhere', command: 'bash tests/run-all.sh', started: iso() };
-        writeFileSync(join(lockDir, 'slot-0', 'holder'), JSON.stringify(holder));
-        const env = { TMB_SUITE_LOCK_DIR: lockDir, [SUITE_LOCK_HELD_ENV]: undefined, TMB_TEST_SUITE_SLOTS: '1', TMB_VERIFICATION_TIMEOUT_S: '1' };
+        // 3 s: the deadline now covers worktree add and setup too, and a step needs 1 s left to start.
+        const env = { TMB_SUITE_LOCK_DIR: lockDir, [SUITE_LOCK_HELD_ENV]: undefined, TMB_TEST_SUITE_SLOTS: '1', TMB_VERIFICATION_TIMEOUT_S: '3' };
         refused(await withEnv(env, () => suiteHandoff(db, issue, 'feat/suite-full')), 'suite_slot_busy');
         assert.equal(handoffRows(db), 0, 'no review_batch_handoff row');
         assertNoLintWorktree();
@@ -1553,6 +1587,70 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
       } finally {
         db.close();
       }
+    });
+  });
+
+  describe('GH 3249: the hand-off spends one deadline and refuses inside it', () => {
+    type BudgetBody = Refusal & {
+      message: string;
+      budget?: { step: string; spent_s: number; deadline_s: number; deadline_from: string; waited_s?: number };
+    };
+
+    // The refusal of a hand-off of <branch> under a <budgetS> verification budget; it writes no row and leaves no worktree.
+    async function budgetRefusal(branch: SuiteBranch, budgetS: number, error: string, env: Record<string, string | undefined> = {}): Promise<BudgetBody> {
+      const { db, issue } = handoffDb();
+      try {
+        const r = await withEnv({ TMB_VERIFICATION_TIMEOUT_S: String(budgetS), ...env }, () => suiteHandoff(db, issue, branch));
+        const body = refused(r, error) as BudgetBody;
+        assert.equal(handoffRows(db), 0, 'no review_batch_handoff row');
+        assertNoLintWorktree();
+        return body;
+      } finally {
+        db.close();
+      }
+    }
+
+    it('SC1: the suite slot wait gets what setup left of the one deadline, and refuses suite_slot_busy inside it', async () => {
+      const lockDir = heldLockDir();
+      try {
+        // Setup sleeps 2 s of the 5 s deadline, so the wait has at most 2 s (3 s left less the 1 s a suite needs to start).
+        // A wait given a fresh 5 s budget after setup would wait 4 s and end 6 s or more into the hand-off.
+        const env = { TMB_SUITE_LOCK_DIR: lockDir, [SUITE_LOCK_HELD_ENV]: undefined, TMB_TEST_SUITE_SLOTS: '1' };
+        const body = await budgetRefusal('feat/slow-setup-full', 5, 'suite_slot_busy', env);
+        const budget = body.budget;
+        assert.ok(budget !== undefined, body.message);
+        assert.equal(budget.step, 'suite slot wait');
+        assert.equal(budget.deadline_s, 5);
+        assert.ok(budget.spent_s <= budget.deadline_s, `refused with ${budget.spent_s}s spent of the ${budget.deadline_s}s deadline`);
+        assert.ok(budget.waited_s !== undefined && budget.waited_s + 2 <= budget.deadline_s, `the slot wait got a fresh budget: waited ${budget.waited_s}s`);
+        assert.match(body.message, /at the suite slot wait step every suite slot is held by pid/);
+        assert.match(body.message, /of the hand-off's 5s deadline spent; the deadline is min\(the 5s verification budget from TMB_VERIFICATION_TIMEOUT_S/);
+      } finally {
+        rmSync(lockDir, { recursive: true, force: true });
+      }
+    });
+
+    it('SC2: setup that runs out the deadline refuses budget_exhausted naming worktree setup; no lint or suite starts', async () => {
+      const body = await budgetRefusal('feat/slow-setup', 3, 'budget_exhausted');
+      assert.equal(body.budget?.step, 'worktree setup');
+      assert.equal(body.budget?.deadline_s, 3);
+      assert.match(body.budget?.deadline_from ?? '', /TMB_VERIFICATION_TIMEOUT_S/);
+      assert.match(body.message, /the worktree setup step ran past the deadline: [0-9]+s of the hand-off's 3s deadline spent/);
+      assert.equal(existsSync(join(repo.markers, 'slow-setup-lint')), false, 'no close lint started');
+      assert.equal(existsSync(join(repo.markers, 'slow-setup-suite')), false, 'no suite started');
+    });
+
+    it('SC2: a close lint that runs out the deadline refuses budget_exhausted naming close lints; the suite never starts', async () => {
+      const body = await budgetRefusal('feat/slow-lint', 3, 'budget_exhausted');
+      assert.equal(body.budget?.step, 'close lints');
+      assert.match(body.message, /the close lints step ran past the deadline/);
+      assert.equal(existsSync(join(repo.markers, 'slow-lint-suite')), false, 'no suite started');
+    });
+
+    it('SC2: a deadline under the 1 s a step needs refuses budget_exhausted before the worktree is added', async () => {
+      const body = await budgetRefusal('feat/suite-ok', 1, 'budget_exhausted');
+      assert.equal(body.budget?.step, 'worktree add');
+      assert.match(body.message, /under the 1s it needs to start/);
     });
   });
 
@@ -1586,5 +1684,18 @@ describe('GH 2225 T6a: review_batch_handoff', () => {
         db.close();
       }
     });
+  });
+});
+
+describe('GH 3249 SC3: the hand-off deadline is min(verification budget, MCP tool ceiling less a margin)', () => {
+  it('at verification_timeout_s=1800 the deadline is below the MCP tool ceiling', () => {
+    const budgetS = parseBudget('1800').timeoutS;
+    assert.equal(budgetS, 1800);
+    assert.ok(handoffDeadlineS(budgetS) < MCP_TOOL_CEILING_S, `deadline ${handoffDeadlineS(budgetS)}s is not under the ${MCP_TOOL_CEILING_S}s ceiling`);
+  });
+
+  it('a verification budget under the ceiling less the margin is the deadline as it is', () => {
+    assert.equal(handoffDeadlineS(300), 300);
+    assert.equal(handoffDeadlineS(parseBudget('').timeoutS), parseBudget('').timeoutS, 'the default budget fits under the ceiling');
   });
 });

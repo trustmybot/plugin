@@ -3,6 +3,7 @@
   "tool_input": {
     "command": "git worktree add --detach ../x"
   },
+  "agent_type": "swe",
   "corpus_cwd": "project",
   "corpus_expect": "strands SWE"
 }

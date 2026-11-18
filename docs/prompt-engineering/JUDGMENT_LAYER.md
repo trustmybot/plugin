@@ -62,10 +62,10 @@ Each shipped prompt carries only the wiring that makes TMB work: who the agent i
 
 | Test | Pass condition |
 |---|---|
-| **(A) Mechanism test** | Sequencing, defaulting, constraining, or measuring migrates to layers 1–5 ([`DETERMINISTIC_LAYER.md`](DETERMINISTIC_LAYER.md)). Only judgment stays. |
+| **(A) Mechanism test** | Any line that sequences, sets a default, constrains, or measures moves to layers 1–5 ([`DETERMINISTIC_LAYER.md`](DETERMINISTIC_LAYER.md)). Only judgment stays. |
 | **(B) If/else test** | Anything you can write as an if/else statement lives in hooks/MCP, never in prompt prose. |
 | **(C) Natural-language test** | If the Human cannot read a prompt line as natural language, it is machine-spec in disguise — migrate it or rewrite it. |
-| **(D) Placement test** | 100%-required judgment belongs in the always-loaded body; optional judgment in trigger-loaded skills; deterministic logic in code. |
+| **(D) Placement test** | Judgment needed on every run belongs in the always-loaded body, optional judgment in skills loaded on a trigger, and deterministic logic in code. |
 | **(E) Persona test** | Every agent opens with a plain-language sentence naming its job, not an expert title ("You execute one task spec assigned by bro."). |
 | **(F) Load-bearing test** | Every line drives a judgment, names a call, or states a constraint the reader acts on. No line sells the concept, narrates the skill's own purpose, restates the frontmatter, or repeats a point for emphasis. |
 
@@ -88,7 +88,7 @@ A prompt loads into the agent's context every time its trigger fires, so every l
 | Optional/situational judgment | **SKILL** — trigger-loaded, not burned on every turn. |
 | Explains, motivates, or restates rather than directing | **DELETE** — exposition, not judgment. |
 
-A line is deletable only when its gate actually guarantees the behavior: grade the system, not the prose. If deleting a line would let an agent act before any gate catches it, strengthen the gate first, then delete the line. Gates teach their recovery in the deny message.
+A line is deletable only when its gate actually guarantees the behavior: grade the system, not the prose. If deleting a line would let an agent act before any gate catches it, strengthen the gate first, then delete the line. A gate's deny message tells the agent how to recover.
 
 ### A–F rubric
 
@@ -96,19 +96,19 @@ A line is deletable only when its gate actually guarantees the behavior: grade t
 |---|---|
 | **A** | Every line passes all six tests. |
 | **B** | Compliant architecture, but carries residual machine-spec, exposition, or minor duplication. |
-| **C** | Procedures wearing a prompt costume — readable, but a check could decide them; or so padded with exposition the judgment core is buried. |
+| **C** | Procedures written as a prompt: readable, but a check could decide them. Or so padded with explanation that the judgment is buried. |
 | **D** | Prompt does the deterministic layer's job for at least one workflow step. |
 | **F** | Agent can act against policy before any gate fires. |
 
 ### Size discipline
 
-A skill over about 200 lines is a signal it is doing too much. In order: apply the boundary test and migrate what it flags; move judgment used on every run into the agent body and keep situational judgment in the skill; split into several skills only when neither suffices. Measure density, not just length.
+A skill over about 200 lines is a signal it is doing too much. Fix it in this order. First, apply the boundary test and move what it flags into code. Next, move judgment used on every run into the agent body and keep situational judgment in the skill. Split into several skills only when neither is enough. Measure density, not just length.
 
 ---
 
 ## Agent prompts
 
-A prompt is a contract, not a wish: it states the role, the inputs, the steps, the output, and the boundaries. An agent's prompt adds tool use, autonomy, and multi-turn state, so it also covers these. They are vendor practice with no tier of their own.
+A prompt is a contract, not a wish: it states the role, the inputs, the steps, the output, and the boundaries. An agent also uses tools, acts on its own, and keeps state across turns, so its prompt covers the points below as well. They are vendor practice with no tier of their own.
 
 - **Name the loop.** Make the cycle explicit: orient, verify context, act, verify the result, report.
 - **Verify before finalizing.** Tell the agent to check its work against the spec or success criteria before it declares done, and to surface failures.

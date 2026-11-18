@@ -32,6 +32,7 @@ export {
   rowsWithWrappers,
   stmtRepoRoot,
   unquotedCommand,
+  unquotedExpansions,
   withSource,
   xargsArgumentsReason,
   xargsInputSlot,

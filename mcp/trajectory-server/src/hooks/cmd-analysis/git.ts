@@ -783,10 +783,12 @@ function subcommandAt(w: readonly string[]): number {
  * A word of shell source: where it starts and ends, its unquoted text,
  * whether an unquoted $( ) or backtick is in it (`sub`), whether the shell
  * may turn it into other text (`expands`: an unquoted `$`, backtick, brace or
- * glob char, or an unescaped `$` or backtick in double quotes), and whether
- * any unquoted expansion is in it (`bare`).
+ * glob char, or an unescaped `$` or backtick in double quotes), whether
+ * any unquoted expansion is in it (`bare`), and whether bash may split or
+ * glob it into other words (`loose`: an unquoted `$`, backtick, brace or glob
+ * char).
  */
-type SourceWord = { start: number; end: number; text: string; sub: boolean; expands: boolean; bare: boolean };
+type SourceWord = { start: number; end: number; text: string; sub: boolean; expands: boolean; bare: boolean; loose: boolean };
 
 /** The words of the first line of shell source `src`; null at an unclosed quote or substitution. */
 function sourceWords(src: string): SourceWord[] | null {
@@ -800,6 +802,7 @@ function sourceWords(src: string): SourceWord[] | null {
     let sub = false;
     let expands = false;
     let bare = false;
+    let loose = false;
     while (i < src.length && !/[ \t\n]/.test(src[i])) {
       const c = src[i];
       if (c === "'") {
@@ -851,14 +854,25 @@ function sourceWords(src: string): SourceWord[] | null {
         sub = bare = true;
         i = j + 1;
       } else {
-        if (MAY_EXPAND.test(c)) expands = true;
+        if (MAY_EXPAND.test(c)) expands = loose = true;
         if (c === '$' && i + 1 < src.length && !/["' \t\n]/.test(src[i + 1])) bare = true;
         text += c;
         i++;
       }
     }
-    words.push({ start, end: i, text, sub, expands: expands || sub, bare });
+    words.push({ start, end: i, text, sub, expands: expands || sub, bare, loose: loose || sub });
   }
+}
+
+/**
+ * For each word of <statement>'s `stmt`, whether bash may split or glob it
+ * into other words: its source holds an unquoted expansion, substitution,
+ * brace or glob char. Null when the source is missing or does not line up
+ * with `stmt` word for word.
+ */
+export function unquotedExpansions(statement: Pick<Statement, 'stmt' | 'src'>): boolean[] | null {
+  const words = statement.src === undefined ? null : sourceWords(statement.src);
+  return words === null || words.length !== readWords(statement.stmt).length ? null : words.map((word) => word.loose);
 }
 
 /** The allowed form and the quoted command of an ambiguous-target deny: from the statement's source as written when it has one that lines up with `stmt`. */

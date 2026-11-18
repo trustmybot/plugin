@@ -1,12 +1,12 @@
 # DB enums
 
-The trajectory DB vocabularies a lint holds against the code. Values adopt an established convention where one exists and are invented only where none applies, the same rule as [`LABELS.md`](./LABELS.md).
+This page lists the sets of allowed values in the trajectory DB that a lint check compares with the code. A value follows an established convention where one exists and is invented only where none applies, the same rule as [`LABELS.md`](./LABELS.md).
 
-Hooks, skills and bro branch on these values, so a typo or a silent rename breaks them without a compile error; the [lint guard](#lint-guard) catches that drift before it ships.
+Hooks, skills and bro decide what to do from these values, so a typo or an unannounced rename breaks them without a compile error. The [lint guard](#lint-guard) catches such a mismatch before it ships.
 
 ## Every other vocabulary
 
-The tables below are the ones a lint holds against the code (see [Lint guard](#lint-guard)). Every other enumerated column is owned by its `CHECK` constraint in [`mcp/trajectory-server/src/schema.sql`](../../mcp/trajectory-server/src/schema.sql), shown per column in the generated [`ERD.md`](../architecture/ERD.md); a vocabulary with no `CHECK` (such as `cheatcodes.status` or `agent_runs.agent_type`) is owned by the code that writes it. The schema version is `TARGET_SCHEMA_VERSION` in `mcp/trajectory-server/src/db.ts`.
+The tables below are the ones a lint check compares with the code (see [Lint guard](#lint-guard)). Every other enumerated column is owned by its `CHECK` constraint in [`mcp/trajectory-server/src/schema.sql`](../../mcp/trajectory-server/src/schema.sql), shown per column in the generated [`ERD.md`](../architecture/ERD.md); a vocabulary with no `CHECK` (such as `cheatcodes.status` or `agent_runs.agent_type`) is owned by the code that writes it. The schema version is `TARGET_SCHEMA_VERSION` in `mcp/trajectory-server/src/db.ts`.
 
 `tasks.workflow_mode` is one such column: the mode a task closed under, stored as `truest`, `agile` or `exempt` (since v76), and NULL for an open task or one closed before modes were stored. `exempt` comes from the repo's mode; the project's `workflow_mode` config key stays `truest` or `agile` ([`CONFIG_KEYS.md`](../architecture/CONFIG_KEYS.md)).
 
@@ -21,7 +21,7 @@ The tables below are the ones a lint holds against the code (see [Lint guard](#l
 | `open` | GitHub | Newly created, not yet closed |
 | `closed` | GitHub | Resolved (fixed, wontfix, duplicate, etc.) |
 
-We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Succeeded/Failed/Unknown`) don't fit issues — issues are tasks, not processes. Schema enforces via `CHECK (status IN ('open','closed'))`.
+These two states deliberately match GitHub's issue states. Kubernetes pod phases (`Pending/Running/Succeeded/Failed/Unknown`) don't fit issues — issues are tasks, not processes. Schema enforces via `CHECK (status IN ('open','closed'))`.
 
 ### `tasks.status` — task lifecycle
 
@@ -35,7 +35,7 @@ We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Suc
 | `failed` | K8s pod phase | SWE returned with error; awaiting bro decision |
 | `escalated` | TMB | Taken off the swe path: set by bro (`task_update_status`, e.g. before a `task_retry` after a design-drift analysis) or by an issue close on each of its live tasks (a startup repair does the same for tasks left live under a closed issue). swe cannot move it out; bro moves it on with `task_reopen` or `task_retry` |
 
-Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`failed`), TMB-specific for the workflow gates (`pending`/`needs_validation`/`closed`/`escalated`). Schema enforces via `CHECK (status IN (...))` over exactly these seven values.
+A mix: the states of swe's run (`running`/`completed`/`failed`) take Kubernetes pod phase names, and the workflow gate states (`pending`/`needs_validation`/`closed`/`escalated`) are TMB's own. Schema enforces via `CHECK (status IN (...))` over exactly these seven values.
 
 ### `validation_attempts.verdict` — code-reviewer verdict at push gate
 
@@ -45,7 +45,7 @@ Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`fail
 | `fail` | TMB | Blocking findings; the same transaction reopens a completed, needs_validation or closed task to running at high effort (a running task only has its effort raised) for swe rework, and reopens its issue when that is closed. From two FAILs since the last pass, a further swe run needs bro's rework analysis and its proven change |
 | `escalate` | TMB | Cannot be judged: the spec is ambiguous or contradicts itself, or needed evidence is unavailable; bro, the owner of the spec and the design, decides |
 
-We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))`.
+We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` is clearer for our two gates. **TMB-specific by deliberate choice**: it is documented here and checked by the lint. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))`.
 
 ### `discussions.kind` — narrative kind in issue discussions
 
@@ -58,7 +58,7 @@ We considered aligning to GH PR review states (`approved`/`changes_requested`/`c
 | `analysis` | TMB | Consultant's structured analysis on a topic |
 | `decision` | TMB | Bro's architectural decision record (narrative form) |
 
-K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns. Schema enforces via `CHECK (kind IN ('intent','question','answer','decision','note','analysis'))`.
+Kubernetes Events have a `reason` field that looks similar but means something else. **TMB-specific** — these values mirror how TMB's agents talk to each other. Schema enforces via `CHECK (kind IN ('intent','question','answer','decision','note','analysis'))`.
 
 ### `milestones.state` — milestone lifecycle
 
@@ -78,7 +78,7 @@ Schema enforces via `CHECK (state IN ('open','closed'))`. `scan_run` imports the
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
 | `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `cli.js backfill-agent-runs` (not a live hook); never written over a `transcript` / `subagent_stop` row |
 
-`CHECK`-enforced. NULL until the run is first measured.
+A `CHECK` constraint enforces these values. The column is NULL until the run is first measured.
 
 ### `audit.from_node` — which agent or persona logged the event
 
@@ -160,6 +160,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `milestones_reconciled` | `bro` | `scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo` |
 | `persona_block_written` | `server` | reserved — Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version` |
 | `planning_complete` | `bro` | Bro finished planning: batched `task_create_batch` + SWE spawn |
+| `prepush_observed` | `hook` | The push gate in observe mode (GH 3281 slice 2) recorded one agent push or one fail-closed hook-skip guard deny, `source` saying which. `pre_push` and `legacy_deny`: for one push (one row per push, never per commit), the verdict TMB's git pre-push hook judge would give (by net diff) beside the one the PreToolUse command-text judge `git-push-guard` gave; `cli.js pre-push` writes `pre_push` when the push reached git (`legacy_verdict` `admit`, from_node `hook:pre-push`), `git-push-guard` writes `legacy_deny` when it denied the push (`legacy_verdict` `deny`, from_node `hook:git-push-guard`); the hook never denies. `guard_fail_closed`: `prepush-hook-guard` (from_node `hook:prepush-hook-guard`) denied a command it could not read literally; `remote`, `hook_verdict`, `legacy_verdict` and `agree` are null, `refs` empty. On the system issue `-1`; `content_json` carries `repo`, `source`, `deny_class` (`global_option_expansion`, `push_expansion`, `config_expansion`, `unreadable` or `unresolved`; null on the other sources), `command_form` (the denied statement, literal arguments masked as `<arg>`, at most 200 chars; null on the other sources), `remote`, `refs` (`local_ref`, `local_sha`, `remote_ref`, `remote_sha` per ref), `hook_verdict` (`admit`, `deny` or `error`), `reason`, `legacy_verdict`, `agree`, `hook_live` (`listed`, `command_matches`, `script_intact`, `switched_off`), `session_id` |
 | `prompt_write_approved` | `bro` | Bro recorded the Human's AskUserQuestion Yes before writing a project skill or agent file (under `<project>/.claude/skills/` or `<project>/.claude/agents/`); `content_json` carries `path` (the absolute target path) and `scope` (`full`, or `skills-array` to change only an agent's `skills:` list); the `prompt-write-approval` hook reads it |
 | `project_made_standalone` | `bro` | `onboard_apply(standalone=true)` made the session directory, nested below the workspace, its own TMB project: it wrote the `standalone` marker and a fresh trajectory DB in `<session_dir>/.claude/<plugin>/`, which the DB walk-up then picks over the workspace DB; filed under the system issue `-1` in the workspace DB; `content_json` carries `session_dir`, `db_path`, `marker` |
 | `readme_staleness_surfaced` | `hook` | `post-atomic-close-readme` surfaced READMEs a closed task may have left stale |
@@ -251,7 +252,7 @@ The lifecycle schema (GH 3224) changes the task status vocabulary. It has no sch
 
 ## Lint guard
 
-[`tests/l1-lint/enums-stable.test.mjs`](../../tests/l1-lint/enums-stable.test.mjs) holds every table above against `mcp/trajectory-server/src/` and `scripts/` both ways: a value the code uses must be documented here, and a documented value must appear in code unless its row is marked `reserved`. [`tests/l1-lint/enums-doc-fresh.test.mjs`](../../tests/l1-lint/enums-doc-fresh.test.mjs) fails when the generated `audit.event_type` table or `scripts/hooks/lib/audit-events.txt` differs from `audit-events.ts`.
+[`tests/l1-lint/enums-stable.test.mjs`](../../tests/l1-lint/enums-stable.test.mjs) compares every table above with `mcp/trajectory-server/src/` and `scripts/` in both directions: a value the code uses must be documented here, and a documented value must appear in code unless its row is marked `reserved`. [`tests/l1-lint/enums-doc-fresh.test.mjs`](../../tests/l1-lint/enums-doc-fresh.test.mjs) fails when the generated `audit.event_type` table or `scripts/hooks/lib/audit-events.txt` differs from `audit-events.ts`.
 
 ---
 
