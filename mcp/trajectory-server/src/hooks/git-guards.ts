@@ -35,7 +35,6 @@ import {
   cwdState,
   denyAmbiguousGitTarget,
   gitBesideExpansion,
-  gitFedByXargs,
   gitSubcommandOf,
   lineWrappers,
   payloadCwd,
@@ -44,6 +43,7 @@ import {
   stmtRepoRoot,
   stripLiterals,
   xargsArgumentsReason,
+  xargsInputSlot,
 } from './cmd-analysis/index.js';
 import { dbPath, haveSqlite, sqliteRo, sqlQuote, stripTrailingNewlines, taskBySlug } from './lib/db.js';
 import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
@@ -63,6 +63,10 @@ const GUARDED_SUB = /^(commit|merge|rebase|cherry-pick|push)( |$)|^(checkout -b|
 const INTEGRATION_SUB = /^(merge|rebase|cherry-pick)( |$)/;
 const BRANCH_SUB = /^(checkout|switch|branch)( |$)/;
 const NEW_BRANCH_SUB = /^(checkout -b|switch -c) /;
+/** checkout options whose value is the next word, so a `--` right after one is that value, not the end of options. */
+const CHECKOUT_VALUE_FLAG = new Set(['-b', '-B', '--orphan']);
+/** A `git branch` delete or list flag, alone or in a cluster of its no-value short flags: while either mode holds, git creates no branch. */
+const BRANCH_DELETE_OR_LIST = /^(--delete|--list|-[adDfilqrv]*[dDl][adDfilqrv]*)$/;
 const FF_SYNC_QUIET = new Set(['-q', '--quiet', '-v', '--verbose', '--stat', '--no-stat', '-n', '--progress', '--no-progress']);
 const FF_SYNC_COMPANIONS = new Set(['cd', 'echo', 'printf', 'true', 'false', 'test', '[', 'pwd']);
 const FF_SYNC_GIT_READS = new Set(['fetch', 'status', 'log', 'diff', 'show', 'rev-parse']);
@@ -122,6 +126,26 @@ export function forgeRecovery(remotes: string, target: string): Recovery {
     text: ` Push your feature branch and open a PR into ${target}.`,
     fix: { allowed: `git push origin <branch> && gh pr create --base ${target} --head <branch>` },
   };
+}
+
+/**
+ * Whether the words xargs feeds checkout, switch or branch <sub> could make
+ * it create a branch whose name or mode the statement never writes (GH 2144,
+ * GH 2850): every such statement but a checkout whose fed words all land
+ * after a literal `--` (pathspecs only) and a branch with a literal delete
+ * or list flag. The literal `checkout -b <name>` / `switch -c <name>` form
+ * is newBranchRule's.
+ */
+function stdinMayCreateBranch(sub: string, slot: NonNullable<ReturnType<typeof xargsInputSlot>>): boolean {
+  if (!BRANCH_SUB.test(sub) || NEW_BRANCH_SUB.test(sub)) return false;
+  const w = sub.split(' ');
+  const fedAt = slot === 'append' ? [w.length] : w.flatMap((word, i) => (word.includes(slot.replace) ? [i] : []));
+  if (fedAt.length === 0) return false;
+  const optionsEnd = w.indexOf('--');
+  const beforeOptionsEnd = (i: number): boolean => optionsEnd < 0 || i < optionsEnd;
+  if (w[0] === 'checkout') return !(optionsEnd > 0 && !CHECKOUT_VALUE_FLAG.has(w[optionsEnd - 1]) && fedAt.every((i) => i > optionsEnd));
+  if (w[0] === 'branch') return !w.some((word, i) => BRANCH_DELETE_OR_LIST.test(word) && !fedAt.includes(i) && beforeOptionsEnd(i));
+  return true;
 }
 
 interface Row {
@@ -535,9 +559,9 @@ class GitGuards {
     const statement = this.statementAt(idx);
     const sub = gitSubcommandOf(statement);
     const create = prCreateOf(stmt);
-    const fed = sub !== undefined && gitFedByXargs(statement);
-    // xargs may add `-b <name>`, a name or a start point to any checkout, switch or branch but the literal new-branch form (GH 2144, GH 2850).
-    const branchFromInput = fed && BRANCH_SUB.test(sub) && !NEW_BRANCH_SUB.test(sub);
+    const slot = sub === undefined ? undefined : xargsInputSlot(statement);
+    const fed = slot !== undefined;
+    const branchFromInput = slot !== undefined && sub !== undefined && stdinMayCreateBranch(sub, slot);
     if (sub !== undefined && !GUARDED_SUB.test(sub) && create === null && !branchFromInput) return;
 
     let dir = this.dirs[idx];

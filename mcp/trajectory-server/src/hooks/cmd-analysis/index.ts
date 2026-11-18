@@ -34,6 +34,7 @@ export {
   unquotedCommand,
   withSource,
   xargsArgumentsReason,
+  xargsInputSlot,
   type GitStatements,
   type Statement,
 } from './git.js';

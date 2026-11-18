@@ -12,7 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { ambiguousSubcommandReason, cmdStatements, gitBehindXargs, gitFedByXargs, lineWrappers, xargsArgumentsReason } from '../hooks/cmd-analysis/index.js';
+import { ambiguousSubcommandReason, cmdStatements, gitBehindXargs, gitFedByXargs, lineWrappers, xargsArgumentsReason, xargsInputSlot } from '../hooks/cmd-analysis/index.js';
 import type { Gate } from '../hooks/gate.js';
 import { branchUpToDateWithRemote } from '../hooks/branch-up-to-date-with-remote.js';
 import { gitGuards } from '../hooks/git-guards.js';
@@ -106,6 +106,17 @@ describe('git branch gates read git fed by xargs or behind a non-literal wrapper
       assert.equal(gitFedByXargs('xargs echo git'), false);
     });
 
+    it('xargsInputSlot reads where xargs puts its input: appended, or in place of the replace string', () => {
+      assert.equal(xargsInputSlot('git checkout --'), undefined);
+      assert.equal(xargsInputSlot('xargs -n1 git checkout --'), 'append');
+      assert.equal(xargsInputSlot({ stmt: 'xargs git branch -d', wrappers: 'env' }), 'append');
+      assert.deepEqual(xargsInputSlot('xargs -I{} git checkout -- {}'), { replace: '{}' });
+      assert.deepEqual(xargsInputSlot('xargs -I %% git checkout -- %%'), { replace: '%%' });
+      assert.deepEqual(xargsInputSlot('xargs -0I@ git checkout -- @'), { replace: '@' });
+      assert.deepEqual(xargsInputSlot('xargs -i git checkout -- {}'), { replace: '{}' });
+      assert.deepEqual(xargsInputSlot('xargs --replace=X git checkout -- X'), { replace: 'X' });
+    });
+
     it('lineWrappers gives each statement-starting line its wrappers', async () => {
       const listed = await cmdStatements('env $X git commit -F - <<EOF\nmsg\nEOF\nenv $Y git status', main, env());
       assert.ok(listed.ok);
@@ -129,6 +140,34 @@ describe('git branch gates read git fed by xargs or behind a non-literal wrapper
       for (const sub of ['checkout -b', 'switch -c', 'branch', 'checkout']) {
         const stmt = `xargs git -C ${main} ${sub}`;
         assert.equal(await run(gitGuards, `echo zzfoo | ${stmt}`, main, env()), denies(stmt), sub);
+      }
+    });
+
+    it('denies a checkout -B, switch -C, branch rename or checkout whose fed word lands before `--`', async () => {
+      for (const stmt of [
+        `xargs git -C ${main} checkout -B`,
+        `xargs git -C ${main} switch -C`,
+        `xargs git -C ${main} branch -m`,
+        `xargs git -C ${main} checkout main`,
+        `xargs -I% git -C ${main} checkout % -- README.md`,
+      ]) {
+        assert.equal(await run(gitGuards, `echo zzfoo | ${stmt}`, main, env()), denies(stmt), stmt);
+      }
+    });
+
+    it('admits an xargs checkout that feeds only pathspecs and an xargs branch delete or list (F111-1)', async () => {
+      for (const [cwd, d] of [[main, main], [wt, wt]]) {
+        for (const command of [
+          `git -C ${d} diff --name-only | xargs git -C ${d} checkout --`,
+          `git -C ${d} diff --name-only | xargs git -C ${d} checkout HEAD --`,
+          `git -C ${d} ls-files | xargs -I% git -C ${d} checkout -- %`,
+          `git -C ${d} branch --merged | grep -v main | xargs git -C ${d} branch -d`,
+          `git -C ${d} branch --merged | grep -v main | xargs git -C ${d} branch -D`,
+          `echo origin/x | xargs git -C ${d} branch -dr`,
+          `echo 'feat/*' | xargs git -C ${d} branch --list`,
+        ]) {
+          assert.equal(await run(gitGuards, command, cwd, env()), '', command);
+        }
       }
     });
 

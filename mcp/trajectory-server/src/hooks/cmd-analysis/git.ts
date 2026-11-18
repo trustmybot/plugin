@@ -708,9 +708,35 @@ export function ambiguousSubcommandReason(what: string, verb: string): string {
  * gets (GH 2144, GH 2850); the `wrappers` the listing stripped count.
  */
 export function gitFedByXargs(statement: SubcommandInput): boolean {
+  return xargsInputSlot(statement) !== undefined;
+}
+
+/** xargs's short options before `I` or `i` that may share its word (`-0I{}`). */
+const XARGS_REPLACE_SHORT = /^-[0oprtx]*([Ii])(.*)$/;
+
+/**
+ * Where xargs puts the words it reads into git's arguments when git in
+ * <statement> runs behind it, undefined when none does (GH 2850): 'append'
+ * after git's own words, or `{ replace }` for `-I <s>`, `-i[<s>]` or
+ * `--replace[=<s>]`, where xargs puts its input in place of every
+ * occurrence of <s> in git's words instead.
+ */
+export function xargsInputSlot(statement: SubcommandInput): 'append' | { replace: string } | undefined {
   const { stmt, wrappers } = typeof statement === 'string' ? { stmt: statement, wrappers: undefined } : statement;
-  const w = readWords(stmt);
-  return gitWord(wrappers === undefined ? w : [...readWords(wrappers), ...w])?.xargs === true;
+  const w = wrappers === undefined ? readWords(stmt) : [...readWords(wrappers), ...readWords(stmt)];
+  const found = gitWord(w);
+  if (found === null || !found.xargs) return undefined;
+  let xargsAt = found.at - 1;
+  while (xargsAt > 0 && w[xargsAt].replace(/^.*\//, '') !== 'xargs') xargsAt--;
+  let replace: string | undefined;
+  for (let j = xargsAt + 1; j < found.at; j++) {
+    const word = w[j];
+    const short = XARGS_REPLACE_SHORT.exec(word);
+    if (short !== null) replace = short[2] !== '' ? short[2] : short[1] === 'i' ? '{}' : (w[++j] ?? '');
+    else if (word === '--replace') replace = '{}';
+    else if (word.startsWith('--replace=')) replace = word.slice('--replace='.length);
+  }
+  return replace === undefined ? 'append' : { replace };
 }
 
 /** The deny reason for the git statement <what> that runs git through xargs, the guard unable to tell whether it <verb> (GH 2144, GH 2850). */
