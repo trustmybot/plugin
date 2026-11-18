@@ -1,27 +1,28 @@
 import {
-  AlertIcon,
   CheckCircleFillIcon,
   CheckCircleIcon,
   CircleIcon,
   DotFillIcon,
-  EyeIcon,
+  SkipIcon,
+  VersionsIcon,
   XCircleIcon,
   type Icon,
 } from '@primer/octicons-react';
 import { LABEL_COLORS } from '../ui/Label.tsx';
 import { statusVariant } from './Badge.tsx';
 
-export const TASK_STATUSES = ['pending', 'running', 'needs_validation', 'completed', 'closed', 'failed', 'escalated'] as const;
+// The server's tasks.status set, in its order; list.test.mjs fails when the two drift.
+export const TASK_STATUSES = ['pending', 'running', 'submitted', 'failed', 'closed', 'superseded', 'cancelled'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const TASK_STATE_ICON: Record<TaskStatus, Icon> = {
   pending: CircleIcon,
   running: DotFillIcon,
-  needs_validation: EyeIcon,
-  completed: CheckCircleIcon,
-  closed: CheckCircleFillIcon,
+  submitted: CheckCircleIcon,
   failed: XCircleIcon,
-  escalated: AlertIcon,
+  closed: CheckCircleFillIcon,
+  superseded: VersionsIcon,
+  cancelled: SkipIcon,
 };
 
 const textClass = (classes: string) => classes.split(' ').find((c) => c.startsWith('text-')) ?? 'text-fg';

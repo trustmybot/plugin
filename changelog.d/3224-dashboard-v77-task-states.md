@@ -1,0 +1,2 @@
+### Fixed
+- **The dashboard Tasks list shows the v77 task states** (GH 3224): the Status filter offered needs_validation, completed and escalated, which no task can hold any more, and could not filter submitted, superseded or cancelled. Those three also showed the pending icon and an uncoloured badge. The filter now lists pending, running, submitted, failed, closed, superseded and cancelled, each with its own icon and badge colour.

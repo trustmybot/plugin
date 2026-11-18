@@ -6,7 +6,8 @@
 // then bundle the Tasks list with esbuild, render it to
 // static HTML under a stubbed window.location.hash and check the hash filters
 // (state, branch, chips, tab counts), the <ul role="list"> rows, the aria-live
-// count and one distinct octicon per task status.
+// count and one distinct octicon per task status, and that the task-status
+// list matches the server's tasks.status set.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -106,6 +107,8 @@ before(async () => {
         import { hrefWith } from './web/shared/route.ts';
         import { hrefFor } from './web/shared/columns.tsx';
         import { TASK_STATUSES } from './web/shared/taskState.ts';
+        import { TASK_STATUSES as SERVER_TASK_STATUSES } from '../mcp/trajectory-server/src/task-status.ts';
+        import { statusVariant } from './web/shared/Badge.tsx';
         export const list = (rows, hash) => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {} };
           try {
@@ -119,7 +122,7 @@ before(async () => {
           globalThis.window = { location: { hash } };
           try { return hrefWith(params, path); } finally { delete globalThis.window; }
         };
-        export { hrefFor, TASK_STATUSES };`,
+        export { hrefFor, TASK_STATUSES, SERVER_TASK_STATUSES, statusVariant };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -251,6 +254,23 @@ describe('Tasks list', () => {
       assert.ok(html.includes(`#5 ${status.replace(/_/g, ' ')}`), status);
     }
     assert.equal(icons.size, 7);
+  });
+
+  test("the dashboard's task statuses are the server's tasks.status set, in its order", () => {
+    assert.deepEqual([...ui.TASK_STATUSES], [...ui.SERVER_TASK_STATUSES]);
+  });
+
+  test('past pending, no task status falls back to the pending icon or the default badge colour', () => {
+    const statusIcon = (status) => {
+      const html = ui.row({ id: 5, issue_id: 1, title: 't', status, updated_at: null });
+      const svg = /<svg [^>]*aria-hidden="true"[^>]*class="([^"]*octicon-[a-z-]+)/.exec(html) ?? /<svg [^>]*class="[^"]*(octicon-[a-z-]+)[^"]*"[^>]*aria-hidden="true"/.exec(html);
+      return /octicon-[a-z-]+/.exec(svg[1])[0];
+    };
+    const pendingIcon = statusIcon('pending');
+    for (const status of ui.TASK_STATUSES.filter((s) => s !== 'pending')) {
+      assert.notEqual(statusIcon(status), pendingIcon, status);
+      assert.notEqual(ui.statusVariant(status), 'default', status);
+    }
   });
 
   test('hrefWith keeps current params, overrides and drops; hrefFor maps each kind', () => {
