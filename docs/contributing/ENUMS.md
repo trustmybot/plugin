@@ -238,8 +238,8 @@ The lifecycle schema (GH 3224) changes the task status vocabulary. It has no sch
 - **waived**: the Human waived the branch review of a review-deferred task; it closes when the feature branch merges.
 - **superseded**: the task was retried as a new task, which names it; final.
 - **cancelled**: the task's work stopped because its issue closed over it or its agile feature branch was dropped; final.
-- **escalated** goes away. the migration moves every such task to superseded when another task retries it, and to cancelled otherwise.
-- **needs validation** goes away. the migration moves every such task to submitted, and its check refuses the value.
+- **escalated** goes away. The migration moves every such task to superseded when another task retries it, and to cancelled otherwise.
+- **needs validation** goes away. The migration moves every such task to submitted, and its check refuses the value.
 
 ## How to add a new ENUM value
 
