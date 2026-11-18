@@ -1,0 +1,317 @@
+/**
+ * `cli.js feature-branch` (GH 2225): bro cuts, syncs, drops and cleans up an
+ * agile milestone feature branch with one command each.
+ *
+ *   node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" feature-branch cut <name> [--repo <repo>]
+ *   node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" feature-branch sync <name> [--repo <repo>]
+ *   node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" feature-branch drop <name> [--repo <repo>] [--delete-branch]
+ *   node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" feature-branch cleanup <name> [--repo <repo>]
+ *
+ * The repo is --repo, else the registered repo cwd is in, else the sole
+ * registered repo. Its target is repos.target_branch, else the remote
+ * default; with an origin remote that target is fetched once (bounded, as
+ * `cli.js integrate` fetches) and origin/<target> is the base, else the local
+ * <target> is. <name> must pass `git check-ref-format --branch` and be neither
+ * the target nor one of repos.protected_branches.
+ *
+ * cut creates refs/heads/<name> at the base; a ref already there is refused.
+ * sync merges the base into <name> with no checkout (GH 3295: a sandboxed
+ * session cannot add a worktree): `git merge-tree --write-tree` makes the
+ * tree and `git commit-tree` the merge commit, parents the old tip and the
+ * base, then <name> moves with an update-ref guarded on its old tip, so every
+ * prior feature commit stays reachable; a <name> the base is already under is
+ * left as is. A <name> checked out in any worktree is refused, as
+ * `cli.js feature-merge` refuses it; a conflict lists the conflicting paths
+ * and moves nothing. A merge needs git 2.38 or newer.
+ *
+ * drop cancels the branch: in one transaction every task of the repo merged
+ * onto <name> and still pending the grouped review moves to escalated, and
+ * one bro feature_branch_dropped audit row names them. It is refused while a
+ * task of the branch (merged onto it, or whose parent_branch_id names it) is
+ * live, and for a <name> that is neither a local branch nor carries a task.
+ * <name> stays unless --delete-branch is passed; then it is deleted, guarded
+ * on its tip, before the DB write and restored when that write fails.
+ *
+ * cleanup deletes <name> once its milestone PR merged: refused while <name>
+ * is checked out in a worktree or, with an origin, while origin/<name> still
+ * exists after a bounded `git fetch --prune origin`. It writes no DB.
+ *
+ * Only drop writes the DB, and nothing pushes: bro pushes the branch through
+ * the guarded `git push`. stdout carries only the SHA the branch is (or, once
+ * deleted, was) at; progress and failures go to stderr. No action makes a
+ * worktree.
+ * Exit 0 = done, 2 = merge conflict (branch unchanged),
+ * 4 = usage error or a precondition not met (no ref created, moved or
+ * deleted, and the DB unchanged).
+ */
+import { isAuditEventWritableBy } from '../audit-events.js';
+import { nowIso } from '../hooks/lib/audit.js';
+import { dbPath, GATE_READ_ERROR, gateRead, sqlQuote } from '../hooks/lib/db.js';
+import { commandSubstitution, shellPwd } from '../hooks/lib/project-env.js';
+import { repoGitRoot, repoNameForRoot } from '../hooks/lib/repo.js';
+import { AGILE_PENDING_REVIEW_SQL, featureBranchTaskSql } from '../review-sql.js';
+import { taskStatusUpdateSql } from '../task-status.js';
+import { runTaskRebase, TaskRebase } from './integrate.js';
+const USAGE = 'usage: cli.js feature-branch <cut|sync|drop|cleanup> <name> [--repo <repo>] [--delete-branch (drop only)]';
+const ACTIONS = ['cut', 'sync', 'drop', 'cleanup'];
+const LIVE_STATUSES = "('pending', 'running', 'needs_validation', 'completed')";
+const DROPPED_EVENT = 'feature_branch_dropped';
+const FETCH_TIMEOUT_MS = 60_000;
+const MERGE_TREE_GIT = [2, 38];
+class FeatureBranch extends TaskRebase {
+    baseRef = '';
+    constructor(env, io) {
+        super(env, io, 'feature-branch');
+    }
+    parseArgs(argv) {
+        const positional = [];
+        let repo = '';
+        let deleteBranch = false;
+        for (let i = 0; i < argv.length; i += 1) {
+            if (argv[i] === '--repo') {
+                repo = argv[i + 1] ?? '';
+                if (repo === '')
+                    this.die(4, USAGE);
+                i += 1;
+            }
+            else if (argv[i] === '--delete-branch') {
+                deleteBranch = true;
+            }
+            else {
+                positional.push(argv[i]);
+            }
+        }
+        const [action = '', name = ''] = positional;
+        if (positional.length !== 2 || !ACTIONS.includes(action))
+            this.die(4, USAGE);
+        if (deleteBranch && action !== 'drop')
+            this.die(4, USAGE);
+        return { action, name, repo, deleteBranch };
+    }
+    /** Exit 4 unless <name> is a valid branch name as written; `--branch` would expand `@{-1}` to another branch. */
+    checkName(name) {
+        const r = this.git(this.repoRoot, ['check-ref-format', '--branch', name]);
+        if (!r.ok || r.out !== name)
+            this.die(4, `'${name}' is not a valid branch name`);
+    }
+    /** Fetches <target> once when origin exists and sets baseRef to origin/<target>, else the local <target>; returns its sha. */
+    resolveBaseSha(target) {
+        if (this.hasOrigin()) {
+            this.fetchBase('origin', target);
+            this.baseRef = `origin/${target}`;
+        }
+        else {
+            this.baseRef = target;
+        }
+        const sha = this.revParse(this.repoRoot, `${this.baseRef}^{commit}`);
+        if (sha === '')
+            this.die(4, `${this.baseRef} does not resolve in ${this.repoRoot}`);
+        return sha;
+    }
+    hasOrigin() {
+        return this.g(['remote', 'get-url', 'origin']).ok;
+    }
+    cut(name, baseSha) {
+        const created = this.git(this.repoRoot, ['update-ref', '-m', `cli.js feature-branch: cut ${name} at ${this.baseRef}`, `refs/heads/${name}`, baseSha, '']);
+        if (!created.ok)
+            this.die(4, `git update-ref of refs/heads/${name} failed; no branch created: ${created.err.trim()}`);
+        this.say(`${name} -> ${baseSha} (cut at ${this.baseRef})`);
+        this.io.out(`${baseSha}\n`);
+        return 0;
+    }
+    /** Exit 4 unless git is at least MERGE_TREE_GIT, the first with `merge-tree --write-tree`. */
+    checkMergeTreeGit(name) {
+        const version = this.g(['--version']);
+        const [, major = '0', minor = '0'] = /^git version (\d+)\.(\d+)/.exec(version.out) ?? [];
+        const [floorMajor, floorMinor] = MERGE_TREE_GIT;
+        const tooOld = Number(major) < floorMajor || (Number(major) === floorMajor && Number(minor) < floorMinor);
+        if (!version.ok || tooOld) {
+            this.die(4, `sync needs git ${floorMajor}.${floorMinor} or newer (found '${version.out || version.err.trim()}'); ${name} is unchanged`);
+        }
+    }
+    /** The tree of <tip> merged with <baseSha>, made with no checkout; exit 2 listing the conflicting paths on a conflict. */
+    mergedTree(name, tip, baseSha) {
+        const r = this.g(['merge-tree', '--write-tree', '--name-only', '--no-messages', tip, baseSha]);
+        const [tree = '', ...conflicted] = r.out.split('\n');
+        if (r.ok && tree !== '')
+            return tree;
+        if (conflicted.length > 0) {
+            this.die(2, `merging ${this.baseRef} into ${name} conflicted; ${name} is unchanged. Conflicting paths:\n${conflicted.join('\n')}`);
+        }
+        return this.die(4, `merging ${this.baseRef} into ${name} failed; ${name} is unchanged: ${r.err.trim()}`);
+    }
+    sync(name, baseSha) {
+        const ref = `refs/heads/${name}`;
+        const tip = this.revParse(this.repoRoot, `${ref}^{commit}`);
+        if (this.g(['merge-base', '--is-ancestor', baseSha, tip]).ok) {
+            this.say(`${name} already contains ${this.baseRef} (${baseSha})`);
+            this.io.out(`${tip}\n`);
+            return 0;
+        }
+        this.checkMergeTreeGit(name);
+        this.say(`merging ${this.baseRef} (${baseSha}) into ${name} (${tip})`);
+        const tree = this.mergedTree(name, tip, baseSha);
+        const committed = this.g(['commit-tree', tree, '-p', tip, '-p', baseSha, '-m', `Merge ${this.baseRef} into ${name}`]);
+        const merged = committed.ok ? committed.out : '';
+        if (merged === '')
+            this.die(4, `git commit-tree failed; ${name} is unchanged: ${committed.err.trim()}`);
+        const holder = this.branchHolder(name);
+        if (holder !== '')
+            this.die(4, `${name} is now checked out at ${holder}; the merge commit is ${merged}, ${name} is unchanged`);
+        const moved = this.git(this.repoRoot, ['update-ref', '-m', `cli.js feature-branch: sync ${name} with ${this.baseRef}`, ref, merged, tip]);
+        if (!moved.ok)
+            this.die(4, `${name} moved during the sync, or update-ref failed; left as is, the merge commit is ${merged}: ${moved.err.trim()}`);
+        this.say(`${name} -> ${merged} (merged ${this.baseRef})`);
+        this.io.out(`${merged}\n`);
+        return 0;
+    }
+    /** A task <alias> of this repo on <name>: merged onto it by feature-merge, or headed there by its parent_branch_id. */
+    onBranchSql(alias, name) {
+        const branch = `'${sqlQuote(name)}'`;
+        const repo = `'${sqlQuote(this.repoName)}'`;
+        return `${alias}.repo = ${repo} AND (${featureBranchTaskSql(alias, branch, repo)} OR ${alias}.parent_branch_id = ${branch})`;
+    }
+    /** A task t of this repo merged onto <name> and still pending the grouped review. */
+    queuedSql(name) {
+        const repo = `'${sqlQuote(this.repoName)}'`;
+        return `t.repo = ${repo} AND ${featureBranchTaskSql('t', `'${sqlQuote(name)}'`, repo)} AND ${AGILE_PENDING_REVIEW_SQL}`;
+    }
+    noLiveTaskSql(name) {
+        return `NOT EXISTS (SELECT 1 FROM tasks l WHERE ${this.onBranchSql('l', name)} AND l.status IN ${LIVE_STATUSES})`;
+    }
+    /** The count of tasks on <name> and the ids of its live ones; exit 4 when the DB read fails. */
+    branchTasks(name) {
+        const row = gateRead(this.db, `SELECT 'tasks' || char(10) || COUNT(*) || char(10) || COALESCE(group_concat(CASE WHEN l.status IN ${LIVE_STATUSES} THEN l.id END, ' '), '')
+  FROM (SELECT l.id, l.status FROM tasks l WHERE ${this.onBranchSql('l', name)} ORDER BY l.id) l;`, this.env);
+        if (row === GATE_READ_ERROR || row === '')
+            this.die(4, `trajectory DB read failed: ${this.db}`);
+        const [, total = '0', live = ''] = row.split('\n');
+        return { total: Number(total), live };
+    }
+    /**
+     * One transaction: the feature_branch_dropped row naming the queued tasks,
+     * then those tasks moved to escalated, each guarded on no live task being on
+     * the branch. Prints whether the row was written, then its content_json.
+     */
+    dropSql(name) {
+        if (!isAuditEventWritableBy(DROPPED_EVENT, 'bro'))
+            this.die(4, `audit event ${DROPPED_EVENT} does not list bro as a writer`);
+        const now = nowIso();
+        const branch = sqlQuote(name);
+        const repo = sqlQuote(this.repoName);
+        const issue = `COALESCE((SELECT t.issue_id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id LIMIT 1),
+    (SELECT l.issue_id FROM tasks l WHERE ${this.onBranchSql('l', name)} ORDER BY l.id LIMIT 1), -1)`;
+        const taskIds = `(SELECT json_group_array(id) FROM (SELECT t.id FROM tasks t WHERE ${this.queuedSql(name)} ORDER BY t.id))`;
+        const escalateQueued = taskStatusUpdateSql({
+            status: 'escalated',
+            alias: 't',
+            set: { completed_at: null, updated_at: now },
+            where: `${this.queuedSql(name)} AND ${this.noLiveTaskSql(name)}`,
+        });
+        return `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+  SELECT ${issue}, '${branch}', 'bro', '${DROPPED_EVENT}', '${sqlQuote(`feature branch ${name} dropped; its queued tasks escalated`)}',
+    json_object('feature_branch', '${branch}', 'repo', '${repo}', 'task_ids', json(${taskIds})), '${repo}', '${now}'
+  WHERE ${this.noLiveTaskSql(name)};
+SELECT changes();
+${escalateQueued};
+SELECT content_json FROM audit WHERE id = last_insert_rowid() AND event_type = 'feature_branch_dropped';`;
+    }
+    drop(name, deleteBranch) {
+        if (this.repoName === '')
+            this.die(4, `${this.repoRoot} is not a registered repo; its tasks cannot be matched`);
+        const ref = `refs/heads/${name}`;
+        const tip = this.revParse(this.repoRoot, `${ref}^{commit}`);
+        const { total, live } = this.branchTasks(name);
+        if (tip === '' && total === 0)
+            this.die(4, `feature branch '${name}' is unknown in ${this.repoName}: no local branch and no task on it`);
+        if (live !== '')
+            this.die(4, `feature branch '${name}' has live tasks (${live}); settle them first, nothing was dropped`);
+        const deleting = deleteBranch && tip !== '';
+        if (deleting) {
+            const holder = this.branchHolder(name);
+            if (holder !== '')
+                this.die(4, `feature branch '${name}' is checked out at ${holder}; switch that worktree off it and run cli.js feature-branch drop again`);
+            const deleted = this.git(this.repoRoot, ['update-ref', '-m', `cli.js feature-branch: drop ${name}`, '-d', ref, tip]);
+            if (!deleted.ok)
+                this.die(4, `git update-ref -d of ${ref} failed; ${name} and the DB are unchanged: ${deleted.err.trim()}`);
+        }
+        const r = this.record(this.dropSql(name));
+        const [written = '', content = ''] = commandSubstitution(r.stdout).split('\n');
+        if (!r.ok || written !== '1') {
+            const restored = !deleting || this.git(this.repoRoot, ['update-ref', '-m', `cli.js feature-branch: restore ${name}`, ref, tip, '']).ok;
+            const branchState = restored ? `${name} is unchanged` : `${name} was deleted at ${tip} and restoring it failed`;
+            this.die(4, `recording the drop of '${name}' failed${r.ok ? ' (a task of the branch went live)' : ''}; ${branchState}, the DB is unchanged`);
+        }
+        const ids = JSON.parse(content).task_ids;
+        this.say(`dropped ${name}; escalated ${ids.length === 0 ? 'no task' : `task(s) ${ids.join(', ')}`}; ${deleting ? `deleted ${name}` : `${name} kept`}`);
+        if (tip !== '')
+            this.io.out(`${tip}\n`);
+        return 0;
+    }
+    /** Exit 4 while origin/<name> still exists after one bounded prune fetch of origin. */
+    checkRemoteCopyGone(name) {
+        const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
+        const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
+        const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', '--prune', 'origin'], {
+            env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
+            timeoutMs,
+        });
+        if (r.timedOut)
+            this.die(4, `fetch of origin timed out after ${timeoutMs} ms; ${name} is unchanged`);
+        if (!r.ok)
+            this.die(4, `fetch of origin failed; ${name} is unchanged: ${r.err.trim()}`);
+        if (this.hasRef(`refs/remotes/origin/${name}`)) {
+            this.die(4, `origin/${name} still exists, so its milestone PR has not merged; ${name} is unchanged`);
+        }
+    }
+    removeMerged(name) {
+        const ref = `refs/heads/${name}`;
+        const tip = this.revParse(this.repoRoot, `${ref}^{commit}`);
+        if (tip === '')
+            this.die(4, `feature branch '${name}' does not exist in ${this.repoRoot}`);
+        const holder = this.branchHolder(name);
+        if (holder !== '')
+            this.die(4, `feature branch '${name}' is checked out at ${holder}; switch that worktree off it and run cli.js feature-branch cleanup again`);
+        if (this.hasOrigin())
+            this.checkRemoteCopyGone(name);
+        const deleted = this.git(this.repoRoot, ['update-ref', '-m', `cli.js feature-branch: cleanup ${name}`, '-d', ref, tip]);
+        if (!deleted.ok)
+            this.die(4, `git update-ref -d of ${ref} failed; ${name} is unchanged: ${deleted.err.trim()}`);
+        this.say(`deleted ${name} (was ${tip})`);
+        this.io.out(`${tip}\n`);
+        return 0;
+    }
+    async run(argv) {
+        const { action, name, repo, deleteBranch } = this.parseArgs(argv);
+        const db = dbPath(this.env);
+        if (db === null)
+            this.die(4, 'no trajectory DB resolved (set TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR)');
+        this.db = db;
+        const cwdRoot = repo === '' ? await repoGitRoot(shellPwd(this.env), this.env) : '';
+        await this.resolveRepo(repo || (cwdRoot === '' ? '' : repoNameForRoot(db, cwdRoot, this.env)));
+        this.checkName(name);
+        this.branch = name;
+        const target = await this.sharedBaseTarget(name, 'feature branch');
+        this.base = target;
+        if (action === 'drop')
+            return this.drop(name, deleteBranch);
+        if (action === 'cleanup')
+            return this.removeMerged(name);
+        const exists = this.hasRef(`refs/heads/${name}`);
+        if (action === 'cut' && exists)
+            this.die(4, `branch '${name}' already exists in ${this.repoRoot}`);
+        if (action === 'sync') {
+            if (!exists)
+                this.die(4, `feature branch '${name}' does not exist in ${this.repoRoot}`);
+            const holder = this.branchHolder(name);
+            if (holder !== '')
+                this.die(4, `feature branch '${name}' is checked out at ${holder}; switch that worktree off it and run cli.js feature-branch sync again`);
+        }
+        const baseSha = this.resolveBaseSha(target);
+        return action === 'cut' ? this.cut(name, baseSha) : this.sync(name, baseSha);
+    }
+}
+export async function featureBranch(argv, env, io) {
+    return runTaskRebase(new FeatureBranch(env, io), argv);
+}
+//# sourceMappingURL=feature-branch.js.map

@@ -1,2 +1,0 @@
-### Changed
-- The identity-resolution, reviewer-identity-observe and swe-run-identity hook tests are now node:test files under `mcp/trajectory-server/src/test/` that run in `npm test`, with every assertion kept (GH 1692). Each case runs `node dist/hooks.js <hook>` in a sandbox with its own HOME and builds its trajectory DB through node:sqlite with foreign keys off, as the sqlite3 CLI had them. No assertion diverges from the shell tests; the three `tests/l3-integration/hooks/*.test.sh` files are gone.

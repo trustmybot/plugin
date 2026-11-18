@@ -1,2 +1,0 @@
-### Fixed
-- **CI no longer fails when GitHub times out looking up the latest Bun release** (GH 2516): every `oven-sh/setup-bun` step in `pr-check.yml`, `release-gate.yml`, `dev-build.yml` and `release-payload.yml` now reads the Bun version from a new root `.bun-version` (`1.4.4`, the version CI already installed), so the job skips the latest-release lookup whose GitHub 504 failed the L1 lint job. Bumping Bun is now a one-line change to `.bun-version`.

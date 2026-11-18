@@ -1,2 +1,0 @@
-### Fixed
-- **The git-guards test checks PR-target deny text by string matching** (GH 3278, CodeQL alert 73): two assertions built a regex from interpolated input that was not fully escaped, one escaping only dots in the repo spec and one not escaping a temp path at all. They now check the deny message's prefix and `Allowed form: ...` suffix with plain string checks, so no regex is built from unescaped input.

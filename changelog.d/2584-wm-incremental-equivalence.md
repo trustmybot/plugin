@@ -1,2 +1,0 @@
-### Added
-- **PR checks prove the incremental world-model reindex matches a clean rebuild** (GH 2584): a new test brings one database forward with the git-range reindex and builds another from scratch at the same commit, then compares their files, symbols and edges row by row. It covers renames, moves, deletes, signature changes, name collisions and files that fail to parse, and it replays the last five commits of the plugin itself. It runs on every pull request, and the PR check now clones the full history so the replay has commits to walk.

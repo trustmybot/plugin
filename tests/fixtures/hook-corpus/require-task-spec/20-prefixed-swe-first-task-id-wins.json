@@ -1,1 +1,0 @@
-{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"tmb:swe","prompt":"task_id=8 then task_id=1"},"corpus_expect":"issue_id=8, branch_id=\\\"feat/linked\\\""}

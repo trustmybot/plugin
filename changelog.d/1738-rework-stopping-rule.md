@@ -1,2 +1,0 @@
-### Added
-- **A stopping rule for rework** (GH 1738): after two review FAILs since a task's last pass, a third swe spawn for it is denied. The deny tells bro to stop and report the task and its findings to the Human, who alone lifts the limit by typing `waive task <N>` (GH 2148). Bro is also told, once per task, when a `running` task passes 60 minutes (`TMB_TASK_OVERRUN_MIN` changes the limit), with the minutes elapsed, the swe spawn count and the current blocker. `task_stats` now reports `wall_clock_ms`, `review_fail_count`, `swe_spawn_count` and `rework_count`.

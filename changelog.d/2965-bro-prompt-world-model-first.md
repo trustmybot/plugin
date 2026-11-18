@@ -1,2 +1,0 @@
-### Changed
-- **bro reads the world model first for callers, importers and spec scoping** (GH 2965): the planning skill sends bro to `world_model_symbol` with an impact walk for who calls, imports, reads or tests a symbol, and to `scope_suggest` before it builds a task's file list. Bash, Grep and `git grep` stay for what the world model cannot answer (symbols new on an unmerged branch, text in prose or config, a miss), and bro records each miss as a `wm_feedback:` note while world-model use is under test.

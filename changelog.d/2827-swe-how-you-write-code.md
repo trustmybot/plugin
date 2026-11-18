@@ -1,2 +1,0 @@
-### Changed
-- **swe follows six named coding rules** (GH 2827): the swe prompt gains a closing "How you write code" section (solve the general case, match the repo, validate at the boundary, keep it simple, write self-explained code, test the behavior) and drops its opening persona sentence. The agent line-budget lint no longer caps `agents/*.md` or the `templates/agents/` swe and code-reviewer copies at 30 lines; the 26-line `template.md` cap and the 15-body-line consultant cap stay.

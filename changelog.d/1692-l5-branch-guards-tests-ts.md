@@ -1,2 +1,0 @@
-### Changed
-- The stay-on-base-guard, branch-up-to-date-with-remote, no-worktree-branch-create and require-feature-branch-active hook tests are now one node:test file, `mcp/trajectory-server/src/test/branch-guards-l3.test.ts`, that runs in `npm test` with all 53 cases and every assertion kept (GH 1692). Each case runs `node dist/hooks.js <gate>` with the project pinned to a sandbox. The four `tests/l3-integration/hooks/*.test.sh` files and their `tests/lib/ts-hooks/` shims are gone; no hook behaviour changes.

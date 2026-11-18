@@ -1,2 +1,0 @@
-### Fixed
-- **World-model feedback keeps its task link** (GH 1869): `discussion_append` now accepts a `task_id` from another issue when the row's kind is `note` or `analysis`, so feedback rows posted on the world-model feedback issue can name the task they are about. Every other kind still refuses a task from another issue, `supersedes` still has to be on the same issue, and a task that does not exist is refused for every kind.

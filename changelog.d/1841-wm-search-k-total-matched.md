@@ -1,2 +1,0 @@
-### Fixed
-- **`world_model_search` honours `k` up to 100 and says when results were cut** (GH 1841): `k` was clamped at 20 and `total_matched` echoed the number of results returned, so a caller could not tell a list was cut. `k` now goes up to 100 (a larger value clamps to 100), the symbol pool grows with it, and `total_matched` counts the distinct ranked hits before the `k` cut, in a single repo and across all repos. The result carries `truncated: true` when fewer results came back than matched, or when a keyword pool filled up and more rows may exist.

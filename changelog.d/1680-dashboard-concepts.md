@@ -1,2 +1,0 @@
-### Added
-- **The dashboard has a Concepts tab** (GH 1680): search the world model's concepts, or a function name when no concept matches, and see the selected concept as numbered steps with Verified, Suspect or Broken badges beside a graph of its functions grouped by directory. Selecting a step highlights its node, the graph can be read as a table, and four new read-only endpoints (`/api/concepts`, `/api/concepts/:id`, `/api/concepts/:id/graph`, `/api/symbols/:id/neighbourhood`) serve it.

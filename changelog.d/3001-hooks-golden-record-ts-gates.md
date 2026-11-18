@@ -1,2 +1,0 @@
-### Fixed
-- **`TMB_HOOK_GOLDEN=record` records new hook corpus cases again** (GH 3001): once the bash hook scripts were deleted, record mode in the hooks parity suite selected no gate and silently recorded nothing, so a new corpus case for a TypeScript gate could not get its golden recording. Record mode now selects every gate with a recording or a bash script, fills only the cases and locales with no recording yet (from the bash script while it exists, from the TypeScript gate once it is gone), never rewrites a stored recording, and fails loudly when it selects no gate.

@@ -1,2 +1,0 @@
-### Fixed
-- **`task_brief.scope` keeps the reviewed commit's scope after `cli.js integrate`** (GH 3103): integrate moves a task onto a rebased SHA, and the brief then reported no extras, no accepted extras and `base_moved: null`, because it only read scope recorded for the new SHA. It now follows integrate's rows back to the nearest commit that has a review handoff or close recorded, so code-reviewer and bro see the extras and base status that were actually reviewed.

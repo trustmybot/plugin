@@ -1,2 +1,0 @@
-### Fixed
-- **Rework of a completed task always records its restart** (GH 2972): bro could send a completed task back to running with `task_update_status`, which skipped the `task_reopened` audit row, so the overrun alert timed the new stint from when the task was created. `task_update_status` now refuses completed → running and points to `task_reopen`, the one rework path that records the restart.

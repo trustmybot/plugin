@@ -1,2 +1,0 @@
-### Changed
-- **Every task status change goes through one writer** (GH 3224): the tools, hooks, CLI and the v33 repair migration that set a task's status now build that update in one module instead of writing it by hand at each site, and a test fails when any other source file writes a task status. Which status each path sets, and when, is unchanged. This is the first step towards recording each status change as a task event.

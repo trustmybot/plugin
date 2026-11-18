@@ -1,2 +1,0 @@
-### Removed
-- **33 dead `tests/lib/ts-hooks/` bash shims are gone** (GH 1692): each shim only ran `node mcp/trajectory-server/dist/hooks.js <gate>` so shell suites could call `bash "$HOOK"`, and those suites are node:test now. `scope-gate.test.mjs` runs `roundtable-slash-detect` through `dist/hooks.js` directly. `prompt-intent-hints.sh` and `roundtable-slash-detect.sh` stay, since the l5-l6 flow helpers still run them.

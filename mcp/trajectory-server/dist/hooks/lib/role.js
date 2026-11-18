@@ -1,0 +1,17 @@
+/**
+ * Agent role normalization, plus the acting agent's role read from a hook
+ * payload (GH 1692).
+ */
+import { jqAlternatives } from './jq.js';
+export const CODE_REVIEWER_ROLE = 'code-reviewer';
+/** tmb_normalize_role <value>: the value minus everything up to its first colon. */
+export function normalizeRole(raw = '') {
+    const colon = raw.indexOf(':');
+    return colon < 0 ? raw : raw.slice(colon + 1);
+}
+/** tmb_agent_role <input_json>: the payload's agent_type (else subagent_type), normalized; "bro" when none. */
+export function agentRole(input = '') {
+    const raw = normalizeRole(jqAlternatives(input, [['agent_type'], ['subagent_type']]));
+    return raw === '' ? 'bro' : raw;
+}
+//# sourceMappingURL=role.js.map

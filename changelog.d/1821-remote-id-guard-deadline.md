@@ -1,2 +1,0 @@
-### Fixed
-- **The remote-id guard no longer blocks a Bash command when it runs slow** (GH 1821, GH 1864): when the guard's analysis ran past the 6 s hook timeout, Claude Code blocked the command, even though the guard is meant to fail open. The guard now stops its own analysis at `TMB_REMOTE_ID_GUARD_DEADLINE_S` (default 3 s) and allows the command. It prints one stderr line and writes a `remote_id_guard_overrun` audit row so overruns can be counted.

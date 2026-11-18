@@ -1,2 +1,0 @@
-### Changed
-- **Eight more L1 lints run on node:test** (GH 1692, the runtime hook TypeScript port): `shellcheck-hooks`, `no-datetime-now-in-hooks`, `no-scratch-in-tree`, `version-sync`, `erd-doc-fresh`, `hooks-executable`, `agent-task-brief-contract` and `enums-doc-fresh` move from bash to `tests/l1-lint/<name>.test.mjs` with the same checks and failure messages, each with a case proving it catches a violation. `shellcheck-hooks` still skips when `shellcheck` is not installed, and `no-scratch-in-tree` takes another root through `scratchDirs(root)` instead of a CLI argument.

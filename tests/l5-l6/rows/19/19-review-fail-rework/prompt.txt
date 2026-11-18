@@ -1,3 +1,0 @@
-@bro the reviewer failed the count task — fix what it found and send it back for review.
-
-Don't ask questions.

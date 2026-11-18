@@ -1,6 +1,0 @@
-{
-  "materialized": [
-    { "agent": "swe", "skill": "feature-dev" },
-    { "agent": "code-reviewer", "skill": "code-review" }
-  ]
-}

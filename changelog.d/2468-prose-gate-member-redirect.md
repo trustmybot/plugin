@@ -1,2 +1,0 @@
-### Fixed
-- **Piped command output into a scratch .txt or .md is no longer denied when a piped command redirects its own stderr** (GH 2468): the no-prose-in-scratch gate took `bash t.sh 2>&1 | grep x | sort > $S/x.txt` or `find . 2>/dev/null | sort > $S/x.txt` for authored prose, because a piped command with a redirect of its own did not count as a plain command. It now lets that output through; `echo`, `printf`, a heredoc or a here-string at the head of the pipe stays denied.

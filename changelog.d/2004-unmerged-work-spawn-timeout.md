@@ -1,2 +1,0 @@
-### Fixed
-- **`world_model_get` no longer hides unmerged work when git is slow** (GH 2004): a branch ref check or target lookup that timed out or was killed read as "branch deleted", so under load `unmerged_work` came back empty with no warning. Every git probe on that path now tells "git gave no answer" apart from a real "no", and returns `warning: 'unmerged-work-unavailable'` instead of dropping the branch.

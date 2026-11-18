@@ -1,2 +1,0 @@
-### Fixed
-- **`tmb_skill-creator` and `/tmb:agent-create` record the Human's approval before writing** (GH 2927): after your Yes, bro records a `prompt_write_approved` event for each file it then writes (scope `full` for a new skill or agent file, `skills-array` for each agent the skill attaches to), so these flows pass the approval gate. `skill_register` now refuses a name that is already registered, naming the existing skill and its file, instead of silently registering a second skill under the same name.

@@ -1,2 +1,0 @@
-### Removed
-- **The last hook-lib shell shims are gone** (GH 1692): `scripts/hooks/lib/query-task.sh`, `scripts/hooks/lib/resolve-install.sh`, the `tests/lib/ts-hooks/` wrappers and their shim test are deleted now that the L5/L6 harness runs on TypeScript, and `cli.js hook-lib` keeps only `db-path`. The L1 lints no longer exempt `query-task.sh`, so no file under `scripts/` may spell `trajectory.db` outside the allowlist. `scripts/hooks/lib/` now tracks no file, so the build's generators (`gen-enums-doc.mjs --txt`, `emit-data-contracts.mjs`) create it before writing.

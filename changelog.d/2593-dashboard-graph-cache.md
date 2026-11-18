@@ -1,2 +1,0 @@
-### Changed
-- **The dashboard's world-model graph reloads without recomputing** (GH 2593): every GET of the file graph rebuilt the file-pair rollup from all symbol edges. The server now caches the rollup per repo, keyed by the repo's indexed commit or a fingerprint of the symbol tables and the database's write counter, sends an `ETag`, and answers a matching `If-None-Match` with 304, so a repeat load costs one small query until the index changes.

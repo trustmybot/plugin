@@ -1,7 +1,0 @@
-{
-  "session_id": "prompt-session-0002",
-  "corpus_env": {
-    "CLAUDE_PLUGIN_ROOT": "@SANDBOX@/plugin-nomd"
-  },
-  "corpus_expect": "{\"systemMessage\":\"TMB could not read the plugin CLAUDE.md"
-}

@@ -1,2 +1,0 @@
-### Fixed
-- **`json.dump` to stdout or stderr no longer blocks a python one-liner** (GH 2038): `json.dump(d, sys.stdout)` and `json.dump(d, sys.stderr)` (positional or `fp=`, also after `from sys import stdout`) now prove as a print. Any other file, such as `json.dump(d, open('o','w'))`, a name holding `sys.stdout`, or `sys.stdout.buffer`, keeps today's verdict: the write is reported or the program is denied.

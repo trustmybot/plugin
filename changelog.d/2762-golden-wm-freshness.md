@@ -1,2 +1,0 @@
-### Fixed
-- **Hook golden recordings list the wm_freshness table** (GH 2762): the `tests/fixtures/hook-golden/` recordings for bro-turn-usage, deferred-tools-drift-warn, ensure-gitignore, mcp-health-check and substrate-preflight now record `wm_freshness=0` in their trajectory.db row counts, so the `hooks-health-parity` and `hooks-lint-parity` shards pass again now that schema.sql creates that table (GH 2584).

@@ -1,2 +1,0 @@
-### Fixed
-- **A hook call handed to another TMB install survives a busy machine** (GH 2477): when the router passed a hook call to the install your project runs and the machine briefly ran out of processes, file handles or memory, the call was denied at once with no reason given. The router now retries such a hand-off twice after a short pause, and a hand-off that still fails names its cause (for example `EAGAIN` or `killed by SIGKILL`) in the deny and in the hook's log.

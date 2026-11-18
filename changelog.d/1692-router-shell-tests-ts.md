@@ -1,2 +1,0 @@
-### Changed
-- The hook-timeout-budget, hooks-doc-fresh and hook-caller-identity checks are now node:test files under `mcp/trajectory-server/src/test/` that run in `npm test`, with every assertion and the hooks-doc-fresh self-test kept (GH 1692). They read `hooks/hooks.json` and `dist/hooks-router.txt` directly and no longer need `jq`. `tests/l1-lint/hook-timeout-budget.sh`, `tests/l1-lint/hooks-doc-fresh.sh` and `tests/l3-integration/hooks/hook-caller-identity.test.sh` are gone, and no test sources `scripts/hooks/lib/registrations.sh` anymore.

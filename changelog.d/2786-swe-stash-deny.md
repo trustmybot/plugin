@@ -1,2 +1,0 @@
-### Fixed
-- **swe and code-reviewer can no longer write the git stash** (GH 2786): the stash stack is shared by every worktree and session, so an swe running `git stash pop` in its worktree could apply another session's stash entry. `swe-boundary` now admits only `git stash list` and `git stash show` for swe and code-reviewer and denies every other stash form (bare `git stash`, `push`, `save`, `pop`, `apply`, `drop`, `clear` and the rest), naming a work-in-progress commit or `git diff > <scratch file>` as the way to set changes aside. bro's own stash use is unchanged.

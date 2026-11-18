@@ -1,2 +1,0 @@
-### Fixed
-- **A runner no longer covers a directory just because a word in its command shares the directory's name** (GH 2521): `npm run docs` (and the `pnpm`, `yarn`, `bun` and `run-script` forms) no longer covers `docs`, `echo src` and `printf src` no longer cover `src`, and a bare `make`, `just` or `task` target such as `make docs` covers nothing. Path arguments still count: `npm run lint -- src` covers `src`, and `node --test tests` covers `tests`.

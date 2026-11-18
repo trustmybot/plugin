@@ -1,2 +1,0 @@
-### Fixed
-- **A bare `git commit` inside a task worktree is no longer denied as ambiguous** (GH 2510): the git gates counted every worktree of the repo even when the payload cwd was inside a linked worktree, so swe's plain `git commit` there was denied with `ambiguous_git_target` "names no directory". A cwd that git proves is inside a linked worktree (its git dir differs from the common dir) now counts as that one checkout. The main checkout of a repo with linked worktrees, and a dir behind an unresolved variable (`git -C $W`, `cd $D &&`), still deny as before.

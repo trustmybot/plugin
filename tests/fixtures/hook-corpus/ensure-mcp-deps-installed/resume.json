@@ -1,7 +1,0 @@
-{
-  "hook_event_name": "SessionStart",
-  "session_id": "corpus",
-  "transcript_path": "/nonexistent/corpus/transcript.jsonl",
-  "cwd": "/nonexistent/corpus",
-  "source": "resume"
-}

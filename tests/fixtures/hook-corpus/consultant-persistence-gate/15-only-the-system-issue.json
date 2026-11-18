@@ -1,7 +1,0 @@
-{
-  "subagent_type": "pm",
-  "corpus_env": {
-    "TRAJECTORY_DB_PATH": "@SANDBOX@/fresh/.claude/tmb/trajectory.db"
-  },
-  "corpus_expect": "empty"
-}

@@ -1,2 +1,0 @@
-### Fixed
-- **Dashboard tests run on every pull request** (GH 2616): no CI job ran `dashboard/test`, and the graph, ux and graph-cache suites failed on dev, because they imported a dashboard server module whose imports Node could not resolve, and graph-cache added a `repos.indexed_commit` column the schema already has. Those suites now load the server modules through an esbuild bundle and use the schema's column, and a new `dashboard` job in `pr-check` builds the dashboard and runs every dashboard test.

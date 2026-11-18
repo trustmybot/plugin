@@ -1,8 +1,0 @@
-{
-  "hook_event_name": "SubagentStop",
-  "agent_type": "swe",
-  "agent_id": "agent-999",
-  "agent_transcript_path": "@SANDBOX@/transcripts/999.jsonl",
-  "session_id": "sess-1",
-  "corpus_expect": "names task_id=999, which has no task row"
-}

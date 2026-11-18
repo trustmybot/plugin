@@ -1,2 +1,0 @@
-### Fixed
-- **The containment guard judges python edit scripts that rebind their target name** (GH 1756): a `python3 - <<'EOF'` script that rebinds its target name at top level (`p='a.ts'` … `p='b.ts'`) used to be denied as "cannot be judged". The guard now judges every literal the name is bound to as a write target, so edits inside the root pass and a literal outside it is still denied. A name rebound inside a def, loop or branch, or mentioned inside any string, still fails closed.

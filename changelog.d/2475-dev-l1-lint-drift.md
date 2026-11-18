@@ -1,2 +1,0 @@
-### Fixed
-- **Four L1 lints pass on a clean dev checkout** (GH 2475, 2373, 2419, 2015): the bug-report tests pin the scan env with `pinScanEnv()`, the retired-hook-gate-paths lint skips three lint self-tests whose strings are planted inputs, two elapsed-time asserts are gone from the worktree-setup and remote-guards tests, and WORLD_MODEL.md and the `mcp_unavailable_fallback_invoked` description read in present tense.

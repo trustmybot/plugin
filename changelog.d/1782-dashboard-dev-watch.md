@@ -1,2 +1,0 @@
-### Added
-- **Watch-mode dev loop for the dashboard** (GH 1782): `bun run dev` in `dashboard/` rebuilds the server, app and CSS on every save into a gitignored `dist-dev/` and restarts the server when its bundle changes, so a dashboard change shows on a browser reload in about a second with no plugin dev build. It listens on port 7488 by default so it runs beside an installed dashboard, and never touches the committed `dist/`.

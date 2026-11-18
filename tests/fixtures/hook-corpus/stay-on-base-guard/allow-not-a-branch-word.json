@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "git checkout 'feat/open;x'"
-  },
-  "corpus_expect": "empty"
-}

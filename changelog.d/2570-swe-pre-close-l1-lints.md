@@ -1,2 +1,0 @@
-### Changed
-- **swe runs the repo's CI pull-request lints before it closes a task** (GH 2570): swe ran only the tests and lints covering the files it changed, so whole-tree lints such as no-cwd-reads and no-secrets-in-source were first caught in CI. The swe checklist now also has swe run the lint command the repo's CI runs on every pull request, through the test-run wrapper, and leaves the full suite to CI.

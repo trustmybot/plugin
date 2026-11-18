@@ -1,2 +1,0 @@
-### Changed
-- **The extending, cheatcode, containment, git and bug-report docs now cover the cases their charts left out** (GH 3260): rejected and revised drafts, an existing agent file, a consultant that never answers a roundtable, a half-finished cheatcode install, what TMB writes in a project, a session that runs inside a worktree, and what bulk cleanup covers. Behaviour the code does not have yet is marked planned.

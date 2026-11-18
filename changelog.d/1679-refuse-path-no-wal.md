@@ -1,2 +1,0 @@
-### Fixed
-- **Maintenance scripts no longer switch an older DB to WAL when they refuse it** (GH 1679): opening a trajectory DB in rollback-journal mode at an older schema with `run-scan.mjs`, `run-scan-initial.mjs` or the world-model smoke script exited 1 as GH 1639 promised, but set the DB to WAL mode first and so rewrote its header. The schema version is now read before anything writes, so the refusal leaves the DB file byte-identical and creates no `-wal` or `-shm` file. The trajectory server still migrates and switches to WAL as before.

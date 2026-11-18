@@ -1,7 +1,0 @@
-{
-  "tool_name": "AskUserQuestion",
-  "tool_input": {
-    "questions": 3
-  },
-  "corpus_expect": "\"permissionDecision\":\"ask\""
-}

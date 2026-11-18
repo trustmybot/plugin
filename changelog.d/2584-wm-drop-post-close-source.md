@@ -1,2 +1,0 @@
-### Removed
-- **`scan_run` drops the `bro_auto_post_close` source** (GH 2584): no hook fires a post-close scan, so `scan_run` accepts `user_manual`, `bro_auto_initial` and `startup_catchup`, and a manual `run-scan.mjs` run without a source argument audits its scan as `bro_auto_initial`. Audit rows already written with the old value stay as they are, and an unknown source is recorded as `bro_auto_initial`.

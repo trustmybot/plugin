@@ -1,2 +1,0 @@
-### Fixed
-- **MCP responses stay complete through piped stdout on shutdown** (GH 2161): on stdin EOF or a signal the trajectory server closes its database once, then flushes output already queued before it exits, so a large `tools/list` reply is no longer cut off. A disconnected reader, or one that stays blocked for five seconds, ends in an explicit shutdown failure instead of silent truncation or a lingering process. It does not wait for unfinished tool handlers. Thanks to @harr1sz for the fix (PR 2165).

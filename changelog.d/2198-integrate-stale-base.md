@@ -1,2 +1,0 @@
-### Fixed
-- **`cli.js integrate` no longer reports "nothing to rebase" against a stale local base** (GH 2198): a local base branch with an upstream is now fetched first, and integrate rebases onto the upstream unless the local ref equals it or is a fast-forward ahead of it (one stderr line names both refs when the upstream is used). A remote-tracking base such as `origin/main` is fetched before it is resolved. A sha, a tag or a branch with no upstream is used as given. A fetch that fails exits 4 with the git error, leaving the branch and the DB unchanged.

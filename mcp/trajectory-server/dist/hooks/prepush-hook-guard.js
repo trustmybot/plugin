@@ -1,0 +1,850 @@
+import { ALLOW } from './gate.js';
+import { cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot, unquotedCommand, unquotedExpansions, writePaths } from './cmd-analysis/index.js';
+import { bashParser } from './cmd-analysis/parser.js';
+import { GIT_VALUE_OPTION } from './cmd-analysis/statements.js';
+import { ASSIGNMENT, splitWords, unwrap } from './cmd-analysis/unwrap.js';
+import { dbPath } from './lib/db.js';
+import { denyResult } from './lib/deny.js';
+import { isDir } from './lib/git.js';
+import { jqCapture, jqInput } from './lib/jq-raw.js';
+import { posixBasename } from './lib/project-env.js';
+import { gitCommonDir } from './lib/prepush-hook.js';
+import { isExempt } from './lib/repo.js';
+import { payloadCwdOf } from './lib/statement-rows.js';
+import { isAgentSession } from './pre-push/judge.js';
+import { observeGuardDeny } from './pre-push/observe.js';
+export const GATE_NAME = 'prepush-hook-guard';
+const MARK = 'TMB_AGENT_SHELL';
+const GIT_CONFIG_ENV = /^GIT_CONFIG_(COUNT$|PARAMETERS$|KEY_|VALUE_)/;
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
+const MAX_DEPTH = 3;
+/** The words a command must hold, as written or unquoted, before it is parsed. */
+const KEYWORDS = /no-veri|GIT_CONFIG_|TMB_AGENT_SHELL|\benv\b|\bunset\b|\bexport\b|\bdeclare\b|\btypeset\b|\blocal\b|config|\/tmb\b|\btmb\/|chmod/;
+const KEYWORDS_ANY_CASE = /hook\.|worktreeconfig|include(if)?\./i;
+/** What an unreadable command must name to be denied: a form, never a bare `env` or `config`. */
+const NAMES_A_FORM = /--no-veri|GIT_CONFIG_|TMB_AGENT_SHELL|\.git\/(tmb|config)|\/tmb\/pre-push/;
+const NAMES_A_FORM_ANY_CASE = /hook\.|worktreeconfig|include(if)?\./i;
+/** A protected file named in text the analysis could not resolve, such as `"$(git rev-parse --git-common-dir)/tmb/pre-push"`. */
+const PROTECTED_TEXT = /(\.git|git-(common-)?dir)\S*\/(tmb(\/|$)|config(\.worktree)?$)/i;
+const PROTECTED_PATH = /\/\.git\/(tmb(\/|$)|config(\.worktree)?$|worktrees\/[^/]+\/config\.worktree$)/;
+const OBSERVE_ONLY = "TMB's pre-push hook only observes in this release: it never blocks a push, so there is nothing to skip.";
+const PARSE_REASON = 'BLOCKED: the pre-push hook guard could not read this command, and it names a way to skip the hook or strip the agent mark.';
+const unreadable = (why) => ({ failClosed: 'unreadable', why });
+const unresolved = (why) => ({ failClosed: 'unresolved', why });
+const denyForm = (form) => denyResult(`BLOCKED: ${form} would skip, disable or replace TMB's pre-push hook. ${OBSERVE_ONLY}`, { allowed: 'the same command without that form' });
+const PUSH_ALLOWED = 'the same push with every argument written literally; only a double-quoted -C, --git-dir or --work-tree value may come from an expansion';
+const CONFIG_ALLOWED = 'the same git config with its options and key written literally and each expansion after the key double-quoted (`git config user.name "$NAME"`), or a literal read form (`git config --get "$KEY"`)';
+/** The reason and allowed form of a fail-closed deny, by its class. */
+function failClosedDeny(f) {
+    switch (f.failClosed) {
+        case 'unreadable':
+            return { reason: `${PARSE_REASON} (${f.why}) ${OBSERVE_ONLY}`, allowed: 'the same command split into simpler commands with plain quoting' };
+        case 'global_option_expansion':
+            return {
+                reason: `BLOCKED: ${f.why}, which bash splits into words that can hand git an option such as --no-verify or a hook key, so the guard cannot tell what this git command runs. ${OBSERVE_ONLY}`,
+                allowed: f.fix ?? 'the same command with that value double-quoted',
+            };
+        case 'push_expansion':
+            return { reason: `BLOCKED: ${f.why}: its value may be --no-verify or a hook key the guard cannot see, so it cannot tell what this push runs. ${OBSERVE_ONLY}`, allowed: PUSH_ALLOWED };
+        case 'config_expansion':
+            return { reason: `BLOCKED: the pre-push hook guard cannot tell what this git config writes: ${f.why}, so it could set a hook key. ${OBSERVE_ONLY}`, allowed: CONFIG_ALLOWED };
+        case 'unresolved':
+            return {
+                reason: `BLOCKED: the pre-push hook guard cannot tell what this git command runs: ${f.why}, so it could skip, disable or replace TMB's pre-push hook. ${OBSERVE_ONLY}`,
+                allowed: 'the same command with that git argument written literally',
+            };
+    }
+}
+const namesForm = (text) => NAMES_A_FORM.test(unquotedCommand(text)) || NAMES_A_FORM_ANY_CASE.test(unquotedCommand(text));
+/** A word's value when it holds no expansion: quotes and backslashes dropped; null otherwise. */
+function literal(node) {
+    switch (node.type) {
+        case 'word':
+        case 'variable_name':
+        case 'number':
+            return node.text.replace(/\\(.)/g, '$1');
+        case 'raw_string':
+            return node.text.slice(1, -1);
+        case 'string': {
+            const parts = node.namedChildren;
+            return parts.every((p) => p?.type === 'string_content') ? node.text.slice(1, -1) : null;
+        }
+        case 'command_name': {
+            const word = node.namedChild(0);
+            return node.namedChildCount === 1 && word !== null ? literal(word) : null;
+        }
+        case 'concatenation': {
+            const parts = node.namedChildren.map((p) => (p === null ? null : literal(p)));
+            return parts.every((p) => p !== null) ? parts.join('') : null;
+        }
+        default:
+            return null;
+    }
+}
+/** The form an assignment `<name>=<value>` makes, or '' for none; value null when it is not literal. */
+function assignmentForm(name, op, value) {
+    if (GIT_CONFIG_ENV.test(name))
+        return `setting ${name}`;
+    if (name === MARK && (op !== '=' || value !== '1'))
+        return `setting ${MARK} to anything but 1`;
+    return '';
+}
+function assignmentWordForm(word) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?(\+?=)(.*)$/s.exec(word);
+    return m === null ? '' : assignmentForm(m[1], m[2] ? '[]' : m[3], m[4]);
+}
+/** The form `env`'s options and assignments in <w> (from index 1) make. */
+function envForm(w) {
+    for (let k = 1; k < w.length; k++) {
+        const word = w[k];
+        if (word === null)
+            return '';
+        if (word === '-' || word === '-i' || word === '--ignore-environment')
+            return `\`env ${word}\`, which strips ${MARK}`;
+        if (word === `--unset=${MARK}` || ((word === '-u' || word === '--unset') && w[k + 1] === MARK))
+            return `\`env ${word.startsWith('--unset=') ? word : `${word} ${MARK}`}\``;
+        if (/^-[^-]/.test(word)) {
+            const u = word.indexOf('u');
+            const flags = u < 0 ? word.slice(1) : word.slice(1, u);
+            if (flags.includes('i'))
+                return `\`env ${word}\`, which strips ${MARK}`;
+            if (u >= 0 && (word.slice(u + 1) || w[k + 1]) === MARK)
+                return `\`env -u ${MARK}\``;
+            if (u >= 0 && word.slice(u + 1) === '')
+                k++;
+            else if (/[CS]$/.test(word))
+                k++;
+            continue;
+        }
+        if (word === '--unset' || word === '--chdir' || word === '--split-string') {
+            k++;
+            continue;
+        }
+        if (word.startsWith('--'))
+            continue;
+        if (ASSIGNMENT.test(word)) {
+            const form = assignmentWordForm(word);
+            if (form !== '')
+                return form;
+            continue;
+        }
+        return '';
+    }
+    return '';
+}
+/** The form one command's words make: its leading assignments and wrappers, `env`, `unset`, and a shell or `eval` body. */
+async function argvFinding(w, depth) {
+    const words = w.map((x) => x ?? '$?');
+    const head = unwrap(words, 0).k;
+    for (let k = 0; k < head; k++) {
+        const word = w[k];
+        if (word === null)
+            continue;
+        const form = ASSIGNMENT.test(word) ? assignmentWordForm(word) : posixBasename(word) === 'env' ? envForm(w.slice(k, head)) : '';
+        if (form !== '')
+            return { form };
+    }
+    const argv0 = w[head];
+    if (argv0 === null || argv0 === undefined)
+        return null;
+    const name = posixBasename(argv0);
+    if (name === 'env') {
+        const form = envForm(w.slice(head));
+        return form === '' ? null : { form };
+    }
+    if (name === 'unset') {
+        const fn = w.slice(head + 1).some((x) => x === '-f');
+        return !fn && w.slice(head + 1).includes(MARK) ? { form: `\`unset ${MARK}\`` } : null;
+    }
+    if (SHELLS.has(name)) {
+        const c = w.findIndex((x, k) => k > head && x !== null && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(x));
+        if (c < 0)
+            return null;
+        const body = w[c + 1];
+        return body === null || body === undefined ? null : bodyFinding(body, depth);
+    }
+    if (name === 'eval') {
+        const rest = w.slice(head + 1);
+        return rest.some((x) => x === null) ? null : bodyFinding(rest.join(' '), depth);
+    }
+    return null;
+}
+async function bodyFinding(body, depth) {
+    if (depth >= MAX_DEPTH)
+        return namesForm(body) ? unreadable('code nested past depth 3') : null;
+    return treeFinding(body, depth + 1);
+}
+function declarationFinding(node) {
+    const keyword = node.child(0)?.text ?? '';
+    const options = node.namedChildren.filter((c) => c !== null && c.type === 'word' && /^[-+]/.test(c.text)).map((c) => c.text);
+    for (const child of node.namedChildren) {
+        if (child === null)
+            continue;
+        if (child.type === 'variable_assignment')
+            continue;
+        const nameText = literal(child);
+        if (nameText === null || /^[-+]/.test(nameText))
+            continue;
+        if (GIT_CONFIG_ENV.test(nameText))
+            return { form: `\`${keyword} ${nameText}\`` };
+        if (nameText !== MARK)
+            continue;
+        const unexports = options.some((o) => (keyword === 'export' && /^-[a-z]*n/.test(o)) || /^\+[a-z]*x/.test(o));
+        if (unexports || keyword === 'local' || keyword === 'declare' || keyword === 'typeset')
+            return { form: `\`${keyword} ${[...options, MARK].join(' ')}\`, which strips ${MARK}` };
+    }
+    return null;
+}
+function assignmentNodeForm(node) {
+    const nameNode = node.childForFieldName('name');
+    const valueNode = node.childForFieldName('value');
+    const name = nameNode?.type === 'subscript' ? (nameNode.childForFieldName('name')?.text ?? '') : (nameNode?.text ?? '');
+    const op = node.text.slice(nameNode?.text.length ?? 0).startsWith('+=') ? '+=' : nameNode?.type === 'subscript' ? '[]' : '=';
+    return assignmentForm(name, op, valueNode === null ? '' : literal(valueNode));
+}
+/** The first form the parse of <command> shows, its shell and `eval` bodies read to depth 3. */
+async function treeFinding(command, depth) {
+    const tree = (await bashParser()).parse(command);
+    if (tree === null)
+        return namesForm(command) ? unreadable('tree-sitter-bash returned no parse') : null;
+    try {
+        if (tree.rootNode.hasError)
+            return namesForm(command) ? unreadable('tree-sitter-bash could not parse it') : null;
+        for (const node of tree.rootNode.descendantsOfType(['variable_assignment', 'declaration_command', 'unset_command', 'command'])) {
+            if (node === null)
+                continue;
+            if (node.type === 'variable_assignment') {
+                const form = assignmentNodeForm(node);
+                if (form !== '')
+                    return { form };
+            }
+            else if (node.type === 'declaration_command') {
+                const found = declarationFinding(node);
+                if (found !== null)
+                    return found;
+            }
+            else if (node.type === 'unset_command') {
+                const args = node.namedChildren.map((c) => (c === null ? null : literal(c)));
+                if (!args.includes('-f') && args.includes(MARK))
+                    return { form: `\`unset ${MARK}\`` };
+            }
+            else {
+                const name = node.childForFieldName('name');
+                const args = node.childrenForFieldName('argument').filter((c) => c !== null);
+                const w = [name === null ? null : literal(name), ...args.map(literal)];
+                const found = await argvFinding(w, depth);
+                if (found !== null)
+                    return found;
+            }
+        }
+        return null;
+    }
+    finally {
+        tree.delete();
+    }
+}
+/** The key a `-c` / `--config-env` value sets. */
+const configKey = (value) => value.split('=')[0].toLowerCase();
+/**
+ * Whether git config key <key> can reach the hook: a `hook.*` key itself, the
+ * switch that makes git read a worktree's config.worktree, or an include that
+ * pulls in a file holding either. Git matches section and key names in any case.
+ */
+const isProtectedKey = (key) => {
+    const k = key.toLowerCase();
+    return k === 'hook' || k.startsWith('hook.') || k === 'extensions.worktreeconfig' || k === 'include.path' || (k.startsWith('includeif.') && k.endsWith('.path'));
+};
+/**
+ * Whether a git argument word's value is unknown until bash runs it: it holds
+ * an expansion, or starts with a glob or brace pattern bash may turn into an
+ * option such as `--no-verify`. A statement's words have their quotes
+ * dropped, so a quoted expansion counts as well: its value may be an option.
+ */
+const isUnknownWord = (word) => /[$`]/.test(word) || /^[*?[{]/.test(word);
+/** Stands for the words after an unquoted $( ) or backtick that cut a statement. */
+const CUT_WORDS = '$(…)';
+const CONFIG_WRITE_ACTIONS = new Set(['set', 'unset', 'rename-section', 'remove-section', 'edit']);
+const CONFIG_READ_ACTIONS = new Set(['get', 'list']);
+const CONFIG_WRITE_OPTIONS = new Set(['--add', '--replace-all', '--unset', '--unset-all', '--rename-section', '--remove-section', '-e', '--edit']);
+const CONFIG_READ_OPTIONS = new Set(['--get', '--get-all', '--get-regexp', '--get-urlmatch', '--get-color', '--get-colorbool', '-l', '--list']);
+const CONFIG_VALUE_OPTIONS = new Set(['-f', '--file', '--blob', '-t', '--type', '--default', '--comment', '--value', '--url']);
+/** git config's flags, fully spelled (git 2.56 `git config <action> -h`); every value option above also has a `--no-` flag. */
+const CONFIG_FLAGS = new Set([
+    ...['--global', '--system', '--local', '--worktree', '--all', '--regexp', '--fixed-value', '--append', '--includes'],
+    ...['-z', '--null', '--name-only', '--show-origin', '--show-scope', '--show-names'],
+    ...['--bool', '--int', '--bool-or-int', '--bool-or-str', '--path', '--expiry-date'],
+    ...['global', 'system', 'local', 'worktree', 'all', 'regexp', 'fixed-value', 'append', 'includes', 'null', 'name-only', 'show-origin', 'show-scope', 'show-names'].map((f) => `--no-${f}`),
+    ...['file', 'blob', 'type', 'default', 'comment', 'value', 'url'].map((f) => `--no-${f}`),
+]);
+/** The literal words that make a `git config` with expanded words a read (decision #423); the actions only right after `config`. */
+const READ_FORM_OPTIONS = new Set(['--get', '--get-all', '--get-regexp', '-l', '--list']);
+/** The flags a literal read may carry before its read form. */
+const PRE_READ_FLAGS = new Set([
+    ...['--global', '--system', '--local', '--worktree', '--fixed-value', '--includes', '--no-includes'],
+    ...['-z', '--null', '--name-only', '--show-origin', '--show-scope', '--show-names'],
+    ...['--bool', '--int', '--bool-or-int', '--bool-or-str', '--path', '--expiry-date', '--no-type'],
+]);
+/** The value options a literal read may carry before its read form, their argument attached (`--type=bool`, `-f.git/config`) or the next word. */
+const PRE_READ_VALUE_OPTIONS = new Set(['-f', '--file', '--blob', '-t', '--type', '--default']);
+/** The words a literal read may carry before its read form. */
+const LITERAL_READ_PREFIX = {
+    flags: PRE_READ_FLAGS,
+    valueOptions: PRE_READ_VALUE_OPTIONS,
+    attached: PRE_READ_VALUE_OPTIONS,
+    what: 'a fully spelled option a read may carry',
+};
+/**
+ * The narrower words a read with expanded words may carry before its read
+ * form (decision #438): a scope flag, a literal `--type=<t>`, or `-f`/`--file`
+ * with a literal or double-quoted path, so no expansion there can be an
+ * option that swallows the read form (`O=--comment; … "$O" --get k v`).
+ */
+const EXPANDED_READ_PREFIX = {
+    flags: new Set(['--global', '--local', '--system', '--worktree']),
+    valueOptions: new Set(['-f', '--file']),
+    attached: new Set(['-f', '--file', '--type']),
+    what: 'a scope flag, a literal --type=<t> or -f/--file, the only options a read with an expansion may carry',
+};
+/** An expansion that may stand for several words even double-quoted: `"$@"`, `"${a[@]}"`, `"$*"` and their `${…}` kin. */
+const MANY_WORDS = /\$[@*]|\$\{[^}]*[@*]/;
+/** Whether <word> is one of <options> with its value attached: `--file=<f>`, or `-f<f>` for a short one. */
+const hasAttachedValue = (word, options) => [...options].some((o) => (o.startsWith('--') ? word.startsWith(`${o}=`) : word.length > o.length && word.startsWith(o)));
+const isOptionWord = (word) => word.length > 1 && word.startsWith('-');
+/**
+ * What the literal words of one `git config …` (<sub>, from `config` on) ask
+ * for: its action, the words after the options, whether a write or read form
+ * is named, and the first option word git config does not spell that way
+ * (`--com`, `--unset-a`: git takes any unique prefix). As git does, an action
+ * is only the word right after `config`, and options end at `--` or at the
+ * first other word, so `git config <key> --get` sets <key> to `--get`.
+ */
+function configMode(sub) {
+    const positional = [];
+    let write = false;
+    let read = false;
+    let unspelled;
+    const action = CONFIG_WRITE_ACTIONS.has(sub[1] ?? '') || CONFIG_READ_ACTIONS.has(sub[1] ?? '') ? sub[1] : '';
+    for (let k = action === '' ? 1 : 2; k < sub.length; k++) {
+        const word = sub[k];
+        if (word === '--' || !isOptionWord(word)) {
+            positional.push(...sub.slice(word === '--' ? k + 1 : k));
+            break;
+        }
+        if (CONFIG_VALUE_OPTIONS.has(word))
+            k++;
+        else if (CONFIG_WRITE_OPTIONS.has(word))
+            write = true;
+        else if (CONFIG_READ_OPTIONS.has(word))
+            read = true;
+        else if (!CONFIG_FLAGS.has(word) && !hasAttachedValue(word, CONFIG_VALUE_OPTIONS) && !isUnknownWord(word))
+            unspelled ??= word;
+    }
+    if (CONFIG_WRITE_ACTIONS.has(action))
+        write = true;
+    else if (action !== '')
+        read = true;
+    return { action, positional, write, read, unspelled };
+}
+/** Whether an expanded <word> stays one word when bash runs it: double-quoted (<loose> false) and not `"$@"`-like. */
+const isOneQuotedWord = (word, loose) => loose === false && !MANY_WORDS.test(word);
+const isReadForm = (word, k, forms) => forms.has(word) || (k === 1 && CONFIG_READ_ACTIONS.has(word));
+/**
+ * Where the first of <forms> (or a read action right after `config`) sits in
+ * <sub>, or why a word before it may not stand there: each must be a literal
+ * word <prefix> allows, so none can take the read form as its value
+ * (`--comment --get <key> <value>` sets <key>). A value option's separate-word
+ * argument may also be one double-quoted expansion (<loose>[k] false, decision
+ * #425): git takes that word as the argument whatever it holds.
+ */
+function readFormAt(sub, forms, loose, prefix) {
+    for (let k = 1; k < sub.length; k++) {
+        const word = sub[k];
+        if (isUnknownWord(word))
+            return `${word} before a literal read form`;
+        if (isReadForm(word, k, forms))
+            return k;
+        if (prefix.valueOptions.has(word)) {
+            const value = sub[k + 1];
+            if (value === undefined)
+                return `the value of ${word} from nothing`;
+            if (isUnknownWord(value) && !isOneQuotedWord(value, loose?.[k + 1]))
+                return `the value of ${word} from ${value}`;
+            k++;
+        }
+        else if (!prefix.flags.has(word) && !hasAttachedValue(word, prefix.attached)) {
+            return `${word}, which is not ${prefix.what} before its read form`;
+        }
+    }
+    return 'no literal read form';
+}
+/**
+ * Why one `git config …` (<sub>, from `config` on) with expanded words is not
+ * a read whatever they hold, or null when it is (decisions #423, #425, #438): a
+ * literal read form is present, readFormAt admits the words before it by
+ * EXPANDED_READ_PREFIX, and every
+ * expanded word after it is double-quoted (<loose>[k] false) and stands for
+ * one word.
+ */
+function expandedReadBlocker(sub, loose, mode) {
+    const expanded = sub.find(isUnknownWord) ?? 'an expansion';
+    if (!sub.some((word, k) => k > 0 && isReadForm(word, k, READ_FORM_OPTIONS)))
+        return `${expanded} with no literal read form`;
+    const readAt = readFormAt(sub, READ_FORM_OPTIONS, loose, EXPANDED_READ_PREFIX);
+    if (typeof readAt === 'string')
+        return readAt;
+    if (loose === null)
+        return `${expanded} in words the guard cannot line up with the command as written`;
+    for (let k = readAt + 1; k < sub.length; k++) {
+        const word = sub[k];
+        if (!isUnknownWord(word))
+            continue;
+        if (loose[k] !== false)
+            return `${word} unquoted, which bash may split into options`;
+        if (MANY_WORDS.test(word))
+            return `${word}, which may stand for several words`;
+    }
+    return mode.write ? `${expanded} beside a literal write form` : null;
+}
+/** The flags a write with expanded words may carry before its key: none takes a value or names a section. */
+const PRE_KEY_WRITE_FLAGS = new Set([
+    ...['--global', '--system', '--local', '--worktree', '--add', '--replace-all', '--unset', '--unset-all', '--fixed-value'],
+    ...['--bool', '--int', '--bool-or-int', '--bool-or-str', '--path', '--expiry-date'],
+]);
+/** The value options a write with expanded words may carry before its key, their argument literal: attached (`--type=bool`) or the next word. */
+const PRE_KEY_WRITE_VALUE_OPTIONS = new Set(['-t', '--type']);
+/** A config key as git spells one: a section, a dot, a name. */
+const CONFIG_KEY = /^[A-Za-z0-9-]+(\..*)?\.[A-Za-z][A-Za-z0-9-]*$/;
+/**
+ * Why one `git config …` (<sub>, from `config` on) with expanded words is not
+ * a write whatever they hold, or null when it is: legacy mode, which ends its
+ * options at the key, so every word before the key is a literal option
+ * PRE_KEY_WRITE_* allows (no action word: subcommand mode may take options
+ * after the key); the key literal and no protected key; every expanded word
+ * after it double-quoted
+ * (<loose>[k] false) and one word.
+ */
+function expandedWriteBlocker(sub, loose) {
+    let k = 1;
+    for (; k < sub.length; k++) {
+        const word = sub[k];
+        if (isUnknownWord(word))
+            return `${word} before the key`;
+        if (!isOptionWord(word))
+            break;
+        if (PRE_KEY_WRITE_VALUE_OPTIONS.has(word)) {
+            const value = sub[k + 1];
+            if (value === undefined || isUnknownWord(value))
+                return `the value of ${word} from ${value ?? 'nothing'}`;
+            k++;
+        }
+        else if (!PRE_KEY_WRITE_FLAGS.has(word) && !hasAttachedValue(word, PRE_KEY_WRITE_VALUE_OPTIONS)) {
+            return `${word}, which is not an option a config write with an expansion may carry before its key`;
+        }
+    }
+    const key = sub[k];
+    if (key === undefined)
+        return 'an expansion and no key';
+    if (CONFIG_WRITE_ACTIONS.has(key) || CONFIG_READ_ACTIONS.has(key) || !CONFIG_KEY.test(key))
+        return `${key} where a literal key belongs`;
+    if (isProtectedKey(key))
+        return `the key ${key}`;
+    if (loose === null)
+        return 'an expansion in words the guard cannot line up with the command as written';
+    for (let j = k + 1; j < sub.length; j++) {
+        const word = sub[j];
+        if (!isUnknownWord(word))
+            continue;
+        if (loose[j] !== false)
+            return `${word} unquoted, which bash may split into options`;
+        if (MANY_WORDS.test(word))
+            return `${word}, which may stand for several words`;
+    }
+    return null;
+}
+/**
+ * The finding one `git config …` (<sub>, from `config` on) makes; <loose>
+ * tells, per word, whether bash may split it (null when unknown). A form its
+ * words name as written is denied as that form. Past that, an option git
+ * would read as an abbreviation is unresolved; with an expanded word it
+ * passes only as a read expandedReadBlocker admits or a write
+ * expandedWriteBlocker admits, else it is config_expansion; a literal read
+ * passes only when readFormAt admits the words before its read form.
+ */
+function configFinding(sub, loose) {
+    const shown = `\`git ${sub.join(' ')}\``;
+    const mode = configMode(sub);
+    const form = configForm(sub, shown, mode);
+    if (form !== '')
+        return { form };
+    if (mode.unspelled !== undefined)
+        return unresolved(`${shown} takes ${mode.unspelled}, which is not a git config option spelled out in full, so git may read it as another`);
+    if (sub.some(isUnknownWord)) {
+        const readBlocker = expandedReadBlocker(sub, loose, mode);
+        if (readBlocker === null)
+            return null;
+        const writeBlocker = expandedWriteBlocker(sub, loose);
+        if (writeBlocker === null)
+            return null;
+        // A command naming a read form is told why it is no read; any other, why it is no write.
+        const namesRead = sub.some((word, k) => k > 0 && isReadForm(word, k, READ_FORM_OPTIONS));
+        return { failClosed: 'config_expansion', why: `${shown} takes ${namesRead ? readBlocker : writeBlocker}` };
+    }
+    if (!mode.read)
+        return null;
+    const readAt = readFormAt(sub, CONFIG_READ_OPTIONS, loose, LITERAL_READ_PREFIX);
+    return typeof readAt === 'string' ? unresolved(`${shown} takes ${readAt}`) : null;
+}
+/** The form one `git config …` (<sub>, from `config` on) makes, its words read as literal. */
+function configForm(sub, shown, mode) {
+    const { action, positional, write, read } = mode;
+    if (action === 'edit' || sub.includes('-e') || sub.includes('--edit'))
+        return `${shown}, which edits a git config file`;
+    // `git config <key> <value>` sets; one positional alone reads.
+    if (!write && (read || positional.length < 2))
+        return '';
+    const touched = positional.find(isProtectedKey);
+    return touched === undefined ? '' : `${shown}, which writes ${touched}`;
+}
+/** The paths a `chmod` statement changes, relative ones under its dir; one holding an expansion as written. */
+function chmodTargets(s) {
+    const words = splitWords(s.stmt);
+    if (words.length === 0 || posixBasename(words[0]) !== 'chmod')
+        return [];
+    // Options are chmod's flag letters or long options; a mode may itself start with - (`-x`) or +.
+    const operands = words.slice(1).filter((w) => !/^-[RfvcHLPhE]+$/.test(w) && !w.startsWith('--'));
+    // The first operand is the mode unless --reference names it.
+    const files = words.some((w) => w.startsWith('--reference')) ? operands : operands.slice(1);
+    return files.map((w) => (w.includes('$') || w.startsWith('/') || s.dir === '-' ? w : `${s.dir}/${w}`));
+}
+/** The git global options whose value an unquoted expansion may not fill on any git command (SC3 a). */
+const SPLIT_CHECKED_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--config-env']);
+const SPLIT_CHECKED_JOINED = /^(--git-dir|--work-tree|--config-env)=/;
+/** The git global options a push may take from one double-quoted expansion (SC3 b). */
+const PLACE_OPTIONS = new Set(['-C', '--git-dir', '--work-tree']);
+const PLACE_JOINED = /^(--git-dir|--work-tree)=/;
+const EXPANSION_NODES = new Set(['simple_expansion', 'expansion', 'command_substitution', 'arithmetic_expansion', 'process_substitution']);
+const QUOTED_NODES = new Set(['string', 'raw_string', 'ansi_c_string', 'translated_string']);
+/** The expansions in <node> no quotes hold, outermost only. */
+function unquotedExpansionNodes(node) {
+    if (EXPANSION_NODES.has(node.type))
+        return [node];
+    if (QUOTED_NODES.has(node.type))
+        return [];
+    return node.namedChildren.flatMap((c) => (c === null ? [] : unquotedExpansionNodes(c)));
+}
+/** The SPLIT_CHECKED option values before the subcommand of the git <command> node, or null when it runs no git its words show. */
+function gitGlobalValues(command) {
+    const name = command.childForFieldName('name');
+    const words = [name, ...command.childrenForFieldName('argument')].filter((c) => c !== null);
+    const gitAt = words.findIndex((w) => {
+        const text = literal(w);
+        return text !== null && posixBasename(text) === 'git';
+    });
+    if (gitAt < 0 || words.slice(0, gitAt).some((w) => literal(w) === null))
+        return null;
+    const values = [];
+    for (let k = gitAt + 1; k < words.length; k++) {
+        const word = words[k];
+        const text = literal(word);
+        if (text !== null && GIT_VALUE_OPTION.has(text)) {
+            const value = words[k + 1];
+            if (value !== undefined && SPLIT_CHECKED_OPTIONS.has(text))
+                values.push({ option: text, node: value, unquoted: unquotedExpansionNodes(value) });
+            k++;
+            continue;
+        }
+        const joined = SPLIT_CHECKED_JOINED.exec(word.text);
+        if (joined !== null)
+            values.push({ option: joined[1], node: word, unquoted: unquotedExpansionNodes(word) });
+        else if (text === null || !text.startsWith('-'))
+            break;
+    }
+    return values;
+}
+/** <text> with each unquoted expansion in a SPLIT_CHECKED git option's value double-quoted; <text> itself when it holds none or does not parse. */
+async function quoteGlobalValues(text) {
+    const tree = (await bashParser()).parse(text);
+    if (tree === null)
+        return text;
+    try {
+        if (tree.rootNode.hasError)
+            return text;
+        const spans = tree.rootNode
+            .descendantsOfType('command')
+            .flatMap((c) => (c === null ? [] : (gitGlobalValues(c) ?? []).flatMap((v) => v.unquoted)))
+            .sort((a, b) => b.startIndex - a.startIndex);
+        let fixed = text;
+        for (const node of spans)
+            fixed = `${fixed.slice(0, node.startIndex)}"${fixed.slice(node.startIndex, node.endIndex)}"${fixed.slice(node.endIndex)}`;
+        return fixed;
+    }
+    finally {
+        tree.delete();
+    }
+}
+/**
+ * The finding the SPLIT_CHECKED option values of git statement <src> make: a
+ * literal `-c` / `--config-env` protected key is that form; an unquoted expansion
+ * in any of them fails closed as global_option_expansion, its fix <command>
+ * (else <src>) with each such expansion double-quoted. Null when <src> does
+ * not parse, so the statement's other checks judge it.
+ */
+async function globalValueFinding(src, command) {
+    const tree = (await bashParser()).parse(src);
+    if (tree === null)
+        return null;
+    let split;
+    try {
+        if (tree.rootNode.hasError)
+            return null;
+        const values = tree.rootNode
+            .descendantsOfType('command')
+            .map((c) => (c === null ? null : gitGlobalValues(c)))
+            .find((v) => v !== null) ?? [];
+        for (const value of values) {
+            const key = unquotedCommand(value.node.text).replace(SPLIT_CHECKED_JOINED, '').split('=')[0];
+            if ((value.option === '-c' || value.option === '--config-env') && !/[$`]/.test(key) && isProtectedKey(key)) {
+                return { form: `\`git ${SPLIT_CHECKED_JOINED.test(value.node.text) ? value.node.text : `${value.option} ${value.node.text}`}\`` };
+            }
+        }
+        split = values.filter((v) => v.unquoted.length > 0);
+    }
+    finally {
+        tree.delete();
+    }
+    if (split.length === 0)
+        return null;
+    const fixedCommand = await quoteGlobalValues(command);
+    return {
+        failClosed: 'global_option_expansion',
+        why: `\`${src}\` gives ${[...new Set(split.map((v) => v.option))].join(', ')} an unquoted expansion`,
+        fix: fixedCommand !== command ? fixedCommand : await quoteGlobalValues(src),
+    };
+}
+/** The first word of a push statement (<words> its own, <globals> those between git and `push`, <args> from `push` on) that comes from an expansion, save a PLACE_OPTIONS value, which reaches here only double-quoted. */
+function pushExpansion(wrappers, globals, args) {
+    if (wrappers !== undefined && /[$`]/.test(wrappers))
+        return wrappers;
+    for (let k = 0; k < globals.length; k++) {
+        const word = globals[k];
+        if (PLACE_OPTIONS.has(word)) {
+            k++;
+            continue;
+        }
+        if (PLACE_JOINED.test(word))
+            continue;
+        if (isUnknownWord(word))
+            return word;
+    }
+    return args.slice(1).find(isUnknownWord);
+}
+/**
+ * The finding one listed statement makes as a git command (<command> the
+ * whole Bash command). Its literal words are judged as written; past that it
+ * fails closed by class (see the header): an unquoted expansion in a
+ * SPLIT_CHECKED option value, a push with an expansion, a `git config` with
+ * one configFinding does not admit, any other git word whose value the guard
+ * cannot tell where a form could sit.
+ */
+async function gitForm(s, command) {
+    if (s.opaque === true)
+        return namesForm(s.src ?? s.stmt) ? unreadable('it runs code the analysis cannot read') : null;
+    const sub = gitSubcommandOf(s);
+    if (sub === '')
+        return null;
+    if (s.src !== undefined) {
+        const global = await globalValueFinding(s.src, command);
+        if (global !== null)
+            return global;
+    }
+    if (sub === undefined)
+        return unresolved(`\`${s.src ?? s.stmt}\` takes git's subcommand, or an option before it, from text the guard cannot read literally`);
+    const words = splitWords(s.stmt);
+    const subWords = splitWords(sub);
+    const gitAt = words.findIndex((w) => /^(.*\/)?git$/.test(w));
+    const globals = gitAt < 0 ? [] : words.slice(gitAt + 1, words.length - subWords.length);
+    // A `glued` cut joins the substitution to the last word, which is then unknown too.
+    const args = s.cut === undefined ? subWords : s.cut === 'glued' ? [...subWords.slice(0, -1), `${subWords.at(-1) ?? ''}${CUT_WORDS}`] : [...subWords, CUT_WORDS];
+    const push = args[0] === 'push';
+    for (let k = 0; k < globals.length; k++) {
+        const word = globals[k];
+        const value = word === '-c' || word === '--config-env' ? globals[k + 1] ?? '' : word.startsWith('--config-env=') ? word.slice('--config-env='.length) : '';
+        if (value === '')
+            continue;
+        const shown = `\`git ${word.startsWith('--config-env=') ? word : `${word} ${value}`}\``;
+        if (isProtectedKey(configKey(value)))
+            return { form: shown };
+        if (isUnknownWord(configKey(value)) && !push)
+            return unresolved(`${shown} takes its config key from ${value}`);
+    }
+    if (push) {
+        const end = args.indexOf('--');
+        const options = args.slice(1, end < 0 ? undefined : end);
+        const noVerify = options.find((w) => w.length >= '--no-veri'.length && '--no-verify'.startsWith(w));
+        if (noVerify !== undefined)
+            return { form: `\`git push ${noVerify}\`` };
+        const expanded = pushExpansion(s.wrappers, globals, args);
+        if (expanded !== undefined)
+            return { failClosed: 'push_expansion', why: `\`git ${[...globals, ...args].join(' ')}\` takes ${expanded}, which bash expands when it runs` };
+    }
+    if (args[0] === 'config') {
+        // A cut statement's words do not line up with its source, so its split is unknown.
+        const loose = s.cut === undefined ? unquotedExpansions(s) : null;
+        return configFinding(args, loose === null ? null : loose.slice(loose.length - args.length));
+    }
+    return null;
+}
+/** <path> with its `.` and `..` segments folded, as an absolute path. */
+function normalized(path) {
+    const out = [];
+    for (const part of path.split('/')) {
+        if (part === '' || part === '.')
+            continue;
+        if (part === '..')
+            out.pop();
+        else
+            out.push(part);
+    }
+    return `/${out.join('/')}`;
+}
+/** Whether <path> is the hook's dir, a file in it, or a git config file: by its `.git/` shape, else under <commonDir>. */
+function isProtectedPath(path, commonDir) {
+    if (!path.startsWith('/'))
+        return PROTECTED_TEXT.test(path);
+    const p = normalized(path);
+    if (PROTECTED_PATH.test(p))
+        return true;
+    return commonDir !== '' && (p === `${commonDir}/tmb` || p.startsWith(`${commonDir}/tmb/`) || p === `${commonDir}/config` || p === `${commonDir}/config.worktree`);
+}
+const dirOf = (path) => (path.startsWith('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '?');
+/** The first form the command makes, with where it lands; null when it makes none. */
+async function locate(command, cwd, env) {
+    const tree = await treeFinding(command, 0);
+    if (tree !== null)
+        return { finding: tree, dir: '?', statement: command };
+    const listed = await cmdStatements(command, cwd, env);
+    if (!listed.ok)
+        return namesForm(command) ? { finding: unreadable('tree-sitter-bash could not parse it'), dir: '?', statement: command } : null;
+    const changed = [];
+    for (const s of listed.statements) {
+        const found = await gitForm(s, command);
+        if (found !== null)
+            return { finding: found, dir: s.dir, statement: s.src ?? s.stmt };
+        changed.push(...chmodTargets(s).map((path) => ({ path, how: '`chmod` of' })));
+    }
+    for (const line of await writePaths(command, { cwd, root: cwd, env })) {
+        changed.push({ path: line.startsWith('UNRESOLVED:') ? line.split(':').slice(2).join(':') : line, how: 'a write to' });
+    }
+    const located = (hit) => ({ finding: { form: `${hit.how} ${hit.path}` }, dir: dirOf(normalized(hit.path)), statement: command });
+    const byShape = changed.find(({ path }) => isProtectedPath(path, ''));
+    if (byShape !== undefined)
+        return located(byShape);
+    // Only a path that could sit in a common dir not named .git (a bare repo) pays for the git call naming it.
+    const candidates = changed.filter(({ path }) => /\/(tmb(\/|$)|config(\.worktree)?$)/.test(path));
+    if (candidates.length === 0)
+        return null;
+    const commonDir = await gitCommonDir(cwd, env);
+    const hit = candidates.find(({ path }) => isProtectedPath(path, commonDir));
+    return hit === undefined ? null : located(hit);
+}
+/** Whether the guard stands down for the repo whose main checkout is <root>: only a stored exempt mode does (GH 3279). */
+export function standsDownFor(root, env) {
+    return isExempt(dbPath(env) ?? '', root, env);
+}
+const COMMAND_FORM_MAX = 200;
+const MASK = '<arg>';
+const capped = (text) => (text.length > COMMAND_FORM_MAX ? `${text.slice(0, COMMAND_FORM_MAX - 1)}…` : text);
+/**
+ * <statement> as a guard_fail_closed row records it: each command's name, its
+ * option words (an `--opt=value` one as `--opt=<arg>`), git's subcommand and
+ * every word holding an expansion kept; every other literal argument masked
+ * as `<arg>`; at most COMMAND_FORM_MAX chars. Text that does not parse has its
+ * quoted literals masked instead.
+ */
+async function commandForm(statement) {
+    const tree = (await bashParser()).parse(statement);
+    if (tree === null || tree.rootNode.hasError) {
+        tree?.delete();
+        return capped(statement.replace(/'[^']*'|"[^"$`\\]*"/g, MASK));
+    }
+    try {
+        const masks = [];
+        for (const command of tree.rootNode.descendantsOfType('command')) {
+            if (command === null)
+                continue;
+            const name = command.childForFieldName('name');
+            let git = name !== null && posixBasename(literal(name) ?? '') === 'git';
+            let optionValue = false;
+            for (const arg of command.childrenForFieldName('argument')) {
+                if (arg === null)
+                    continue;
+                const text = literal(arg);
+                if (text === null) {
+                    // An expansion in git's subcommand slot is that subcommand: the words after it are its arguments.
+                    if (git && !optionValue)
+                        git = false;
+                    optionValue = false;
+                    continue;
+                }
+                if (text.startsWith('-') && text.length > 1 && !optionValue) {
+                    const eq = text.indexOf('=');
+                    if (eq > 0)
+                        masks.push({ start: arg.startIndex, end: arg.endIndex, text: `${text.slice(0, eq + 1)}${MASK}` });
+                    optionValue = git && GIT_VALUE_OPTION.has(text);
+                    continue;
+                }
+                if (git && !optionValue)
+                    git = false; // git's subcommand stays as written
+                else
+                    masks.push({ start: arg.startIndex, end: arg.endIndex, text: MASK });
+                optionValue = false;
+            }
+        }
+        let form = statement;
+        for (const m of masks.sort((a, b) => b.start - a.start))
+            form = `${form.slice(0, m.start)}${m.text}${form.slice(m.end)}`;
+        return capped(form);
+    }
+    finally {
+        tree.delete();
+    }
+}
+/** Writes the guard_fail_closed row for <hit>; any failure is swallowed, so the deny stands as it is. */
+async function recordFailClosed(hit, reason, cwd, sessionId, env) {
+    try {
+        const dir = hit.dir === '?' || hit.dir === '-' || hit.dir === '' || !isDir(hit.dir) ? cwd : hit.dir;
+        await observeGuardDeny({ dir, denyClass: hit.finding.failClosed, commandForm: await commandForm(hit.statement), reason, sessionId, caller: GATE_NAME }, env);
+    }
+    catch {
+        /* recording never changes the deny */
+    }
+}
+/**
+ * The gate. Every deny is routed through <standsDown> for the repo the form
+ * lands in, and a fail-closed one is recorded before it returns.
+ */
+export function prepushHookGuardWith(standsDown) {
+    return async (payload, env) => {
+        if (!isAgentSession(env))
+            return ALLOW;
+        const input = jqInput(payload);
+        const cwd = payloadCwdOf(input, env);
+        const command = jqCapture(input, ['tool_input', 'command'], true);
+        // A git word beside an expansion may hide a form no keyword shows (`git -c "$KV" push`), so it is parsed too.
+        if (command === '' || (!prefilterPasses(command, (text) => KEYWORDS.test(text) || KEYWORDS_ANY_CASE.test(text)) && !gitBesideExpansion(command)))
+            return ALLOW;
+        const hit = await locate(command, cwd, env);
+        if (hit === null)
+            return ALLOW;
+        const finding = hit.finding;
+        if (await standsDown(await stmtRepoRoot(hit.dir, cwd, env), env))
+            return ALLOW;
+        if ('form' in finding)
+            return denyForm(finding.form);
+        const { reason, allowed } = failClosedDeny(finding);
+        await recordFailClosed({ ...hit, finding }, reason, cwd, jqCapture(input, ['session_id'], true), env);
+        return denyResult(reason, { allowed });
+    };
+}
+export const prepushHookGuard = prepushHookGuardWith(standsDownFor);
+//# sourceMappingURL=prepush-hook-guard.js.map

@@ -1,3 +1,0 @@
-### Changed
-- **Every task now runs the repo's own default checks** (GH 2570): swe never ran the repo-wide source-scan lints, so CI was the first to catch them. A repo can now commit `.config/tmb/verification-defaults.json` (`{"version":1,"commands":["..."]}`); `task_provision` and `task_retry` read it at the base and append each command not already in the task's `verification[]`, and report them in `verification_defaults_added`. A malformed file refuses with `verification_defaults_invalid` and writes nothing. The plugin repo's file runs `node --test tests/l1-lint/no-*.test.mjs`.
-Metric: swe_rework_ratio lower

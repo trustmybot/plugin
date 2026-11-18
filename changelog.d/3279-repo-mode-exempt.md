@@ -1,2 +1,0 @@
-### Added
-- **A repo that `/scan` finds on its own no longer gets git guards you never asked for** (GH 3279): each repo now carries a mode, truest, agile or exempt. A repo that a scan registers starts exempt, so its commits, branches and pushes run unguarded until you confirm its policy with `/onboard`, which gives it the project's mode. Repos whose policy you already confirmed keep their current rules. When a guard does block, its message names the repo and its mode, and `repos_list` shows each repo's mode.

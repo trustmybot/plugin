@@ -1,2 +1,0 @@
-### Fixed
-- **`${NAME=def}` in a Bash write path now resolves like `${NAME-def}`** (GH 2440): the write-path analyzer used to leave `touch ${HOME=/d}/x` unresolved, so containment-guard denied it; it now takes the run env value for HOME, TMPDIR and the other names it reads, else the default. Because bash assigns the default when the name is unset, a later use of that name in the same command stays unresolved, and a statement that names it twice, or holds a command substitution, keeps today's unresolved output.

@@ -1,2 +1,0 @@
-### Changed
-- **FLOWS.md now describes each workflow at architecture level** (GH 2817): the flows doc named about 235 code symbols (source files, tables, columns, functions, audit events). Each flow now states who acts, what each step guarantees, which gate denies what and why, and what state it leaves, and points to the world model for what calls, reads or writes what. Flow headings and the step, loop and guard ids are unchanged.

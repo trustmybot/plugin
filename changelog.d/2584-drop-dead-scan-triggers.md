@@ -1,2 +1,0 @@
-### Removed
-- **Closing a task and starting a cold session no longer launch a background scan** (GH 2584): the `post-task-close-rescan` hook, which ran a full repo scan after every `bro_atomic_close`, is gone, and so is the session-start prescan's scan spawn on an empty world model (with its `run-scan-initial.mjs` invoker and the `TMB_SKIP_AUTO_PRESCAN` switch). On a cold world model the prescan still prints its banner and now says the trajectory server's startup catch-up builds the index, so re-read `world_model_get` before planning.

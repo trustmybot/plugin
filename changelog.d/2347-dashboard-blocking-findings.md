@@ -1,2 +1,0 @@
-### Fixed
-- **The dashboard Tasks list counts only blocking review findings as open work** (GH 2347): nit and pre-existing findings stay open after a passing review and never block a close, but the Tasks list counted them, so tasks looked like they had work left. The open-findings count now includes only open blocking findings. On a trajectory DB from before finding severities existed, it still counts every open finding.

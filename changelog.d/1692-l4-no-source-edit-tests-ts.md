@@ -1,2 +1,0 @@
-### Changed
-- The no-source-edit-from-main hook tests are now a node:test file, `mcp/trajectory-server/src/test/no-source-edit-from-main-l3.test.ts`, that runs in `npm test` with all 83 cases and every assertion kept (GH 1692). Each case runs `node dist/hooks.js no-source-edit-from-main` with the project pinned to a sandbox and the `tests/lib/fake-uid.mjs` preload, so `/tmp/claude-<uid>` never covers it. `tests/l3-integration/hooks/no-source-edit-from-main.test.sh` and its `tests/lib/ts-hooks/no-source-edit-from-main.sh` shim are gone; no hook behaviour changes.

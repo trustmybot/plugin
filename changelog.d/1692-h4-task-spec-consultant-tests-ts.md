@@ -1,2 +1,0 @@
-### Changed
-- The require-task-spec, consultant-spawn-enforcement and consultant-persistence-gate hook tests are now node:test files under `mcp/trajectory-server/src/test/` that run in `npm test`, with every assertion kept (GH 1692). Assertions the hook-corpus parity suites or the roundtable hook tests already prove stay there; the rest run `node dist/hooks.js <hook>` in a sandbox with its own HOME, and the WAL read cases of `fixtures/wal-no-holder.sh` gain a TypeScript form in `wal-gate-cases.ts`. The three `tests/l3-integration/hooks/*.test.sh` files are gone.

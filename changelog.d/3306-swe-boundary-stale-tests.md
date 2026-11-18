@@ -1,2 +1,0 @@
-### Fixed
-- **The swe-boundary unit tests pass on a clean checkout again** (GH 3306): three expectations predated later guard changes. The never-judged write-target case now plants a perl `open` to a computed `>` target, since a bare-path 2-arg open is a read since GH 2024. `git -c $(echo alias.s=stash) s pop` and `git -c user.name=$NAME log -1` moved to the ambiguous-subcommand cases, since the git reader fails closed on a global option it cannot resolve (GH 2643). No production code changed.

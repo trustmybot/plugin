@@ -1,1 +1,0 @@
-{"corpus_stdin":"not json at all","corpus_divergent":"decision 703: on non-JSON stdin the .sh leaves jq's parse errors on stderr; that text is jq's internals, not part of the gate's contract, and the TS gate stays silent","corpus_expect":{"bash":"jq: parse error","ts":"empty"}}

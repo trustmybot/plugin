@@ -1,4 +1,0 @@
-{
-  "version": 1,
-  "commands": ["node --experimental-strip-types scripts/maintenance/install-deps.mts", "bun run build:payload"]
-}

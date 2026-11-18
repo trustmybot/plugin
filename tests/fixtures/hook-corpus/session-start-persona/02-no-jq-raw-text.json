@@ -1,8 +1,0 @@
-{
-  "session_id": "start-session-0002",
-  "hook_event_name": "SessionStart",
-  "corpus_env": {
-    "PATH": "@NOJQ_PATH@"
-  },
-  "corpus_expect": "[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]"
-}

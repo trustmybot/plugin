@@ -1,7 +1,0 @@
-{
-  "expected_writes": {
-    "issues WHERE id != -1": "=1",
-    "issues WHERE objective='Add count subcommand to todo CLI' AND milestone='v0.2.0'": "=1",
-    "audit WHERE event_type='issue_updated'": ">=1"
-  }
-}

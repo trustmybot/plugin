@@ -1,2 +1,0 @@
-### Changed
-- **The dashboard stays responsive while Change impact loads** (GH 2618): `GET /api/insights/change-impact` used to run its git calls and bootstrap statistics on the server's event loop, so every other dashboard request waited for it (about 1.4 s per list on a real DB). Each request now runs in its own worker thread from the new `dashboard/dist/change-impact-worker.mjs`, which `bun run build` emits next to `dist/server.mjs`, and the other endpoints keep answering meanwhile. Responses, the 400 and 404 errors, and the read-only DB access are unchanged.

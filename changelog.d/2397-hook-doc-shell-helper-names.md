@@ -1,2 +1,0 @@
-### Fixed
-- **Hook docs name the TypeScript exports the hooks call** (GH 2397): `scripts/hooks/README.md`, `RESPONSIBILITIES.md`, `TRAJECTORY_DB_LOCATION.md` and `ERD.md` now name `cmdStatements`, `isPromptSurfacePath`, `writePaths`, `normalizeRole`, `dbWrite`, `pluginVersion`, `payloadCwd`, `cmdCwd`, `agentRole`, `dbState` and `duplicateInstalls` with their `src/hooks/` files instead of the shell helper names they replaced.

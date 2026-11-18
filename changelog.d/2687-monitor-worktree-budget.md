@@ -1,2 +1,0 @@
-### Fixed
-- **Review verification runs past 60 seconds no longer lose their worktree** (GH 2687): `pr_monitor_worktree` killed its command after 60 s and removed the worktree under a reviewer's `verification[]` run. The command now runs asynchronously under the verification budget (`TMB_VERIFICATION_TIMEOUT_S`, else `plugin_config.verification_timeout_s`; default 900 s, cap 1800 s), and the result carries `timed_out: true` when the budget runs out.

@@ -1,3 +1,0 @@
-# Tracked shell files (*.sh, *.bash) admitted by no-shell-files.test.mjs, one per line as
-# <repo-relative path>  # <reason>. TMB ships TypeScript, not shell (GH 1692); admit only a
-# file another lane owns, and remove its entry once the file is ported.

@@ -1,2 +1,0 @@
-### Changed
-- **bro thinks harder where it counts, and stays at medium elsewhere** (GH 2336): `tmb_planning` and `tmb_recovery` now carry `effort: high`, and a new `tmb_spec-authoring` skill, which bro invokes before each spec it writes, raises that turn to high too. Run your session at medium and leave `CLAUDE_CODE_EFFORT_LEVEL` unset, because it overrides skill effort. The new "Recommended effort" section in `docs/reference/INSTALL.md` has the details. TMB still writes no effort setting.

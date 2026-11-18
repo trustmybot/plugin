@@ -1,2 +1,0 @@
-### Fixed
-- **`high_effort_paths` now matches whole-repo and `./`-prefixed paths** (GH 2788): a task whose `files[]` held `.` (the whole repo) or a path such as `./hooks/x.ts` never matched a `high_effort_paths` prefix, so the swe task and its code-reviewer ran at medium effort instead of high. Paths are now compared segment by segment, with empty and `.` segments ignored, so `.` overlaps every prefix and `./hooks/x.ts` matches `hooks`.

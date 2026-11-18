@@ -1,2 +1,0 @@
-### Added
-- **`diffDownstream` maps a change set to what it can break** (GH 1988): a new world-model library function takes changed files with their new contents (null for a deleted file), re-extracts each one and matches it to its indexed symbols, and returns the modified and removed symbols, the added ones, their direct callers and table readers (each with `from`, the changed symbols that reach it), the tests that reach them, and the paths it could not parse. It is the base for the close gate (GH 1983) and planning gate (GH 1989) checks; no tool exposes it yet.

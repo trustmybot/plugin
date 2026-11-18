@@ -1,2 +1,0 @@
-### Fixed
-- **README drift counts edits to the files a README names on Apple Git 2.50 too** (GH 2173): the `commits_behind` count asked git for every change except adds with the lowercase `--diff-filter=a`, which Apple Git 2.50.1 handles differently, so edits were missed and a stale README could read `current`. The query now names the kept statuses explicitly (`--diff-filter=CDMRTUXB`); adds still never count.

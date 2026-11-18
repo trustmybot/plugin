@@ -1,2 +1,0 @@
-### Changed
-- **`world_model_symbol` suggests near matches when a name misses** (GH 3144): a guessed name that matches no symbol, such as `classifyChangedPaths` for `classifyChange`, now returns `warning: 'not_found'` with up to 5 ranked `did_you_mean` entries (id, name, kind, repo, path and line) instead of an error. A wrong `path` still gets suggestions from the whole repo. A miss with no likely match returns the same error as before.

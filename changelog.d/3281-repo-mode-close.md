@@ -1,2 +1,0 @@
-### Changed
-- **A repo's mode now decides how its tasks close** (GH 3281): each step before a close uses the task's repo mode, else the project's `workflow_mode`. That covers whether the close needs a review pass, whether it is queued for the grouped review, and the base the checks measure against. A project with no `workflow_mode` set still works as truest. A task in an exempt repo closes with no review pass, handoff or queue entry and is recorded as exempt. Tasks already closed keep the mode they closed under.

@@ -1,2 +1,0 @@
-### Fixed
-- **Table readers and writers no longer all say "found by name"** (GH 2523): a reads_table, writes_table, indexes or triggers_on edge now resolves exact when its table has exactly one definition outside test and fixture paths, so `world_model_symbol` drops the "found by name; not all callers" note from cards whose only other edges are exact. A table with two or more real definitions, or only test copies, keeps today's pick by name, and an incremental scan flips the edges between exact and name as a second real definition is added or removed.

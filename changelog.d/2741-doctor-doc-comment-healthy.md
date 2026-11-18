@@ -1,2 +1,0 @@
-### Fixed
-- **`runDataContracts` doc comment says when `healthy` goes false** (GH 2741): the comment in `trajectory-doctor.ts` claimed any skipped DB contract made `healthy` false. It now says what the code does: `healthy` is false only when an error-severity contract fails or an error-severity DB contract cannot run (its `min_schema` is above the DB schema, its query throws, or it runs past the statement timeout). No behavior change.

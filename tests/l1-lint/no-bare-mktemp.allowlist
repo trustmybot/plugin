@@ -1,2 +1,0 @@
-# Lines exempt from no-bare-mktemp.test.mjs: <path><TAB><substring of the line><TAB><reason>.
-# Keep to commands a test feeds a hook and lint fixtures; never a temp dir a script creates.

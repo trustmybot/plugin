@@ -1,2 +1,0 @@
-### Fixed
-- **`world_model_symbol` impact finds the tests that import a caller, and the readers of a table it writes** (GH 2333, GH 1988): `impact.tests` now includes test modules that import any walked symbol, not only test functions that call one, so a symbol whose tests reach it through a caller's imports no longer shows no tests. The walk also follows each table a walked symbol writes to that table's readers. Each ref in `impact.levels[].refs` carries `via` (`call` or `table:<name>`), and each level carries `total`.

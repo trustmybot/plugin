@@ -1,3 +1,0 @@
-@bro add a "count" subcommand and, separately, a "--json" output flag to the list command. They're independent.
-
-Don't ask questions.

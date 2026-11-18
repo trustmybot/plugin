@@ -1,8 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "subagent_type": "code-reviewer",
-    "isolation": "worktree"
-  },
-  "corpus_expect": "empty"
-}

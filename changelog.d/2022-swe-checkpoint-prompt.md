@@ -1,2 +1,0 @@
-### Changed
-- **swe hands back a checkpoint when the work won't fit in one run, and resumes from it** (GH 2022): when the work left won't fit in a run's turns, swe now commits its progress and hands back a checkpoint (what's done, what's left, the files and the commit) before `maxTurns` ends the run, and a later swe run whose brief carries that checkpoint picks up from what's left instead of starting over.

@@ -1,2 +1,0 @@
-### Fixed
-- **`issue_create` asks which repo when several are registered** (GH 2709): in a project with more than one `repos` row, `issue_create` without `repo` used to create a local issue with no repo, which then never synced to GitHub or GitLab, and the only sign was a `_sync` note after the row existed. It now writes nothing and returns `repo_required: N repos are registered (<names>) — pass repo= on issue_create to pick one`, on the remote-adoption path (`remote_iid`) too. A project with one or no `repos` row, or a call that passes `repo`, works as before.

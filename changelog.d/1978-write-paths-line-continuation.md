@@ -1,2 +1,0 @@
-### Fixed
-- **Write-path checks see a write split across a line continuation** (GH 1978): `to\` then `uch /etc/x` on the next line (and the same split in `cp` or `tee`) read as two harmless commands, so containment-guard found no write. The analyzer now joins the words bash joins and lists the real target; a joined word that holds an expansion counts as text the shell fills in, so an `eval` or inline program built from it stays unproven.

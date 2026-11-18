@@ -1,3 +1,0 @@
-### Changed
-- **swe's close now runs the L1 lints CI runs, so they fail before review instead of after** (GH 2866): the close gate ran only the `no-*` L1 lints, so tsc, eslint, line and byte budgets, changelog and link checks first failed in CI. `tests/run-all.ts --l1-local` runs the whole L1 tier minus its slow-flagged steps and the wm-equivalence check, and is now the plugin repo's default verification command. `task_reopen` and `task_update_spec` now append a repo's `.config/tmb/verification-defaults.json` commands too, as `task_provision` and `task_retry` already did, and report them in `verification_defaults_added`.
-Metric: swe_rework_ratio lower

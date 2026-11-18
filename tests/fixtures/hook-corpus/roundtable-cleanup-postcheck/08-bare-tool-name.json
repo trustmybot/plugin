@@ -1,7 +1,0 @@
-{
-  "tool_name": "roundtable_close",
-  "tool_input": {
-    "roundtable_id": 5
-  },
-  "corpus_expect": "roundtable_id=5 closed"
-}

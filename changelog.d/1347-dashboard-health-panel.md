@@ -1,2 +1,0 @@
-### Added
-- **A Health section on the dashboard's Overview tab** (GH 1347): it shows the DB's schema version beside the version this plugin expects, every data contract the trajectory doctor checks (failing ones marked Critical or Warning, skipped ones with their reason), how current the project map is for each repo (Stale, Reindexing or Current), concept and step trust counts, and how many rows have search vectors. The checks run fresh on each load from a new `GET /api/health` endpoint; the dashboard still only reads the DB.

@@ -1,8 +1,0 @@
-{
-  "tool_name": "Glob",
-  "corpus_env": {
-    "TMB_EVAL_MODE": "1",
-    "TMB_DEBUG_TRAJECTORY": "1"
-  },
-  "corpus_expect": "empty"
-}

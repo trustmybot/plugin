@@ -1,2 +1,0 @@
-### Fixed
-- **The push gate judges only commits the remote base lacks** (GH 3168, GH 3170): after a task branch was rebased onto a newer base, a push with a stale tracking ref judged every new base commit too and could deny it for another task's rebase. Every pushed range now skips commits already on the base's remote-tracking ref (a local-only base is never skipped), so a reviewed task commit on top ships. A push whose directory may name any checkout again gets the ambiguous_git_target deny before the ambiguous_git_subcommand one, as git-guards does.

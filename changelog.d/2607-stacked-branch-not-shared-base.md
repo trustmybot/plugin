@@ -1,2 +1,0 @@
-### Fixed
-- **A task branch that another task is stacked on can still take its own commits** (GH 2607): the git guard treated every task's parent branch as a shared workflow base, so stacking a task on a feature branch locked that branch, and its own rework was denied with "is a shared workflow base". A parent branch that some task owns as its own branch is no longer a base; a parent no task owns (such as `staging`), the protected branches, the target branch and the PR target stay blocked.

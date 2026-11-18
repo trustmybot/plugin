@@ -1,6 +1,0 @@
-{"turn_index": 1, "timestamp": "2026-01-01T10:00:05.000Z", "input_tokens": 120, "output_tokens": 85, "cache_read_tokens": 0, "cache_creation_tokens": 4800, "hook_injected_bytes": 102, "tool_calls": ["mcp__plugin_tmb_trajectory-server__task_list"]}
-{"turn_index": 2, "timestamp": "2026-01-01T10:00:08.000Z", "input_tokens": 95, "output_tokens": 32, "cache_read_tokens": 4920, "cache_creation_tokens": 0, "hook_injected_bytes": 0, "tool_calls": []}
-{"turn_index": 3, "timestamp": "2026-01-01T10:01:05.000Z", "input_tokens": 210, "output_tokens": 62, "cache_read_tokens": 5015, "cache_creation_tokens": 0, "hook_injected_bytes": 101, "tool_calls": ["mcp__plugin_tmb_trajectory-server__task_brief"]}
-{"turn_index": 4, "timestamp": "2026-01-01T10:01:10.000Z", "input_tokens": 180, "output_tokens": 24, "cache_read_tokens": 5077, "cache_creation_tokens": 0, "hook_injected_bytes": 0, "tool_calls": []}
-{"turn_index": 5, "timestamp": "2026-01-01T10:02:05.000Z", "input_tokens": 240, "output_tokens": 55, "cache_read_tokens": 5101, "cache_creation_tokens": 0, "hook_injected_bytes": 99, "tool_calls": ["mcp__plugin_tmb_trajectory-server__task_update_status"]}
-{"turn_index": 6, "timestamp": "2026-01-01T10:02:08.000Z", "input_tokens": 165, "output_tokens": 12, "cache_read_tokens": 5156, "cache_creation_tokens": 0, "hook_injected_bytes": 0, "tool_calls": []}

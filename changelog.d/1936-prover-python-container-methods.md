@@ -1,2 +1,0 @@
-### Fixed
-- **Read-only `python3 -c` programs that change sets, dicts or lists are no longer denied** (GH 1936): `s.add`, `update`, `discard`, `remove`, `pop`, `setdefault`, `sort`, `insert`, `copy` and `clear` on a local or literal now prove as in-memory calls, and `l.sort(key=…)` checks its key like `sorted` does. The same names on `os.environ` or `sys.argv`, a key that mutates the environment, and a `copy` with a target (`Path('a').copy('b')`, a write since Python 3.14) are still denied; `Path.write_text` and file writes keep their verdict.

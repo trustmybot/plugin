@@ -1,2 +1,0 @@
-### Fixed
-- **World-model paths copied from the project root now resolve** (GH 3175): `world_model_get` answered `path-not-found` for a path such as `plugin/mcp/...` because the world model stores repo-relative paths. `world_model_get`, `world_model_symbol` and `scope_suggest` anchors now try the path as given first and, on a miss whose first segment is the repo name, retry without it and report the repo-relative form in `path_normalized` (`normalized_anchors` for `scope_suggest`).

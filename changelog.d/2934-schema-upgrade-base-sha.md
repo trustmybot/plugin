@@ -1,2 +1,0 @@
-### Fixed
-- **Schema-upgrade tests pass again after the v67 `tasks.base_sha` and `wm_commit` columns** (GH 2934): five upgrade tests still expected `workflow_mode` as the last `tasks` column, so they failed even though an upgraded DB already matched a fresh one. They now expect the two trailing columns, and a new v66 to v67 test checks that an upgraded `tasks` table matches a fresh one column for column and that tasks from before v67 keep both columns NULL.

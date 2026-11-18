@@ -1,1 +1,0 @@
-{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TRAJECTORY_DB_PATH":null,"CLAUDE_PROJECT_DIR":"@SANDBOX@/fresh"},"corpus_cwd":"fresh","corpus_expect":"empty"}

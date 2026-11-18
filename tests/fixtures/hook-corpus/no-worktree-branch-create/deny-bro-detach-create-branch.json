@@ -1,8 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "git worktree add -b feat/x --detach ../x"
-  },
-  "corpus_cwd": "project",
-  "corpus_expect": "cannot create a branch"
-}

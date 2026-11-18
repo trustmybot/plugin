@@ -1,2 +1,0 @@
-### Fixed
-- **A file the scan briefly can't read keeps its world-model entry** (GH 2242): when scan_run failed to read a file, it treated the failure as a content change, cleared the file's stored hash and symbols, and re-parsed the file on the next scan. Now a short-lived read error (too many open files, a busy file) is retried, a read that still fails is logged as `scan_md5_error`, and a file the world model already knows keeps its stored hash and symbols, so an unchanged file isn't parsed again.

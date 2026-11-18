@@ -1,2 +1,0 @@
-### Added
-- **Your project's docs follow the three-layer knowledge rule** (GH 2816): the docs-conventions skill now tells agents that architecture and design docs hold components, boundaries, invariants and why; the world model holds what calls, reads or changes what; and code holds the logic. A fact in the wrong layer moves instead of being copied, and a drifted doc loses the detail rather than re-copying it. The code-reviewer now flags a hand-written architecture or design doc in the diff that names classes, functions, files, columns or enum values.

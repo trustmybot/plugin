@@ -1,1 +1,0 @@
-{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Bash","tool_input":{"command":"cp .claude/worktrees/wt/agents/a.md agents/a.md"},"corpus_expect":"Bash write-forms targeting prompt-surface files"}

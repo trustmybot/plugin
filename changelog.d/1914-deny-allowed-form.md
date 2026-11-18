@@ -1,2 +1,0 @@
-### Changed
-- **Every hook deny names the next move** (GH 1914): each deny or block reason now ends with either "Allowed form: <the exact command or call to run instead>" or "This is policy: stop and report.", so an agent that hits a gate can recover in one turn instead of guessing. What each gate allows or denies is unchanged; only the message text is. The code-reviewer preflight deny keeps its JSON reason and adds a `fix` key, and a router timeout names a retry as its allowed form.

@@ -1,9 +1,0 @@
-{
-  "session_id": "log-session-0002",
-  "prompt": "x",
-  "corpus_env": {
-    "CLAUDE_PROJECT_DIR": "@SANDBOX@/bare"
-  },
-  "corpus_cwd": "bare",
-  "corpus_expect": "empty"
-}

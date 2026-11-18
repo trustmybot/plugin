@@ -1,2 +1,0 @@
-### Fixed
-- **The doctor's `embeddings_not_degraded` check clears once the embedding model loads healthy again** (GH 1592): a degraded episode was closed only when a re-attempt inside the same server process succeeded, so after a restart with a working model the warning stayed on for up to 24 hours. Now the first healthy load in a process closes any open degraded episode with one `embeddings_recovered` audit row (`reason` `process_start`); with nothing open it writes nothing.

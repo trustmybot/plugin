@@ -1,2 +1,0 @@
-### Fixed
-- **`task_brief` no longer lists dotted identifiers as unresolved paths** (GH 2292): a spec naming `task_brief.locations` or `Class.method` in backticks had it reported under `locations.unresolved_paths` as a missing file. A span with no `/` now counts as a path only when it ends in a known file extension (such as `.ts`, `.json` or `.md`) or the world model indexes a file with that exact path; it is still resolved as a symbol name. Spans with a `/`, and names such as `package.json` or `README.md`, are handled as before.

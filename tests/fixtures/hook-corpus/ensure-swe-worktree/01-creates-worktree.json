@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_input":{"subagent_type":"swe","prompt":"task_id=10 Implement the spec.","effort":"high"},"corpus_expect":"ensure-swe-worktree: created worktree @SANDBOX@/project/plugin/.claude/worktrees/clean for branch feat/clean"}

@@ -1,9 +1,0 @@
-{
-  "session_id": "act-session-0004",
-  "prompt": "yo bro",
-  "corpus_env": {
-    "CLAUDE_PROJECT_DIR": "@SANDBOX@/fresh"
-  },
-  "corpus_cwd": "fresh",
-  "corpus_expect": "onboarded=<no — FIRST CONTACT"
-}

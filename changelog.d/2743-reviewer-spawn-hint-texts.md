@@ -1,2 +1,0 @@
-### Fixed
-- **The push hint and the code-reviewer worktree deny name the reviewer flow the gates admit** (GH 2743): the push-intent hint told bro to spawn code-reviewer with a bare `prompt='task_id=<N>'`, which the spawn-anchor gates deny. It now says to pass the `reviewer_spawn` Agent call that bro_atomic_close returned, as is. The code-reviewer-no-worktree deny cites tmb_planning section 6 (the four checks + bro_atomic_close) instead of V1/V2/V3.

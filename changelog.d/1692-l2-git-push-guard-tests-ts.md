@@ -1,2 +1,0 @@
-### Changed
-- The git-push-guard hook tests (the review gate, first-push fallback, bro-skip detection and rebased-dist cases) are now node:test files under `mcp/trajectory-server/src/test/` that run in `npm test`, with every assertion kept (GH 1692). Each case runs `node dist/hooks.js git-push-guard` from a temp git repo with a bare upstream, and the WAL read cases use `wal-gate-cases.ts`. The four `tests/l3-integration/hooks/git-push-guard*.test.sh` files are gone; no hook behaviour changes.

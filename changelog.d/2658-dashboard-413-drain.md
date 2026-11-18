@@ -1,2 +1,0 @@
-### Fixed
-- **An oversized dashboard write now always gets its 413 reply** (GH 2658): a write body over 2 MiB used to get its 413 `body_too_large` while the browser was still sending, so the connection could reset before the reply arrived. The dashboard server now reads the rest of the body, up to 8 MiB and for at most 2 seconds, and then sends the 413. A body past that cap or still arriving at that limit has its connection closed with no reply, so it cannot hold the server open. Normal-size writes are unchanged.

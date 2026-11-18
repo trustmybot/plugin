@@ -1,2 +1,0 @@
-### Changed
-- **The docs carry the Human's decisions on the repo mode and the push gate** (GH 3260, GH 3281): a repo has an unset state that makes bro ask, an exempt repo keeps only containment and the trajectory, bro judges its recommended mode from supplied facts and one forge read, tasks open at the switch to agile finish under their own mode, and the pre-push hook starts to enforce in one release.

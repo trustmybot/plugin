@@ -1,8 +1,0 @@
-{
-  "session_id": "act-session-0003",
-  "prompt": "BRO!",
-  "corpus_env": {
-    "PGREP_STUB": "fail"
-  },
-  "corpus_expect": "pending=#3: ship the | bar thing"
-}

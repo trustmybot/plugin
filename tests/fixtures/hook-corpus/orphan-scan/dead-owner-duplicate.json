@@ -1,1 +1,0 @@
-{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE":"9000404 9000406"},"corpus_expect":"stale duplicate trajectory-server on this project's live DB: pid 9000404\\nstale duplicate trajectory-server on this project's live DB: pid 9000406"}

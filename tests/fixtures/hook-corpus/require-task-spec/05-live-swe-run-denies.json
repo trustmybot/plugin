@@ -1,1 +1,0 @@
-{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"task_id=4 go"},"corpus_expect":"is running with a live swe run: agent_runs 1 (started 2026-10-17T12:00:00.000Z)"}

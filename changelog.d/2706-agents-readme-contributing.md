@@ -1,2 +1,0 @@
-### Fixed
-- **No phantom `tmb:README` agent** (GH 2706): Claude Code registers every `agents/*.md` as an agent, so `agents/README.md` shipped as an agent named `tmb:README` with every tool. The file is gone (its content duplicated the `swe.md` and `code-reviewer.md` frontmatter), and `CONTRIBUTING.md` now points schema changes at each tool's own `requireRoles(...)` call in `mcp/trajectory-server/src/tools/` instead of a `requireRoles` matrix that does not exist.

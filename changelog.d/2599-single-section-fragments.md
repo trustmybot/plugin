@@ -1,2 +1,0 @@
-### Fixed
-- **The release changelog files every entry under its own section** (GH 2599): five `changelog.d/` fragments held two sections each, and the bump put everything after a fragment's first line under that line's section, so about 470 entries of v1.2.0 sat under the wrong header. Each is now two single-section fragments, and a fragment with a second `### ` line fails the changelog lint and stops the bump with every file unchanged, naming the file, the line and the header to split out.

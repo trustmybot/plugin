@@ -1,2 +1,0 @@
-### Changed
-- The db-path-rule, readonly-wal-no-shm, skill-fallback-db and bro-sqlite-readonly checks are now node:test files under `mcp/trajectory-server/src/test/` that run in `npm test`, with every assertion kept (GH 1692). They build their DBs through node:sqlite and the trajectory-server's own migration path, so they no longer need the `sqlite3` CLI, `jq` or `python3`. The four `tests/l3-integration/hooks/*.test.sh` files are gone; the shared `fixtures/*.sh` stay for the shell suites that still source them.

@@ -1,2 +1,0 @@
-### Fixed
-- **Squash-merged branches are cleaned up after merge** (GH 1674): post-merge cleanup ran `git branch -d`, which refuses a squash-merged branch, so the local branch stayed behind and the world model reported it as unmerged work. bro now checks that the PR/MR is merged, then force-deletes the local branch with `git branch -D` and runs `git fetch --prune` to drop stale remote-tracking refs. A PR that is not merged keeps its branch.

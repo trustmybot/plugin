@@ -1,5 +1,0 @@
-{
-  "subagent_type": "cto",
-  "agent_transcript_path": "@SANDBOX@/transcripts/spawned-before-the-rows.jsonl",
-  "corpus_expect": "empty"
-}

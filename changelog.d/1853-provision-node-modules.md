@@ -1,2 +1,0 @@
-### Fixed
-- **Task worktrees now have their dependencies installed** (GH 1853): `task_provision`, `task_retry` and `task_reopen` created worktrees without the main checkout's untracked `node_modules`, so lints that need dependencies printed SKIPPED and the close gate failed. Each task worktree now gets a `node_modules` symlink to the main checkout's install beside every tracked `package.json`, on creation and on reuse; an existing `node_modules` is left alone. `integrate.sh` uses the same helper instead of its own copy.

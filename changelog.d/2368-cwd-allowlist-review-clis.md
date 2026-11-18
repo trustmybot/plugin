@@ -1,2 +1,0 @@
-### Fixed
-- **The cwd-read lint passes again** (GH 2368): `tests/l1-lint/no-cwd-reads.sh` failed on the `process.cwd()` reads in the stale-docs CLI (`mcp/trajectory-server/src/cli/stale-docs.ts`) and `scripts/maintenance/reviewer-eval.ts`. Both are developer CLIs that act on the repo they run in, so `tests/l1-lint/cwd-allowlist.tsv` now lists the stale-docs read as `join-base` and the reviewer-eval read, used only when `--repo` is absent, as `fallback`. Internal test lint only; no behaviour change.

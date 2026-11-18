@@ -1,5 +1,0 @@
-{
-  "max_turns": 1,
-  "user_after_bro": [],
-  "terminal_pattern": "bench|benchmark|ops/s|per second|inside the project|containment"
-}

@@ -1,6 +1,0 @@
-TURN  IN_TOK   OUT_TOK  CACHE_RD   CACHE_CR   HOOK_B   TOOLS
-------------------------------------------------------------
-1     180      110      0          6200       108      TaskCreate
-2     200      68       6310       0          0        TaskGet
-3     310      95       6378       0          0        TaskCreate
-4     290      22       6473       0          0        -

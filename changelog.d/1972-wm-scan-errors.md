@@ -1,2 +1,0 @@
-### Changed
-- **The world model reports scan errors** (GH 1972): `scan_run` returns `errors: [{stage, repo, error}]` for each per-repo stage that failed and stores it in the `deep_scan_completed` audit row, `world_model_get` adds `last_scan: {at, source, ok, errors}`, and `world_model_symbol` adds `index_error` when the last scan's symbol index failed for the repo, so a failed index no longer shows only in the server log.

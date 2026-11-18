@@ -1,2 +1,0 @@
-### Changed
-- **No-code task closes now run the path-selected L1** (GH 3160): this repo's `no_code_lints` in `.config/tmb/close-lints.json` runs `tests/run-all.ts --l1-changed`, the same as a code close, instead of `--l1-local`. A no-code close runs only the L1 steps its changed paths reach, plus the steps that read the whole tree such as link-check and changelog-current, so a docs-only close skips the slow no-tmp-writes and wm-equivalence steps.

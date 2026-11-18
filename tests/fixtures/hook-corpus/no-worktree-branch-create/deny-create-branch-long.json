@@ -1,8 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "git worktree add --create-branch feat/x ../x"
-  },
-  "corpus_cwd": "project",
-  "corpus_expect": "Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1."
-}

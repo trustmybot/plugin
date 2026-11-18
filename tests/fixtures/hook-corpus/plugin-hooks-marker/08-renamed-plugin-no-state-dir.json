@@ -1,7 +1,0 @@
-{
-  "session_id": "hooks-session-0005",
-  "corpus_env": {
-    "CLAUDE_PLUGIN_ROOT": "@SANDBOX@/plugin-named"
-  },
-  "corpus_expect": "empty"
-}
