@@ -60,7 +60,7 @@ flowchart TD
     R --> B[bro reports; the Human decides]
 ```
 
-A prompt matching a consultant's domain gets an advisory routing hint. The consultant never decides and never writes workflow state.
+When a prompt matches a consultant's domain, a hint suggests routing it to that consultant; the hint is only advice. The consultant never decides and never writes workflow state.
 
 ## 4.5 Roundtable
 

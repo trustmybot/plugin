@@ -6,7 +6,7 @@ Planned (GH 3314). Today a project has three label lists, for type, priority and
 
 ## Why a scheme
 
-An agent files an issue in seconds, so a board grows faster than one person can read it. The board is then found by search, by an agent or by the Human, and a search is only as good as the labels. Two things break it: a label an agent invented, and a label that means two things. So the scheme is a small, closed vocabulary with one meaning per label.
+An agent files an issue in seconds, so a board grows faster than one person can read it. Issues on the board are then found by search, whether an agent or the Human is searching, and a search is only as good as the labels. Two things break it: a label an agent invented, and a label that means two things. So the scheme is a small, closed vocabulary with one meaning per label.
 
 ## The six groups
 
@@ -20,7 +20,7 @@ An agent files an issue in seconds, so a board grows faster than one person can 
 | Theme | Which kind of problem is it, whatever the area? | Any number | Whoever files it |
 
 - **Type, priority and area are required.** An issue without all three is not triaged, and its status says so until it has them.
-- **Area says where, theme says what kind.** An area is a part of the project, such as its hooks or its dashboard. A theme cuts across areas: a design gap, a prompt problem, a guard that blocks valid work. One issue is no theme, so a project adds a theme only once several issues share it.
+- **Area says where, theme says what kind.** An area is a part of the project, such as its hooks or its dashboard. A theme cuts across areas: a design gap, a prompt problem, a guard that blocks valid work. One issue does not make a theme, so a project adds a theme only once several issues share it.
 - **Decision is the Human's review queue.** When bro decides something on the Human's behalf in an issue or a PR, it marks the item as needing the Human and lists those decisions in one section of the body. When the Human has answered, bro marks it reviewed. One search then shows everything that waits on the Human, with no thread to read.
 
 ## How a label is written
@@ -64,13 +64,13 @@ A person and bro both file issues, and they know different things. A person know
 - **Themes start from a shipped list of four** problems common to software projects: a design gap, docs that have drifted from the code, a regression, and technical debt. The project drops what it does not use and adds its own.
 - **Areas come from the project, once TMB knows it.** bro proposes areas only after the first scan, from the world model: the project's main parts, what their READMEs say they are, and the paths each one covers, so an area can later be inferred from the paths an issue names. The Human edits the list ([ONBOARD.md](ONBOARD.md)). In a repo with no code yet, bro proposes none and asks again when a scan first finds some.
 - **Everything can be changed.** The Human can rename, add or drop any label, in any group, per project. The per-issue rules follow the project's own list.
-- **A project that already has labels keeps them.** bro offers a mapping from the existing labels to the groups, and nothing on the forge is renamed, created or removed without the Human's yes. A label the mapping leaves out stays on its issues and is ignored by the rules.
-- **The local record is the source.** Labels are kept in the trajectory DB and mirrored to the forge. When the forge does not let the user apply labels, the local record still holds them, and a search through TMB still finds the issue.
+- **A project that already has labels keeps them.** bro offers a mapping from the existing labels to the groups, and nothing on GitHub or GitLab is renamed, created or removed without the Human's yes. A label the mapping leaves out stays on its issues and is ignored by the rules.
+- **The local record is the source.** Labels are kept in the trajectory DB and mirrored to GitHub or GitLab. When that host does not let the user apply labels, the local record still holds them, and a search through TMB still finds the issue.
 
 ## What the scheme does not do
 
 - **It does not carry state TMB already records.** A task's lifecycle and its review mode live in the trajectory DB, not in labels ([TASKS.md](TASKS.md), [AGILE.md](AGILE.md)).
-- **It does not replace the forge's own fields.** A forge that has a native issue type or priority field enforces one value itself. Whether TMB should use those in place of the type and priority groups is open: their behaviour differs by account and by tool version, and it has not been checked.
+- **It does not replace the issue host's own fields.** A host such as GitHub or GitLab that has a native issue type or priority field enforces one value itself. Whether TMB should use those in place of the type and priority groups is open: their behaviour differs by account and by tool version, and it has not been checked.
 
 ## Shipped and planned
 
